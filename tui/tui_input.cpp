@@ -8,6 +8,7 @@
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "agent/model_probe.h"
+#include "agent/provider_health.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/skill_commands.h"
@@ -1654,10 +1655,19 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
 }
 
 void SlashDispatcher::cmd_provider_list() {
-    for (const auto& p : tui_.providers_->available())
+    // Cache-only: this runs on the UI thread and must not block on the network.
+    // Reading the verdict means a token the user rejected an hour ago still reads
+    // as rejected, instead of reverting to "not checked yet" on every restart.
+    for (const auto& p : tui_.providers_->available()) {
+        agent::Config probe = tui_.cfg_;
+        probe.api_base = p.api_base;
+        probe.flavor = p.flavor;
+        probe.api_key = p.api_key;
+        const bool active = p.name == tui_.cfg_.provider_name;
         tui_.append_line(P_STATUS,
-                         provider_list_line(p.name, p.api_base, p.name == tui_.cfg_.provider_name,
-                                            p.requires_key, !p.api_key.empty()));
+                         provider_list_line(p.name, p.api_base, active,
+                                            agent::auth_status_read(probe).state));
+    }
 }
 
 // --- plugin runtime surface (/get plugin, /set plugin) --------------------
@@ -2461,6 +2471,11 @@ void Tui::refresh_provider_catalogs_async() {
         auto entry = agent::model_catalog_read(cfg);
         if (entry && agent::model_catalog_fresh(*entry))
             continue; // already good
+        // Probe the credential as well as the catalogue: the same GET /models
+        // answers "is this token good?", and that verdict is what /get provider
+        // list shows. Doing it here means it costs no extra request -- the
+        // catalogue fetch was going out anyway for a cold provider.
+        agent::auth_probe_async(cfg, ui_poster(), [this](const agent::AuthStatus&) { draw(); });
         agent::model_catalog_refresh_async(cfg, ui_poster(), [this](bool) {
             // Any catalogue landing changes the union, whichever provider it
             // came from. cfg_ is untouched: this path exists to grow the list,

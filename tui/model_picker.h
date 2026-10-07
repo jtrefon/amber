@@ -1,5 +1,7 @@
 #pragma once
 
+#include "agent/provider_health.h"
+
 #include <nlohmann/json.hpp>
 
 #include <string>
@@ -124,8 +126,19 @@ nlohmann::json model_subtree(const std::vector<ProviderModel>& rows,
 //
 // has_key is passed in rather than inferred: a bundled preset carries a preset
 // api_base and no key, and the active config may hold the key from elsewhere, so
-// only the caller knows.
+// One row of /get provider list.
+//
+// The checkbox reports what the SERVER last said about the credential, not
+// whether a key happens to be present -- a revoked key and a working one were
+// indistinguishable, which is the confusion this replaces:
+//
+//   [x]  configured, and the endpoint accepted the token
+//   [!]  configured, but the token was rejected (or one is required and absent)
+//   [ ]  not configured, or never probed -- never "probably fine"
+//
+// `state` is agent::AuthState. A provider that needs no key is Valid once the
+// endpoint answers at all, which is what agent::provider_mark() decides.
 std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
-                               bool requires_key, bool has_key);
+                               agent::AuthState state);
 
 } // namespace tui

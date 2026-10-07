@@ -91,9 +91,13 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
 }
 
 std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
-                               bool requires_key, bool has_key) {
+                               agent::AuthState state) {
     const bool has_endpoint = !api_base.empty();
-    const char mark = !has_endpoint ? ' ' : (requires_key && !has_key ? '!' : 'x');
+    // The verdict is the state's job; "has a key" is not evidence either way, so
+    // it is not consulted. An unprobed configured provider reads [ ], which is
+    // honest -- the alternative is guessing that a key is good.
+    const char mark = agent::provider_mark(state, has_endpoint, /*has_key=*/true);
+
     std::string line = "  ";
     line += active ? '*' : ' ';
     line += "  [";
@@ -103,8 +107,11 @@ std::string provider_list_line(const std::string& name, const std::string& api_b
     line += "  (";
     if (!has_endpoint) {
         line += "unconfigured";
-    } else if (requires_key && !has_key) {
-        line += "no API key";
+    } else if (state == agent::AuthState::Rejected) {
+        // Say WHY, so [!] is not read as "no key yet".
+        line += "token rejected";
+    } else if (state == agent::AuthState::Unknown) {
+        line += "not checked yet";
     } else {
         line += api_base;
     }

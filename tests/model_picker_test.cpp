@@ -1,3 +1,4 @@
+#include "agent/provider_health.h"
 #include "tui/model_picker.h"
 #include "tests/test_util.h"
 
@@ -247,34 +248,42 @@ TEST(model_picker_a_preset_endpoint_without_a_key_is_not_usable) {
 // /get provider list has to answer "is this set up?" as well as "is it
 // active?". An enabled-but-unconfigured provider was indistinguishable from a
 // configured one, which is why configuring openrouter looked like it did nothing.
+// The checkbox now reports whether the SERVER accepted the token, not merely
+// whether a key is present: a revoked key and a working one looked identical.
+
 TEST(provider_list_line_marks_the_active_provider) {
-    auto line =
-        tui::provider_list_line("kilocode", "https://api.kilo.ai/api/gateway", true, true, true);
+    auto line = tui::provider_list_line("kilocode", "https://api.kilo.ai/api/gateway", true,
+                                        agent::AuthState::Valid);
     ASSERT(line.find('*') != std::string::npos);
     ASSERT(line.find("kilocode") != std::string::npos);
-    // Configured and keyed: [x], with the endpoint rather than a warning.
     ASSERT(line.find("[x]") != std::string::npos);
     ASSERT(line.find("https://api.kilo.ai/api/gateway") != std::string::npos);
 }
 
-TEST(provider_list_line_distinguishes_unconfigured_from_unkeyed) {
-    // A bundled preset: endpoint present, no key. [!] and "no API key" -- not [x],
-    // and not a bare endpoint either.
-    auto preset =
-        tui::provider_list_line("openrouter", "https://openrouter.ai/api/v1", false, true, false);
-    ASSERT(preset.find("[!]") != std::string::npos);
-    ASSERT(preset.find("no API key") != std::string::npos);
-    ASSERT(preset.find('*') == std::string::npos);
+TEST(provider_list_line_marks_a_rejected_token) {
+    // The whole point: configured, keyed, and refused. [!] plus the reason, so it
+    // is not mistaken for a provider that simply has no key yet.
+    auto line = tui::provider_list_line("kilocode", "https://api.kilo.ai/api/gateway", false,
+                                        agent::AuthState::Rejected);
+    ASSERT(line.find("[!]") != std::string::npos);
+    ASSERT(line.find("rejected") != std::string::npos);
+    ASSERT(line.find("[x]") == std::string::npos);
+}
 
-    // No endpoint at all: [ ] and "unconfigured".
-    auto none = tui::provider_list_line("gemini", "", false, false, false);
+TEST(provider_list_line_does_not_claim_valid_before_a_probe) {
+    // Never probed: [ ], never [x]. Reporting an untested key as working is the
+    // guess this feature replaced.
+    auto line =
+        tui::provider_list_line("openrouter", "https://openrouter.ai/api/v1", false,
+                                agent::AuthState::Unknown);
+    ASSERT(line.find("[x]") == std::string::npos);
+    ASSERT(line.find("[ ]") != std::string::npos);
+}
+
+TEST(provider_list_line_marks_an_unconfigured_provider) {
+    auto none = tui::provider_list_line("gemini", "", false, agent::AuthState::Unknown);
     ASSERT(none.find("[ ]") != std::string::npos);
     ASSERT(none.find("unconfigured") != std::string::npos);
-
-    // Keyed but not required: [x], not [!] -- the requirement is what matters.
-    auto nokey_needed =
-        tui::provider_list_line("custom", "http://192.168.18.86:8081/v1", false, false, false);
-    ASSERT(nokey_needed.find("[x]") != std::string::npos);
 }
 
 TEST(model_picker_empty_rows_produce_an_empty_subtree) {
