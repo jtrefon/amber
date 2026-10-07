@@ -1,11 +1,20 @@
 #pragma once
 
-#include "tui/provider_tabs.h"
-
+#include <cstddef>
 #include <string>
 #include <vector>
 
 namespace tui {
+
+// A tab in the model picker: one provider, or the union of all of them.
+//
+// Lives here rather than beside the row type: the strip only needs a name and a
+// count, so the picker does not have to hand its rows to the render layer.
+struct ProviderTab {
+    std::string provider; // empty for the "All" tab
+    std::string label;    // "All", or the provider name
+    std::size_t count = 0;
+};
 
 // The drawer's tab strip, as text.
 //
