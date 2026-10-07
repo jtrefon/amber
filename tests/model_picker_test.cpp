@@ -153,19 +153,18 @@ TEST(model_picker_empty_input_yields_no_rows) {
     ASSERT_EQ(tui::aggregate_provider_models({}, "kilocode").size(), 0u);
 }
 
-// The reader is injected so the "usable endpoint" rule is exercised without a
-// cache file: a provider with no api_base has no /models, and asking it for one
-// would be the bug.
+// The reader is injected so the "has an endpoint" rule is exercised without a
+// cache file: a provider with no api_base has no /models to read, and asking it
+// for one would be the bug.
 //
-// The distinction this pins: every bundled provider ships a PRESET api_base, so
-// "has an api_base" is true for all of them and cannot mean "configured". The
-// caller decides usability (it needs the provider's requires_key/api_key, which
-// this layer has no business knowing); this side just honours the verdict.
+// Credentials are deliberately not part of it. Listing reads a cache that is
+// already on disk, and gating the read on a key emptied the drawer for exactly
+// the providers the user had configured. Whether a FETCH is worth attempting is
+// the caller's call, and it lives with the caller -- refresh_provider_catalogs_async()
+// is where builtin/requires_key are known.
 namespace {
 
-bool reader_was_called = false;
 std::vector<tui::ProviderModel> counting_reader(const tui::ProviderEndpoint& e) {
-    reader_was_called = true;
     tui::ProviderModel m;
     m.provider = e.name;
     m.id = e.name + "/only";
@@ -176,9 +175,9 @@ std::vector<tui::ProviderModel> counting_reader(const tui::ProviderEndpoint& e) 
 
 TEST(model_picker_catalogs_skip_endpoints_with_no_api_base) {
     std::vector<tui::ProviderEndpoint> endpoints{
-        {"kilocode", "https://api.kilo.ai/api/gateway", "openai", true},
-        {"openrouter", "", "openai", false},
-        {"anthropic", "https://api.anthropic.com/v1", "anthropic", true},
+        {"kilocode", "https://api.kilo.ai/api/gateway", "openai"},
+        {"openrouter", "", "openai"},
+        {"anthropic", "https://api.anthropic.com/v1", "anthropic"},
     };
     auto catalogs = tui::catalogs_from(endpoints, &counting_reader);
     ASSERT_EQ(catalogs.size(), 3u);
@@ -224,25 +223,27 @@ TEST(model_picker_subtree_keeps_both_providers_of_a_shared_id) {
     ASSERT(leaves.contains("openrouter::anthropic/claude-opus-4.8"));
 }
 
-// Every bundled provider ships a preset api_base, so a naive "has an api_base"
-// test marks all of them configured and fans an unauthenticated request out to
-// each. `usable` is the caller's verdict and this side must honour it: a preset
-// endpoint with no key is not listable.
-TEST(model_picker_a_preset_endpoint_without_a_key_is_not_usable) {
+// The regression, pinned at this seam: a provider whose key is missing is still
+// listed from its cache. "No key" is a reason not to FETCH -- a decision the
+// fetch path makes for itself, where builtin/requires_key are known -- never a
+// reason to hide a catalogue that is already on disk. Gating the read on key
+// availability is how /set model went empty.
+TEST(model_picker_a_keyless_endpoint_is_still_listable) {
     std::vector<tui::ProviderEndpoint> endpoints{
-        {"openrouter", "https://openrouter.ai/api/v1", "openai", false}, // preset, no key
-        {"kilocode", "https://api.kilo.ai/api/gateway", "openai", true},
+        {"openrouter", "https://openrouter.ai/api/v1", "openai"}, // configured, no key
+        {"kilocode", "https://api.kilo.ai/api/gateway", "openai"},
     };
     auto catalogs = tui::catalogs_from(endpoints, &counting_reader);
     ASSERT_EQ(catalogs.size(), 2u);
-    ASSERT_FALSE(catalogs[0].configured);
-    ASSERT_EQ(catalogs[0].models.size(), 0u);
+    ASSERT_TRUE(catalogs[0].configured);
+    ASSERT_EQ(catalogs[0].models.size(), 1u); // read, not skipped
     ASSERT_TRUE(catalogs[1].configured);
     ASSERT_EQ(catalogs[1].models.size(), 1u);
-    // And the aggregate the drawer sees carries only the usable provider.
+    // The drawer's aggregate carries both providers, the active one leading.
     auto rows = tui::aggregate_provider_models(catalogs, "kilocode");
-    ASSERT_EQ(rows.size(), 1u);
+    ASSERT_EQ(rows.size(), 2u);
     ASSERT_EQ(rows[0].provider, std::string("kilocode"));
+    ASSERT_EQ(rows[1].provider, std::string("openrouter"));
 }
 
 // /get provider list has to answer "is this set up?" as well as "is it

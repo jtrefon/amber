@@ -44,7 +44,7 @@ std::string provider_key(const std::string& provider, const std::string& id);
 struct ProviderCatalog {
     std::string provider;
     std::vector<ProviderModel> models; // this provider's models only
-    bool configured = false;           // has an endpoint, so /models is fetchable
+    bool configured = false;           // has an endpoint, so a catalogue could exist
 };
 
 // Union of every configured provider's catalogue, active provider first, then
@@ -65,28 +65,20 @@ struct ProviderEndpoint {
     std::string name;
     std::string api_base;
     std::string flavor = "openai";
-    // Whether this provider has an endpoint, and therefore could have a
-    // catalogue on disk at all.
-    //
-    // Deliberately NOT "has a usable key". Listing reads the cache, which needs
-    // no credentials, and gating the list on key availability emptied it: a
-    // preset provider carries a preset api_base and no api_key, so a key-based
-    // test excluded providers that had perfectly good cached catalogues. Whether
-    // a FETCH should be attempted is a separate question, answered by the caller
-    // with information this layer does not have (see refresh_provider_catalogs_async).
-    bool has_endpoint = false;
 };
 
 // Reads one endpoint's already-cached models. Must not touch the network: this
 // runs while the UI thread is composing a drawer.
 using CatalogReader = std::vector<ProviderModel> (*)(const ProviderEndpoint&);
 
-// Per-provider catalogues, skipping endpoints that cannot be fetched.
+// Per-provider catalogues, skipping endpoints that have none.
 //
-// Split out from the feed so the "is it configured" rule is testable: a
-// provider with an empty api_base has no catalogue, and an empty catalogue
-// means there is nothing to list and no tab worth opening. Reading is injected
-// so the rule is exercised without a cache file.
+// Split out from the feed so the rule is testable: a provider with an empty
+// api_base has no catalogue, and an empty catalogue means there is nothing to
+// list and no tab worth opening. "Has an endpoint" is read off the endpoint
+// itself, not taken as a caller-set flag -- a flag every caller must remember
+// is how the drawer emptied once, while every unit test stayed green. Reading
+// is injected so the rule is exercised without a cache file.
 std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& endpoints,
                                            CatalogReader read);
 

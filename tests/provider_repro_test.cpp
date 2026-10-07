@@ -93,7 +93,6 @@ std::vector<tui::ProviderEndpoint> endpoints_from(const agent::ProviderService& 
         e.name = p.name;
         e.api_base = p.api_base;
         e.flavor = p.flavor;
-        e.has_endpoint = !p.api_base.empty();
         out.push_back(std::move(e));
     }
     return out;
@@ -114,7 +113,7 @@ TEST(provider_repro_a_configured_provider_is_listable) {
     bool found = false;
     for (const auto& e : endpoints)
         if (e.name == "reproprov")
-            found = e.has_endpoint;
+            found = !e.api_base.empty();
     ASSERT(found);
 }
 

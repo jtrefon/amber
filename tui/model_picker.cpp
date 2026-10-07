@@ -55,7 +55,7 @@ std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& 
     for (const auto& e : endpoints) {
         ProviderCatalog c;
         c.provider = e.name;
-        c.configured = e.has_endpoint;
+        c.configured = !e.api_base.empty();
         if (c.configured)
             c.models = read(e);
         out.push_back(std::move(c));
