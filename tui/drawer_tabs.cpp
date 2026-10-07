@@ -110,15 +110,10 @@ std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs) {
     return out;
 }
 
-std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows,
-                                            const std::string& active_provider,
-                                            const std::string& filter) {
-    std::vector<ProviderTab> tabs;
-    if (rows.size() < 2)
-        return tabs;
-
-    // Every row must name a provider, or this is not the model picker and adding
-    // tabs here would take the arrow keys away from an ordinary drawer.
+// The distinct providers named by `rows`, or empty when the rows are not the
+// model picker. Every row must name one: a partial list would take the arrow
+// keys away from an ordinary drawer, which is the failure this avoids.
+std::vector<std::string> providers_in_rows(const std::vector<std::string>& rows) {
     std::vector<std::string> providers;
     for (const auto& row : rows) {
         std::string p;
@@ -127,39 +122,49 @@ std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows
         if (std::find(providers.begin(), providers.end(), p) == providers.end())
             providers.push_back(p);
     }
-    if (providers.size() < 2)
-        return {}; // nothing to switch between
+    return providers;
+}
 
-    // Count per provider over the FILTERED rows, so the counts answer "where did
-    // my search land" rather than "how many models exist".
-    const std::string lower = lowered(filter);
-    const auto count_for = [&](const std::string& want) {
-        std::size_t n = 0;
-        for (const auto& row : rows) {
-            std::string p;
-            if (!provider_of_row(row, p) || p != want)
-                continue;
-            if (row_matches_filter(row, lower))
-                ++n;
-        }
-        return n;
-    };
-
-    std::size_t all = 0;
-    for (const auto& row : rows)
+// Rows of `rows` belonging to `want` that match `lower`. `want` empty means all.
+std::size_t count_matching(const std::vector<std::string>& rows, const std::string& want,
+                           const std::string& lower) {
+    std::size_t n = 0;
+    for (const auto& row : rows) {
+        std::string p;
+        if (!want.empty() && (!provider_of_row(row, p) || p != want))
+            continue;
         if (row_matches_filter(row, lower))
-            ++all;
-    tabs.push_back({"", "All", all});
-
-    const auto push = [&](const std::string& p) {
-        tabs.push_back({p, p, count_for(p)});
-    };
-    // Active provider first: it is the one in use, and Enter without thinking
-    // should not switch away from it.
-    if (!active_provider.empty() &&
-        std::find(providers.begin(), providers.end(), active_provider) != providers.end()) {
-        push(active_provider);
+            ++n;
     }
+    return n;
+}
+
+std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows,
+                                            const std::string& active_provider,
+                                            const std::string& filter) {
+    // Fewer than two providers is nothing to switch between, so no tabs and the
+    // arrow keys keep their normal meaning.
+    if (rows.size() < 2)
+        return {};
+    std::vector<std::string> providers = providers_in_rows(rows);
+    if (providers.size() < 2)
+        return {};
+
+    // Count per provider over the FILTERED rows, so a count answers "where did my
+    // search land" rather than "how many models exist".
+    const std::string lower = lowered(filter);
+    std::vector<ProviderTab> tabs;
+    tabs.push_back({"", "All", count_matching(rows, "", lower)});
+
+    // Active provider first: it is the one in use, so Enter without thinking does
+    // not switch away from it.
+    const auto push = [&](const std::string& p) {
+        tabs.push_back({p, p, count_matching(rows, p, lower)});
+    };
+    const auto is_active =
+        std::find(providers.begin(), providers.end(), active_provider) != providers.end();
+    if (is_active)
+        push(active_provider);
     for (const auto& p : providers)
         if (p != active_provider)
             push(p);
