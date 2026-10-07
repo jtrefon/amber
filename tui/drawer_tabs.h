@@ -41,6 +41,15 @@ DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t 
 // names, not counts -- the counts belong to the strip).
 std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs);
 
+// One model row, with the provider in its own padded column.
+//
+// The composite key "provider::model" puts the provider at the FRONT of the id,
+// which reads as though the model belonged to the first provider on the list --
+// and on the All tab there is no first. The row therefore separates them and drops
+// the separator, so the provider is a column you can read down rather than a
+// prefix you have to parse.
+std::string model_row(const std::string& provider, const std::string& id, int context);
+
 std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows,
                                             const std::string& active_provider,
                                             const std::string& filter);

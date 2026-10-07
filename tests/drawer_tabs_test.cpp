@@ -125,3 +125,40 @@ TEST(make_provider_tabs_ignores_an_active_provider_that_is_not_listed) {
     ASSERT(tabs.size() == 3);
     ASSERT(tabs[1].provider == "beta");
 }
+
+// The drawer row's provider column. A composite key "provider::model" puts the
+// provider first in the text, so a model id reads as if it belonged to whichever
+// provider is leftmost -- and on the All tab there is no leftmost.
+
+TEST(model_row_shows_the_provider_in_its_own_column) {
+    const auto row = tui::model_row("alpha", "shared/model", 200000);
+    ASSERT(row.find("alpha") != std::string::npos);
+    ASSERT(row.find("shared/model") != std::string::npos);
+    // The provider is its own field: it starts the line, the model follows it,
+    // and the id never carries the "provider::" prefix.
+    ASSERT(row.find("::") == std::string::npos);
+}
+
+TEST(model_row_keeps_a_bare_id_bare) {
+    // A row with no provider (from a hand-edited tree) still renders.
+    const auto row = tui::model_row("", "plain-model", 0);
+    ASSERT(row.find("plain-model") != std::string::npos);
+}
+
+TEST(model_row_shows_the_context_window_when_known) {
+    ASSERT(tui::model_row("a", "m", 128000).find("128000") != std::string::npos);
+    // Unknown context is omitted rather than shown as 0.
+    ASSERT(tui::model_row("a", "m", 0).find("(0") == std::string::npos);
+}
+
+TEST(model_row_aligns_two_providers_so_the_models_line_up) {
+    // A column only reads as a column if it is padded: comparing across providers
+    // is the whole reason it exists.
+    const auto short_p = tui::model_row("ai", "one", 0);
+    const auto long_p = tui::model_row("a-very-long-provider", "two", 0);
+    const auto model_col_short = short_p.find("one");
+    const auto model_col_long = long_p.find("two");
+    ASSERT(model_col_short != std::string::npos);
+    ASSERT(model_col_long != std::string::npos);
+    ASSERT_EQ(model_col_short, model_col_long);
+}

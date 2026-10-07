@@ -78,6 +78,30 @@ bool row_matches_filter(const std::string& row, const std::string& lower) {
 
 } // namespace
 
+namespace {
+
+// Wide enough for a realistic provider name; beyond it the column is dropped
+// rather than allowed to push the model off the row.
+constexpr std::size_t kProviderColumn = 18;
+
+} // namespace
+
+std::string model_row(const std::string& provider, const std::string& id, int context) {
+    std::string line = "  ";
+    if (provider.empty()) {
+        line += id;
+    } else {
+        const std::string name = truncate(provider, kProviderColumn);
+        line += name;
+        line.append(kProviderColumn - name.size(), ' ');
+        line += "  ";
+        line += id;
+    }
+    if (context > 0)
+        line += "  (ctx " + std::to_string(context) + ")";
+    return line;
+}
+
 std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs) {
     std::vector<std::string> out;
     out.reserve(tabs.size());
