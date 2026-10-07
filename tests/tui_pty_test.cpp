@@ -515,6 +515,48 @@ TEST(startup_paints_before_git_returns) {
     require(ms < 3000, "the first paint waited on git (startup forked it)", tui);
 }
 
+// ── Bracketed paste into a secret form field ──
+//
+// Two defects at once, and one assertion covers both:
+//   - a secret field cleared ncurses' O_PUBLIC, so the field was drawn empty and
+//     a pasted token could not be verified on screen;
+//   - a bracketed paste begins with ESC, and form_focus treats a bare ESC as
+//     cancel, so the first byte closed the dialog before the rest arrived.
+//
+// If the pasted text is visible AND the editor is still open, paste decoding
+// worked and the field is drawn.
+
+TEST(bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open) {
+    Tui tui;
+    tui.name = "bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!wait_ready(tui))
+        return;
+
+    // "/provider openrouter" has no key configured, so the switch prompts for it
+    // through the shared provider editor -- the form with the secret API Key field.
+    tui.send("/provider openrouter\r");
+    if (!require(tui.wait_for("Configure: openrouter", 10000), "the provider editor did not open",
+                 tui))
+        return;
+
+    // Focus starts on "Server URL"; the secret field is the next one (Tab moves).
+    tui.send("\t");
+    tui.pump(300);
+    if (!require(tui.wait_for("API Key", 5000), "no API Key field in the editor", tui))
+        return;
+
+    tui.send("\x1b[200~pasted-token-value\x1b[201~");
+    tui.pump(600);
+
+    // Still the editor? A paste misread as ESC would have cancelled out of it.
+    require(tui.text().find("Configure: openrouter") != std::string::npos,
+            "the paste closed the editor -- ESC was read as cancel", tui);
+    // On screen? i.e. the field is drawn and the bytes were inserted into it.
+    require(tui.wait_for("pasted-token-value", 5000),
+            "the pasted text never appeared (paste dropped, or the field is not drawn)", tui);
+}
+
 TEST(system_commands_do_not_freeze_the_ui) {
     // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that
     // blocks for 4 s turns it into a long job, so "did the UI wait on it?" is
@@ -569,6 +611,7 @@ int main(int argc, char** argv) {
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
+    bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session
