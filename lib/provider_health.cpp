@@ -1,8 +1,7 @@
 #include "agent/provider_health.h"
 
-#include "agent/dialect.h"
+#include "agent/model_probe.h"
 
-#include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
@@ -114,39 +113,12 @@ void auth_status_write(const Config& cfg, const AuthStatus& status) {
 
 namespace {
 
-// The real probe: one GET /models, body discarded. Deliberately NOT
-// CURLOPT_FAILONERROR, so a 401 comes back as a response to classify rather than
-// as a transport error that hides the status code.
+// The real probe: the shared GET /models with its body discarded, so the status
+// arrives intact. Reusing the catalogue's request keeps one implementation of
+// "how do we call a models endpoint" rather than two that can drift.
 ProbeResult probe_over_http(const Config& cfg) {
-    ProbeResult result;
-    auto dialect = make_dialect(cfg.flavor);
-    const std::string url = dialect->models_url(cfg);
-    if (url.empty())
-        return result;
-
-    CURL* c = curl_easy_init();
-    if (!c)
-        return result;
-
-    struct curl_slist* headers = nullptr;
-    for (const std::string& h : dialect->auth_headers(cfg))
-        headers = curl_slist_append(headers, h.c_str());
-    if (headers)
-        curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, discard_body);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, nullptr);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-
-    const CURLcode rc = curl_easy_perform(c);
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &result.http_code);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-
-    result.transport_ok = (rc == CURLE_OK);
-    return result;
+    const auto r = models_get(cfg, /*want_body=*/false);
+    return ProbeResult{r.http_code, r.transport_ok};
 }
 
 } // namespace

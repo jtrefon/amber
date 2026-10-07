@@ -17,6 +17,12 @@ namespace agent {
 
 namespace fs = std::filesystem;
 
+// libcurl sink for a body nobody reads: a status probe still has to drain the
+// transfer or curl aborts mid-response.
+static size_t discard_cb(char*, size_t size, size_t nmemb, void*) {
+    return size * nmemb;
+}
+
 static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
     auto* out = static_cast<std::string*>(userdata);
     out->append(ptr, size * nmemb);
@@ -26,34 +32,13 @@ static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* userdata) {
 namespace {
 
 // One curl GET {api_base}/models -> body. Returns CURLE_OK on HTTP 2xx.
+
 CURLcode fetch_models(const Config& cfg, const Dialect& dialect, std::string& body) {
-    const std::string url = dialect.models_url(cfg);
-    if (url.empty())
-        return CURLE_URL_MALFORMAT;
-
-    CURL* c = curl_easy_init();
-    if (!c)
-        return CURLE_FAILED_INIT;
-
-    struct curl_slist* headers = nullptr;
-    for (const std::string& h : dialect.auth_headers(cfg))
-        headers = curl_slist_append(headers, h.c_str());
-    if (headers)
-        curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
-
-    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, write_cb);
-    curl_easy_setopt(c, CURLOPT_WRITEDATA, &body);
-    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
-    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-    // Fail on HTTP errors: an error page is not a usable model catalog.
-    curl_easy_setopt(c, CURLOPT_FAILONERROR, 1L);
-
-    CURLcode rc = curl_easy_perform(c);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(c);
-    return rc;
+    const auto r = models_get(cfg, /*want_body=*/true);
+    body = r.body;
+    if (!r.transport_ok)
+        return CURLE_HTTP_RETURNED_ERROR;
+    return r.http_code >= 200 && r.http_code < 300 ? CURLE_OK : CURLE_HTTP_RETURNED_ERROR;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +85,49 @@ std::map<std::string, std::shared_ptr<FetchSlot>>& slots() {
 }
 
 } // namespace
+
+// One GET {api_base}/models. Returns CURLE_OK on HTTP 2xx when want_body is set
+// and the body is collected; when it is false the body is discarded and the HTTP
+// status is reported either way, so a 401 is visible rather than collapsed into a
+// transport failure.
+ModelsGetResult models_get(const Config& cfg, bool want_body) {
+    ModelsGetResult out;
+    auto dialect = make_dialect(cfg.flavor);
+    const std::string url = dialect->models_url(cfg);
+    if (url.empty())
+        return out;
+
+    CURL* c = curl_easy_init();
+    if (!c)
+        return out;
+
+    struct curl_slist* headers = nullptr;
+    for (const std::string& h : dialect->auth_headers(cfg))
+        headers = curl_slist_append(headers, h.c_str());
+    if (headers)
+        curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
+
+    curl_easy_setopt(c, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, want_body ? write_cb : discard_cb);
+    curl_easy_setopt(c, CURLOPT_WRITEDATA, &out.body);
+    curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
+    curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
+    // Only when the body matters: an error page is not a usable catalogue, so it
+    // must fail. A status probe needs the opposite -- a 401 has to arrive as a
+    // response to classify, not as an error that hides the code.
+    curl_easy_setopt(c, CURLOPT_FAILONERROR, want_body ? 1L : 0L);
+
+    const CURLcode rc = curl_easy_perform(c);
+    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &out.http_code);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(c);
+
+    out.transport_ok = (rc == CURLE_OK);
+    if (!want_body)
+        out.body.clear();
+    return out;
+}
 
 std::optional<ModelCatalogEntry> model_catalog_read(const Config& cfg) {
     std::ifstream f(catalog_cache_path(cfg));
