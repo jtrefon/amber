@@ -1,6 +1,7 @@
 #include "tui/drawer_tabs.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace tui {
 
@@ -8,6 +9,12 @@ namespace {
 
 // How much room one tab may take before the strip gives up on fitting it.
 constexpr std::size_t kMaxTabWidth = 18;
+
+std::string lowered(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
 
 std::string truncate(const std::string& s, std::size_t max) {
     if (s.size() <= max)
@@ -49,6 +56,90 @@ DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t 
         strip.selected_mark_pos = std::string::npos;
     }
     return strip;
+}
+
+namespace {
+
+// A row names its provider when it is a composite key: the text before "::".
+bool provider_of_row(const std::string& row, std::string& provider) {
+    const auto sep = row.find("::");
+    if (sep == std::string::npos || sep == 0)
+        return false;
+    provider = row.substr(0, sep);
+    return true;
+}
+
+bool row_matches_filter(const std::string& row, const std::string& lower) {
+    if (lower.empty())
+        return true;
+    std::string l = lowered(row);
+    return l.find(lower) != std::string::npos;
+}
+
+} // namespace
+
+std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs) {
+    std::vector<std::string> out;
+    out.reserve(tabs.size());
+    for (const auto& t : tabs)
+        out.push_back(t.provider);
+    return out;
+}
+
+std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows,
+                                            const std::string& active_provider,
+                                            const std::string& filter) {
+    std::vector<ProviderTab> tabs;
+    if (rows.size() < 2)
+        return tabs;
+
+    // Every row must name a provider, or this is not the model picker and adding
+    // tabs here would take the arrow keys away from an ordinary drawer.
+    std::vector<std::string> providers;
+    for (const auto& row : rows) {
+        std::string p;
+        if (!provider_of_row(row, p))
+            return {};
+        if (std::find(providers.begin(), providers.end(), p) == providers.end())
+            providers.push_back(p);
+    }
+    if (providers.size() < 2)
+        return {}; // nothing to switch between
+
+    // Count per provider over the FILTERED rows, so the counts answer "where did
+    // my search land" rather than "how many models exist".
+    const std::string lower = lowered(filter);
+    const auto count_for = [&](const std::string& want) {
+        std::size_t n = 0;
+        for (const auto& row : rows) {
+            std::string p;
+            if (!provider_of_row(row, p) || p != want)
+                continue;
+            if (row_matches_filter(row, lower))
+                ++n;
+        }
+        return n;
+    };
+
+    std::size_t all = 0;
+    for (const auto& row : rows)
+        if (row_matches_filter(row, lower))
+            ++all;
+    tabs.push_back({"", "All", all});
+
+    const auto push = [&](const std::string& p) {
+        tabs.push_back({p, p, count_for(p)});
+    };
+    // Active provider first: it is the one in use, and Enter without thinking
+    // should not switch away from it.
+    if (!active_provider.empty() &&
+        std::find(providers.begin(), providers.end(), active_provider) != providers.end()) {
+        push(active_provider);
+    }
+    for (const auto& p : providers)
+        if (p != active_provider)
+            push(p);
+    return tabs;
 }
 
 } // namespace tui

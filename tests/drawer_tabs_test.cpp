@@ -65,3 +65,63 @@ TEST(tab_strip_renders_nothing_when_there_is_only_one_tab) {
     ASSERT(s.line.empty());
     ASSERT(s.selected_mark_pos == std::string::npos);
 }
+
+// Deriving tabs from drawer rows. Data-driven: only the model feed emits
+// composite "provider::model" keys, and the rule must not hardcode the command.
+
+TEST(make_provider_tabs_derives_providers_from_composite_rows) {
+    const auto tabs = tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"},
+                                              "beta", "");
+    ASSERT(tabs.size() == 3);
+    ASSERT(tabs[0].provider.empty());
+    ASSERT(tabs[0].label == "All");
+    ASSERT(tabs[0].count == 3);
+    ASSERT(tabs[1].provider == "beta");
+    ASSERT(tabs[1].count == 2);
+    ASSERT(tabs[2].provider == "alpha");
+    ASSERT(tabs[2].count == 1);
+}
+
+TEST(make_provider_tabs_puts_the_active_provider_first) {
+    const auto tabs =
+        tui::make_provider_tabs({"beta::large", "alpha::shared"}, "alpha", "");
+    ASSERT(tabs[1].provider == "alpha");
+    ASSERT(tabs[2].provider == "beta");
+}
+
+TEST(make_provider_tabs_returns_none_for_plain_command_names) {
+    // An ordinary namespace: no composite keys, so no tabs, so the arrow keys
+    // keep moving the caret.
+    ASSERT(tui::make_provider_tabs({"open", "close", "resize"}, "", "").empty());
+}
+
+TEST(make_provider_tabs_returns_none_when_a_row_has_no_provider) {
+    // A mixed list is not the model picker either.
+    ASSERT(tui::make_provider_tabs({"beta::large", "orphan"}, "", "").empty());
+}
+
+TEST(make_provider_tabs_returns_none_for_a_single_provider) {
+    // One provider has nothing to switch to.
+    ASSERT(tui::make_provider_tabs({"beta::large", "beta::small"}, "", "").empty());
+}
+
+TEST(make_provider_tabs_returns_none_for_an_empty_or_single_row) {
+    ASSERT(tui::make_provider_tabs({}, "", "").empty());
+    ASSERT(tui::make_provider_tabs({"beta::large"}, "", "").empty());
+}
+
+TEST(make_provider_tabs_counts_matches_under_the_filter) {
+    const auto tabs = tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"},
+                                              "beta", "shared");
+    ASSERT(tabs[0].count == 1); // All
+    ASSERT(tabs[1].count == 0); // beta
+    ASSERT(tabs[2].count == 1); // alpha
+}
+
+TEST(make_provider_tabs_ignores_an_active_provider_that_is_not_listed) {
+    // A provider deleted from disk, or a cold start: fall back to row order
+    // rather than inventing a tab nothing can fill.
+    const auto tabs = tui::make_provider_tabs({"beta::large", "alpha::shared"}, "ghost", "");
+    ASSERT(tabs.size() == 3);
+    ASSERT(tabs[1].provider == "beta");
+}

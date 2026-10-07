@@ -19,6 +19,10 @@ Context for_input(const std::string& input, const SettingRegistry& settings) {
     // selection and Enter dispatch index the same rows the user sees (aliases
     // are not drawer rows).
     ctx.rows = drawer_entry_names(input, settings);
+    // The trailing partial, which is what those rows were filtered by.
+    ctx.filter = input.substr(input.find_last_of(' ') == std::string::npos
+                                   ? 0
+                                   : input.find_last_of(' ') + 1);
 
     // Dispatch prefix Enter prepends to the selected row:
     //   "/window"     (namespace descend) -> "/window " (keep the namespace)

@@ -27,4 +27,22 @@ struct DrawerTabStrip {
 DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t selected,
                               int max_width = 200);
 
+// Derive the tab list from a set of drawer rows, or none at all.
+//
+// Data-driven, not a hardcoded command path: the /set model feed emits composite
+// "provider::model" keys and nothing else does, so "every row names a provider"
+// is what identifies the model picker. A namespace whose rows are plain names
+// gets no tabs, so Left/Right keep moving the caret there -- which is why this
+// does not mention "/set model" anywhere.
+//
+// `active_provider` leads the provider tabs; an empty active (a provider that
+// was deleted, or a cold start) just falls back to row order.
+// The tab labels in order, for CommandLine::set_provider_tabs (which stores
+// names, not counts -- the counts belong to the strip).
+std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs);
+
+std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows,
+                                            const std::string& active_provider,
+                                            const std::string& filter);
+
 } // namespace tui
