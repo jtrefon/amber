@@ -2,6 +2,7 @@
 #include "tui.h"
 #include "feed_manager.h"
 #include "tui/list_panel.h"
+#include "tui/model_picker.h"
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
 #include "tui/toggle_value.h"
@@ -1653,11 +1654,10 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
 }
 
 void SlashDispatcher::cmd_provider_list() {
-    for (const auto& p : tui_.providers_->available()) {
-        std::string line = "  " + p.name + (p.name == tui_.cfg_.provider_name ? " *" : "") + "  (" +
-                           (p.api_base.empty() ? "unconfigured" : p.api_base) + ")";
-        tui_.append_line(P_STATUS, line);
-    }
+    for (const auto& p : tui_.providers_->available())
+        tui_.append_line(P_STATUS,
+                         provider_list_line(p.name, p.api_base, p.name == tui_.cfg_.provider_name,
+                                            p.requires_key, !p.api_key.empty()));
 }
 
 // --- plugin runtime surface (/get plugin, /set plugin) --------------------
@@ -2445,11 +2445,13 @@ void Tui::refresh_provider_catalogs_async() {
     if (!providers_)
         return;
     for (const auto& p : providers_->available()) {
-        // Not "has an api_base": every bundled provider ships a preset one, so
-        // that test is true for all of them. A provider that needs a key and has
-        // none cannot be queried, and asking anyway means an unauthenticated
-        // request per bundled endpoint.
-        if (p.api_base.empty() || (p.requires_key && p.api_key.empty()))
+        // Only providers the USER configured, never a bundled preset.
+        //
+        // "has an api_base" is not the test: every preset ships one, so that is
+        // true for all of them and startup would fire an unauthenticated /models
+        // request per bundled endpoint. Presets set builtin=true (extensions.cpp
+        // :523) and carry no api_key; a file-configured provider does not.
+        if (p.builtin || p.api_base.empty())
             continue;
         agent::Config cfg;
         cfg.provider_name = p.name;

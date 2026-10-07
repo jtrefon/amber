@@ -63,15 +63,16 @@ struct ProviderEndpoint {
     std::string name;
     std::string api_base;
     std::string flavor = "openai";
-    // Whether this endpoint can actually be queried: it has one, and if the
-    // provider needs a key then the key is present.
+    // Whether this provider has an endpoint, and therefore could have a
+    // catalogue on disk at all.
     //
-    // api_base alone is NOT enough. Every bundled provider ships a preset
-    // api_base (plugins/openrouter sets one), so "has an endpoint" is true for
-    // all of them whether or not they are configured or hold a key -- and
-    // treating that as "configured" fans a request out to every bundled
-    // endpoint at once, unauthenticated.
-    bool usable = false;
+    // Deliberately NOT "has a usable key". Listing reads the cache, which needs
+    // no credentials, and gating the list on key availability emptied it: a
+    // preset provider carries a preset api_base and no api_key, so a key-based
+    // test excluded providers that had perfectly good cached catalogues. Whether
+    // a FETCH should be attempted is a separate question, answered by the caller
+    // with information this layer does not have (see refresh_provider_catalogs_async).
+    bool has_endpoint = false;
 };
 
 // Reads one endpoint's already-cached models. Must not touch the network: this
@@ -108,5 +109,23 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& endpoint);
 // feed; the leaf/collide/ctx rules are the same either way.
 nlohmann::json model_subtree(const std::vector<ProviderModel>& rows,
                              const std::string& action_prefix);
+
+// One line of /get provider list.
+//
+// The asterisk marks the ACTIVE provider, which it always did. The checkbox
+// column answers the question the list used to leave open: is this provider set
+// up at all? An enabled-but-unconfigured provider is indistinguishable from a
+// configured one otherwise, which is why configuring openrouter appeared to do
+// nothing.
+//
+//   [x]  has an endpoint, and a key if one is required
+//   [!]  has an endpoint but no key -- it will fail to authenticate
+//   [ ]  no endpoint, so there is nothing to query
+//
+// has_key is passed in rather than inferred: a bundled preset carries a preset
+// api_base and no key, and the active config may hold the key from elsewhere, so
+// only the caller knows.
+std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
+                               bool requires_key, bool has_key);
 
 } // namespace tui

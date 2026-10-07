@@ -244,6 +244,39 @@ TEST(model_picker_a_preset_endpoint_without_a_key_is_not_usable) {
     ASSERT_EQ(rows[0].provider, std::string("kilocode"));
 }
 
+// /get provider list has to answer "is this set up?" as well as "is it
+// active?". An enabled-but-unconfigured provider was indistinguishable from a
+// configured one, which is why configuring openrouter looked like it did nothing.
+TEST(provider_list_line_marks_the_active_provider) {
+    auto line =
+        tui::provider_list_line("kilocode", "https://api.kilo.ai/api/gateway", true, true, true);
+    ASSERT(line.find('*') != std::string::npos);
+    ASSERT(line.find("kilocode") != std::string::npos);
+    // Configured and keyed: [x], with the endpoint rather than a warning.
+    ASSERT(line.find("[x]") != std::string::npos);
+    ASSERT(line.find("https://api.kilo.ai/api/gateway") != std::string::npos);
+}
+
+TEST(provider_list_line_distinguishes_unconfigured_from_unkeyed) {
+    // A bundled preset: endpoint present, no key. [!] and "no API key" -- not [x],
+    // and not a bare endpoint either.
+    auto preset =
+        tui::provider_list_line("openrouter", "https://openrouter.ai/api/v1", false, true, false);
+    ASSERT(preset.find("[!]") != std::string::npos);
+    ASSERT(preset.find("no API key") != std::string::npos);
+    ASSERT(preset.find('*') == std::string::npos);
+
+    // No endpoint at all: [ ] and "unconfigured".
+    auto none = tui::provider_list_line("gemini", "", false, false, false);
+    ASSERT(none.find("[ ]") != std::string::npos);
+    ASSERT(none.find("unconfigured") != std::string::npos);
+
+    // Keyed but not required: [x], not [!] -- the requirement is what matters.
+    auto nokey_needed =
+        tui::provider_list_line("custom", "http://192.168.18.86:8081/v1", false, false, false);
+    ASSERT(nokey_needed.find("[x]") != std::string::npos);
+}
+
 TEST(model_picker_empty_rows_produce_an_empty_subtree) {
     auto sub = tui::model_subtree({}, "a.");
     ASSERT_EQ(sub["set"]["children"]["model"]["children"].size(), 0u);

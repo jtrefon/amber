@@ -55,7 +55,7 @@ std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& 
     for (const auto& e : endpoints) {
         ProviderCatalog c;
         c.provider = e.name;
-        c.configured = e.usable;
+        c.configured = e.has_endpoint;
         if (c.configured)
             c.models = read(e);
         out.push_back(std::move(c));
@@ -88,6 +88,28 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
         out.push_back(pm);
     }
     return out;
+}
+
+std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
+                               bool requires_key, bool has_key) {
+    const bool has_endpoint = !api_base.empty();
+    const char mark = !has_endpoint ? ' ' : (requires_key && !has_key ? '!' : 'x');
+    std::string line = "  ";
+    line += active ? '*' : ' ';
+    line += "  [";
+    line += mark;
+    line += "]  ";
+    line += name;
+    line += "  (";
+    if (!has_endpoint) {
+        line += "unconfigured";
+    } else if (requires_key && !has_key) {
+        line += "no API key";
+    } else {
+        line += api_base;
+    }
+    line += ")";
+    return line;
 }
 
 } // namespace tui
