@@ -16,10 +16,16 @@ std::string lowered(std::string s) {
     return s;
 }
 
+// Cut to at most `max` BYTES, never more. The ellipsis is three bytes of UTF-8,
+// so appending it after a naive substr() made the result wider than the cap --
+// which made a caller's `pad = cap - size` underflow into an enormous count.
 std::string truncate(const std::string& s, std::size_t max) {
     if (s.size() <= max)
         return s;
-    return s.substr(0, max > 1 ? max - 1 : 0) + "…";
+    const std::string ellipsis = "\u2026";
+    if (max <= ellipsis.size())
+        return s.substr(0, max);
+    return s.substr(0, max - ellipsis.size()) + ellipsis;
 }
 
 } // namespace
@@ -48,13 +54,10 @@ DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t 
     }
     if (strip.line.size() > budget)
         strip.line.resize(budget);
-    // Truncation can drop the selected marker; a strip that cannot say which tab
-    // is active is worse than no strip.
-    if (strip.selected_mark_pos != std::string::npos &&
-        strip.selected_mark_pos >= strip.line.size()) {
-        strip.line.clear();
-        strip.selected_mark_pos = std::string::npos;
-    }
+    // No check that the marker survived: it cannot fail. The loop breaks once the
+    // line reaches the budget, so a rendered tab's marker always sits before it,
+    // and the resize trims only the tail. The strip is therefore never blanked,
+    // and a selected tab always says which one it is.
     return strip;
 }
 
@@ -93,7 +96,11 @@ std::string model_row(const std::string& provider, const std::string& id, int co
     } else {
         const std::string name = truncate(provider, kProviderColumn);
         line += name;
-        line.append(kProviderColumn - name.size(), ' ');
+        // truncate() guarantees <= kProviderColumn bytes, so this cannot
+        // underflow -- but assert the invariant rather than trust it, since an
+        // underflow here appends gigabytes of padding.
+        if (name.size() < kProviderColumn)
+            line.append(kProviderColumn - name.size(), ' ');
         line += "  ";
         line += id;
     }

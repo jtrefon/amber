@@ -139,3 +139,94 @@ TEST(provider_mark_for_an_unconfigured_provider_is_blank) {
     ASSERT(agent::provider_mark(agent::AuthState::Unknown, false, false) == ' ');
     ASSERT(agent::provider_mark(agent::AuthState::Valid, false, true) == ' ');
 }
+
+// The probe's classification and caching, driven by an injected result rather
+// than a network. These are the paths that decide what the checkbox shows.
+
+namespace {
+
+agent::ProbeResult answering(long code) {
+    return agent::ProbeResult{code, true};
+}
+
+const agent::ProbeResult kNoResponse{0, false};
+
+} // namespace
+
+TEST(auth_probe_records_a_2xx_as_valid) {
+    const agent::Config cfg = endpoint("https://probe-valid.example/v1");
+    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
+        return answering(200);
+    });
+    ASSERT(s.state == agent::AuthState::Valid);
+    ASSERT(s.http_code == 200);
+    // And it is persisted, so it survives a restart.
+    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Valid);
+}
+
+TEST(auth_probe_records_a_401_as_rejected) {
+    const agent::Config cfg = endpoint("https://probe-rejected.example/v1");
+    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
+        return answering(401);
+    });
+    ASSERT(s.state == agent::AuthState::Rejected);
+    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
+}
+
+TEST(auth_probe_does_not_cache_an_inconclusive_result) {
+    // The important negative: a 500 must not overwrite a verdict the user has
+    // not invalidated. Their token may be fine and the server may be down.
+    const agent::Config cfg = endpoint("https://probe-500.example/v1");
+    agent::AuthStatus good;
+    good.state = agent::AuthState::Rejected;
+    good.http_code = 401;
+    agent::auth_status_write(cfg, good);
+
+    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
+        return answering(500);
+    });
+    ASSERT(s.state == agent::AuthState::Unknown);
+    // The previous verdict stands.
+    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
+}
+
+TEST(auth_probe_does_not_cache_a_transport_failure) {
+    const agent::Config cfg = endpoint("https://probe-refused.example/v1");
+    agent::AuthStatus good;
+    good.state = agent::AuthState::Valid;
+    good.http_code = 200;
+    agent::auth_status_write(cfg, good);
+
+    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) { return kNoResponse; });
+    ASSERT(s.state == agent::AuthState::Unknown);
+    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Valid);
+}
+
+// Probes are plain function pointers, so the call counter is file-static rather
+// than a capture.
+namespace {
+int g_probe_calls = 0;
+
+agent::ProbeResult counting_probe(const agent::Config&) {
+    ++g_probe_calls;
+    return answering(200);
+}
+} // namespace
+
+TEST(auth_probe_skips_a_provider_with_no_endpoint) {
+    // Nothing to ask, so nothing is probed and nothing is recorded -- and the
+    // injected probe must not run, which the call counter proves.
+    const agent::Config cfg = endpoint("");
+    g_probe_calls = 0;
+    const auto s = agent::auth_probe_blocking(cfg, counting_probe);
+    ASSERT(g_probe_calls == 0);
+    ASSERT(s.state == agent::AuthState::Unknown);
+}
+
+TEST(auth_probe_turns_a_rejection_into_the_bang_column) {
+    // The whole chain the feature exists for, end to end.
+    const agent::Config cfg = endpoint("https://probe-mark.example/v1");
+    agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(403); });
+    const auto s = agent::auth_status_read(cfg);
+    ASSERT(agent::provider_mark(s.state, true, true) == '!');
+}

@@ -51,9 +51,22 @@ long long auth_status_now_ms();
 // A verdict younger than the TTL is still shown.
 bool auth_status_fresh(const AuthStatus& status);
 
-// Blocking probe: one GET /models, classified and cached. For worker threads
-// only -- it blocks on the network. Returns the recorded status.
-AuthStatus auth_probe_blocking(const Config& cfg);
+// What one probe attempt observed: the HTTP status, and whether a response was
+// received at all. `transport_ok == false` means the server never spoke.
+struct ProbeResult {
+    long http_code = 0;
+    bool transport_ok = false;
+};
+
+// Perform one authenticated GET /models and report what came back. The only
+// part of the probe that is not pure; injectable so the classification and
+// caching above it are testable without a network.
+using ProbeFn = ProbeResult (*)(const Config&);
+
+// Blocking probe: run `probe` (the real GET /models when null), classify the
+// result, and cache it. For worker threads only -- it blocks on the network.
+// Returns the recorded status.
+AuthStatus auth_probe_blocking(const Config& cfg, ProbeFn probe = nullptr);
 
 // Non-blocking probe for the UI thread: runs auth_probe_blocking on a detached
 // worker and delivers the result through `post` (the host's UI-thread queue).

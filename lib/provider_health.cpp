@@ -112,16 +112,21 @@ void auth_status_write(const Config& cfg, const AuthStatus& status) {
         fs::remove(tmp, ec);
 }
 
-AuthStatus auth_probe_blocking(const Config& cfg) {
-    AuthStatus status;
+namespace {
+
+// The real probe: one GET /models, body discarded. Deliberately NOT
+// CURLOPT_FAILONERROR, so a 401 comes back as a response to classify rather than
+// as a transport error that hides the status code.
+ProbeResult probe_over_http(const Config& cfg) {
+    ProbeResult result;
     auto dialect = make_dialect(cfg.flavor);
     const std::string url = dialect->models_url(cfg);
     if (url.empty())
-        return status;
+        return result;
 
     CURL* c = curl_easy_init();
     if (!c)
-        return status;
+        return result;
 
     struct curl_slist* headers = nullptr;
     for (const std::string& h : dialect->auth_headers(cfg))
@@ -129,26 +134,33 @@ AuthStatus auth_probe_blocking(const Config& cfg) {
     if (headers)
         curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(c, CURLOPT_URL, url.c_str());
-    // The body is irrelevant here: only whether the endpoint accepted the
-    // credential. Draining to a sink keeps curl from aborting mid-transfer.
     curl_easy_setopt(c, CURLOPT_WRITEFUNCTION, discard_body);
     curl_easy_setopt(c, CURLOPT_WRITEDATA, nullptr);
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-    // Deliberately NOT FAILONERROR: a 401 must come back as a response to
-    // classify, not as a transport error that hides the status code.
 
     const CURLcode rc = curl_easy_perform(c);
-    long http_code = 0;
-    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &result.http_code);
     curl_slist_free_all(headers);
     curl_easy_cleanup(c);
 
-    status.http_code = http_code;
-    status.state = auth_state_from_http(http_code, rc == CURLE_OK);
+    result.transport_ok = (rc == CURLE_OK);
+    return result;
+}
+
+} // namespace
+
+AuthStatus auth_probe_blocking(const Config& cfg, ProbeFn probe) {
+    AuthStatus status;
+    if (cfg.api_base.empty())
+        return status;
+
+    const ProbeResult r = probe ? probe(cfg) : probe_over_http(cfg);
+    status.http_code = r.http_code;
+    status.state = auth_state_from_http(r.http_code, r.transport_ok);
     status.checked_ms = auth_status_now_ms();
-    // Only a conclusive answer is worth keeping. An inconclusive probe must not
+    // Only a conclusive answer is worth keeping: an inconclusive probe must not
     // overwrite a previous verdict with Unknown.
     if (status.state != AuthState::Unknown)
         auth_status_write(cfg, status);

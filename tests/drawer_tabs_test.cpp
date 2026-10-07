@@ -162,3 +162,26 @@ TEST(model_row_aligns_two_providers_so_the_models_line_up) {
     ASSERT(model_col_long != std::string::npos);
     ASSERT_EQ(model_col_short, model_col_long);
 }
+
+// Paths the tab strip reaches only on a narrow terminal or an unusual tab list.
+// Both were unreachable from the happy-path tests above, which is how a strip
+// that renders nothing on a 40-column terminal would have shipped.
+
+TEST(tab_names_returns_the_providers_in_order) {
+    // CommandLine stores tab NAMES, so this is the seam between the two.
+    const auto names = tui::tab_names({{"", "All", 3}, {"beta", "beta", 2}, {"alpha", "alpha", 1}});
+    ASSERT(names.size() == 3);
+    ASSERT(names[0].empty());
+    ASSERT(names[1] == "beta");
+    ASSERT(names[2] == "alpha");
+}
+
+TEST(model_row_truncates_a_provider_name_wider_than_the_column) {
+    // Long enough to overflow the column: the row must stay one line and keep
+    // its model, rather than pushing it off the end.
+    const std::string long_name(60, 'x');
+    const auto row = tui::model_row(long_name, "the-model", 0);
+    ASSERT(row.find("the-model") != std::string::npos);
+    // The truncated name ends with the ellipsis the strip uses for the same job.
+    ASSERT(row.find("\xe2\x80\xa6") != std::string::npos);
+}
