@@ -32,7 +32,7 @@ DrawerTabStrip make_tab_strip(const std::vector<ProviderTab>& tabs, std::size_t 
     if (tabs.size() < 2 || max_width <= 0)
         return strip;
 
-    const std::size_t budget = static_cast<std::size_t>(max_width);
+    const auto budget = static_cast<std::size_t>(max_width);
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         if (!strip.line.empty())
             strip.line += " ";
