@@ -15,12 +15,25 @@ constexpr std::size_t kEndLen = sizeof(kEnd) - 1;
 void BracketPasteDecoder::reset() noexcept {
     clear_state();
     unconsumed_.clear();
+    pending_.clear();
+    pending_at_ = 0;
 }
 
 void BracketPasteDecoder::clear_state() noexcept {
     state_ = 0;
     pos_ = 0;
     pasting_ = false;
+}
+
+BracketPasteDecoder::Event BracketPasteDecoder::take_pending(char& out) {
+    if (!has_pending())
+        return Event::None;
+    out = pending_[pending_at_++];
+    if (pending_at_ == pending_.size()) {
+        pending_.clear();
+        pending_at_ = 0;
+    }
+    return Event::Text;
 }
 
 // Inside a paste: only the end marker is special, everything else is content.
@@ -33,10 +46,20 @@ BracketPasteDecoder::Event BracketPasteDecoder::feed_inside(int ch, char& out) {
             }
             return Event::None;
         }
-        // Not the end marker after all: this byte is content, and the partially
-        // matched marker was content too.
+        // Not the end marker after all: the bytes held back while it looked like
+        // one are content too. Queue them, or pasting text that merely resembles
+        // "ESC [ 2 0 1" silently loses it.
+        //
+        // `ch` goes on the queue as well, after them: emitting it now would put
+        // it ahead of the rescued prefix, reversing the pasted text. The caller
+        // drains the queue before its next input byte (see has_pending()), so
+        // order is preserved end to end.
+        for (std::size_t i = 0; i < pos_; ++i)
+            pending_.push_back(kEnd[i]);
+        pending_.push_back(static_cast<char>(ch));
         pos_ = 0;
         state_ = 2;
+        return Event::None;
     }
     if (static_cast<char>(ch) == kEnd[0]) {
         state_ = 3;
@@ -84,7 +107,15 @@ BracketPasteDecoder::Event BracketPasteDecoder::feed(int ch, char& out) {
 PasteBurst consume_paste_burst(BracketPasteDecoder& d, const std::vector<int>& bytes) {
     PasteBurst out;
     char text = 0;
-    for (const int b : bytes) {
+    for (std::size_t i = 0; i < bytes.size();) {
+        // A rejected marker may have queued several bytes, and feed() returns at
+        // most one per call, so drain them before consuming the next input byte.
+        if (d.has_pending()) {
+            d.take_pending(text);
+            out.insert.push_back(text);
+            continue;
+        }
+        const int b = bytes[i++];
         switch (d.feed(b, text)) {
         case BracketPasteDecoder::Event::Begin:
             out.started = true;

@@ -14,27 +14,36 @@ struct Fed {
 };
 
 Fed feed_all(tui::BracketPasteDecoder& d, const std::string& bytes) {
-    Fed f;
-    for (const char c : bytes) {
-        char out = 0;
-        switch (d.feed(static_cast<unsigned char>(c), out)) {
-        case Ev::Begin:
-            ++f.begins;
-            break;
-        case Ev::Text:
-            f.text += out;
-            break;
-        case Ev::End:
-            ++f.ends;
-            f.ended_cleanly = true;
-            break;
-        case Ev::NotPaste:
-        case Ev::None:
-            break;
-        }
-    }
-    return f;
-}
+      Fed f;
+      for (std::size_t i = 0; i < bytes.size();) {
+          // A rejected marker queues several bytes; drain them before the next
+          // input byte, exactly as consume_paste_burst() does.
+          char pending = 0;
+          if (d.has_pending()) {
+              d.take_pending(pending);
+              f.text += pending;
+              continue;
+          }
+          const char c = bytes[i++];
+          char out = 0;
+          switch (d.feed(static_cast<unsigned char>(c), out)) {
+          case Ev::Begin:
+              ++f.begins;
+              break;
+          case Ev::Text:
+              f.text += out;
+              break;
+          case Ev::End:
+              ++f.ends;
+              f.ended_cleanly = true;
+              break;
+          case Ev::NotPaste:
+          case Ev::None:
+              break;
+          }
+      }
+      return f;
+  }
 
 constexpr const char kPaste[] = "\033[200~sk-ant-0123456789\033[201~";
 
@@ -112,6 +121,23 @@ TEST(bracket_paste_pushback_is_cleared_by_reset) {
 }
 
 // A partial match then a cancel must recover cleanly.
+// An end marker that turns out not to be one: "\033[201X" is not a terminator,
+// so X is content, and so were the partial-marker bytes the decoder held back.
+TEST(bracket_paste_treats_a_false_end_marker_as_content) {
+    tui::BracketPasteDecoder d;
+    auto f = feed_all(d, "\033[200~abc\033[201Xrest");
+    ASSERT_EQ(f.begins, 1);
+    // The paste never ended: the decoder must still be inside it, with the
+    // rejected marker flushed back out as literal text rather than swallowed.
+    ASSERT_EQ(f.ends, 0);
+    ASSERT_EQ(f.text, std::string("abc\033[201Xrest"));
+
+    // And a real marker still closes it afterwards, so the false one did not
+    // wedge the decoder into the start-marker state.
+    auto g = feed_all(d, "\033[201~");
+    ASSERT_EQ(g.ends, 1);
+}
+
 TEST(bracket_paste_reset_after_a_partial_marker) {
     tui::BracketPasteDecoder d;
     char out = 0;

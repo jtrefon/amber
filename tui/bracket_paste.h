@@ -37,6 +37,20 @@ public:
     // still cancels. Ordered as read.
     const std::vector<int>& unconsumed() const noexcept { return unconsumed_; }
 
+    // Bytes that were held back as a possible marker and then turned out to be
+    // content: pasting the literal text "ESC [ 2 0 1" must insert all of it, not
+    // swallow it. feed() emits at most one byte per call, so a rejected marker
+    // (up to six bytes) is queued here instead.
+    //
+    // Drain these BEFORE every feed(): has_pending() is checked first, and
+    // take_pending() returns one byte at a time. Feeding a new byte while bytes
+    // are queued would drop that byte, because feed() has no way to return two.
+    // consume_paste_burst() does this correctly; use it rather than feed().
+    bool has_pending() const noexcept { return pending_at_ < pending_.size(); }
+
+    // One queued byte as Event::Text, or Event::None when the queue is empty.
+    Event take_pending(char& out);
+
     // Drop any partial sequence. Called when a key that is not part of a paste
     // arrives, or when the loop ends.
     void reset() noexcept;
@@ -54,6 +68,12 @@ private:
     std::size_t pos_ = 0;
     bool pasting_ = false;
     std::vector<int> unconsumed_;
+
+    // Content rescued from a marker that was rejected. pending_at_ is a cursor
+    // rather than erasing the front, so appending while a caller is mid-drain
+    // stays ordered.
+    std::vector<char> pending_;
+    std::size_t pending_at_ = 0;
 };
 
 // What one burst of bytes meant, and what to insert.
