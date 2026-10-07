@@ -1179,6 +1179,22 @@ TEST(test_completion_context_namespace_descend_keeps_ns) {
     ASSERT(ctx.prefix == "/window "); // an exact namespace descends
 }
 
+// A token that descended into a namespace is not a filter: the rows are that
+// namespace's children, unfiltered. Reporting it as a filter made the model
+// drawer's tab strip count every row out ("All(0) beta(0)") until the next
+// keystroke, because "model" is not a substring of any "provider::id" row.
+TEST(test_completion_context_namespace_descend_is_not_a_filter) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    tui::completion_context::Context ctx = tui::completion_context::for_input("/window", reg);
+    ASSERT(ctx.prefix == "/window ");
+    ASSERT(ctx.filter.empty());
+
+    // And a real partial is still reported: only the namespace case clears it.
+    tui::completion_context::Context part = tui::completion_context::for_input("/set mo", reg);
+    ASSERT(part.filter == "mo");
+}
+
 TEST(test_completion_context_trailing_space_descends) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
@@ -1258,6 +1274,7 @@ int main() {
         test_completion_context_slash_lists_top_level();
         test_completion_context_partial_replaces_token();
         test_completion_context_namespace_descend_keeps_ns();
+        test_completion_context_namespace_descend_is_not_a_filter();
         test_completion_context_trailing_space_descends();
         test_completion_context_non_slash_uses_top_level_names();
     } catch (const std::exception& e) {

@@ -288,7 +288,8 @@ bool write_file(const std::string& path, const std::string& body) {
 // drawer can offer a tab each. Real provider service + real cache format, not a
 // stubbed tree: the keys the tabs derive themselves from are exactly these.
 bool seed_two_provider_catalogues(const std::string& xdg_home) {
-    const std::string dir = xdg_home + "/xdg/amber/providers";
+    // xdg_home IS XDG_CONFIG_HOME, and global_config_dir() appends "/amber".
+    const std::string dir = xdg_home + "/amber/providers";
     if (!fs::create_directories(dir))
         return false;
     const char* bodies[] = {
@@ -303,9 +304,9 @@ bool seed_two_provider_catalogues(const std::string& xdg_home) {
         cfg.api_key = "sk-test";
         cfg.model = (i == 0) ? "beta-large" : "alpha-shared";
         const std::string p = dir + "/" + names[i] + ".conf";
-        if (!write_file(p, "provider_name=" + std::string(names[i]) + "\n" +
-                               "api_base=" + cfg.api_base + "\n" +
-                               "flavor=openai\napi_key=sk-test\n" + "model=" + cfg.model + "\n"))
+        if (!write_file(p, "provider=" + std::string(names[i]) + "\n" + "api_base=" + cfg.api_base +
+                               "\n" + "flavor=openai\napi_key=sk-test\n" + "model=" + cfg.model +
+                               "\n"))
             return false;
         agent::model_catalog_write(cfg, bodies[i]);
     }
@@ -318,6 +319,19 @@ bool seed_two_provider_catalogues(const std::string& xdg_home) {
 bool open_set_model(Tui& tui) {
     tui.send("/set model ");
     return tui.wait_for("All(", 10000);
+}
+
+// Type a fragment into the open model drawer and run the row it leaves. The
+// dispatch line proves the row existed, was selected, and named its provider --
+// and, since neither fragment is a prefix of the id or of the composite key,
+// that the search matches beyond the start of a name.
+bool pick_by_fragment(Tui& tui, const std::string& fragment, const std::string& expect) {
+    tui.send(fragment);
+    tui.pump(500);
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r"); // the first Enter may only descend; the second is a no-op then
+    return tui.wait_for(expect, 10000);
 }
 
 // config root, so the test never reads or writes the developer's real state.
@@ -598,6 +612,48 @@ TEST(bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open) {
             "the pasted text never appeared (paste dropped, or the field is not drawn)", tui);
 }
 
+// ── /set model must list every configured provider's cached catalogue ──
+//
+// The drawer's rows come from the real ProviderService, through endpoints_of()
+// -> catalogs_from() -> aggregate_provider_models(). Each link had its own unit
+// test, but none exercised the chain as the APP builds it -- open_set_model()
+// existed unused -- so nothing noticed that endpoints_of() built its
+// ProviderEndpoints without the flag catalogs_from() gates the cache read on:
+// every catalogue was skipped and /set model opened an empty drawer. With no
+// rows there was also no tab strip, which needs two rows even to render.
+//
+// The search half is proven by dispatch, not by watching a repaint: "large" is
+// a suffix of the id and "lph" sits mid-id, so a prefix-only match finds
+// neither, and Enter on the filtered row must land as the model set -- naming
+// the provider it switched to. Tab COUNTS are deliberately not asserted from
+// the byte stream: the strip is diffed into the terminal, so a changed count
+// arrives as a bare digit and "All(3)" is never contiguous. The strip's layout
+// and counts are unit tested in drawer_tabs_test; what this test adds is the
+// wiring beneath.
+TEST(set_model_lists_every_configured_providers_cached_models) {
+    Tui tui;
+    tui.name = "set_model_lists_every_configured_providers_cached_models";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    if (!require(open_set_model(tui), "the drawer has no rows, so it has no tab strip", tui))
+        return;
+
+    require(tui.wait_for("beta::beta-large", 5000), "beta's catalogue is missing from the drawer",
+            tui);
+    require(tui.wait_for("beta::beta-small", 5000), "beta's second model is missing", tui);
+    require(tui.wait_for("alpha::alpha-shared", 5000), "alpha's catalogue is missing", tui);
+
+    // One dispatch per provider, both by a fragment that matches past the start.
+    require(pick_by_fragment(tui, "large", "model set to beta-large"),
+            "a suffix match was not selectable (search matches prefixes only?)", tui);
+    tui.send("/set model ");
+    tui.pump(600);
+    require(pick_by_fragment(tui, "lph", "model set to alpha-shared"),
+            "the other provider's catalogue is not searchable or selectable", tui);
+}
+
 TEST(system_commands_do_not_freeze_the_ui) {
     // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that
     // blocks for 4 s turns it into a long job, so "did the UI wait on it?" is
@@ -653,6 +709,7 @@ int main(int argc, char** argv) {
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
+    set_model_lists_every_configured_providers_cached_models();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session

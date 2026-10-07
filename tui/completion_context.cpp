@@ -51,6 +51,12 @@ Context for_input(const std::string& input, const SettingRegistry& settings) {
     } else {
         ctx.prefix = input;
         ctx.prefix += ' ';
+        // The token named a namespace, so drawer_entry_names DESCENDED into it:
+        // the rows are its children, unfiltered, and the token is not a filter.
+        // Reporting it as one counted every row out of the tab strip ("All(0)")
+        // until the next keystroke, because "model" is not a substring of any
+        // "provider::id" row.
+        ctx.filter.clear();
     }
     return ctx;
 }
