@@ -1,5 +1,7 @@
 #pragma once
 
+#include "agent/provider_health.h"
+
 #include <nlohmann/json.hpp>
 
 #include <string>
@@ -63,13 +65,23 @@ struct ProviderEndpoint {
     std::string name;
     std::string api_base;
     std::string flavor = "openai";
+    // Whether this provider has an endpoint, and therefore could have a
+    // catalogue on disk at all.
+    //
+    // Deliberately NOT "has a usable key". Listing reads the cache, which needs
+    // no credentials, and gating the list on key availability emptied it: a
+    // preset provider carries a preset api_base and no api_key, so a key-based
+    // test excluded providers that had perfectly good cached catalogues. Whether
+    // a FETCH should be attempted is a separate question, answered by the caller
+    // with information this layer does not have (see refresh_provider_catalogs_async).
+    bool has_endpoint = false;
 };
 
 // Reads one endpoint's already-cached models. Must not touch the network: this
 // runs while the UI thread is composing a drawer.
 using CatalogReader = std::vector<ProviderModel> (*)(const ProviderEndpoint&);
 
-// Per-provider catalogues, skipping endpoints with no /models to fetch.
+// Per-provider catalogues, skipping endpoints that cannot be fetched.
 //
 // Split out from the feed so the "is it configured" rule is testable: a
 // provider with an empty api_base has no catalogue, and an empty catalogue
@@ -99,5 +111,34 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& endpoint);
 // feed; the leaf/collide/ctx rules are the same either way.
 nlohmann::json model_subtree(const std::vector<ProviderModel>& rows,
                              const std::string& action_prefix);
+
+// One line of /get provider list.
+//
+// The asterisk marks the ACTIVE provider, which it always did. The checkbox
+// column answers the question the list used to leave open: is this provider set
+// up at all? An enabled-but-unconfigured provider is indistinguishable from a
+// configured one otherwise, which is why configuring openrouter appeared to do
+// nothing.
+//
+//   [x]  has an endpoint, and a key if one is required
+//   [!]  has an endpoint but no key -- it will fail to authenticate
+//   [ ]  no endpoint, so there is nothing to query
+//
+// has_key is passed in rather than inferred: a bundled preset carries a preset
+// api_base and no key, and the active config may hold the key from elsewhere, so
+// One row of /get provider list.
+//
+// The checkbox reports what the SERVER last said about the credential, not
+// whether a key happens to be present -- a revoked key and a working one were
+// indistinguishable, which is the confusion this replaces:
+//
+//   [x]  configured, and the endpoint accepted the token
+//   [!]  configured, but the token was rejected (or one is required and absent)
+//   [ ]  not configured, or never probed -- never "probably fine"
+//
+// `state` is agent::AuthState. A provider that needs no key is Valid once the
+// endpoint answers at all, which is what agent::provider_mark() decides.
+std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
+                               agent::AuthState state);
 
 } // namespace tui

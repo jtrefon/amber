@@ -1,6 +1,8 @@
 #ifndef AMBER_TUI_RENDER_ENGINE_H
 #define AMBER_TUI_RENDER_ENGINE_H
 
+#include "tui/drawer_tabs.h"
+
 #include <ncurses.h>
 
 #include <atomic>
@@ -67,6 +69,7 @@ public:
     void draw_drawer(const std::string& input);
     // The drawer's header strip and its visible rows.
     void draw_drawer_header(int top);
+    void draw_drawer_tabs(int top);
     void draw_drawer_rows(int top, int header, const std::vector<std::string>& rows, int first,
                           int shown);
 
@@ -104,6 +107,8 @@ public:
     void set_drawer_open(bool v) noexcept { drawer_open_ = v; }
     int drawer_sel() const noexcept { return drawer_sel_; }
     void set_drawer_sel(int v) noexcept { drawer_sel_ = v; }
+    void set_drawer_tabs(DrawerTabStrip strip) noexcept { drawer_tabs_ = std::move(strip); }
+    const DrawerTabStrip& drawer_tabs() const noexcept { return drawer_tabs_; }
     bool scroll_mode() const noexcept { return scroll_mode_; }
     void set_scroll_mode(bool v) noexcept { scroll_mode_ = v; }
     bool show_reasoning() const noexcept { return show_reasoning_; }
@@ -152,6 +157,8 @@ private:
     std::shared_ptr<GitPublication> git_pub_ = std::make_shared<GitPublication>();
     bool drawer_open_ = false;
     int drawer_sel_ = 0;
+    // The model picker's tab strip, empty when the open drawer has no tabs.
+    DrawerTabStrip drawer_tabs_;
     bool scroll_mode_ = false;
     bool show_reasoning_ = true;
     int anim_phase_ = 0;

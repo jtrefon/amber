@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/model_probe.h"
 #include "agent/session.h"
 #include "tests/minitest.h"
 
@@ -275,6 +276,50 @@ struct Tui {
 };
 
 // Hermetic fixture: a private workspace (sessions + settings) and a private XDG
+bool write_file(const std::string& path, const std::string& body) {
+    std::ofstream f(path, std::ios::trunc);
+    if (!f)
+        return false;
+    f << body;
+    return static_cast<bool>(f);
+}
+
+// Seed two providers' catalogues so /set model has a row per provider and the
+// drawer can offer a tab each. Real provider service + real cache format, not a
+// stubbed tree: the keys the tabs derive themselves from are exactly these.
+bool seed_two_provider_catalogues(const std::string& xdg_home) {
+    const std::string dir = xdg_home + "/xdg/amber/providers";
+    if (!fs::create_directories(dir))
+        return false;
+    const char* bodies[] = {
+        R"({"data":[{"id":"beta-large","context_length":100000},{"id":"beta-small","context_length":8000}]})",
+        R"({"data":[{"id":"alpha-shared","context_length":200000}]})"};
+    const char* names[] = {"beta", "alpha"};
+    for (int i = 0; i < 2; ++i) {
+        agent::Config cfg;
+        cfg.provider_name = names[i];
+        cfg.api_base = "http://127.0.0.1:9/" + std::string(names[i]) + "/v1";
+        cfg.flavor = "openai";
+        cfg.api_key = "sk-test";
+        cfg.model = (i == 0) ? "beta-large" : "alpha-shared";
+        const std::string p = dir + "/" + names[i] + ".conf";
+        if (!write_file(p, "provider_name=" + std::string(names[i]) + "\n" +
+                               "api_base=" + cfg.api_base + "\n" +
+                               "flavor=openai\napi_key=sk-test\n" + "model=" + cfg.model + "\n"))
+            return false;
+        agent::model_catalog_write(cfg, bodies[i]);
+    }
+    return true;
+}
+
+// The strip renders each tab as "name(count)", so "All(" is a marker nothing else
+// on screen produces. Matching a bare provider name would false-positive on the
+// seeded session titles ("hello from pty-beta").
+bool open_set_model(Tui& tui) {
+    tui.send("/set model ");
+    return tui.wait_for("All(", 10000);
+}
+
 // config root, so the test never reads or writes the developer's real state.
 struct Fixture {
     std::string workspace;
@@ -283,14 +328,6 @@ struct Fixture {
     std::string newer_id = "pty-newer";
     std::string older_id = "pty-older";
 };
-
-bool write_file(const std::string& path, const std::string& body) {
-    std::ofstream f(path, std::ios::trunc);
-    if (!f)
-        return false;
-    f << body;
-    return static_cast<bool>(f);
-}
 
 // Two sessions on one day, with fixed timestamps so list order (newest first) is
 // deterministic: row 1 is `newer`, row 2 is `older`.
@@ -348,7 +385,11 @@ bool build_fixture(Fixture& fx) {
     we.title = "pty-beta";
     ws.windows.push_back(we);
     ws.active = 0;
-    return store.save_workspace(ws);
+    if (!store.save_workspace(ws))
+        return false;
+    // Two providers with catalogues, so the model drawer has a row per provider
+    // and can offer a tab each.
+    return seed_two_provider_catalogues(fx.workspace + "/xdg");
 }
 
 // A stand-in command that blocks for `seconds`. Used to make "did the UI thread
@@ -515,6 +556,48 @@ TEST(startup_paints_before_git_returns) {
     require(ms < 3000, "the first paint waited on git (startup forked it)", tui);
 }
 
+// ── Bracketed paste into a secret form field ──
+//
+// Two defects at once, and one assertion covers both:
+//   - a secret field cleared ncurses' O_PUBLIC, so the field was drawn empty and
+//     a pasted token could not be verified on screen;
+//   - a bracketed paste begins with ESC, and form_focus treats a bare ESC as
+//     cancel, so the first byte closed the dialog before the rest arrived.
+//
+// If the pasted text is visible AND the editor is still open, paste decoding
+// worked and the field is drawn.
+
+TEST(bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open) {
+    Tui tui;
+    tui.name = "bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!wait_ready(tui))
+        return;
+
+    // "/provider openrouter" has no key configured, so the switch prompts for it
+    // through the shared provider editor -- the form with the secret API Key field.
+    tui.send("/provider openrouter\r");
+    if (!require(tui.wait_for("Configure: openrouter", 10000), "the provider editor did not open",
+                 tui))
+        return;
+
+    // Focus starts on "Server URL"; the secret field is the next one (Tab moves).
+    tui.send("\t");
+    tui.pump(300);
+    if (!require(tui.wait_for("API Key", 5000), "no API Key field in the editor", tui))
+        return;
+
+    tui.send("\x1b[200~pasted-token-value\x1b[201~");
+    tui.pump(600);
+
+    // Still the editor? A paste misread as ESC would have cancelled out of it.
+    require(tui.text().find("Configure: openrouter") != std::string::npos,
+            "the paste closed the editor -- ESC was read as cancel", tui);
+    // On screen? i.e. the field is drawn and the bytes were inserted into it.
+    require(tui.wait_for("pasted-token-value", 5000),
+            "the pasted text never appeared (paste dropped, or the field is not drawn)", tui);
+}
+
 TEST(system_commands_do_not_freeze_the_ui) {
     // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that
     // blocks for 4 s turns it into a long job, so "did the UI wait on it?" is
@@ -569,6 +652,7 @@ int main(int argc, char** argv) {
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
+    bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session

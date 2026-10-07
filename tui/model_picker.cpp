@@ -55,7 +55,7 @@ std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& 
     for (const auto& e : endpoints) {
         ProviderCatalog c;
         c.provider = e.name;
-        c.configured = !e.api_base.empty();
+        c.configured = e.has_endpoint;
         if (c.configured)
             c.models = read(e);
         out.push_back(std::move(c));
@@ -88,6 +88,35 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
         out.push_back(pm);
     }
     return out;
+}
+
+std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
+                               agent::AuthState state) {
+    const bool has_endpoint = !api_base.empty();
+    // The verdict is the state's job; "has a key" is not evidence either way, so
+    // it is not consulted. An unprobed configured provider reads [ ], which is
+    // honest -- the alternative is guessing that a key is good.
+    const char mark = agent::provider_mark(state, has_endpoint, /*has_key=*/true);
+
+    std::string line = "  ";
+    line += active ? '*' : ' ';
+    line += "  [";
+    line += mark;
+    line += "]  ";
+    line += name;
+    line += "  (";
+    if (!has_endpoint) {
+        line += "unconfigured";
+    } else if (state == agent::AuthState::Rejected) {
+        // Say WHY, so [!] is not read as "no key yet".
+        line += "token rejected";
+    } else if (state == agent::AuthState::Unknown) {
+        line += "not checked yet";
+    } else {
+        line += api_base;
+    }
+    line += ")";
+    return line;
 }
 
 } // namespace tui

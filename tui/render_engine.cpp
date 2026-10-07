@@ -668,6 +668,25 @@ void RenderEngine::draw_drawer_rows(int top, int header, const std::vector<std::
     }
 }
 
+// The tab strip, when the open drawer has tabs. Painted on the header row's
+// right so it cannot displace the key hints on the left.
+void RenderEngine::draw_drawer_tabs(int top) {
+    if (drawer_tabs_.line.empty())
+        return;
+    const int w = std::min<int>(static_cast<int>(drawer_tabs_.line.size()), width());
+    const int x = std::max(0, width() - w);
+    move(top, 0);
+    for (int i = 0; i < width(); ++i)
+        addch(' ');
+    // The selected tab is reverse-video, so which tab is active is visible
+    // without having to count from the left.
+    if (drawer_tabs_.selected_mark_pos != std::string::npos)
+        attron(A_REVERSE);
+    mvaddnstr(top, x, drawer_tabs_.line.c_str(), w);
+    if (drawer_tabs_.selected_mark_pos != std::string::npos)
+        attroff(A_REVERSE);
+}
+
 void RenderEngine::draw_drawer(const std::string& input) {
     if (!drawer_open_)
         return;
@@ -690,6 +709,7 @@ void RenderEngine::draw_drawer(const std::string& input) {
 
     clear_rows(top, bar_row);
     draw_drawer_header(top);
+    draw_drawer_tabs(top);
     draw_drawer_rows(top, header, rows, win.first, win.second);
 }
 

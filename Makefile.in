@@ -34,6 +34,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/dialect_gemini.o \
             $(BUILD_DIR)/lib/http_transport.o \
             $(BUILD_DIR)/lib/model_probe.o \
+$(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/registry.o \
               $(BUILD_DIR)/lib/toolset_audit.o \
             $(BUILD_DIR)/lib/prompt.o \
@@ -149,7 +150,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/tui_main.o \
              $(BUILD_DIR)/tui/command_line.o \
              $(BUILD_DIR)/tui/action_registry.o \
-             $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o \
+             $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o \
+              $(BUILD_DIR)/tui/bracket_paste.o \
              $(BUILD_DIR)/tui/tool_display.o \
              $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o \
              $(BUILD_DIR)/tui/setting_registry.o \
@@ -212,7 +214,11 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_docs_test.o \
                $(BUILD_DIR)/tests/plugin_commands_test.o \
                $(BUILD_DIR)/tests/search_backends_test.o \
-               $(BUILD_DIR)/tests/model_picker_test.o
+               $(BUILD_DIR)/tests/model_picker_test.o \
+               $(BUILD_DIR)/tests/bracket_paste_test.o \
+               $(BUILD_DIR)/tests/provider_repro_test.o \
+$(BUILD_DIR)/tests/provider_health_test.o \
+$(BUILD_DIR)/tests/drawer_tabs_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
@@ -776,8 +782,8 @@ class-size-update:
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
 
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 	$(CXX) $(CXXFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
@@ -790,11 +796,11 @@ $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_brows
 $(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
-$(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/setting_registry.o
+$(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
-$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o
-	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o $(CURL_LIBS)
+$(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o
+	$(CXX) $(CXXFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o $(CURL_LIBS)
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)

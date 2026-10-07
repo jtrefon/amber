@@ -13,6 +13,10 @@ namespace tui::completion_context {
 struct Context {
     std::vector<std::string> rows; // completion candidates, in display order
     std::string prefix;            // what Enter prepends to the selected row
+    // The trailing token the rows were filtered by, empty when there is none.
+    // Carried out because the provider tabs report match counts, and a count is
+    // only meaningful against the filter that produced it.
+    std::string filter;
 };
 
 // For a slash input the rows are the drawer's entry names and the prefix is

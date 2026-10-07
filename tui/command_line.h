@@ -63,6 +63,16 @@ public:
     Result on_undo();   // Ctrl-_ (undo)
     Result on_up();     // history up or cycle up
     Result on_down();   // history down or cycle down
+    // Shared by on_left/on_right: returns true when a provider tab moved.
+    bool move_provider_tab(int direction);
+    // Esc closes the drawer (the binder turns Esc into CloseDrawer; the command
+    // line owns the flag, so the arrow hijack has to be released here).
+    Result on_escape() {
+        Result r;
+        drawer_open_ = false;
+        reset_cycle();
+        return r;
+    }
     Result on_left();
     Result on_right();
     Result on_home();
@@ -91,6 +101,25 @@ public:
         dispatch_prefix_ = dispatch_prefix;
         recompute();
     }
+
+    // ── Provider tabs (the /set model drawer) ────────────────────────────
+    //
+    // `providers` lists the tabs in display order, with the currently selected
+    // one at `selected`. Left/Right move between them INSTEAD of moving the text
+    // cursor, but only while the drawer is open: everywhere else those keys move
+    // the caret, and a drawer that kept claiming them after Esc would make the
+    // caret unreachable.
+    void set_provider_tabs(const std::vector<std::string>& providers, std::size_t selected) {
+        provider_tabs_ = providers;
+        provider_tab_ = selected < providers.size() ? selected : 0;
+    }
+
+    std::size_t provider_tab_index() const { return provider_tab_; }
+    bool has_provider_tabs() const { return !provider_tabs_.empty(); }
+
+    // The rows on the selected tab. Used by the drawer to render the visible
+    // subset; the tab is not a filter over completion, it is a view of them.
+    std::vector<std::string> tab_rows() const;
 
     // ── Direct state control (for test setup) ───────────────────────
 
@@ -128,6 +157,9 @@ private:
 
     // Completion context (valid names at current depth)
     std::vector<std::string> completions_;
+    // Provider tabs for the model drawer; empty means the arrows are untouched.
+    std::vector<std::string> provider_tabs_;
+    std::size_t provider_tab_ = 0;
     // Text Enter prepends to the selected row to build the dispatch string
     // (set by the host alongside completions_; empty = legacy input-derived).
     std::string dispatch_prefix_;

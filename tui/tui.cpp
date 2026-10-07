@@ -513,6 +513,20 @@ void Tui::run_startup(CommandLine& cl) {
 void Tui::refresh_completion_context(CommandLine& cl) {
     completion_context::Context ctx = completion_context::for_input(cl.text(), settings_);
     cl.set_completions(ctx.rows, ctx.prefix);
+
+    // Provider tabs for the model drawer. Derived from the rows rather than from
+    // the command path, so a namespace whose rows are plain names gets none and
+    // keeps the arrow keys for the caret. Only re-seeded while the drawer's own
+    // selection is active: refresh_completion_context runs after every keystroke,
+    // and resetting the tab on each one would throw away the tab the user chose.
+    const auto tabs = make_provider_tabs(ctx.rows, cfg_.provider_name, ctx.filter);
+    if (tabs.empty()) {
+        cl.set_provider_tabs({}, 0);
+    } else if (!cl.has_provider_tabs()) {
+        const auto labels = tab_names(tabs);
+        cl.set_provider_tabs(labels, 0);
+    }
+    render_engine_->set_drawer_tabs(make_tab_strip(tabs, cl.provider_tab_index()));
 }
 
 // Graceful teardown after a signal, on the main thread. Never returns: the

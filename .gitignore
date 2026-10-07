@@ -81,3 +81,7 @@ coverage.xml
 coverage.json
 coverage-summary.json
 coverage-core.json
+
+# Interrupted builds leave one of these behind, and a stray .gcda with no matching
+# .gcno aborts gcovr -- which fails the patch-coverage gate closed.
+*.o.tmp

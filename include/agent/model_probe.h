@@ -30,6 +30,23 @@ std::vector<ModelInfo> list_model_info(const Config& cfg, const Dialect& dialect
 // Fetch all model IDs from the configured server. Returns empty on error.
 std::vector<std::string> list_models(const Config& cfg);
 
+// One authenticated GET {api_base}/models, reporting the HTTP status rather than
+// only success, and optionally discarding the body.
+//
+// Split out because two callers need different halves of it: the catalogue wants
+// the body and treats any 4xx as a failure (FAILONERROR, an error page is not a
+// catalogue), while a credential probe wants the STATUS and must see a 401 rather
+// than have it swallowed. Duplicating the request setup was the alternative, and
+// left ~40 lines no test could reach.
+struct ModelsGetResult {
+    std::string body;
+    long http_code = 0;
+    bool transport_ok = false; // false when no response arrived at all
+};
+
+// `want_body` false skips buffering the body: a probe only needs the status.
+ModelsGetResult models_get(const Config& cfg, bool want_body);
+
 // ---------------------------------------------------------------------------
 // Model catalog cache (stale-while-revalidate)
 //
