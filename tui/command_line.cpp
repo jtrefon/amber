@@ -473,13 +473,55 @@ CommandLine::Result CommandLine::on_down() {
     return r;
 }
 
+// The provider tabs own Left/Right while the drawer is open. `direction` is -1
+// for Left, +1 for Right. Returns true when a tab moved, so the caller can skip
+// the caret movement that would otherwise happen.
+bool CommandLine::move_provider_tab(int direction) {
+    if (provider_tabs_.size() < 2 || !drawer_open_)
+        return false;
+    const long long next = static_cast<long long>(provider_tab_) + direction;
+    // Clamp, do not wrap: a wrapped Left reads as an unresponsive drawer.
+    if (next < 0 || next >= static_cast<long long>(provider_tabs_.size()))
+        return false;
+    provider_tab_ = static_cast<std::size_t>(next);
+    drawer_sel_ = 0;
+    recompute();
+    return true;
+}
+
+std::vector<std::string> CommandLine::tab_rows() const {
+    if (provider_tabs_.empty() || provider_tab_ >= provider_tabs_.size())
+        return completions_;
+    const std::string& want = provider_tabs_[provider_tab_];
+    std::vector<std::string> out;
+    for (const auto& row : completions_) {
+        // Completion rows for /set model are composite "provider::model" keys, so
+        // the provider is the text before the separator. The All tab (empty name)
+        // keeps every row, and a row with no separator belongs to no provider so
+        // it stays visible there rather than vanishing from every tab.
+        if (want.empty()) {
+            out.push_back(row);
+            continue;
+        }
+        const auto sep = row.find("::");
+        if (sep == std::string::npos || row.compare(0, sep, want) != 0)
+            continue;
+        out.push_back(row);
+    }
+    return out;
+}
+
 CommandLine::Result CommandLine::on_left() {
+    if (move_provider_tab(-1))
+        return Result{};
     if (cursor_ > 0)
         --cursor_;
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_right() {
+    if (move_provider_tab(+1))
+        return Result{};
     if (cursor_ < input_.size())
         ++cursor_;
     return Result{};

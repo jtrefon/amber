@@ -56,6 +56,107 @@ static int test_backspace() {
     return 0;
 }
 
+// ── Tests: provider tabs own Left/Right only while the drawer is open ──
+//
+// Left/Right normally move the text cursor. With provider tabs active and the
+// drawer open they move between tabs instead, and Up/Down move the row within
+// the tab. Closing the drawer must hand the arrows back, or a Left press in the
+// scrollback silently does nothing.
+
+static tui::CommandLine with_model_tabs() {
+    tui::CommandLine cl;
+    // Rows are composite provider::model keys, as the /set model feed emits them.
+    cl.set_completions({"beta::beta-large", "beta::beta-small", "alpha::shared"}, "/set model ");
+    // set_completions does not set the input, and the drawer only opens for a
+    // slash input, so type the command the way a user would.
+    cl.set_text("/set model ");
+    cl.set_provider_tabs({"", "beta", "alpha"}, 0);
+    return cl;
+}
+
+static int test_left_moves_tabs_when_the_drawer_is_open() {
+    auto cl = with_model_tabs();
+    ASSERT(cl.drawer_open());
+    cl.on_right(); // All -> beta
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(1));
+    cl.on_left();  // beta -> All
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0));
+    return 0;
+}
+
+static int test_left_at_the_leftmost_tab_does_nothing() {
+    // Clamped, not wrapped: a wrapped Left reads as an unresponsive drawer.
+    auto cl = with_model_tabs();
+    cl.on_left();
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0));
+    return 0;
+}
+
+static int test_right_moves_towards_a_provider() {
+    auto cl = with_model_tabs();
+    cl.on_right();
+    cl.on_right();
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2)); // alpha
+    cl.on_right();                                                    // clamped
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2));
+    return 0;
+}
+
+static int test_arrows_return_to_cursor_movement_when_the_drawer_is_closed() {
+    auto cl = with_model_tabs();
+    ASSERT_EQ(cl.text(), "/set model ");
+    cl.on_escape(); // close the drawer
+    ASSERT(!cl.drawer_open());
+    cl.on_left();
+    // The cursor moved, no tab changed: the drawer gave the keys back.
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0));
+    ASSERT_EQ(cl.cursor(), cl.text().size() - 1);
+    return 0;
+}
+
+static int test_tab_rows_are_filtered_to_the_selected_provider() {
+    auto cl = with_model_tabs();
+    ASSERT_EQ(cl.tab_rows().size(), static_cast<std::size_t>(3));
+    cl.on_right(); // All -> beta
+    const auto beta_rows = cl.tab_rows();
+    ASSERT_EQ(beta_rows.size(), static_cast<std::size_t>(2));
+    ASSERT_EQ(beta_rows[0], std::string("beta::beta-large"));
+    cl.on_right(); // beta -> alpha
+    const auto alpha_rows = cl.tab_rows();
+    ASSERT_EQ(alpha_rows.size(), static_cast<std::size_t>(1));
+    ASSERT_EQ(alpha_rows[0], std::string("alpha::shared"));
+    return 0;
+}
+
+static int test_up_down_move_the_row_within_a_tab() {
+    auto cl = with_model_tabs();
+    cl.on_down();
+    ASSERT_EQ(cl.drawer_sel(), 1);
+    cl.on_up();
+    ASSERT_EQ(cl.drawer_sel(), 0);
+    return 0;
+}
+
+static int test_reopening_the_drawer_restores_the_tab() {
+    auto cl = with_model_tabs();
+    cl.on_right();
+    cl.on_escape();
+    cl.on_char('x');
+    ASSERT(cl.drawer_open()); // still a slash input
+    ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(1));
+    return 0;
+}
+
+static int test_no_tabs_means_no_arrow_hijack() {
+    tui::CommandLine cl;
+    cl.set_completions({"one", "two"}, "/set ");
+    cl.on_char('x');
+    cl.on_left();
+    // No provider tabs configured: the cursor moved and nothing else did.
+    ASSERT_EQ(cl.cursor(), cl.text().size() - 1);
+    return 0;
+}
+
 // ── Test: Ctrl-A / Ctrl-E ──
 static int test_ctrl_a_e() {
     tui::CommandLine cl;
@@ -329,6 +430,21 @@ int main() {
     int failed = 0;
     failed += run_test("basic insertion", test_basic_insertion);
     failed += run_test("slash triggers drawer", test_slash_triggers_drawer);
+    failed += run_test("left moves tabs when the drawer is open",
+                       test_left_moves_tabs_when_the_drawer_is_open);
+    failed += run_test("left at the leftmost tab does nothing",
+                       test_left_at_the_leftmost_tab_does_nothing);
+    failed += run_test("right moves towards a provider", test_right_moves_towards_a_provider);
+    failed += run_test("tab rows are filtered to the selected provider",
+                       test_tab_rows_are_filtered_to_the_selected_provider);
+    failed += run_test("arrows return to cursor movement when the drawer is closed",
+                       test_arrows_return_to_cursor_movement_when_the_drawer_is_closed);
+    failed += run_test("up down move the row within a tab",
+                       test_up_down_move_the_row_within_a_tab);
+    failed += run_test("reopening the drawer restores the tab",
+                       test_reopening_the_drawer_restores_the_tab);
+    failed += run_test("no tabs means no arrow hijack",
+                       test_no_tabs_means_no_arrow_hijack);
     failed += run_test("backspace", test_backspace);
     failed += run_test("Ctrl-A/E", test_ctrl_a_e);
     failed += run_test("Ctrl-W delete word", test_ctrl_w);
