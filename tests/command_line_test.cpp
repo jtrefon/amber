@@ -85,10 +85,16 @@ static int test_left_moves_tabs_when_the_drawer_is_open() {
 }
 
 static int test_left_at_the_leftmost_tab_does_nothing() {
-    // Clamped, not wrapped: a wrapped Left reads as an unresponsive drawer.
+    // Clamped, not wrapped: a wrapped Left reads as an unresponsive drawer. It
+    // is still the DRAWER's key, though -- falling through to the caret made
+    // Left "move the cursor in the prompt" on the All tab, where every user
+    // starts. The slide was invisible on the right only because the caret
+    // begins at the end of the line.
     auto cl = with_model_tabs();
+    const std::size_t caret = cl.cursor();
     cl.on_left();
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0));
+    ASSERT_EQ(cl.cursor(), caret);
     return 0;
 }
 
@@ -99,6 +105,11 @@ static int test_right_moves_towards_a_provider() {
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2)); // alpha
     cl.on_right();                                                   // clamped
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2));
+    // The clamped press is consumed too: with the caret at home it must stay
+    // there rather than slide right.
+    cl.on_home();
+    cl.on_right();
+    ASSERT_EQ(cl.cursor(), static_cast<std::size_t>(0));
     return 0;
 }
 
