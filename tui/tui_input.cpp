@@ -2439,17 +2439,18 @@ void Tui::detect_server(bool force) {
     }
     if (force || stale)
         refresh_models_async(force);
-    // Every other configured provider has its own cold catalogue; /set model
-    // lists the union of all of them.
-    refresh_provider_catalogs_async();
 }
 
 void Tui::refresh_provider_catalogs_async() {
     if (!providers_)
         return;
     for (const auto& p : providers_->available()) {
-        if (p.api_base.empty())
-            continue; // nothing to fetch from
+        // Not "has an api_base": every bundled provider ships a preset one, so
+        // that test is true for all of them. A provider that needs a key and has
+        // none cannot be queried, and asking anyway means an unauthenticated
+        // request per bundled endpoint.
+        if (p.api_base.empty() || (p.requires_key && p.api_key.empty()))
+            continue;
         agent::Config cfg;
         cfg.provider_name = p.name;
         cfg.api_base = p.api_base;

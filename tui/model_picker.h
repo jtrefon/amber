@@ -63,13 +63,22 @@ struct ProviderEndpoint {
     std::string name;
     std::string api_base;
     std::string flavor = "openai";
+    // Whether this endpoint can actually be queried: it has one, and if the
+    // provider needs a key then the key is present.
+    //
+    // api_base alone is NOT enough. Every bundled provider ships a preset
+    // api_base (plugins/openrouter sets one), so "has an endpoint" is true for
+    // all of them whether or not they are configured or hold a key -- and
+    // treating that as "configured" fans a request out to every bundled
+    // endpoint at once, unauthenticated.
+    bool usable = false;
 };
 
 // Reads one endpoint's already-cached models. Must not touch the network: this
 // runs while the UI thread is composing a drawer.
 using CatalogReader = std::vector<ProviderModel> (*)(const ProviderEndpoint&);
 
-// Per-provider catalogues, skipping endpoints with no /models to fetch.
+// Per-provider catalogues, skipping endpoints that cannot be fetched.
 //
 // Split out from the feed so the "is it configured" rule is testable: a
 // provider with an empty api_base has no catalogue, and an empty catalogue

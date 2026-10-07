@@ -70,14 +70,6 @@ void draw_field_labels(WINDOW* w, const std::vector<FieldSpec>& fields, int labe
 // blocking is the marker. Empty means the user pressed Esc and Esc still
 // cancels. A terminal that does not send bracketed paste delivers the bytes
 // with no leading ESC and they insert as ordinary keystrokes.
-// Decoder plus what the loop needs to know about the burst it is reading.
-struct BranchPasteState {
-    using PasteDecoder = BracketPasteDecoder;
-    PasteDecoder decoder;
-    bool started = false;
-    bool failed = false;
-};
-
 // Everything already readable on the window without blocking.
 std::vector<int> drain_ready(WINDOW* w) {
     std::vector<int> out;
@@ -88,33 +80,16 @@ std::vector<int> drain_ready(WINDOW* w) {
     return out;
 }
 
-// Feed one byte to the decoder, inserting pasted text into the field.
-void consume_paste_byte(BranchPasteState& st, FORM* form, int b) {
-    char text = 0;
-    switch (st.decoder.feed(b, text)) {
-    case BranchPasteState::PasteDecoder::Event::Begin:
-        st.started = true;
-        break;
-    case BranchPasteState::PasteDecoder::Event::Text:
-        form_driver(form, b);
-        break;
-    case BranchPasteState::PasteDecoder::Event::NotPaste:
-        st.failed = true;
-        break;
-    case BranchPasteState::PasteDecoder::Event::End:
-    case BranchPasteState::PasteDecoder::Event::None:
-        break;
-    }
-}
-
 // Finish a paste whose end marker has not arrived yet. A very large paste can
 // still be in flight when the initial burst is drained.
-void finish_paste(BranchPasteState& st, WINDOW* w, FORM* form) {
-    while (st.started && st.decoder.pasting()) {
+void finish_paste(BracketPasteDecoder& d, WINDOW* w, FORM* form) {
+    while (d.pasting()) {
         const int b = wgetch(w);
         if (b == ERR)
             return;
-        consume_paste_byte(st, form, b);
+        const PasteBurst more = consume_paste_burst(d, {b});
+        for (const char c : more.insert)
+            form_driver(form, c);
     }
 }
 
@@ -143,16 +118,17 @@ int read_form_key(WINDOW* w, FORM* form) {
     if (probe.empty())
         return first; // a lone Esc
 
-    BranchPasteState st;
+    BracketPasteDecoder d;
     char ignored = 0;
-    st.decoder.feed(first, ignored);
-    for (const int b : probe)
-        consume_paste_byte(st, form, b);
-    if (!st.started) {
+    d.feed(first, ignored);
+    const PasteBurst burst = consume_paste_burst(d, probe);
+    if (!burst.started) {
         push_back_reversed(probe);
         return first;
     }
-    finish_paste(st, w, form);
+    for (const char c : burst.insert)
+        form_driver(form, c);
+    finish_paste(d, w, form);
     return -1;
 }
 

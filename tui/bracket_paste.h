@@ -56,4 +56,22 @@ private:
     std::vector<int> unconsumed_;
 };
 
+// What one burst of bytes meant, and what to insert.
+//
+// The decision is separated from the terminal because form_edit.cpp can only be
+// driven by a real ncurses form: it cannot be unit-tested, and untestable ncurses
+// glue is how a change like this lands with patch coverage at 48%. Consume the
+// burst through this and the only thing left in the form is wgetch/ungetch.
+struct PasteBurst {
+    std::vector<char> insert; // pasted content, in order
+    bool started = false;     // the start marker matched
+};
+
+// Feed a burst read straight after an ESC. `d` carries the ESC itself already
+// fed, so the caller owns the first byte and this owns the rest.
+//
+// started == false means "not a paste": the bytes must be pushed back so a bare
+// Esc still cancels.
+PasteBurst consume_paste_burst(BracketPasteDecoder& d, const std::vector<int>& bytes);
+
 } // namespace tui

@@ -81,4 +81,24 @@ BracketPasteDecoder::Event BracketPasteDecoder::feed(int ch, char& out) {
     return feed_start(ch);
 }
 
+PasteBurst consume_paste_burst(BracketPasteDecoder& d, const std::vector<int>& bytes) {
+    PasteBurst out;
+    char text = 0;
+    for (const int b : bytes) {
+        switch (d.feed(b, text)) {
+        case BracketPasteDecoder::Event::Begin:
+            out.started = true;
+            break;
+        case BracketPasteDecoder::Event::Text:
+            out.insert.push_back(static_cast<char>(b));
+            break;
+        case BracketPasteDecoder::Event::NotPaste:
+        case BracketPasteDecoder::Event::End:
+        case BracketPasteDecoder::Event::None:
+            break;
+        }
+    }
+    return out;
+}
+
 } // namespace tui
