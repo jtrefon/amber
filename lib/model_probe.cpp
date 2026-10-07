@@ -33,7 +33,10 @@ namespace {
 
 // One curl GET {api_base}/models -> body. Returns CURLE_OK on HTTP 2xx.
 
-CURLcode fetch_models(const Config& cfg, const Dialect& dialect, std::string& body) {
+// The catalogue's half of the request: wants the body, treats a non-2xx as a
+// failure. The dialect is no longer a parameter -- models_get() resolves it from
+// cfg.flavor, which is what made the two call sites disagree in the first place.
+CURLcode fetch_models(const Config& cfg, std::string& body) {
     const auto r = models_get(cfg, /*want_body=*/true);
     body = r.body;
     if (!r.transport_ok)
@@ -186,9 +189,8 @@ std::shared_ptr<FetchSlot> fetch_slot_for(const std::string& key) {
 
 // Fetch the catalog and update the cache. Returns whether the fetch succeeded.
 bool fetch_and_cache(const Config& cfg) {
-    auto dialect = make_dialect(cfg.flavor);
     std::string body;
-    const bool fetched = fetch_models(cfg, *dialect, body) == CURLE_OK;
+    const bool fetched = fetch_models(cfg, body) == CURLE_OK;
     if (fetched) {
         debug_log(cfg.debug_log, "probe", body);
         model_catalog_write(cfg, body);
