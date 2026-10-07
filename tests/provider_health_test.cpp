@@ -228,3 +228,26 @@ TEST(auth_probe_turns_a_rejection_into_the_bang_column) {
     const auto s = agent::auth_status_read(cfg);
     ASSERT(agent::provider_mark(s.state, true, true) == '!');
 }
+
+// The filename is a hash, not the endpoint. This is what keeps a "../" in a
+// provider's api_base from walking out of the cache directory -- a type-level
+// property now, since a path takes a uint64 key and never a string.
+
+TEST(auth_cache_key_depends_only_on_the_endpoint_and_flavor) {
+    const agent::Config a = endpoint("https://keyed.example/v1");
+    const agent::Config b = endpoint("https://keyed.example/v2");
+    const agent::Config c = endpoint("https://keyed.example/v1", "anthropic");
+    ASSERT(agent::auth_cache_key(a).hash != agent::auth_cache_key(b).hash);
+    ASSERT(agent::auth_cache_key(a).hash != agent::auth_cache_key(c).hash);
+    ASSERT(agent::auth_cache_key(a).hash == agent::auth_cache_key(a).hash);
+}
+
+TEST(auth_status_path_contains_no_endpoint_text) {
+    // The endpoint appears nowhere in the path, which is what makes it safe to
+    // open: a hostile api_base cannot appear as "..".
+    const agent::Config cfg = endpoint("../../../../etc/passwd");
+    const auto path = agent::auth_status_path(cfg);
+    ASSERT(path.find("..") == std::string::npos);
+    ASSERT(path.find("passwd") == std::string::npos);
+    ASSERT(path.find("auth-") != std::string::npos);
+}

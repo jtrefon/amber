@@ -3,6 +3,7 @@
 
 #include "agent/config.h"
 
+#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -32,9 +33,26 @@ struct AuthStatus {
     long long checked_ms = 0;
 };
 
-// Cache location for cfg's endpoint verdict, under the global config dir.
-// Per (api_base, flavor), matching the catalog cache: two providers on one host
-// must not share a verdict, and neither may share one across wire protocols.
+// The identity of one endpoint's verdict: a hash, never the endpoint text.
+//
+// This exists as a type so a path is built from a uint64 and cannot be handed a
+// string. The endpoint is user- and server-supplied, so a path built from it
+// could in principle be walked out of the cache directory with "../"; hashing
+// first means the filename is sixteen hex digits. Keeping that a property of the
+// TYPE is what stops a future edit from passing the raw endpoint in.
+struct AuthCacheKey {
+    uint64_t hash = 0;
+};
+
+// Key for cfg's endpoint: per (api_base, flavor), matching the catalog cache, so
+// two providers on one host must not share a verdict and neither may share one
+// across wire protocols.
+AuthCacheKey auth_cache_key(const Config& cfg);
+
+// Cache location for a key, under the global config dir.
+std::string auth_status_path(AuthCacheKey key);
+
+// Cache location for cfg's endpoint verdict. Convenience over the two calls above.
 std::string auth_status_path(const Config& cfg);
 
 // Disk-only read. Never touches the network. Returns Unknown for an absent,

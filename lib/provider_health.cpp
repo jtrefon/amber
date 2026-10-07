@@ -21,10 +21,6 @@ namespace {
 // old "rejected" must not still be showing an hour later.
 constexpr long long kAuthTtlMs = 6LL * 3600 * 1000;
 
-size_t discard_body(char*, size_t size, size_t nmemb, void*) {
-    return size * nmemb;
-}
-
 // The global cache directory. Every cached file lives under it, and nothing else
 // does, so the path helpers have exactly one place to build a prefix.
 std::string cache_dir() {
@@ -62,19 +58,19 @@ long long auth_status_now_ms() {
         .count();
 }
 
-std::string auth_status_path(const Config& cfg) {
-    // Same FNV-1a key as the catalog cache, over the same identity, so a
-    // provider's verdict and its catalogue can never be confused for one another.
-    //
-    // Only the HASH reaches the filename, never api_base. A provider's endpoint is
-    // user- and server-supplied, so a path built from it could in principle be
-    // walked out of the cache directory with "../"; hashing first means the name
-    // is sixteen hex digits and the endpoint cannot escape. That is also why this
-    // is not merely a CodeQL appeasement -- the confinement is real.
-    const uint64_t h = fnv1a_hex(cfg.api_base + "\n" + cfg.flavor);
+AuthCacheKey auth_cache_key(const Config& cfg) {
+    return AuthCacheKey{fnv1a_hex(cfg.api_base + "\n" + cfg.flavor)};
+}
+
+std::string auth_status_path(AuthCacheKey key) {
     char name[32];
-    std::snprintf(name, sizeof(name), "auth-%016llx.json", static_cast<unsigned long long>(h));
+    std::snprintf(name, sizeof(name), "auth-%016llx.json",
+                  static_cast<unsigned long long>(key.hash));
     return cache_dir() + "/" + name;
+}
+
+std::string auth_status_path(const Config& cfg) {
+    return auth_status_path(auth_cache_key(cfg));
 }
 
 bool auth_status_fresh(const AuthStatus& status) {
@@ -84,7 +80,7 @@ bool auth_status_fresh(const AuthStatus& status) {
 AuthStatus auth_status_read(const Config& cfg) {
     // Opened by the hashed path only: see auth_status_path() for why the endpoint
     // cannot influence the filename.
-    std::ifstream f(auth_status_path(cfg));
+    std::ifstream f(auth_status_path(auth_cache_key(cfg)));
     if (!f)
         return {};
     json j;
@@ -106,7 +102,7 @@ AuthStatus auth_status_read(const Config& cfg) {
 }
 
 void auth_status_write(const Config& cfg, const AuthStatus& status) {
-    const std::string path = auth_status_path(cfg);
+    const std::string path = auth_status_path(auth_cache_key(cfg));
     std::error_code ec;
     fs::create_directories(fs::path(path).parent_path(), ec);
     // tmp+rename so a reader never sees a half-written verdict. The suffix is a
