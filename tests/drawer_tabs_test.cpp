@@ -52,7 +52,8 @@ TEST(tab_strip_renders_zero_for_a_tab_with_no_matches) {
 }
 
 TEST(tab_strip_truncates_on_a_narrow_terminal) {
-    std::vector<tui::ProviderTab> tabs{{"", "All", 3}, {"a-very-long-provider-name", "a-very-long-provider-name", 1}};
+    std::vector<tui::ProviderTab> tabs{
+        {"", "All", 3}, {"a-very-long-provider-name", "a-very-long-provider-name", 1}};
     const auto s = tui::make_tab_strip(tabs, 0, 20);
     ASSERT(static_cast<int>(s.line.size()) <= 20);
 }
@@ -70,8 +71,8 @@ TEST(tab_strip_renders_nothing_when_there_is_only_one_tab) {
 // composite "provider::model" keys, and the rule must not hardcode the command.
 
 TEST(make_provider_tabs_derives_providers_from_composite_rows) {
-    const auto tabs = tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"},
-                                              "beta", "");
+    const auto tabs =
+        tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"}, "beta", "");
     ASSERT(tabs.size() == 3);
     ASSERT(tabs[0].provider.empty());
     ASSERT(tabs[0].label == "All");
@@ -83,8 +84,7 @@ TEST(make_provider_tabs_derives_providers_from_composite_rows) {
 }
 
 TEST(make_provider_tabs_puts_the_active_provider_first) {
-    const auto tabs =
-        tui::make_provider_tabs({"beta::large", "alpha::shared"}, "alpha", "");
+    const auto tabs = tui::make_provider_tabs({"beta::large", "alpha::shared"}, "alpha", "");
     ASSERT(tabs[1].provider == "alpha");
     ASSERT(tabs[2].provider == "beta");
 }
@@ -111,8 +111,8 @@ TEST(make_provider_tabs_returns_none_for_an_empty_or_single_row) {
 }
 
 TEST(make_provider_tabs_counts_matches_under_the_filter) {
-    const auto tabs = tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"},
-                                              "beta", "shared");
+    const auto tabs =
+        tui::make_provider_tabs({"beta::large", "beta::small", "alpha::shared"}, "beta", "shared");
     ASSERT(tabs[0].count == 1); // All
     ASSERT(tabs[1].count == 0); // beta
     ASSERT(tabs[2].count == 1); // alpha

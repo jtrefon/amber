@@ -75,7 +75,7 @@ AuthStatus auth_status_read(const Config& cfg) {
         s.http_code = j.value("http_code", 0L);
         s.checked_ms = j.value("checked_ms", 0LL);
         const std::string state = j.value("state", std::string("unknown"));
-        s.state = state == "valid"     ? AuthState::Valid
+        s.state = state == "valid"      ? AuthState::Valid
                   : state == "rejected" ? AuthState::Rejected
                                         : AuthState::Unknown;
         // A stale record is worse than none: it would keep showing a rejection
@@ -95,9 +95,9 @@ void auth_status_write(const Config& cfg, const AuthStatus& status) {
         std::ofstream f(tmp, std::ios::trunc);
         if (!f)
             return;
-        const char* name = status.state == AuthState::Valid     ? "valid"
+        const char* name = status.state == AuthState::Valid      ? "valid"
                            : status.state == AuthState::Rejected ? "rejected"
-                                                                  : "unknown";
+                                                                 : "unknown";
         AuthStatus stamped = status;
         stamped.checked_ms = auth_status_now_ms();
         f << json{{"state", name},

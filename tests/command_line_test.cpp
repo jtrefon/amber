@@ -79,7 +79,7 @@ static int test_left_moves_tabs_when_the_drawer_is_open() {
     ASSERT(cl.drawer_open());
     cl.on_right(); // All -> beta
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(1));
-    cl.on_left();  // beta -> All
+    cl.on_left(); // beta -> All
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(0));
     return 0;
 }
@@ -97,7 +97,7 @@ static int test_right_moves_towards_a_provider() {
     cl.on_right();
     cl.on_right();
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2)); // alpha
-    cl.on_right();                                                    // clamped
+    cl.on_right();                                                   // clamped
     ASSERT_EQ(cl.provider_tab_index(), static_cast<std::size_t>(2));
     return 0;
 }
@@ -439,12 +439,10 @@ int main() {
                        test_tab_rows_are_filtered_to_the_selected_provider);
     failed += run_test("arrows return to cursor movement when the drawer is closed",
                        test_arrows_return_to_cursor_movement_when_the_drawer_is_closed);
-    failed += run_test("up down move the row within a tab",
-                       test_up_down_move_the_row_within_a_tab);
+    failed += run_test("up down move the row within a tab", test_up_down_move_the_row_within_a_tab);
     failed += run_test("reopening the drawer restores the tab",
                        test_reopening_the_drawer_restores_the_tab);
-    failed += run_test("no tabs means no arrow hijack",
-                       test_no_tabs_means_no_arrow_hijack);
+    failed += run_test("no tabs means no arrow hijack", test_no_tabs_means_no_arrow_hijack);
     failed += run_test("backspace", test_backspace);
     failed += run_test("Ctrl-A/E", test_ctrl_a_e);
     failed += run_test("Ctrl-W delete word", test_ctrl_w);

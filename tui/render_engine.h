@@ -107,9 +107,7 @@ public:
     void set_drawer_open(bool v) noexcept { drawer_open_ = v; }
     int drawer_sel() const noexcept { return drawer_sel_; }
     void set_drawer_sel(int v) noexcept { drawer_sel_ = v; }
-    void set_drawer_tabs(DrawerTabStrip strip) noexcept {
-        drawer_tabs_ = std::move(strip);
-    }
+    void set_drawer_tabs(DrawerTabStrip strip) noexcept { drawer_tabs_ = std::move(strip); }
     const DrawerTabStrip& drawer_tabs() const noexcept { return drawer_tabs_; }
     bool scroll_mode() const noexcept { return scroll_mode_; }
     void set_scroll_mode(bool v) noexcept { scroll_mode_ = v; }

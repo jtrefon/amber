@@ -16,9 +16,9 @@ namespace agent {
 // `Unknown`, because reporting a working token as broken after a network blip
 // is worse than admitting the probe could not tell.
 enum class AuthState {
-    Unknown,   // never probed, stale, or the answer was inconclusive
-    Valid,     // the endpoint answered 2xx to an authenticated GET /models
-    Rejected,  // the endpoint answered 401 or 403
+    Unknown,  // never probed, stale, or the answer was inconclusive
+    Valid,    // the endpoint answered 2xx to an authenticated GET /models
+    Rejected, // the endpoint answered 401 or 403
 };
 
 // Classify one probe outcome. `transport_ok` is whether an HTTP response was

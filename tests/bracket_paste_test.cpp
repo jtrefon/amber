@@ -14,36 +14,36 @@ struct Fed {
 };
 
 Fed feed_all(tui::BracketPasteDecoder& d, const std::string& bytes) {
-      Fed f;
-      for (std::size_t i = 0; i < bytes.size();) {
-          // A rejected marker queues several bytes; drain them before the next
-          // input byte, exactly as consume_paste_burst() does.
-          char pending = 0;
-          if (d.has_pending()) {
-              d.take_pending(pending);
-              f.text += pending;
-              continue;
-          }
-          const char c = bytes[i++];
-          char out = 0;
-          switch (d.feed(static_cast<unsigned char>(c), out)) {
-          case Ev::Begin:
-              ++f.begins;
-              break;
-          case Ev::Text:
-              f.text += out;
-              break;
-          case Ev::End:
-              ++f.ends;
-              f.ended_cleanly = true;
-              break;
-          case Ev::NotPaste:
-          case Ev::None:
-              break;
-          }
-      }
-      return f;
-  }
+    Fed f;
+    for (std::size_t i = 0; i < bytes.size();) {
+        // A rejected marker queues several bytes; drain them before the next
+        // input byte, exactly as consume_paste_burst() does.
+        char pending = 0;
+        if (d.has_pending()) {
+            d.take_pending(pending);
+            f.text += pending;
+            continue;
+        }
+        const char c = bytes[i++];
+        char out = 0;
+        switch (d.feed(static_cast<unsigned char>(c), out)) {
+        case Ev::Begin:
+            ++f.begins;
+            break;
+        case Ev::Text:
+            f.text += out;
+            break;
+        case Ev::End:
+            ++f.ends;
+            f.ended_cleanly = true;
+            break;
+        case Ev::NotPaste:
+        case Ev::None:
+            break;
+        }
+    }
+    return f;
+}
 
 constexpr const char kPaste[] = "\033[200~sk-ant-0123456789\033[201~";
 

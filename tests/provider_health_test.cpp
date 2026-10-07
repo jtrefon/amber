@@ -155,9 +155,8 @@ const agent::ProbeResult kNoResponse{0, false};
 
 TEST(auth_probe_records_a_2xx_as_valid) {
     const agent::Config cfg = endpoint("https://probe-valid.example/v1");
-    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
-        return answering(200);
-    });
+    const auto s =
+        agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(200); });
     ASSERT(s.state == agent::AuthState::Valid);
     ASSERT(s.http_code == 200);
     // And it is persisted, so it survives a restart.
@@ -166,9 +165,8 @@ TEST(auth_probe_records_a_2xx_as_valid) {
 
 TEST(auth_probe_records_a_401_as_rejected) {
     const agent::Config cfg = endpoint("https://probe-rejected.example/v1");
-    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
-        return answering(401);
-    });
+    const auto s =
+        agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(401); });
     ASSERT(s.state == agent::AuthState::Rejected);
     ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
 }
@@ -182,9 +180,8 @@ TEST(auth_probe_does_not_cache_an_inconclusive_result) {
     good.http_code = 401;
     agent::auth_status_write(cfg, good);
 
-    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) {
-        return answering(500);
-    });
+    const auto s =
+        agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(500); });
     ASSERT(s.state == agent::AuthState::Unknown);
     // The previous verdict stands.
     ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
@@ -197,7 +194,8 @@ TEST(auth_probe_does_not_cache_a_transport_failure) {
     good.http_code = 200;
     agent::auth_status_write(cfg, good);
 
-    const auto s = agent::auth_probe_blocking(cfg, [](const agent::Config&) { return kNoResponse; });
+    const auto s =
+        agent::auth_probe_blocking(cfg, [](const agent::Config&) { return kNoResponse; });
     ASSERT(s.state == agent::AuthState::Unknown);
     ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Valid);
 }

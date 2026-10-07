@@ -291,8 +291,9 @@ bool seed_two_provider_catalogues(const std::string& xdg_home) {
     const std::string dir = xdg_home + "/xdg/amber/providers";
     if (!fs::create_directories(dir))
         return false;
-    const char* bodies[] = {R"({"data":[{"id":"beta-large","context_length":100000},{"id":"beta-small","context_length":8000}]})",
-                            R"({"data":[{"id":"alpha-shared","context_length":200000}]})"};
+    const char* bodies[] = {
+        R"({"data":[{"id":"beta-large","context_length":100000},{"id":"beta-small","context_length":8000}]})",
+        R"({"data":[{"id":"alpha-shared","context_length":200000}]})"};
     const char* names[] = {"beta", "alpha"};
     for (int i = 0; i < 2; ++i) {
         agent::Config cfg;
@@ -303,9 +304,8 @@ bool seed_two_provider_catalogues(const std::string& xdg_home) {
         cfg.model = (i == 0) ? "beta-large" : "alpha-shared";
         const std::string p = dir + "/" + names[i] + ".conf";
         if (!write_file(p, "provider_name=" + std::string(names[i]) + "\n" +
-                                "api_base=" + cfg.api_base + "\n" +
-                                "flavor=openai\napi_key=sk-test\n" +
-                                "model=" + cfg.model + "\n"))
+                               "api_base=" + cfg.api_base + "\n" +
+                               "flavor=openai\napi_key=sk-test\n" + "model=" + cfg.model + "\n"))
             return false;
         agent::model_catalog_write(cfg, bodies[i]);
     }
@@ -320,7 +320,6 @@ bool open_set_model(Tui& tui) {
     return tui.wait_for("All(", 10000);
 }
 
-
 // config root, so the test never reads or writes the developer's real state.
 struct Fixture {
     std::string workspace;
@@ -329,7 +328,6 @@ struct Fixture {
     std::string newer_id = "pty-newer";
     std::string older_id = "pty-older";
 };
-
 
 // Two sessions on one day, with fixed timestamps so list order (newest first) is
 // deterministic: row 1 is `newer`, row 2 is `older`.
@@ -599,7 +597,6 @@ TEST(bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open) {
     require(tui.wait_for("pasted-token-value", 5000),
             "the pasted text never appeared (paste dropped, or the field is not drawn)", tui);
 }
-
 
 TEST(system_commands_do_not_freeze_the_ui) {
     // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that

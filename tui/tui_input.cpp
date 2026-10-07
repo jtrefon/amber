@@ -1664,9 +1664,8 @@ void SlashDispatcher::cmd_provider_list() {
         probe.flavor = p.flavor;
         probe.api_key = p.api_key;
         const bool active = p.name == tui_.cfg_.provider_name;
-        tui_.append_line(P_STATUS,
-                         provider_list_line(p.name, p.api_base, active,
-                                            agent::auth_status_read(probe).state));
+        tui_.append_line(P_STATUS, provider_list_line(p.name, p.api_base, active,
+                                                      agent::auth_status_read(probe).state));
     }
 }
 

@@ -273,9 +273,8 @@ TEST(provider_list_line_marks_a_rejected_token) {
 TEST(provider_list_line_does_not_claim_valid_before_a_probe) {
     // Never probed: [ ], never [x]. Reporting an untested key as working is the
     // guess this feature replaced.
-    auto line =
-        tui::provider_list_line("openrouter", "https://openrouter.ai/api/v1", false,
-                                agent::AuthState::Unknown);
+    auto line = tui::provider_list_line("openrouter", "https://openrouter.ai/api/v1", false,
+                                        agent::AuthState::Unknown);
     ASSERT(line.find("[x]") == std::string::npos);
     ASSERT(line.find("[ ]") != std::string::npos);
 }
