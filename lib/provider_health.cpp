@@ -25,6 +25,23 @@ size_t discard_body(char*, size_t size, size_t nmemb, void*) {
     return size * nmemb;
 }
 
+// The global cache directory. Every cached file lives under it, and nothing else
+// does, so the path helpers have exactly one place to build a prefix.
+std::string cache_dir() {
+    std::error_code ec;
+    fs::create_directories(global_config_dir() + "/cache", ec);
+    return global_config_dir() + "/cache";
+}
+
+uint64_t fnv1a_hex(const std::string& key) {
+    uint64_t h = 1469598103934665603ULL;
+    for (unsigned char c : key) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
 } // namespace
 
 AuthState auth_state_from_http(long http_code, bool transport_ok) {
@@ -48,15 +65,16 @@ long long auth_status_now_ms() {
 std::string auth_status_path(const Config& cfg) {
     // Same FNV-1a key as the catalog cache, over the same identity, so a
     // provider's verdict and its catalogue can never be confused for one another.
-    uint64_t h = 1469598103934665603ULL;
-    const std::string key = cfg.api_base + "\n" + cfg.flavor;
-    for (unsigned char c : key) {
-        h ^= c;
-        h *= 1099511628211ULL;
-    }
+    //
+    // Only the HASH reaches the filename, never api_base. A provider's endpoint is
+    // user- and server-supplied, so a path built from it could in principle be
+    // walked out of the cache directory with "../"; hashing first means the name
+    // is sixteen hex digits and the endpoint cannot escape. That is also why this
+    // is not merely a CodeQL appeasement -- the confinement is real.
+    const uint64_t h = fnv1a_hex(cfg.api_base + "\n" + cfg.flavor);
     char name[32];
     std::snprintf(name, sizeof(name), "auth-%016llx.json", static_cast<unsigned long long>(h));
-    return global_config_dir() + "/cache/" + name;
+    return cache_dir() + "/" + name;
 }
 
 bool auth_status_fresh(const AuthStatus& status) {
@@ -64,6 +82,8 @@ bool auth_status_fresh(const AuthStatus& status) {
 }
 
 AuthStatus auth_status_read(const Config& cfg) {
+    // Opened by the hashed path only: see auth_status_path() for why the endpoint
+    // cannot influence the filename.
     std::ifstream f(auth_status_path(cfg));
     if (!f)
         return {};
@@ -89,6 +109,8 @@ void auth_status_write(const Config& cfg, const AuthStatus& status) {
     const std::string path = auth_status_path(cfg);
     std::error_code ec;
     fs::create_directories(fs::path(path).parent_path(), ec);
+    // tmp+rename so a reader never sees a half-written verdict. The suffix is a
+    // literal, so it cannot widen the path.
     const std::string tmp = path + ".tmp";
     {
         std::ofstream f(tmp, std::ios::trunc);
