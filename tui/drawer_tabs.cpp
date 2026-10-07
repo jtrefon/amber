@@ -1,7 +1,7 @@
 #include "tui/drawer_tabs.h"
+#include "tui/drawer_rows.h"
 
 #include <algorithm>
-#include <cctype>
 
 namespace tui {
 
@@ -9,12 +9,6 @@ namespace {
 
 // How much room one tab may take before the strip gives up on fitting it.
 constexpr std::size_t kMaxTabWidth = 18;
-
-std::string lowered(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
 
 // Cut to at most `max` BYTES, never more. The ellipsis is three bytes of UTF-8,
 // so appending it after a naive substr() made the result wider than the cap --
@@ -72,13 +66,6 @@ bool provider_of_row(const std::string& row, std::string& provider) {
     return true;
 }
 
-bool row_matches_filter(const std::string& row, const std::string& lower) {
-    if (lower.empty())
-        return true;
-    std::string l = lowered(row);
-    return l.find(lower) != std::string::npos;
-}
-
 } // namespace
 
 namespace {
@@ -132,15 +119,14 @@ std::vector<std::string> providers_in_rows(const std::vector<std::string>& rows)
     return providers;
 }
 
-// Rows of `rows` belonging to `want` that match `lower`. `want` empty means all.
+// Rows of `rows` belonging to `want` that match `filter`. `want` empty means all.
 std::size_t count_matching(const std::vector<std::string>& rows, const std::string& want,
-                           const std::string& lower) {
+                           const std::string& filter) {
     std::size_t n = 0;
     for (const auto& row : rows) {
-        std::string p;
-        if (!want.empty() && (!provider_of_row(row, p) || p != want))
+        if (!drawer_row_in_provider(row, want))
             continue;
-        if (row_matches_filter(row, lower))
+        if (drawer_row_matches(row, filter))
             ++n;
     }
     return n;
@@ -158,15 +144,16 @@ std::vector<ProviderTab> make_provider_tabs(const std::vector<std::string>& rows
         return {};
 
     // Count per provider over the FILTERED rows, so a count answers "where did my
-    // search land" rather than "how many models exist".
-    const std::string lower = lowered(filter);
+    // search land" rather than "how many models exist". The counting predicate is
+    // the drawer's own (drawer_row_matches), so a count always equals the rows
+    // that provider's tab will show.
     std::vector<ProviderTab> tabs;
-    tabs.push_back({"", "All", count_matching(rows, "", lower)});
+    tabs.push_back({"", "All", count_matching(rows, "", filter)});
 
     // Active provider first: it is the one in use, so Enter without thinking does
     // not switch away from it.
     const auto push = [&](const std::string& p) {
-        tabs.push_back({p, p, count_matching(rows, p, lower)});
+        tabs.push_back({p, p, count_matching(rows, p, filter)});
     };
     const auto is_active =
         std::find(providers.begin(), providers.end(), active_provider) != providers.end();

@@ -118,6 +118,19 @@ TEST(make_provider_tabs_counts_matches_under_the_filter) {
     ASSERT(tabs[2].count == 1); // alpha
 }
 
+// The count uses the drawer's own predicate, which is case-insensitive: "qwen"
+// counts the capital-Q ids too, so the number on a tab is exactly the number of
+// rows that tab will show.
+TEST(make_provider_tabs_counts_case_insensitively) {
+    const auto tabs = tui::make_provider_tabs(
+        {"custom::/models/Qwen3.8-27B.gguf", "custom::qwen35-dense", "kilo::qwen/qwen3.8-max"},
+        "custom", "qwen");
+    ASSERT(tabs.size() == 3);
+    ASSERT(tabs[0].count == 3); // All
+    ASSERT(tabs[1].count == 2); // custom: both, whatever the case
+    ASSERT(tabs[2].count == 1); // kilo
+}
+
 TEST(make_provider_tabs_ignores_an_active_provider_that_is_not_listed) {
     // A provider deleted from disk, or a cold start: fall back to row order
     // rather than inventing a tab nothing can fill.

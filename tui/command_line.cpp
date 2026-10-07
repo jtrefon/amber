@@ -1,5 +1,6 @@
 
 #include "command_line.h"
+#include "drawer_rows.h"
 
 #include <algorithm>
 #include <cctype>
@@ -130,16 +131,25 @@ void CommandLine::recompute() {
 
 // ── Event handlers ──────────────────────────────────────────────────
 
-// The drawer's visible items: the completions the host set. The host
-// (drawer_entry_names) has ALREADY applied the namespace-descend and the
-// prefix filter, so this list is exactly the rows the drawer renders — arrow
-// navigation and Enter dispatch index the same rows the user sees. Re-filtering
-// here against the raw input token is wrong: for an exact-command descend
-// ("/window" -> children new/close/list/rename) the trailing token is a
-// consumed namespace, not a partial, so re-filtering would empty the list and
-// send arrows into history navigation.
-std::vector<std::string> CommandLine::drawer_items() const {
-    return completions_;
+// The rows the drawer works on: the completions the host set, narrowed to the
+// selected provider tab. The host (drawer_entry_names) has ALREADY applied the
+// namespace-descend and the filter, so completions_ is exactly the rows the
+// drawer renders -- arrow navigation and Enter dispatch index the same rows the
+// user sees. Re-filtering here against the raw input token is wrong: for an
+// exact-command descend ("/window") the trailing token is a consumed namespace,
+// not a partial, and re-filtering would empty the list.
+std::vector<std::string> CommandLine::tab_rows() const {
+    if (provider_tabs_.empty() || provider_tab_ >= provider_tabs_.size())
+        return completions_;
+    const std::string& want = provider_tabs_[provider_tab_];
+    std::vector<std::string> out;
+    for (const auto& row : completions_) {
+        // The same provider rule the renderer applies, so the rows painted and
+        // the rows dispatched can never disagree.
+        if (drawer_row_in_provider(row, want))
+            out.push_back(row);
+    }
+    return out;
 }
 
 // '?' on a slash command: a full help page when it follows a space (for the path
@@ -289,7 +299,7 @@ CommandLine::Result CommandLine::on_enter() {
     // Match against the filtered drawer items (not cycle_matches_, which may
     // be stale or unfiltered from Tab cycling).
     if (drawer_open_ && drawer_sel_ >= 0) {
-        std::vector<std::string> filtered = drawer_items();
+        std::vector<std::string> filtered = tab_rows();
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
             r.action = Result::Dispatch;
             // Preserve the typed prefix. When the host supplied an explicit
@@ -426,7 +436,7 @@ CommandLine::Result CommandLine::on_up() {
     // arrows navigate the drawer independently of Tab (cycle_matches_ is
     // only populated once Tab is pressed); Enter dispatches the highlight.
     if (drawer_open_) {
-        auto filtered = drawer_items();
+        auto filtered = tab_rows();
         if (!filtered.empty()) {
             if (drawer_sel_ > 0) {
                 --drawer_sel_;
@@ -450,7 +460,7 @@ CommandLine::Result CommandLine::on_down() {
     Result r;
     // Drawer open: move the highlight down through the filtered rows.
     if (drawer_open_) {
-        auto filtered = drawer_items();
+        auto filtered = tab_rows();
         if (!filtered.empty()) {
             if (drawer_sel_ < static_cast<int>(filtered.size()) - 1) {
                 ++drawer_sel_;
@@ -487,28 +497,6 @@ bool CommandLine::move_provider_tab(int direction) {
     drawer_sel_ = 0;
     recompute();
     return true;
-}
-
-std::vector<std::string> CommandLine::tab_rows() const {
-    if (provider_tabs_.empty() || provider_tab_ >= provider_tabs_.size())
-        return completions_;
-    const std::string& want = provider_tabs_[provider_tab_];
-    std::vector<std::string> out;
-    for (const auto& row : completions_) {
-        // Completion rows for /set model are composite "provider::model" keys, so
-        // the provider is the text before the separator. The All tab (empty name)
-        // keeps every row, and a row with no separator belongs to no provider so
-        // it stays visible there rather than vanishing from every tab.
-        if (want.empty()) {
-            out.push_back(row);
-            continue;
-        }
-        const auto sep = row.find("::");
-        if (sep == std::string::npos || row.compare(0, sep, want) != 0)
-            continue;
-        out.push_back(row);
-    }
-    return out;
 }
 
 CommandLine::Result CommandLine::on_left() {

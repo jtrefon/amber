@@ -696,7 +696,7 @@ void RenderEngine::draw_drawer(const std::string& input) {
         return;
     }
 
-    const std::vector<std::string> rows = drawer_rows(input, tui_.settings_);
+    const std::vector<std::string> rows = drawer_rows(input, tui_.settings_, drawer_provider_);
 
     constexpr int header = 1;
     const int max_rows = std::max(1, bar_row - chat_top());

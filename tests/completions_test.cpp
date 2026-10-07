@@ -576,7 +576,7 @@ TEST(test_feed_leaves_visible_after_merge) {
 TEST(test_drawer_rows_children_and_help) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto rows = tui::drawer_rows("/get model l", reg);
+    auto rows = tui::drawer_rows("/get model l", reg, "");
     bool found = false;
     for (const auto& r : rows)
         if (r.find("list") != std::string::npos && r.find("all models") != std::string::npos)
@@ -618,7 +618,7 @@ TEST(test_drawer_filter_matches_model_name_not_only_vendor) {
 TEST(test_drawer_rows_filter_matches_model_name_not_only_vendor) {
     tui::SettingRegistry reg;
     seed_model_feed(reg);
-    auto rows = tui::drawer_rows("/set model space", reg);
+    auto rows = tui::drawer_rows("/set model space", reg, "");
     bool found = false;
     for (const auto& r : rows)
         if (r.find("space-bunny-free") != std::string::npos)
@@ -646,7 +646,7 @@ TEST(test_drawer_rows_and_entry_names_agree_under_filter) {
         auto names = tui::drawer_entry_names(q, reg);
         if (names.empty())
             continue;
-        auto rows = tui::drawer_rows(q, reg);
+        auto rows = tui::drawer_rows(q, reg, "");
         ASSERT_EQ(rows.size(), names.size());
         for (const auto& n : names) {
             bool in_rows = false;
@@ -656,6 +656,49 @@ TEST(test_drawer_rows_and_entry_names_agree_under_filter) {
             ASSERT(in_rows);
         }
     }
+}
+
+// ── Test: a provider tab narrows the rows, and the filter is case-insensitive ──
+//
+// The strip counts and the rows shown must be the same number: one predicate
+// (drawer_row_matches) answers "shown", "dispatched" and "counted", and
+// drawer_entry_names() stays the UNION because the counts are computed over it.
+// case-insensitive because nobody should have to guess the case of "Qwen3.8".
+
+static void seed_provider_model_feed(tui::SettingRegistry& reg) {
+    reg.load_completions_json("completions.json");
+    nlohmann::json sub = nlohmann::json::object();
+    for (const char* key : {"kilo::qwen/qwen3.8-max", "kilo::kilo-auto/free",
+                            "custom::/models/Qwen3.8-27B.gguf", "openrouter::qwen/qwen3.8-flash"})
+        sub["set"]["children"]["model"]["children"][key]["action"] =
+            std::string("core.config.set.model.") + key;
+    reg.merge_completions_json(sub);
+}
+
+TEST(test_drawer_rows_narrow_to_the_selected_providers_tab) {
+    tui::SettingRegistry reg;
+    seed_provider_model_feed(reg);
+    ASSERT_EQ(tui::drawer_rows("/set model ", reg, "").size(), 4u);
+    auto kilo = tui::drawer_rows("/set model ", reg, "kilo");
+    ASSERT_EQ(kilo.size(), 2u);
+    for (const auto& r : kilo)
+        ASSERT(r.find("kilo::") != std::string::npos);
+    // The tab and the typed filter compose: "qwen" inside kilo's tab.
+    ASSERT_EQ(tui::drawer_rows("/set model qwen", reg, "kilo").size(), 1u);
+}
+
+TEST(test_drawer_filter_is_case_insensitive) {
+    tui::SettingRegistry reg;
+    seed_model_feed(reg);
+    auto upper = tui::drawer_entry_names("/set model SPACE", reg);
+    ASSERT_EQ(upper.size(), 1u);
+    ASSERT(upper[0] == "stealth/space-bunny-free");
+    auto rows = tui::drawer_rows("/set model SpAcE", reg, "");
+    bool found = false;
+    for (const auto& r : rows)
+        if (r.find("space-bunny-free") != std::string::npos)
+            found = true;
+    ASSERT(found);
 }
 
 // ── Test: the drawer window follows the selection ──
@@ -739,7 +782,7 @@ TEST(test_bare_slash_children_of) {
 TEST(test_bare_slash_drawer_rows) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto rows = tui::drawer_rows("/", reg);
+    auto rows = tui::drawer_rows("/", reg, "");
     REQUIRE_NONEMPTY(rows);
     bool has_get = false, has_set = false;
     for (const auto& r : rows) {
@@ -797,7 +840,7 @@ TEST(test_partial_first_token_entry_names_include_compress) {
 TEST(test_partial_first_token_drawer_rows_include_compress) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto rows = tui::drawer_rows("/c", reg);
+    auto rows = tui::drawer_rows("/c", reg, "");
     REQUIRE_NONEMPTY(rows);
     bool saw_compress = false;
     for (const auto& r : rows)
@@ -1241,6 +1284,8 @@ int main() {
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
         test_drawer_filter_matches_model_name_not_only_vendor();
+        test_drawer_rows_narrow_to_the_selected_providers_tab();
+        test_drawer_filter_is_case_insensitive();
         test_drawer_rows_filter_matches_model_name_not_only_vendor();
         test_drawer_filter_still_matches_vendor_prefix();
         test_drawer_rows_and_entry_names_agree_under_filter();

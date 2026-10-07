@@ -654,6 +654,40 @@ TEST(set_model_lists_every_configured_providers_cached_models) {
             "the other provider's catalogue is not searchable or selectable", tui);
 }
 
+// ── the provider tabs narrow the list (and therefore what Enter runs) ──
+//
+// Switching a tab used to move only the strip's marker: the rows painted, the
+// rows Enter ran and the tab counts were three different sets. A fresh instance,
+// because the assertion below is "a string that has never been on this screen",
+// which only stays sound if nothing earlier in the same app could print it.
+//
+// No provider is active yet, so the rows follow the sorted provider order
+// (alpha's block first) and two Rights reach beta's tab. Down then selects beta
+// SMALL -- a model no other step sets. On the unfiltered list Down lands on
+// beta-large instead, so the line can only appear if the tab really narrowed
+// the rows.
+TEST(set_model_provider_tabs_narrow_the_rows) {
+    Tui tui;
+    tui.name = "set_model_provider_tabs_narrow_the_rows";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(open_set_model(tui), "the drawer has no rows, so it has no tab strip", tui))
+        return;
+
+    tui.send_arrow('C'); // All -> alpha
+    tui.pump(300);
+    tui.send_arrow('C'); // alpha -> beta
+    tui.pump(300);
+    tui.send_arrow('B'); // inside beta's tab: beta-large -> beta-small
+    tui.pump(300);
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r"); // the first Enter may only descend; the second is a no-op then
+    require(tui.wait_for("model set to beta-small", 10000),
+            "a tab switch did not narrow the rows: Down ran a row from another provider", tui);
+}
+
 TEST(system_commands_do_not_freeze_the_ui) {
     // `/system ps` dispatches reliably (a leaf, no argument). A `ps` shim that
     // blocks for 4 s turns it into a long job, so "did the UI wait on it?" is
@@ -710,6 +744,7 @@ int main(int argc, char** argv) {
     startup_paints_before_git_returns();
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
+    set_model_provider_tabs_narrow_the_rows();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session

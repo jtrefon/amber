@@ -132,6 +132,13 @@ std::vector<ProviderEndpoint> endpoints_of(const agent::ProviderService& provide
         e.flavor = p.flavor;
         out.push_back(std::move(e));
     }
+    // Deterministic order: available() merges a directory listing with plugin
+    // presets, so its order is whatever the filesystem returned. The ACTIVE
+    // provider's block still leads (aggregate_provider_models), but the rest
+    // must not shuffle between runs, or the row the user just learned moves and
+    // the tabs change places.
+    std::sort(out.begin(), out.end(),
+              [](const ProviderEndpoint& a, const ProviderEndpoint& b) { return a.name < b.name; });
     return out;
 }
 
