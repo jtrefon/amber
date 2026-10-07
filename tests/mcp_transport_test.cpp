@@ -64,6 +64,22 @@ TEST(mcp_wire_error_response_roundtrip) {
     ASSERT_FALSE(msg->result.has_value());
 }
 
+// A malformed error OBJECT must not abort the transport. The fuzzer found
+// {"error":{"code":")-.4"}} killing the process: json::value() THROWS on a
+// type mismatch instead of falling back to its default, and decode_error()
+// read both fields that way. A string code is not hypothetical -- it is a
+// shape a broken or hostile server can actually send.
+TEST(mcp_wire_tolerates_malformed_error_object) {
+    auto msg =
+        agent::mcp_decode_line(R"({"jsonrpc":"2.0","id":1,"error":{"code":")-.4","message":42}})");
+    ASSERT(msg.has_value());
+    ASSERT(msg->error.has_value());
+    ASSERT_EQ(msg->error->code, 0);     // a string code is not a number
+    ASSERT_EQ(msg->error->message, ""); // a numeric message is not a string
+    // The error is still reported: a mis-typed field is dropped, not fatal.
+    ASSERT_FALSE(msg->result.has_value());
+}
+
 // Unknown fields are ignored (forward compatibility).
 TEST(mcp_wire_tolerates_unknown_fields) {
     auto msg = agent::mcp_decode_line(

@@ -54,14 +54,22 @@ std::string mcp_encode_error_response(int id, const McpError& error) {
 }
 
 // The JSON-RPC error object, when the message carries one.
+//
+// Every field is type-checked before it is read. json::value() THROWS on a
+// type mismatch rather than falling back to its default, and this input is
+// untrusted: the fuzzer took the process down with {"error":{"code":")-.4"}}.
+// A mis-typed field is dropped, not fatal -- the error is still reported.
 std::optional<McpError> decode_error(const json& obj) {
     if (!obj.contains("error") || !obj["error"].is_object())
         return std::nullopt;
+    const json& e = obj["error"];
     McpError err;
-    err.code = obj["error"].value("code", 0);
-    err.message = obj["error"].value("message", "");
-    if (obj["error"].contains("data"))
-        err.data = obj["error"]["data"];
+    if (e.contains("code") && e["code"].is_number_integer())
+        err.code = e["code"].get<int>();
+    if (e.contains("message") && e["message"].is_string())
+        err.message = e["message"].get<std::string>();
+    if (e.contains("data"))
+        err.data = e["data"];
     return err;
 }
 
