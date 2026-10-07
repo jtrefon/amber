@@ -27,6 +27,10 @@ struct DrawerTabStrip {
     // Offset of the character that marks the selected tab, for reverse video.
     // npos when nothing is marked (no tabs to show).
     std::size_t selected_mark_pos = std::string::npos;
+    // How many bytes the selected tab occupies within `line`, so the highlight
+    // can cover exactly that tab. 0 when nothing is selected, or when
+    // truncation left none of the tab's text drawn.
+    std::size_t selected_len = 0;
 };
 
 // Render the strip for `tabs` with `selected` active, fitted into `max_width`
