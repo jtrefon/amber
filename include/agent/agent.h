@@ -198,6 +198,17 @@ public:
     void set_connection(const std::string& api_base, const std::string& api_key,
                         const std::string& model);
 
+    // Follow the host's provider selection (/set provider, and /set model when
+    // the picked row belongs to another provider).
+    //
+    // Identity, endpoint, key and dialect land together, from the host's
+    // already-resolved Config: the status bar reads provider_name from the
+    // agent's snapshot, the next request goes to api_base with api_key, and the
+    // rebuilt client speaks flavor. A switch that moves only some of them shows
+    // the old owner beside the new model -- and routes that model to the old
+    // endpoint, which is a kilo model requested from openrouter.
+    void set_provider(const Config& resolved, const std::string& model);
+
     void set_compression_threshold(double t) {
         cfg_.compression_threshold = t;
         cfg_.compression_threshold_explicit = true;

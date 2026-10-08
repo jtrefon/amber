@@ -41,6 +41,12 @@ public:
     // validate against the outgoing provider's catalogue and reject it.
     void cmd_model_set_for(const std::string& provider, const std::string& id);
     void cmd_provider(const std::string& arg);
+    // Land a provider switch that `apply_selection` has already resolved into
+    // cfg_: the window agent adopts the connection (identity, endpoint, key,
+    // dialect), the wallet follows, and the feeds are rebuilt. Both /set
+    // provider and a /set model pick from another provider end here, so a
+    // switch cannot mean two different things depending on how it was typed.
+    void land_provider_switch();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);

@@ -150,6 +150,19 @@ void Agent::set_connection(const std::string& api_base, const std::string& api_k
     publish_config();
 }
 
+void Agent::set_provider(const Config& resolved, const std::string& model) {
+    cfg_.provider_name = resolved.provider_name;
+    cfg_.api_base = resolved.api_base;
+    cfg_.api_key = resolved.api_key;
+    cfg_.flavor = resolved.flavor;
+    if (!model.empty()) {
+        cfg_.model = model;
+        cfg_.model_explicit = true;
+    }
+    client_ = make_client(cfg_, client_factory_);
+    publish_config();
+}
+
 // Append a section only when it has content; sections are separated by a blank
 // line.
 void append_optional_section(std::string& system, const std::string& text) {

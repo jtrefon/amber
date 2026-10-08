@@ -1492,6 +1492,11 @@ void SlashDispatcher::cmd_model_set_for(const std::string& provider, const std::
     agent::apply_selection(tui_.cfg_, sel);
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "provider " + provider + ": " + sel.warning);
+    // The switch has to reach the running app, not just the host template: the
+    // window agent's endpoint and the bar's provider both come from IT, and on
+    // the old wiring a kilo model was requested from openrouter while the bar
+    // said openrouter.
+    land_provider_switch();
     cmd_model_set(id);
 }
 
@@ -1638,12 +1643,21 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         return;
 
     agent::apply_selection(tui_.cfg_, sel);
-    // The wallet follows the active provider, so a switch invalidates it.
-    tui_.plugin_runtime_.request_wallet_refresh();
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
+    land_provider_switch();
+    tui_.append_line(P_STATUS, "provider switched to " + a + " (model: " + tui_.cfg_.model + ")");
+}
+
+// Land a switch that apply_selection() has resolved into cfg_: the window agent
+// adopts the connection, the wallet follows the active provider, and the feeds
+// are rebuilt against the new endpoint. Shared by /set provider and by /set
+// model picking a row from another provider.
+void SlashDispatcher::land_provider_switch() {
+    // The wallet follows the active provider, so a switch invalidates it.
+    tui_.plugin_runtime_.request_wallet_refresh();
     if (tui_.win().agent)
-        tui_.win().agent->set_connection(tui_.cfg_.api_base, tui_.cfg_.api_key, tui_.cfg_.model);
+        tui_.win().agent->set_provider(tui_.cfg_, tui_.cfg_.model);
     tui_.cfg_.save_global(agent::global_config_path());
     refresh_provider_feed();
     // The new endpoint has no catalogue yet, and /set model lists the union, so
@@ -1651,7 +1665,6 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
     // feed when they land.
     tui_.refresh_provider_catalogs_async();
     refresh_model_list();
-    tui_.append_line(P_STATUS, "provider switched to " + a + " (model: " + tui_.cfg_.model + ")");
 }
 
 void SlashDispatcher::cmd_provider_list() {
