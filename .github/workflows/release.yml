@@ -10,6 +10,17 @@ on:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
       - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  # A release whose run failed before it published anything must be re-runnable
+  # without moving the tag: a dispatch builds this workflow from the selected
+  # branch (so a FIXED workflow is used) while checking out the tag for the
+  # sources. v0.5.1 needed exactly this -- its tag run died on a stale
+  # dependency name, and re-running the tag would re-run the old workflow file.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to build and publish, e.g. v0.5.1'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -25,11 +36,15 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # A dispatch builds the TAG's sources with the selected branch's
+          # workflow; a tag push checks out the tag it fired on.
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Resolve version
         id: ver
         run: |
-          tag="${GITHUB_REF_NAME}"
+          tag="${{ inputs.tag || github.ref_name }}"
           echo "tag=${tag}" >> "$GITHUB_OUTPUT"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           if [[ "${tag}" == *-* ]]; then
@@ -85,6 +100,11 @@ jobs:
         id: deb
         run: |
           version="${{ steps.ver.outputs.version }}"
+          # Ubuntu packages the wide form/menu/panel runtime libs INSIDE
+          # libncursesw6 (libformw.so.6, libmenuw.so.6, libpanelw.so.6). The
+          # separate names this used to declare do not exist, so `dpkg -i`
+          # refused the package with unresolved dependencies and the bootstrap
+          # smoke never reached the binary.
           fpm -s dir -t deb \
             -n amber \
             -v "${version}" \
@@ -94,9 +114,6 @@ jobs:
             --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
             --depends "libcurl4" \
             --depends "libncursesw6" \
-            --depends "libformw1" \
-            --depends "libmenuw1" \
-            --depends "libpanelw1" \
             --deb-no-default-config-files \
             -C stage \
             -p "dist/amber_${version}_amd64.deb" \
@@ -107,6 +124,9 @@ jobs:
         id: rpm
         run: |
           version="${{ steps.ver.outputs.version }}"
+          # Fedora ships the same wide runtimes (ncursesw, formw, menuw,
+          # panelw) inside ncurses-libs, and its curl runtime is libcurl --
+          # the Debian names were wrong on the RPM side too.
           fpm -s dir -t rpm \
             -n amber \
             -v "${version}" \
@@ -114,11 +134,8 @@ jobs:
             --maintainer "Jacek Trefon <hello@trefon.com>" \
             --url "https://github.com/jtrefon/amber" \
             --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
-            --depends "libcurl4" \
-            --depends "libncursesw6" \
-            --depends "libformw1" \
-            --depends "libmenuw1" \
-            --depends "libpanelw1" \
+            --depends "libcurl" \
+            --depends "ncurses-libs" \
             -C stage \
             -p "dist/amber_${version}.x86_64.rpm" \
             usr
@@ -232,11 +249,13 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Resolve version
         id: ver
         run: |
-          tag="${GITHUB_REF_NAME}"
+          tag="${{ inputs.tag || github.ref_name }}"
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
