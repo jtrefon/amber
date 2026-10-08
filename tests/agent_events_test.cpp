@@ -46,6 +46,45 @@ void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, cons
 
 } // namespace
 
+// A provider switch must land in the AGENT, not only in the host's template: the
+// status bar reads provider_name from the agent's snapshot, and the next request
+// goes to api_base with api_key, speaking flavor. Setting only some of the
+// quartet is how a kilo model was requested from openrouter while the bar said
+// openrouter.
+TEST(agent_follows_a_provider_switch) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = event_cfg();
+    cfg.provider_name = "custom";
+    cfg.api_base = "http://127.0.0.1:9/custom/v1";
+    cfg.api_key = "old-key";
+    cfg.flavor = "openai";
+    cfg.model = "qwen35-dense";
+    agent::ToolRegistry reg;
+    // A factory, not a one-off client: set_provider rebuilds the client, and the
+    // dialect plugin the flavor would otherwise resolve through is not booted in
+    // a unit test.
+    auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {
+        return std::make_unique<agent_test::FakeLLMClient>();
+    };
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
+
+    agent::Config selected = cfg;
+    selected.provider_name = "kilocode";
+    selected.api_base = "http://127.0.0.1:9/kilo/v1";
+    selected.api_key = "kilo-key";
+    selected.flavor = "anthropic";
+    selected.model = "kilo-auto/free";
+    ag.set_provider(selected, selected.model);
+
+    const auto snap = ag.config_snapshot();
+    ASSERT(snap);
+    ASSERT_EQ(snap->provider_name, std::string("kilocode"));
+    ASSERT_EQ(snap->api_base, std::string("http://127.0.0.1:9/kilo/v1"));
+    ASSERT_EQ(snap->api_key, std::string("kilo-key"));
+    ASSERT_EQ(snap->flavor, std::string("anthropic"));
+    ASSERT_EQ(snap->model, std::string("kilo-auto/free"));
+}
+
 TEST(agent_publishes_turn_and_message_events) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = event_cfg();

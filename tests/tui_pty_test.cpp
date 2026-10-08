@@ -648,6 +648,13 @@ TEST(set_model_lists_every_configured_providers_cached_models) {
     // One dispatch per provider, both by a fragment that matches past the start.
     require(pick_by_fragment(tui, "large", "model set to beta-large"),
             "a suffix match was not selectable (search matches prefixes only?)", tui);
+    // The pick switches provider (the line says "remembered for beta"), and the
+    // switch must land in the WINDOW's agent: the bar reads its provider_name and
+    // the next request reads its endpoint. Leaving the agent behind showed the
+    // old provider beside the new model -- and sent that model to the old
+    // endpoint, which is a kilo model routed to openrouter.
+    require(tui.wait_for("beta|beta-large", 10000),
+            "the bar does not show the provider that owns the picked model", tui);
     tui.send("/set model ");
     tui.pump(600);
     require(pick_by_fragment(tui, "lph", "model set to alpha-shared"),
