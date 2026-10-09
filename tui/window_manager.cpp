@@ -41,7 +41,7 @@ Window& WindowManager::new_window(const std::string& title) {
                    std::move(gate), std::move(mem_store), std::move(retriever), {}, {}, true,
                    shared_skills());
     w->agent = std::make_unique<agent::Agent>(std::move(a));
-    w->agent->policy().init(agent::Workspace::local_dir() + "/policy.json");
+    w->agent->policy().init(agent::Workspace::policy_path());
     // Attach the harness bus so plugins observe this window's turns. Without a
     // runtime (tests, headless hosts) the agent simply publishes nothing.
     if (plugin_runtime_) {

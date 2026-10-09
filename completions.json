@@ -107,7 +107,14 @@
     "config": {
      "action": "core.config.get.config",
      "help": "Open the settings configuration screen.",
-     "man": "Opens the full-screen settings dialog where you can configure the provider, model, API key, and test the server connection."
+     "man": "Opens the full-screen settings dialog where you can configure the provider, model, API key, and test the server connection.",
+     "children": {
+      "paths": {
+       "action": "core.config.get.config.paths",
+       "help": "Show where amber keeps its config, state and cache.",
+       "man": "Prints amber's own file layout, resolved for this machine: the global config and provider files, the project's shareable config, the private per-project state (sessions, settings, logs, experience, policy) and the model cache. XDG overrides (XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_CACHE_HOME) are reflected, so this is where the files actually are, not where they usually are. The same table is what the bundled amber-config skill renders for the agent."
+      }
+     }
     },
     "model": {
      "action": "core.config.get.model",

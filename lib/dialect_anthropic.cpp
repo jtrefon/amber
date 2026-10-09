@@ -202,9 +202,16 @@ class AnthropicDialect : public Dialect {
 public:
     std::string flavor() const override { return "anthropic"; }
 
-    std::string chat_url(const Config& cfg) const override { return cfg.api_base + "/v1/messages"; }
+    std::string chat_url(const Config& cfg) const override {
+        return versioned_url(cfg.api_base, "/v1", "/messages");
+    }
 
-    std::string models_url(const Config& cfg) const override { return cfg.api_base + "/v1/models"; }
+    std::string models_url(const Config& cfg) const override {
+        // The listing paginates (default 20, max 1000). Ask for one page: a
+        // provider file whose models silently stopped at 20 would read as a
+        // truncated catalogue, not as pagination.
+        return versioned_url(cfg.api_base, "/v1", "/models?limit=1000");
+    }
 
     std::vector<std::string> auth_headers(const Config& cfg) const override {
         std::vector<std::string> headers;
@@ -267,7 +274,7 @@ public:
             if (!preferred_model.empty() && m.id != preferred_model)
                 continue;
             info.model = m.id;
-            info.context_size = m.context; // the API does not report it
+            info.context_size = m.context; // max_input_tokens, 0 when unreported
             info.context_train = m.context_train;
             info.ok = true;
             break;
@@ -285,6 +292,13 @@ public:
                 continue;
             ModelInfo m;
             m.id = str_field(e, "id");
+            // The listing reports the model's input window (max_input_tokens,
+            // nullable), which is the number the context gauge and the
+            // compression budget need. A null/absent value stays 0: unknown is
+            // never guessed.
+            if (auto it = e.find("max_input_tokens");
+                it != e.end() && it->is_number() && it->get<long>() > 0)
+                m.context = static_cast<int>(it->get<long>());
             if (!m.id.empty())
                 out.push_back(std::move(m));
         }

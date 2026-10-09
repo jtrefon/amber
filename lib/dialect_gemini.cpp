@@ -191,7 +191,7 @@ public:
     }
 
     std::string models_url(const Config& cfg) const override {
-        return cfg.api_base + "/v1beta/models";
+        return versioned_url(cfg.api_base, "/v1beta", "/models");
     }
 
     std::vector<std::string> auth_headers(const Config& cfg) const override {
@@ -330,7 +330,7 @@ public:
 
 private:
     std::string endpoint(const Config& cfg, const char* action) const {
-        return cfg.api_base + "/v1beta/models/" + cfg.model + action;
+        return versioned_url(cfg.api_base, "/v1beta", "/models/" + cfg.model + action);
     }
 
     // Listing returns "models/gemini-2.5-pro"; every other call takes the bare

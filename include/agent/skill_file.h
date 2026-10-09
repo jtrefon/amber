@@ -13,8 +13,11 @@ using json = nlohmann::json;
 
 namespace agent {
 
-// Where an authored skill lives on disk. Precedence: project > global > interop.
-enum class SkillScope : std::uint8_t { Project, Global, Interop };
+// Where an authored skill lives. Precedence: project > global > interop >
+// system. `System` is a skill contributed by CODE (a bundled plugin registers
+// it), not a SKILL.md file: nothing on disk can be damaged or edited, and its
+// body is rendered from the app's own tables so it cannot drift from them.
+enum class SkillScope : std::uint8_t { Project, Global, Interop, System };
 
 // Where a skill comes from. Authored = deliberate SKILL.md packages; learned =
 // procedures extracted into the experience store.

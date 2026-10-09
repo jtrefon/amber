@@ -1,6 +1,7 @@
 #ifndef AGENT_SKILL_CATALOG_H
 #define AGENT_SKILL_CATALOG_H
 
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -38,6 +39,26 @@ struct ActivatedSkill {
     std::string name;
     std::string body;
 };
+
+// A skill contributed by code rather than a SKILL.md file. A bundled plugin
+// registers it; the catalog discovers it like any other skill, so it is
+// indexed in the discovery slot and its body loads only when the model asks
+// for it. Nothing exists on disk to edit, damage or lose, and `body` is a
+// render callable so the text is built from the same tables the app uses
+// (config_paths()) rather than restating them.
+struct SystemSkill {
+    std::string name;
+    std::string description;
+    std::function<std::string()> body;
+};
+
+// The registry behind system skills, mirroring the provider-preset table:
+// written by plugin install/uninstall on the host thread, read by every
+// catalog on the agent thread, so both sides lock. `owner` is the plugin id,
+// which is what disabling that plugin unwinds.
+void register_system_skill(const SystemSkill& skill, const std::string& owner);
+void unregister_system_skills_for(const std::string& owner);
+std::vector<SystemSkill> system_skills();
 
 // The runtime union view of every discoverable skill (authored at all scopes +
 // interop + learned) plus persisted curation. Owns lookup, body caching, and
@@ -93,6 +114,8 @@ public:
 private:
     void absorb_authored(const std::string& root, SkillScope scope, std::set<std::string>& selected,
                          std::vector<std::string>& warnings);
+    // Absorb code-contributed (system) skills; see the implementation.
+    void absorb_system(std::set<std::string>& selected);
     // Callers must hold mtx_.
     const SkillEntry* lookup_locked(const std::string& name) const;
     void discover_locked(const std::vector<Skill>& learned);

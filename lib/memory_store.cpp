@@ -126,14 +126,16 @@ std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {
 
 namespace {
 namespace fs = std::filesystem;
+// The pre-experience-store global file (~/.amber/memories.json) is copied into
+// whatever store path is in use, once, when that path is still empty.
 void seed_from_legacy(const std::string& store_path) {
     std::error_code ec;
     if (fs::exists(store_path, ec))
         return;
-    const char* home = std::getenv("HOME");
-    if (!home)
+    const std::string home = user_home_dir();
+    if (home.empty())
         return;
-    std::string legacy = std::string(home) + "/.amber/memories.json";
+    std::string legacy = home + "/.amber/memories.json";
     if (legacy == store_path || !fs::exists(legacy, ec))
         return;
     fs::create_directories(fs::path(store_path).parent_path(), ec);
@@ -156,7 +158,10 @@ ExperienceConfig load_experience_config(const Config& cfg) {
     if (cfg.experience_promote_threshold > 0)
         ec.memory_promote_threshold = cfg.experience_promote_threshold;
     if (ec.store_path.empty()) {
-        ec.store_path = Workspace::local_dir() + "/experience.json";
+        // Per-project state, like sessions: memory extracted from one project
+        // is not something another project (or the repository) should inherit.
+        Workspace::adopt_legacy_state("experience.json");
+        ec.store_path = Workspace::state_dir() + "/experience.json";
         seed_from_legacy(ec.store_path);
     }
     return ec;

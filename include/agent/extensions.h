@@ -13,6 +13,7 @@
 #include "agent/event_bus.h"
 #include "agent/plugin_capability.h"
 #include "agent/search_backend.h"
+#include "agent/skill_catalog.h"
 #include "agent/ui_services.h"
 #include "agent/providers.h"
 #include "agent/registry.h"
@@ -557,6 +558,23 @@ private:
     std::string flavor_;
     std::function<std::unique_ptr<class Dialect>()> make_dialect_;
     std::vector<Preset> presets_;
+};
+
+// Contributes a skill the harness ships rather than a SKILL.md file the user
+// could edit: it is indexed in the discovery slot like any other skill, its
+// body loads on demand, and there is nothing on disk to damage or lose. The
+// body is a render callable so it can be built from the app's own tables
+// (agent::config_paths()) instead of restating them.
+class SkillCapability : public Capability {
+public:
+    explicit SkillCapability(SystemSkill skill);
+
+    std::string name() const override { return skill_.name; }
+    CapabilityKind kind() const override { return CapabilityKind::Skill; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    SystemSkill skill_;
 };
 
 // Contributes one status-bar segment.

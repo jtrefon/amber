@@ -45,7 +45,29 @@ TEST(anthropic_flavor_and_endpoints) {
     cfg.api_base = "https://api.anthropic.com";
     ASSERT_EQ(d->flavor(), "anthropic");
     ASSERT_EQ(d->chat_url(cfg), "https://api.anthropic.com/v1/messages");
-    ASSERT_EQ(d->models_url(cfg), "https://api.anthropic.com/v1/models");
+    ASSERT_EQ(d->models_url(cfg), "https://api.anthropic.com/v1/models?limit=1000");
+}
+
+// The endpoint a user pastes from the docs already carries the version
+// ("https://api.anthropic.com/v1" is what every example shows), and the edit
+// form strips only trailing slashes. Appending the version unconditionally
+// would request /v1/v1/models -- a 404 that no config file can explain.
+TEST(anthropic_endpoints_tolerate_a_versioned_base) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.api_base = "https://api.anthropic.com/v1";
+    ASSERT_EQ(d->chat_url(cfg), "https://api.anthropic.com/v1/messages");
+    ASSERT_EQ(d->models_url(cfg), "https://api.anthropic.com/v1/models?limit=1000");
+
+    // A trailing slash is the same class of paste; the form trims it, a
+    // hand-edited file need not.
+    cfg.api_base = "https://api.anthropic.com/";
+    ASSERT_EQ(d->chat_url(cfg), "https://api.anthropic.com/v1/messages");
+    ASSERT_EQ(d->models_url(cfg), "https://api.anthropic.com/v1/models?limit=1000");
+
+    // A path that merely ENDS in "v1" is not a version segment.
+    cfg.api_base = "https://proxy.example/anthropic/v1";
+    ASSERT_EQ(d->models_url(cfg), "https://proxy.example/anthropic/v1/models?limit=1000");
 }
 
 TEST(anthropic_auth_headers) {
@@ -266,11 +288,30 @@ TEST(anthropic_model_list_and_probe_parse) {
     auto models = d->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "claude-sonnet-4-5");
-    ASSERT_EQ(models[0].context, 0); // the API does not report a window
+    ASSERT_EQ(models[0].context, 0); // no window reported -> unknown, never guessed
 
     agent::ServerInfo info = d->parse_models_response(body, "claude-haiku-4-5");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "claude-haiku-4-5");
+}
+
+// The listing reports max_input_tokens (the model's input window), so the
+// context gauge and the compression budget can be sized from it instead of
+// staying "unknown" until a request overflows.
+TEST(anthropic_model_list_reports_the_input_window) {
+    auto d = anthropic();
+    const std::string body = R"({"data":[
+        {"type":"model","id":"claude-sonnet-4-5","max_input_tokens":200000},
+        {"type":"model","id":"claude-haiku-4-5","max_input_tokens":null}]})";
+
+    auto models = d->parse_model_list_response(body);
+    ASSERT_EQ(models.size(), 2u);
+    ASSERT_EQ(models[0].context, 200000);
+    ASSERT_EQ(models[1].context, 0); // null must read as unknown, not as 0 tokens
+
+    agent::ServerInfo info = d->parse_models_response(body, "claude-sonnet-4-5");
+    ASSERT_TRUE(info.ok);
+    ASSERT_EQ(info.context_size, 200000);
 }
 
 TEST(anthropic_error_classification) {

@@ -21,6 +21,8 @@ const char* scope_name(SkillScope scope) {
         return "global";
     case SkillScope::Interop:
         return "interop";
+    case SkillScope::System:
+        return "system";
     }
     return "unknown";
 }

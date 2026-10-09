@@ -546,6 +546,28 @@ rogue `replace` method, direct deque access) breaks a link and crashes with
 - Releases are tag-driven (`vX.Y.Z`; tags with `-` are pre-releases), see
   `.github/workflows/release.yml`.
 
+### Where amber keeps its own files
+
+`agent::config_paths()` (`lib/config_paths.cpp`) is the single source of truth
+for the layout; `/get config paths` prints it and the bundled `amber-config`
+skill renders its body from it, so the two cannot disagree. The shape, per the
+XDG base directories: global config in `$XDG_CONFIG_HOME/amber` (providers,
+skills, MCP, plugin state), **shareable** project config in
+`<project>/.amber` (skills, MCP, plugins -- created only when something is
+added), **private per-project state** in
+`$XDG_STATE_HOME/amber/projects/<slug>` (sessions, settings, logs, experience,
+policy), and regenerable catalogues in `$XDG_CACHE_HOME/amber`. `$HOME` is not
+special-cased: running amber there creates no project dir. Two consequences for
+tests and debugging:
+
+- Anything that touches a path must redirect the roots: `XdgGuard` in
+  `tests/run_tests.cpp` sets config/state/cache, and the pty fixture sets
+  `XDG_STATE_HOME`/`XDG_CACHE_HOME` for its child. A test that forgets one
+  reads the developer's real state.
+- The path resolvers are pure (asking creates nothing); callers create what
+  they write, and `Workspace::adopt_legacy_state()` copies a pre-move artefact
+  into the state dir once, never deleting the original.
+
 ### The local inference service is INVOLATE, never touch it
 
 The OpenAI-compatible endpoint on `:8081` is served by the **`llama-turboq`
@@ -861,10 +883,10 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 7493 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 324 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
+| `tests/run_tests.cpp` | 7817 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `lib/session.cpp` | 328 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 3106 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 3154 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

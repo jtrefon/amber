@@ -18,12 +18,14 @@
 #include "agent/bootstrap.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_runtime.h"
+#include "plugins/amber_self/amber_self_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "agent/tool_call_parser.h"
 #include "agent/todo.h"
 #include "agent/session_brief.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
+#include "agent/config_paths.h"
 #include "agent/mcp_tools.h"
 #include "agent/subagent.h"
 #include "agent/run_scope.h"
@@ -1493,6 +1495,137 @@ TEST(workspace_confines_relative_and_rejects_escape) {
     ASSERT_FALSE(agent::Workspace::confine("/tmp/amber_ws2/x", resolved, err));
 }
 
+// ---------------------------------------------------------------------------
+// project state layout (XDG)
+// ---------------------------------------------------------------------------
+
+// The slug is what keeps two projects' state apart, so it must be stable,
+// readable, and collision-free even for paths that sanitize to the same name.
+TEST(workspace_state_slug_is_stable_and_collision_free) {
+    const std::string a = agent::workspace_state_slug("/home/jack/Projects/amber");
+    ASSERT_EQ(a, agent::workspace_state_slug("/home/jack/Projects/amber"));
+    ASSERT(a.find("home-jack-Projects-amber") == 0);
+
+    // Sanitizing alone would map both of these onto "home-u-work-foo-bar";
+    // the hash suffix is what stops them from sharing sessions.
+    ASSERT(agent::workspace_state_slug("/home/u/work/foo-bar") !=
+           agent::workspace_state_slug("/home/u/work/foo_bar"));
+
+    // A very deep path is bounded rather than overflowing a filename.
+    const std::string deep = "/" + std::string(300, 'a');
+    ASSERT(agent::workspace_state_slug(deep).size() < 80u);
+}
+
+// State lives under the XDG state root, keyed by the workspace -- never in the
+// project tree, so running amber in $HOME leaves no ~/.amber behind.
+TEST(workspace_state_dir_is_per_project_and_outside_the_tree) {
+    const std::string saved_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    const char* saved_xdg = std::getenv("XDG_STATE_HOME");
+    const std::string saved_xdg_state = saved_xdg ? saved_xdg : "";
+    setenv("HOME", "/tmp/amber_state_home", 1);
+    unsetenv("XDG_STATE_HOME");
+
+    agent::Workspace::set_root("/tmp/amber_state_home");
+    const std::string dir = agent::Workspace::state_dir();
+    ASSERT_EQ(dir, "/tmp/amber_state_home/.local/state/amber/projects/" +
+                       agent::workspace_state_slug("/tmp/amber_state_home"));
+    // The whole point of the move: home-as-workspace no longer implies
+    // <home>/.amber as the state dir.
+    ASSERT(dir.find("/tmp/amber_state_home/.amber") == std::string::npos);
+
+    // An XDG_STATE_HOME override wins, and a hostile one is ignored.
+    setenv("XDG_STATE_HOME", "/tmp/amber_state_override", 1);
+    ASSERT(agent::Workspace::state_dir().find("/tmp/amber_state_override/amber/projects/") == 0);
+    setenv("XDG_STATE_HOME", "relative/path", 1);
+    ASSERT(agent::Workspace::state_dir().find("/tmp/amber_state_home/.local/state/") == 0);
+    setenv("XDG_STATE_HOME", "/tmp/../etc", 1);
+    ASSERT(agent::Workspace::state_dir().find("/tmp/amber_state_home/.local/state/") == 0);
+    unsetenv("XDG_STATE_HOME");
+
+    // state_dir() is a pure path: asking for it must not create it.
+    run_cmd("rm -rf /tmp/amber_state_home");
+    agent::Workspace::set_root("/tmp/amber_state_home");
+    ASSERT_EQ(agent::Workspace::state_dir(), dir);
+    ASSERT_FALSE(std::filesystem::exists("/tmp/amber_state_home"));
+
+    if (!saved_home.empty())
+        setenv("HOME", saved_home.c_str(), 1);
+    if (!saved_xdg_state.empty())
+        setenv("XDG_STATE_HOME", saved_xdg_state.c_str(), 1);
+}
+
+// The one-time adoption: an artefact that predates the move is copied into the
+// state dir, and the original is left where it was.
+TEST(workspace_adopts_legacy_state_without_deleting_it) {
+    const std::string saved_home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    const char* saved_xdg = std::getenv("XDG_STATE_HOME");
+    const std::string saved_xdg_state = saved_xdg ? saved_xdg : "";
+    setenv("HOME", "/tmp/amber_state_adopt_home", 1);
+    unsetenv("XDG_STATE_HOME");
+
+    run_cmd("rm -rf /tmp/amber_state_adopt /tmp/amber_state_adopt_home");
+    run_cmd("mkdir -p /tmp/amber_state_adopt/.amber/sessions");
+    {
+        std::ofstream f("/tmp/amber_state_adopt/.amber/sessions/keep.json");
+        f << "{\"id\":\"keep\"}\n";
+    }
+    {
+        std::ofstream f("/tmp/amber_state_adopt/.amber/settings");
+        f << "model=legacy-model\n";
+    }
+    agent::Workspace::set_root("/tmp/amber_state_adopt");
+
+    agent::Workspace::adopt_legacy_state("sessions");
+    agent::Workspace::adopt_legacy_state("settings");
+    ASSERT(std::filesystem::exists(agent::Workspace::state_dir() + "/sessions/keep.json"));
+    ASSERT(std::filesystem::exists(agent::Workspace::state_dir() + "/settings"));
+    // The originals stay: a layout change must not delete data.
+    ASSERT(std::filesystem::exists("/tmp/amber_state_adopt/.amber/sessions/keep.json"));
+    ASSERT(std::filesystem::exists("/tmp/amber_state_adopt/.amber/settings"));
+
+    // A second adoption must not clobber what the state dir already holds.
+    {
+        std::ofstream f(agent::Workspace::state_dir() + "/settings");
+        f << "model=newer-model\n";
+    }
+    agent::Workspace::adopt_legacy_state("settings");
+    std::ifstream f(agent::Workspace::state_dir() + "/settings");
+    std::stringstream ss;
+    ss << f.rdbuf();
+    ASSERT(ss.str().find("newer-model") != std::string::npos);
+
+    // The artefact names the consumers actually use, through the accessors
+    // they call: a typo here would be a user silently losing their remembered
+    // approvals, so it is pinned rather than assumed.
+    {
+        std::ofstream pf("/tmp/amber_state_adopt/.amber/policy.json");
+        pf << "{\"rules\":[]}\n";
+    }
+    ASSERT_EQ(agent::Workspace::settings_path(), agent::Workspace::state_dir() + "/settings");
+    ASSERT_EQ(agent::Workspace::policy_path(), agent::Workspace::state_dir() + "/policy.json");
+    ASSERT(std::filesystem::exists(agent::Workspace::state_dir() + "/policy.json"));
+
+    if (!saved_home.empty())
+        setenv("HOME", saved_home.c_str(), 1);
+    if (!saved_xdg_state.empty())
+        setenv("XDG_STATE_HOME", saved_xdg_state.c_str(), 1);
+}
+
+// Regenerable data belongs in the cache root, not the config tree.
+TEST(cache_dir_is_the_xdg_cache_root) {
+    const char* saved = std::getenv("XDG_CACHE_HOME");
+    const std::string saved_cache = saved ? saved : "";
+    setenv("XDG_CACHE_HOME", "/tmp/amber_cache_override", 1);
+    ASSERT_EQ(agent::cache_dir(), "/tmp/amber_cache_override/amber");
+    setenv("XDG_CACHE_HOME", "relative/path", 1);
+    const std::string home = std::getenv("HOME") ? std::getenv("HOME") : "";
+    ASSERT_EQ(agent::cache_dir(), home + "/.cache/amber");
+    if (!saved_cache.empty())
+        setenv("XDG_CACHE_HOME", saved_cache.c_str(), 1);
+    else
+        unsetenv("XDG_CACHE_HOME");
+}
+
 TEST(read_write_tools_reject_paths_outside_workspace) {
     agent::Workspace::set_root("/tmp/amber_ws_tools");
     run_cmd("mkdir -p /tmp/amber_ws_tools");
@@ -2118,28 +2251,53 @@ int spawn_counting_slow_mock(int port, std::atomic<int>& hits, int hold_ms,
 }
 } // namespace
 
-// Redirect XDG_CONFIG_HOME to a scratch tree for the test body: the model
-// catalog cache lives under it, and tests must never read or write the
-// developer's real ~/.config/amber.
+// Redirect the XDG roots to a scratch tree for the test body: the model
+// catalog cache lives under the cache root and per-project state under the
+// state root, and tests must never read or write the developer's real
+// ~/.config, ~/.cache or ~/.local/state.
 struct XdgGuard {
-    explicit XdgGuard(const std::string& name) : dir("/tmp/amber_xdg_" + name) {
+    explicit XdgGuard(const std::string& name)
+        : dir("/tmp/amber_xdg_" + name), state(dir + "/state"), cache(dir + "/cache") {
         std::filesystem::remove_all(dir);
-        const char* old = std::getenv("XDG_CONFIG_HOME");
-        was_set = old != nullptr;
-        if (old)
-            saved = old;
+        capture("XDG_CONFIG_HOME", saved_config, had_config);
+        capture("XDG_STATE_HOME", saved_state, had_state);
+        capture("XDG_CACHE_HOME", saved_cache, had_cache);
         setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        setenv("XDG_STATE_HOME", state.c_str(), 1);
+        setenv("XDG_CACHE_HOME", cache.c_str(), 1);
     }
     ~XdgGuard() {
-        if (was_set)
-            setenv("XDG_CONFIG_HOME", saved.c_str(), 1);
-        else
-            unsetenv("XDG_CONFIG_HOME");
+        restore("XDG_CONFIG_HOME", saved_config, had_config);
+        restore("XDG_STATE_HOME", saved_state, had_state);
+        restore("XDG_CACHE_HOME", saved_cache, had_cache);
         std::filesystem::remove_all(dir);
     }
+    XdgGuard(const XdgGuard&) = delete;
+    XdgGuard& operator=(const XdgGuard&) = delete;
+
     std::string dir;
-    std::string saved;
-    bool was_set = false;
+    std::string state;
+    std::string cache;
+    std::string saved_config;
+    std::string saved_state;
+    std::string saved_cache;
+    bool had_config = false;
+    bool had_state = false;
+    bool had_cache = false;
+
+private:
+    static void capture(const char* name, std::string& out, bool& had) {
+        const char* v = std::getenv(name);
+        had = v != nullptr;
+        if (v)
+            out = v;
+    }
+    static void restore(const char* name, const std::string& saved, bool had) {
+        if (had)
+            setenv(name, saved.c_str(), 1);
+        else
+            unsetenv(name);
+    }
 };
 
 // Router-style /models listing (kilocode et al.): kilo-auto/frontier (1M)
@@ -2253,7 +2411,7 @@ TEST(model_catalog_stale_serve_and_stale_if_error) {
 
     // Age the entry past the TTL by rewriting its timestamp in place.
     std::string cache_file;
-    for (const auto& de : std::filesystem::directory_iterator(xdg.dir + "/amber/cache"))
+    for (const auto& de : std::filesystem::directory_iterator(xdg.cache + "/amber"))
         cache_file = de.path().string();
     ASSERT(!cache_file.empty());
     {
@@ -2275,6 +2433,36 @@ TEST(model_catalog_stale_serve_and_stale_if_error) {
     ASSERT(r.has_value());
     ASSERT_EQ(r->entry.body, body);
     ASSERT_FALSE(r->fetched);
+}
+
+// A failed refresh must be able to say WHY: the endpoint it asked and the
+// status that came back. Before this, /get model list printed "refresh running
+// in background" even after its fetch had 404'd, which is how a base pasted
+// from a provider's docs (giving /v1/v1/models) read as "no models exist".
+TEST(catalog_failure_reason_names_the_endpoint_and_status) {
+    agent::CatalogFetchReport r;
+    r.url = "https://api.anthropic.com/models";
+    r.http_code = 404;
+    // With FAILONERROR a 4xx arrives as a transport error; the status is still
+    // known, and "no answer" for a 404 is exactly the misleading reading this
+    // exists to kill.
+    r.transport_ok = false;
+    const std::string why = r.failure_reason();
+    ASSERT(why.find("https://api.anthropic.com/models") != std::string::npos);
+    ASSERT(why.find("HTTP 404") != std::string::npos);
+    ASSERT(why.find("no answer") == std::string::npos);
+
+    r.http_code = 401;
+    ASSERT(r.failure_reason().find("rejected the key") != std::string::npos);
+
+    r.http_code = 0;
+    ASSERT(r.failure_reason().find("no answer") != std::string::npos);
+
+    r.fetched = true;
+    ASSERT(r.failure_reason().empty());
+
+    agent::CatalogFetchReport no_endpoint;
+    ASSERT(no_endpoint.failure_reason().find("no model-listing endpoint") != std::string::npos);
 }
 
 // The background refresh writes the catalog and reports through the host's
@@ -2300,10 +2488,10 @@ TEST(model_catalog_refresh_async_populates_cache) {
         posted.push_back(std::move(fn));
         cv.notify_all();
     };
-    auto done = [&](bool fetched) {
+    auto done = [&](const agent::CatalogFetchReport& report) {
         std::scoped_lock lk(mtx);
         done_called = true;
-        done_fetched = fetched;
+        done_fetched = report.fetched;
         cv.notify_all();
     };
 
@@ -4545,7 +4733,10 @@ TEST(experience_store_project_default) {
     agent::Workspace::set_root("/tmp/amber_sk2_ws");
     agent::Config cfg;
     auto ec = agent::load_experience_config(cfg);
-    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws/.amber/experience.json");
+    // Per-project STATE, not the project tree: what one project taught the
+    // agent must not travel with a checkout (or into a repository).
+    ASSERT_EQ(ec.store_path, agent::Workspace::state_dir() + "/experience.json");
+    ASSERT(ec.store_path.find("/.amber/") == std::string::npos);
 }
 
 TEST(experience_store_legacy_seed_once) {
@@ -4558,17 +4749,25 @@ TEST(experience_store_legacy_seed_once) {
         std::ofstream f(legacy);
         f << R"({"version":1,"memories":[{"id":"m1","name":"proj","content":"uses make","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
     }
+    // A store written by the pre-state-layout amber, in the project tree: it
+    // must be adopted too, not only the older ~/.amber file.
+    run_cmd("mkdir -p /tmp/amber_sk2_ws2/.amber");
+    {
+        std::ofstream f("/tmp/amber_sk2_ws2/.amber/experience.json");
+        f << R"({"version":1,"memories":[{"id":"m2","name":"proj","content":"from the project tree","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
+    }
     setenv("HOME", "/tmp/amber_sk2_home", 1);
 
     agent::Config cfg;
     auto ec = agent::load_experience_config(cfg);
-    ASSERT_EQ(ec.store_path, "/tmp/amber_sk2_ws2/.amber/experience.json");
+    ASSERT_EQ(ec.store_path, agent::Workspace::state_dir() + "/experience.json");
     {
         std::ifstream f(ec.store_path);
         std::stringstream ss;
         ss << f.rdbuf();
-        ASSERT(ss.str().find("\"memories\"") != std::string::npos);
-        ASSERT(ss.str().find("uses make") != std::string::npos);
+        // The project-tree store is the more recent one, so it is what the
+        // adoption leaves in place.
+        ASSERT(ss.str().find("from the project tree") != std::string::npos);
     }
     {
         std::ifstream f(legacy);
@@ -4585,7 +4784,7 @@ TEST(experience_store_legacy_seed_once) {
         std::ifstream f(ec2.store_path);
         std::stringstream ss;
         ss << f.rdbuf();
-        ASSERT(ss.str().find("uses make") != std::string::npos);
+        ASSERT(ss.str().find("from the project tree") != std::string::npos);
     }
 }
 
@@ -5921,6 +6120,131 @@ TEST(skill_install_rejects_non_skill_archive) {
     run_cmd("rm -rf " + base);
 }
 
+// ---------------------------------------------------------------------------
+// System skills: contributed by code (a bundled plugin), not by a file
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A catalog whose scan roots are all scratch directories, so a test can never
+// read the developer's real skills.
+std::unique_ptr<agent::SkillCatalog> scratch_catalog(const std::string& name) {
+    agent::Workspace::set_root("/tmp/amber_sysskill_" + name + "/ws");
+    agent::SkillScanPaths paths;
+    paths.project = "/tmp/amber_sysskill_" + name + "/ws/skills";
+    paths.global = "/tmp/amber_sysskill_" + name + "/cfg/skills";
+    agent::Config cfg;
+    return std::make_unique<agent::SkillCatalog>(cfg, paths,
+                                                 "/tmp/amber_sysskill_" + name + "/cfg");
+}
+
+agent::SystemSkill make_system_skill(const std::string& name, const std::string& body) {
+    agent::SystemSkill s;
+    s.name = name;
+    s.description = "test skill " + name;
+    s.body = [body] { return body; };
+    return s;
+}
+
+} // namespace
+
+TEST(system_skill_is_discovered_readable_and_unwound) {
+    run_cmd("rm -rf /tmp/amber_sysskill_discover");
+    agent::register_system_skill(make_system_skill("sys-test", "# sys body\n"), "unit-test-owner");
+
+    auto catalog = scratch_catalog("discover");
+    catalog->discover({});
+    auto entry = catalog->lookup("sys-test");
+    ASSERT(entry.has_value());
+    ASSERT(entry->scope == agent::SkillScope::System);
+
+    // Indexed in the discovery slot (one line) and readable on demand.
+    bool indexed = false;
+    for (const auto& line : catalog->discovery_block())
+        if (line.rfind("sys-test: ", 0) == 0)
+            indexed = true;
+    ASSERT(indexed);
+    auto body = catalog->read_body("sys-test");
+    ASSERT(body.has_value());
+    ASSERT(body->find("# sys body") != std::string::npos);
+
+    // Disabling the owning plugin takes the skill back out.
+    agent::unregister_system_skills_for("unit-test-owner");
+    catalog->refresh();
+    ASSERT(!catalog->lookup("sys-test").has_value());
+}
+
+TEST(authored_skill_shadows_a_system_skill_of_the_same_name) {
+    run_cmd("rm -rf /tmp/amber_sysskill_shadow");
+    run_cmd("mkdir -p /tmp/amber_sysskill_shadow/ws/skills/sys-shadow");
+    {
+        std::ofstream f("/tmp/amber_sysskill_shadow/ws/skills/sys-shadow/SKILL.md");
+        f << "---\nname: sys-shadow\ndescription: the project's own\n---\nproject body\n";
+    }
+    agent::register_system_skill(make_system_skill("sys-shadow", "system body\n"),
+                                 "unit-test-owner");
+
+    auto catalog = scratch_catalog("shadow");
+    catalog->discover({});
+    auto entry = catalog->lookup("sys-shadow");
+    ASSERT(entry.has_value());
+    // The project's copy wins: a user must be able to override what amber
+    // ships with their own file.
+    ASSERT(entry->scope == agent::SkillScope::Project);
+    auto body = catalog->read_body("sys-shadow");
+    ASSERT(body.has_value());
+    ASSERT(body->find("project body") != std::string::npos);
+
+    agent::unregister_system_skills_for("unit-test-owner");
+}
+
+// ---------------------------------------------------------------------------
+// amber's own layout (config_paths) and the skill that documents it
+// ---------------------------------------------------------------------------
+
+TEST(config_paths_resolves_the_layout) {
+    XdgGuard xdg("config_paths");
+    run_cmd("rm -rf /tmp/amber_cfg_paths_ws");
+    agent::Workspace::set_root("/tmp/amber_cfg_paths_ws");
+
+    std::map<std::string, std::string> rows;
+    for (const auto& p : agent::config_paths())
+        rows[p.what] = p.path;
+
+    // Global: the XDG config root. State: the XDG state root, keyed by the
+    // project. Cache: the XDG cache root.
+    ASSERT_EQ(rows["providers"], xdg.dir + "/amber/providers");
+    ASSERT(rows["state"].find(xdg.state + "/amber/projects/") == 0);
+    ASSERT_EQ(rows["cache"], xdg.cache + "/amber");
+    // The project tree holds only what a repository may share.
+    ASSERT_EQ(rows["project-config"], "/tmp/amber_cfg_paths_ws/.amber");
+    ASSERT(rows["sessions"].find(rows["state"]) == 0);
+    ASSERT(rows["settings"].find(rows["state"]) == 0);
+    ASSERT(rows["experience"].find(rows["state"]) == 0);
+    ASSERT(rows["policy"].find(rows["state"]) == 0);
+    // The layout is a readout, not a side effect.
+    ASSERT(!std::filesystem::exists("/tmp/amber_cfg_paths_ws"));
+}
+
+// The bundled amber-config skill is the agent-facing half of /get config
+// paths; both render the same table, so the documented paths ARE the resolved
+// paths -- a body that restated them in prose would drift on the first move.
+TEST(amber_config_skill_documents_the_resolved_paths) {
+    XdgGuard xdg("amber_config_skill");
+    agent::Workspace::set_root("/tmp/amber_cfg_skill_ws");
+    const std::string body = agent::plugins::render_amber_config_skill();
+    for (const auto& p : agent::config_paths()) {
+        if (body.find(p.path) == std::string::npos) {
+            std::cerr << "missing path in skill body: " << p.what << " " << p.path << "\n";
+        }
+        ASSERT(body.find(p.path) != std::string::npos);
+    }
+    // It must also say what the reader can DO, not only where things are.
+    ASSERT(body.find("/get config paths") != std::string::npos);
+    ASSERT(body.find("/provider") != std::string::npos);
+    ASSERT(body.find("/set model") != std::string::npos);
+}
+
 TEST(skill_install_rejects_malformed_skill) {
     std::string base = "/tmp/amber_skill_install";
     run_cmd("rm -rf " + base);
@@ -6800,7 +7124,7 @@ TEST(read_tool_truncates_long_lines) {
 // Saving a session must not delete the index file (deleting it forces a full
 // re-parse of every session on the next list()).
 TEST(session_save_keeps_index) {
-    std::string dir = "/tmp/amber_session_index_ws/.amber/sessions";
+    std::string dir = "/tmp/amber_session_index_ws/sessions";
     run_cmd("rm -rf /tmp/amber_session_index_ws && mkdir -p " + dir);
     agent::Workspace::set_root("/tmp/amber_session_index_ws");
     agent::SessionStore store(dir);

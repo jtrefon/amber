@@ -40,6 +40,7 @@ std::vector<std::string> list_models(const Config& cfg);
 // left ~40 lines no test could reach.
 struct ModelsGetResult {
     std::string body;
+    std::string url; // the endpoint the dialect built ("" when none)
     long http_code = 0;
     bool transport_ok = false; // false when no response arrived at all
 };
@@ -80,19 +81,42 @@ struct CatalogFetchResult {
     bool fetched = false;    // the HTTP fetch succeeded in this call
 };
 
+// What one catalogue refresh observed, so a caller can report WHY a list is
+// empty instead of only that it is not there yet.
+//
+// The two facts a wrong base URL or a wrong wire protocol show up in are the
+// endpoint actually asked and the status that came back, and neither used to be
+// visible: /get model list printed "refresh running in background" even after
+// its fetch had already 404'd, which is how a base pasted from the Anthropic
+// docs (".../v1", giving /v1/v1/models) read as "this provider has no models".
+struct CatalogFetchReport {
+    bool fetched = false;
+    std::string url;    // endpoint attempted; empty when none could be built
+    long http_code = 0; // 0 when no response arrived
+    bool transport_ok = false;
+
+    // One line for the UI, e.g.
+    //   GET https://api.anthropic.com/models -> HTTP 404 (no model list at
+    //   this URL - check the provider's server URL)
+    // Empty when the fetch succeeded.
+    std::string failure_reason() const;
+};
+
 // Blocking cache-through fetch — for non-UI threads only. force=false serves
 // any cached entry (fresh or stale) and only reaches the network on a cold
 // cache; force=true always revalidates. Stale-if-error: a failed refresh
 // still returns the previous cached entry. Returns nullopt only when no
-// usable body exists at all.
-std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool force = false);
+// usable body exists at all. `report`, when given, receives what the attempt
+// observed (see CatalogFetchReport).
+std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool force = false,
+                                                      CatalogFetchReport* report = nullptr);
 
 // Asynchronous revalidation, safe to call from the UI thread: the fetch runs
 // on a detached worker (deduped by the single-flight above) and `done` is
-// delivered through `post` (the host's UI-thread queue). `fetched` reports
+// delivered through `post` (the host's UI-thread queue). `report.fetched` says
 // whether the network fetch succeeded; the freshest body is in the cache.
 void model_catalog_refresh_async(const Config& cfg, std::function<void(std::function<void()>)> post,
-                                 std::function<void(bool fetched)> done);
+                                 std::function<void(const CatalogFetchReport&)> done);
 
 // Cache-only variants of the probe/list functions: identical parsing, zero
 // network. For the UI thread.

@@ -205,6 +205,21 @@ git_prompt=prompts/git.md
 api_base=http://localhost:8080/v1
 model=Qwopus-27B-Fusion</pre>
       </div>
+      <p>
+        Amber keeps its own files in four places, following the XDG base
+        directories: global config in <code>~/.config/amber</code> (providers,
+        skills, MCP servers), shareable project config in
+        <code>&lt;project&gt;/.amber</code> (created only when you add
+        something), private per-project state in
+        <code>~/.local/state/amber/projects/&lt;project&gt;</code> (sessions,
+        settings, logs, experience, policy) and the model cache in
+        <code>~/.cache/amber</code>. Running amber from your home directory
+        therefore leaves no project directory behind, and a deleted checkout
+        does not take your conversation history with it.
+        <code>/get config paths</code> prints the resolved layout for this
+        machine, and the bundled <code>amber-config</code> skill teaches the
+        agent the same table.
+      </p>
       <h3>Environment variables</h3>
       <ul class="feature-list">
         <li><code>AMBER_WORKSPACE</code> - override the workspace root (defaults to the working directory)</li>
@@ -212,6 +227,7 @@ model=Qwopus-27B-Fusion</pre>
         <li><code>AMBER_PROVIDER</code> - override the default provider</li>
         <li><code>AMBER_STREAM</code> - set 0 to disable SSE streaming</li>
         <li><code>AMBER_APPROVAL</code> - approval mode override</li>
+        <li><code>XDG_CONFIG_HOME</code>, <code>XDG_STATE_HOME</code>, <code>XDG_CACHE_HOME</code> - move the config, state and cache roots</li>
       </ul>
     </section>
   </main>

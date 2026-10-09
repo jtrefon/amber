@@ -46,6 +46,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/statusbar.o \
             $(BUILD_DIR)/lib/session.o \
             $(BUILD_DIR)/lib/workspace.o \
+            $(BUILD_DIR)/lib/config_paths.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
             $(BUILD_DIR)/lib/compressor.o \
@@ -107,6 +108,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/commandcode/commandcode_plugin.o \
               $(BUILD_DIR)/plugins/deepseek/deepseek_plugin.o \
               $(BUILD_DIR)/plugins/hello/hello_plugin.o \
+              $(BUILD_DIR)/plugins/amber_self/amber_self_plugin.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \

@@ -4,7 +4,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <pwd.h>
 #include <sstream>
+#include <unistd.h>
 
 namespace agent {
 
@@ -236,16 +238,42 @@ bool is_sane_config_root(const std::filesystem::path& p) {
                        [](const std::filesystem::path& part) { return part != ".."; });
 }
 
+// $HOME when it is usable, else the passwd entry. See user_home_dir().
+std::string resolve_home() {
+    const char* home = std::getenv("HOME");
+    if (home && *home && is_sane_config_root(home))
+        return home;
+    if (const passwd* pw = getpwuid(getuid()); pw && pw->pw_dir && *pw->pw_dir)
+        return pw->pw_dir;
+    return {};
+}
+
 } // namespace
+
+std::string user_home_dir() {
+    return resolve_home();
+}
 
 std::string global_config_dir() {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     if (xdg && *xdg && is_sane_config_root(xdg))
         return (std::filesystem::path(xdg) / "amber").string();
-    const char* home = std::getenv("HOME");
-    if (home && *home && is_sane_config_root(home))
+    const std::string home = resolve_home();
+    if (!home.empty())
         return (std::filesystem::path(home) / ".config" / "amber").string();
+    // No HOME and no passwd entry: nothing can be chosen correctly, so keep the
+    // historical relative name rather than inventing a new surprise.
     return ".amber";
+}
+
+std::string cache_dir() {
+    const char* xdg = std::getenv("XDG_CACHE_HOME");
+    if (xdg && *xdg && is_sane_config_root(xdg))
+        return (std::filesystem::path(xdg) / "amber").string();
+    const std::string home = resolve_home();
+    if (!home.empty())
+        return (std::filesystem::path(home) / ".cache" / "amber").string();
+    return ".amber-cache";
 }
 
 std::string global_config_path() {

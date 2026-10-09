@@ -78,6 +78,7 @@ bug.
 | Panel contribution + registry console | ✅ Available | `PanelCapability` |
 | Wallet readout | ✅ Available | `WalletCapability` |
 | Search backend contribution | ✅ Available | `SearchBackendCapability` |
+| Skill contribution (a skill the harness ships, no file) | ✅ Available | `SkillCapability` |
 | Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
 | Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
@@ -162,9 +163,9 @@ public:
 };
 ```
 
-`CapabilityKind` has eight values: `Tool`, `PromptBlock`, `StatusSegment`,
-`Panel`, `Provider`, `Wallet`, `Command`, `SearchBackend`. Each has a concrete
-base class in `include/agent/extensions.h`.
+`CapabilityKind` has nine values: `Tool`, `PromptBlock`, `StatusSegment`,
+`Panel`, `Provider`, `Wallet`, `Command`, `SearchBackend`, `Skill`. Each has a
+concrete base class in `include/agent/extensions.h`.
 
 `InstallResult` distinguishes a **decline** from a **failure**:
 `ok == false && declined == true` means "nothing to install" and the plugin
@@ -431,6 +432,34 @@ caps.push_back(std::make_unique<agent::SearchBackendCapability>(
   needs (the semantic backend caches its own index), the runtime owns nothing of
   it.
 
+### Skill (a skill the harness ships)
+
+A plugin can contribute a **system skill**: a skill that exists in code rather
+than as a `SKILL.md` file. It is indexed in the skill discovery slot like any
+other skill, its body loads only when the model asks for it (`read_skill`), and
+there is nothing on disk for a stray edit to damage. The body is a render
+callable, so it can be built from the app's own tables instead of restating
+them.
+
+```cpp
+agent::SystemSkill skill;
+skill.name = "amber-config";                 // kebab-case, like any skill name
+skill.description = "Where amber keeps its own config and state";
+skill.body = [] { return render_from_the_same_table_the_app_uses(); };
+caps.push_back(std::make_unique<agent::SkillCapability>(std::move(skill)));
+```
+
+- **Precedence**: project > global > interop > system. A user who writes their
+  own skill of the same name shadows the shipped one, and `/set skills disable
+  <name>` still applies: a system skill is curated like any other.
+- **Nothing is declared while the plugin is off**: disabling the plugin removes
+  the skill from discovery (the capability is unwound), which is the intended
+  way to make the harness forget something it ships.
+- The worked example is `plugins/amber_self/`: the `amber-config` skill whose
+  body is rendered from `agent::config_paths()`, the same table
+  `/get config paths` prints, so the documented paths and the resolved paths
+  cannot disagree.
+
 ### Runtime state: on/off and settings
 
 Core plugins are **on by default**. Users control them through the command
@@ -570,8 +599,10 @@ with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
 `plugins/tool_task/`. The search backends follow the same rule, one plugin each:
 `plugins/search_grep/` and `plugins/search_semantic/`. Alongside them:
 `plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
-event-observing plugin with no contributions) and `plugins/hello/` (the command
-example). That is 21 bundled plugins in total.
+event-observing plugin with no contributions), `plugins/hello/` (the command
+example) and `plugins/amber_self/` (the `amber-self` plugin: it contributes the
+`amber-config` skill, whose body is rendered from the same table
+`/get config paths` prints). That is 22 bundled plugins in total.
 
 Steps:
 

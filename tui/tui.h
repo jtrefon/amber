@@ -236,8 +236,8 @@ private:
     // and its colour reflects an answer that was just fetched.
     void show_provider_list();
     void settle_provider_row(unsigned request, const std::string& name, agent::AuthState state);
-    void on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
-                             const std::string& flavor);
+    void on_models_refreshed(const agent::CatalogFetchReport& refresh, bool announce,
+                             const std::string& api_base, const std::string& flavor);
     void adopt_detected_model();
     // A post_to_ui_thread variant for background catalog work: the post is
     // dropped once destruction begins, so a late worker can never touch a
@@ -320,6 +320,10 @@ private:
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
     std::atomic<bool> models_refresh_inflight_{false};
+    // Set by /get model list when the catalogue is cold: the refresh it kicks
+    // may fail, and the user who asked must hear WHY rather than a "still
+    // loading" that never resolves.
+    bool report_model_failure_ = false;
     // Rows of /get provider list still awaiting their probe, and the id of the
     // invocation that printed them (two runs of the command coexist, and a late
     // answer must settle its own row, not the newer one).

@@ -30,20 +30,28 @@ namespace {
 
 struct ScopedConfigHome {
     std::string saved;
+    std::string saved_cache;
     std::filesystem::path dir;
     ScopedConfigHome() {
         const char* old = std::getenv("XDG_CONFIG_HOME");
         saved = old ? old : "";
+        const char* old_cache = std::getenv("XDG_CACHE_HOME");
+        saved_cache = old_cache ? old_cache : "";
         dir = std::filesystem::temp_directory_path() / "amber_provider_repro";
         std::filesystem::create_directories(dir / "amber" / "providers");
-        std::filesystem::create_directories(dir / "amber" / "cache");
+        std::filesystem::create_directories(dir / "cache" / "amber");
         setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        setenv("XDG_CACHE_HOME", (dir / "cache").c_str(), 1);
     }
     ~ScopedConfigHome() {
         if (saved.empty())
             unsetenv("XDG_CONFIG_HOME");
         else
             setenv("XDG_CONFIG_HOME", saved.c_str(), 1);
+        if (saved_cache.empty())
+            unsetenv("XDG_CACHE_HOME");
+        else
+            setenv("XDG_CACHE_HOME", saved_cache.c_str(), 1);
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);
     }
@@ -68,7 +76,7 @@ void write_provider(const std::filesystem::path& root, const std::string& name,
     f << "requires_key=1\n";
 }
 
-void write_catalogue(const std::filesystem::path& root, const std::string& api_base,
+void write_catalogue(const std::filesystem::path& cache_root, const std::string& api_base,
                      const std::string& flavor, const std::string& ids) {
     char name[64];
     std::snprintf(name, sizeof(name), "models-%016zx.json", fnv1a(api_base + "\n" + flavor));
@@ -82,7 +90,7 @@ void write_catalogue(const std::filesystem::path& root, const std::string& api_b
             escaped += '\\';
         escaped += c;
     }
-    std::ofstream f(root / "amber" / "cache" / name);
+    std::ofstream f(cache_root / "cache" / "amber" / name);
     f << R"({"fetched_ms":)" << (long long)9'000'000'000'000ULL << R"(,"body":")" << escaped
       << R"("})";
 }

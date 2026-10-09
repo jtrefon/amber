@@ -36,16 +36,21 @@ namespace {
 // The catalogue's half of the request: wants the body, treats a non-2xx as a
 // failure. The dialect is no longer a parameter -- models_get() resolves it from
 // cfg.flavor, which is what made the two call sites disagree in the first place.
-CURLcode fetch_models(const Config& cfg, std::string& body) {
+CURLcode fetch_models(const Config& cfg, std::string& body, CatalogFetchReport& report) {
     const auto r = models_get(cfg, /*want_body=*/true);
     body = r.body;
+    report.url = r.url;
+    report.http_code = r.http_code;
+    report.transport_ok = r.transport_ok;
     if (!r.transport_ok)
         return CURLE_HTTP_RETURNED_ERROR;
     return r.http_code >= 200 && r.http_code < 300 ? CURLE_OK : CURLE_HTTP_RETURNED_ERROR;
 }
 
 // ---------------------------------------------------------------------------
-// Catalog cache: ~/.config/amber/cache/models-<hash(api_base+flavor)>.json
+// Catalog cache: <cache dir>/models-<hash(api_base+flavor)>.json, where the
+// cache dir is $XDG_CACHE_HOME/amber (else ~/.cache/amber): the XDG spec keeps
+// regenerable data out of the config tree, and a lost catalogue is a re-fetch.
 // ---------------------------------------------------------------------------
 
 constexpr long long kCatalogTtlMs = 24LL * 3600 * 1000;
@@ -65,7 +70,7 @@ std::string catalog_cache_path(const Config& cfg) {
     }
     char name[32];
     std::snprintf(name, sizeof(name), "models-%016llx.json", static_cast<unsigned long long>(h));
-    return global_config_dir() + "/cache/" + name;
+    return cache_dir() + "/" + name;
 }
 
 // Single-flight slots, keyed by endpoint identity. Concurrent fetchers for
@@ -97,6 +102,7 @@ ModelsGetResult models_get(const Config& cfg, bool want_body) {
     ModelsGetResult out;
     auto dialect = make_dialect(cfg.flavor);
     const std::string url = dialect->models_url(cfg);
+    out.url = url;
     if (url.empty())
         return out;
 
@@ -130,6 +136,29 @@ ModelsGetResult models_get(const Config& cfg, bool want_body) {
     if (!want_body)
         out.body.clear();
     return out;
+}
+
+std::string CatalogFetchReport::failure_reason() const {
+    if (fetched)
+        return {};
+    if (url.empty())
+        return "no model-listing endpoint for this protocol";
+    std::string why = "GET " + url + " -> ";
+    // The status is reported whether or not the transport called it an error:
+    // with FAILONERROR a 4xx arrives as CURLE_HTTP_RETURNED_ERROR, and "no
+    // answer" for a 404 is exactly the misleading reading this exists to kill.
+    if (http_code <= 0)
+        return why + "no answer (check the server is running and the URL is right)";
+    why += "HTTP " + std::to_string(http_code);
+    if (http_code == 401 || http_code == 403)
+        why += " (the endpoint rejected the key)";
+    else if (http_code == 404)
+        why += " (no model list at this URL - check the provider's server URL)";
+    else if (http_code == 429)
+        why += " (rate limited)";
+    else if (http_code >= 500)
+        why += " (server error)";
+    return why;
 }
 
 std::optional<ModelCatalogEntry> model_catalog_read(const Config& cfg) {
@@ -188,14 +217,15 @@ std::shared_ptr<FetchSlot> fetch_slot_for(const std::string& key) {
 }
 
 // Fetch the catalog and update the cache. Returns whether the fetch succeeded.
-bool fetch_and_cache(const Config& cfg) {
+bool fetch_and_cache(const Config& cfg, CatalogFetchReport& report) {
     std::string body;
-    const bool fetched = fetch_models(cfg, body) == CURLE_OK;
+    const bool fetched = fetch_models(cfg, body, report) == CURLE_OK;
+    report.fetched = fetched;
     if (fetched) {
         debug_log(cfg.debug_log, "probe", body);
         model_catalog_write(cfg, body);
     } else {
-        debug_log(cfg.debug_log, "probe-error", "fetch failed");
+        debug_log(cfg.debug_log, "probe-error", report.failure_reason());
     }
     return fetched;
 }
@@ -211,7 +241,8 @@ void release_slot(FetchSlot& slot) {
 
 } // namespace
 
-std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool force) {
+std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool force,
+                                                      CatalogFetchReport* report) {
     auto cached = model_catalog_read(cfg);
     if (!force && cached)
         return CatalogFetchResult{*cached, false}; // SWR: serve, caller revalidates async
@@ -221,18 +252,30 @@ std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool fo
 
     std::unique_lock lk(slot->mtx);
     if (slot->active) {
-        // Join the in-flight request instead of issuing a duplicate.
+        // Join the in-flight request instead of issuing a duplicate. The joiner
+        // never sees the other request's status, so the report carries only
+        // what it can honestly say: the endpoint, and whether a catalogue
+        // exists now.
         slot->cv.wait(lk, [&] { return !slot->active; });
         lk.unlock();
-        if (auto e = model_catalog_read(cfg))
+        if (auto e = model_catalog_read(cfg)) {
+            if (report)
+                *report =
+                    CatalogFetchReport{true, make_dialect(cfg.flavor)->models_url(cfg), 0, true};
             return CatalogFetchResult{*e, true};
+        }
+        if (report)
+            report->url = make_dialect(cfg.flavor)->models_url(cfg);
         return cached ? std::optional<CatalogFetchResult>{{*cached, false}} : std::nullopt;
     }
     slot->active = true;
     lk.unlock();
 
-    const bool fetched = fetch_and_cache(cfg);
+    CatalogFetchReport local;
+    const bool fetched = fetch_and_cache(cfg, local);
     release_slot(*slot);
+    if (report)
+        *report = std::move(local);
 
     if (auto e = model_catalog_read(cfg))
         return CatalogFetchResult{*e, fetched};
@@ -240,11 +283,14 @@ std::optional<CatalogFetchResult> model_catalog_fetch(const Config& cfg, bool fo
 }
 
 void model_catalog_refresh_async(const Config& cfg, std::function<void(std::function<void()>)> post,
-                                 std::function<void(bool)> done) {
+                                 std::function<void(const CatalogFetchReport&)> done) {
     Config copy = cfg;
     std::thread([copy = std::move(copy), post = std::move(post), done = std::move(done)]() mutable {
-        auto r = model_catalog_fetch(copy, /*force=*/true);
-        post([done = std::move(done), fetched = r && r->fetched] { done(fetched); });
+        CatalogFetchReport report;
+        // The entry itself travels through the cache; the report is what the
+        // caller could not learn from a bool.
+        (void)model_catalog_fetch(copy, /*force=*/true, &report);
+        post([done = std::move(done), report = std::move(report)] { done(report); });
     }).detach();
 }
 
