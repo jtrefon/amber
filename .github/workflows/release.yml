@@ -226,6 +226,11 @@ jobs:
           name: ${{ steps.ver.outputs.tag }}
           generate_release_notes: true
           prerelease: ${{ steps.ver.outputs.prerelease }}
+          # The plugin packages are already covered by the .deb/.rpm globs
+          # below; listing them again under their own pattern made the action
+          # upload each one twice, and the duplicate's metadata update raced the
+          # first upload into a 404 -- v0.5.3's step failed with the release
+          # left a draft and one asset short.
           files: |
             dist/*.tar.gz
             dist/*.tar.gz.sha256
@@ -233,7 +238,6 @@ jobs:
             dist/*.deb.sha256
             dist/*.rpm
             dist/*.rpm.sha256
-            dist/amber-plugin-cdp*
             dist/*.sig
             dist/*.pem
 
