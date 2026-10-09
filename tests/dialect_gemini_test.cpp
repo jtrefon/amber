@@ -257,17 +257,29 @@ TEST(provider_file_round_trips_the_flavor) {
     ASSERT(back.has_value());
     ASSERT_EQ(back->flavor, std::string("gemini"));
 
-    // The default is not written: a file that says nothing means openai.
+    // A save names the protocol whenever it is known, the baseline included:
+    // absence means "inherit the definition this file overrides", so a file
+    // amber writes must not be ambiguous.
     Provider plain;
     plain.name = "plain";
     plain.api_base = "http://localhost:8081/v1";
     ASSERT_TRUE(make_file_provider_repository()->save(plain));
     std::ifstream f(dir + "/amber/providers/plain.conf");
     std::string contents((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    ASSERT(contents.find("flavor=") == std::string::npos);
+    ASSERT(contents.find("flavor=openai") != std::string::npos);
     auto plain_back = make_file_provider_repository()->find("plain");
     ASSERT(plain_back.has_value());
     ASSERT_EQ(plain_back->flavor, std::string("openai"));
+
+    // A hand-written file that names no flavor reports NONE at the repository
+    // layer: the service resolves absence against the preset it overrides
+    // (provider_repro_test covers that resolution).
+    std::ofstream g(dir + "/amber/providers/handwritten.conf");
+    g << "provider=handwritten\napi_base=http://localhost:9000/v1\n";
+    g.close();
+    auto handwritten = make_file_provider_repository()->find("handwritten");
+    ASSERT(handwritten.has_value());
+    ASSERT_EQ(handwritten->flavor, std::string(""));
 
     unsetenv("XDG_CONFIG_HOME");
     std::filesystem::remove_all(dir);

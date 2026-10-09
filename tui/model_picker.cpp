@@ -4,6 +4,7 @@
 #include <agent/model_probe.h>
 
 #include <algorithm>
+#include <utility>
 
 namespace tui {
 
@@ -90,33 +91,93 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
     return out;
 }
 
-std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
-                               agent::AuthState state) {
-    const bool has_endpoint = !api_base.empty();
-    // The verdict is the state's job; "has a key" is not evidence either way, so
-    // it is not consulted. An unprobed configured provider reads [ ], which is
-    // honest -- the alternative is guessing that a key is good.
-    const char mark = agent::provider_mark(state, has_endpoint, /*has_key=*/true);
+namespace {
 
-    std::string line = "  ";
-    line += active ? '*' : ' ';
-    line += "  [";
-    line += mark;
-    line += "]  ";
-    line += name;
-    line += "  (";
-    if (!has_endpoint) {
-        line += "unconfigured";
-    } else if (state == agent::AuthState::Rejected) {
-        // Say WHY, so [!] is not read as "no key yet".
-        line += "token rejected";
-    } else if (state == agent::AuthState::Unknown) {
-        line += "not checked yet";
-    } else {
-        line += api_base;
-    }
-    line += ")";
+// Why the checkbox reads what it reads. The text says what to do about it, so a
+// blank box is never mistaken for a broken provider and a bang never for a
+// missing key.
+std::string provider_reason(const ProviderListRow& row, bool has_endpoint, bool configured) {
+    if (row.pending)
+        return "checking ...";
+    if (!has_endpoint)
+        return "unconfigured";
+    if (!configured)
+        return "no API key";
+    if (row.state == agent::AuthState::Rejected)
+        return "token rejected";
+    if (row.state == agent::AuthState::Unknown)
+        return "no answer";
+    return row.api_base;
+}
+
+} // namespace
+
+rich::Line provider_list_line(const ProviderListRow& row, const std::string& ts) {
+    const bool has_endpoint = !row.api_base.empty();
+    // "Configured" is the question the checkbox answers: an endpoint exists and,
+    // when one is required, a key is present. Anything less is "no config found"
+    // -- the text says which half is missing.
+    const bool configured = has_endpoint && (!row.requires_key || row.has_key);
+
+    std::string text = "  [";
+    text += row.pending ? ' ' : agent::provider_mark(row.state, configured);
+    text += "]  ";
+    text += row.name;
+    text += "  (";
+    text += provider_reason(row, has_endpoint, configured);
+    text += ")";
+
+    rich::Line line;
+    if (!ts.empty())
+        line.runs.push_back({ts, P_REASONING, false, true}); // faint timestamp
+    rich::Run body;
+    body.pair = (row.active && !row.pending) ? P_ACTIVE : P_STATUS;
+    body.dim = row.pending;
+    body.text = std::move(text);
+    line.runs.push_back(std::move(body));
     return line;
+}
+
+void PendingProviderRows::add(size_t window_id, size_t index, unsigned request, std::string ts,
+                              ProviderListRow row) {
+    entries_.push_back(Entry{window_id, index, request, std::move(ts), std::move(row)});
+}
+
+std::optional<PendingProviderRows::Settled>
+PendingProviderRows::settle(unsigned request, const std::string& name, agent::AuthState state) {
+    auto it = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& e) {
+        return e.request == request && e.row.name == name;
+    });
+    if (it == entries_.end())
+        return std::nullopt;
+    ProviderListRow row = it->row;
+    row.pending = false;
+    row.state = state;
+    Settled out{it->window_id, it->index, provider_list_line(row, it->ts)};
+    entries_.erase(it);
+    return out;
+}
+
+void PendingProviderRows::trimmed(size_t window_id, size_t removed) {
+    for (auto& e : entries_) {
+        if (e.window_id != window_id)
+            continue;
+        if (e.index < removed)
+            e.index = std::string::npos;
+        else
+            e.index -= removed;
+    }
+    // A trimmed-away row has nothing left to rewrite: drop it rather than keep
+    // an index that can never be valid.
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                  [](const Entry& e) { return e.index == std::string::npos; }),
+                   entries_.end());
+}
+
+void PendingProviderRows::drop_window(size_t window_id) {
+    entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                  [&](const Entry& e) { return e.window_id == window_id; }),
+                   entries_.end());
 }
 
 } // namespace tui

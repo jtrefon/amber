@@ -28,6 +28,7 @@ enum Pair {
     P_BAR_DIM,    // dim gauge track / faint labels (cyan on blue)
     P_GIT_PLUS,   // git added lines (green)
     P_GIT_MINUS,  // git deleted lines (red)
+    P_ACTIVE,     // active provider row (green)
     // Markdown rendering pairs (chat canvas).
     P_MD_HEAD,      // headings
     P_MD_QUOTE,     // block quote

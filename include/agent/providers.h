@@ -36,6 +36,11 @@ struct Provider {
     // by name, so a provider carries its own protocol and a plugin-provided
     // provider needs no core table entry (last so existing initialisers keep
     // meaning "openai").
+    //
+    // A definition that names no flavor (empty) is resolved by
+    // ProviderService: it inherits the flavor of the definition it overrides
+    // and falls back to openai, so a file saved before the flavor was carried
+    // through a save is healed rather than silently speaking another protocol.
     std::string flavor = "openai";
 };
 
@@ -116,6 +121,21 @@ private:
 // Apply a selection to a transport Config: provider name, endpoint, key
 // (non-empty fields only) and the provider's last-used model.
 void apply_selection(Config& cfg, const ProviderSelection& sel);
+
+// The Provider a save persists, from the definition the user was editing and
+// the connection the edit form produced.
+//
+// The form carries name/endpoint/key/model/context and no wire protocol: the
+// flavor belongs to the provider DEFINITION, so it is carried over from
+// `existing` -- the preset, or the file being updated. Rebuilding the Provider
+// from the form alone dropped it and silently reverted every non-openai
+// provider to the openai baseline: a configured anthropic then fetched
+// {api_base}/models with a Bearer header instead of {api_base}/v1/models with
+// x-api-key, so its model list was always empty.
+//
+// `existing` is a default-constructed Provider for a brand-new definition,
+// which yields the documented openai default.
+Provider provider_from_edit(const Provider& existing, const Config& cfg, bool builtin);
 
 // ---------------------------------------------------------------------------
 // Adapter factories (infra). Hosts normally use make_default_provider_

@@ -134,7 +134,7 @@
       "list": {
        "action": "core.config.get.provider.list",
        "help": "List available providers.",
-       "man": "Lists every available provider: built-in presets, saved providers and custom. The active provider is marked."
+       "man": "Lists every available provider: built-in presets, saved providers and custom. Each row is printed at once and then probed live with a GET /models: while the answer is in flight the row is dim, and it settles to [x] when the endpoint accepted the token, [!] when the provider is configured but the probe did not confirm it (rejected, or no answer), or [ ] when there is nothing configured (no endpoint, or a required key that is absent). The active provider's row is green."
       },
       "wallet": {
        "action": "core.config.get.provider.wallet",

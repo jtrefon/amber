@@ -1,9 +1,11 @@
 #pragma once
 
 #include "agent/provider_health.h"
+#include "tui/rich.h"
 
 #include <nlohmann/json.hpp>
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -104,33 +106,67 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& endpoint);
 nlohmann::json model_subtree(const std::vector<ProviderModel>& rows,
                              const std::string& action_prefix);
 
-// One line of /get provider list.
-//
-// The asterisk marks the ACTIVE provider, which it always did. The checkbox
-// column answers the question the list used to leave open: is this provider set
-// up at all? An enabled-but-unconfigured provider is indistinguishable from a
-// configured one otherwise, which is why configuring openrouter appeared to do
-// nothing.
-//
-//   [x]  has an endpoint, and a key if one is required
-//   [!]  has an endpoint but no key -- it will fail to authenticate
-//   [ ]  no endpoint, so there is nothing to query
-//
-// has_key is passed in rather than inferred: a bundled preset carries a preset
-// api_base and no key, and the active config may hold the key from elsewhere, so
-// One row of /get provider list.
-//
-// The checkbox reports what the SERVER last said about the credential, not
-// whether a key happens to be present -- a revoked key and a working one were
-// indistinguishable, which is the confusion this replaces:
+// One row of /get provider list: the provider, and what the list knows about it
+// when the row is drawn.
+struct ProviderListRow {
+    std::string name;
+    std::string api_base;
+    bool requires_key = false;
+    bool has_key = false;
+    bool active = false;
+    bool pending = false;                               // probe in flight
+    agent::AuthState state = agent::AuthState::Unknown; // verdict, once settled
+};
+
+// Render one row of /get provider list (timestamp run included).
 //
 //   [x]  configured, and the endpoint accepted the token
-//   [!]  configured, but the token was rejected (or one is required and absent)
-//   [ ]  not configured, or never probed -- never "probably fine"
+//   [!]  configured, but the probe did not confirm it (rejected, or no answer)
+//   [ ]  not configured: no endpoint, or a required key that is absent
 //
-// `state` is agent::AuthState. A provider that needs no key is Valid once the
-// endpoint answers at all, which is what agent::provider_mark() decides.
-std::string provider_list_line(const std::string& name, const std::string& api_base, bool active,
-                               agent::AuthState state);
+// While the probe is in flight the row is dim with an empty box, so the list is
+// printed at once and each row saturates when its own answer lands. The ACTIVE
+// provider's row is green (P_ACTIVE) and there is no asterisk column: every row
+// starts in the same column.
+rich::Line provider_list_line(const ProviderListRow& row, const std::string& ts);
+
+// The rows of /get provider list whose probe is still in flight: where each row
+// was printed, so its answer can rewrite it in place.
+//
+// The position moves -- trim_lines() drops the oldest scrollback in chunks, and
+// a session restore replaces a window's whole scrollback -- so those rules live
+// here, where they are unit-tested, rather than inline in the Tui.
+class PendingProviderRows {
+public:
+    // The replacement line for one row, and where to put it.
+    struct Settled {
+        size_t window_id = 0;
+        size_t index = 0;
+        rich::Line line;
+    };
+
+    void add(size_t window_id, size_t index, unsigned request, std::string ts, ProviderListRow row);
+
+    // The settled replacement for the row `request` printed for `name`, or
+    // nullopt when that row is no longer on screen.
+    std::optional<Settled> settle(unsigned request, const std::string& name,
+                                  agent::AuthState state);
+
+    // `removed` lines were dropped from the front of the window's scrollback.
+    void trimmed(size_t window_id, size_t removed);
+    // The window's scrollback was replaced wholesale (session restore).
+    void drop_window(size_t window_id);
+    size_t size() const noexcept { return entries_.size(); }
+
+private:
+    struct Entry {
+        size_t window_id = 0;
+        size_t index = 0;
+        unsigned request = 0;
+        std::string ts;
+        ProviderListRow row;
+    };
+    std::vector<Entry> entries_;
+};
 
 } // namespace tui

@@ -1,17 +1,12 @@
 #include "agent/provider_health.h"
 #include "tests/test_util.h"
 
-#include <cstdio>
-#include <filesystem>
-#include <fstream>
 #include <string>
-
-namespace fs = std::filesystem;
 
 namespace {
 
-// Config has defaulted fields, not a positional constructor: name the three the
-// cache key depends on so a test cannot silently key off the wrong endpoint.
+// Config has defaulted fields, not a positional constructor: name the fields
+// the probe reads so a test cannot silently probe the wrong endpoint.
 agent::Config endpoint(const char* api_base, const char* flavor = "openai") {
     agent::Config c;
     c.api_base = api_base;
@@ -20,15 +15,9 @@ agent::Config endpoint(const char* api_base, const char* flavor = "openai") {
     return c;
 }
 
-void write_text(const std::string& path, const std::string& body) {
-    fs::create_directories(fs::path(path).parent_path());
-    std::ofstream f(path, std::ios::trunc);
-    f << body;
-}
-
 } // namespace
 
-// The recorded outcome of one GET /models against a provider.
+// The outcome of one GET /models against a provider.
 //
 // The rule the UI depends on: a token counts as "rejected" ONLY when the server
 // said so with an auth status. Everything else -- a timeout, a refused
@@ -61,87 +50,10 @@ TEST(auth_state_from_http_keeps_a_transport_failure_unknown) {
     ASSERT(agent::auth_state_from_http(401, false) == agent::AuthState::Unknown);
 }
 
-// A verdict must survive a restart, or the checkbox would read unknown again
-// the moment amber was closed -- which is the confusion this exists to remove.
-
-TEST(auth_status_round_trips_through_the_cache) {
-    const agent::Config cfg = endpoint("https://round-trip.example/v1");
-    fs::remove(agent::auth_status_path(cfg));
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Unknown);
-
-    agent::AuthStatus st;
-    st.state = agent::AuthState::Rejected;
-    st.http_code = 401;
-    agent::auth_status_write(cfg, st);
-
-    const auto back = agent::auth_status_read(cfg);
-    ASSERT(back.state == agent::AuthState::Rejected);
-    ASSERT(back.http_code == 401L);
-    ASSERT(back.checked_ms > 0);
-}
-
-TEST(auth_status_survives_a_corrupt_cache_file) {
-    const agent::Config cfg = endpoint("https://corrupt.example/v1");
-    write_text(agent::auth_status_path(cfg), "{not json at all");
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Unknown);
-}
-
-// Two providers on one host must not share a verdict: different path, and the
-// same path under a different wire protocol, are different endpoints.
-
-TEST(auth_status_uses_a_different_file_per_endpoint) {
-    const agent::Config a = endpoint("https://multi.example/v1");
-    const agent::Config b = endpoint("https://multi.example/v2");
-    const agent::Config c = endpoint("https://multi.example/v1", "anthropic");
-
-    agent::AuthStatus ok;
-    ok.state = agent::AuthState::Valid;
-    ok.http_code = 200;
-    agent::auth_status_write(a, ok);
-
-    ASSERT(agent::auth_status_path(a) != agent::auth_status_path(b));
-    ASSERT(agent::auth_status_path(a) != agent::auth_status_path(c));
-    ASSERT(agent::auth_status_read(b).state == agent::AuthState::Unknown);
-    ASSERT(agent::auth_status_read(c).state == agent::AuthState::Unknown);
-}
-
-// A stale verdict must not outlive the token it described: the user fixes the
-// key, and the old "rejected" is the last thing that should still be shown.
-
-TEST(auth_status_is_stale_past_the_ttl) {
-    agent::AuthStatus old;
-    old.state = agent::AuthState::Rejected;
-    old.http_code = 401;
-    old.checked_ms = agent::auth_status_now_ms() - 10LL * 3600 * 1000; // 10 hours ago
-    ASSERT(!agent::auth_status_fresh(old));
-
-    agent::AuthStatus recent = old;
-    recent.checked_ms = agent::auth_status_now_ms() - 60LL * 1000; // a minute ago
-    ASSERT(agent::auth_status_fresh(recent));
-}
-
-// The checkbox column. These are the three states /get provider list promises.
-
-TEST(provider_mark_for_a_valid_token_is_a_tick) {
-    ASSERT(agent::provider_mark(agent::AuthState::Valid, true, true) == 'x');
-}
-
-TEST(provider_mark_for_a_rejected_token_is_a_bang) {
-    // An endpoint exists and the key is present, but the server refused it.
-    ASSERT(agent::provider_mark(agent::AuthState::Rejected, true, true) == '!');
-}
-
-TEST(provider_mark_for_a_missing_key_is_a_bang_without_probing) {
-    ASSERT(agent::provider_mark(agent::AuthState::Unknown, true, false) == '!');
-}
-
-TEST(provider_mark_for_an_unconfigured_provider_is_blank) {
-    ASSERT(agent::provider_mark(agent::AuthState::Unknown, false, false) == ' ');
-    ASSERT(agent::provider_mark(agent::AuthState::Valid, false, true) == ' ');
-}
-
-// The probe's classification and caching, driven by an injected result rather
-// than a network. These are the paths that decide what the checkbox shows.
+// The probe's classification, driven by an injected result rather than a
+// network. The outcome is returned to the caller that asked -- the row of
+// /get provider list -- and is never cached, so it cannot outlive the token it
+// describes.
 
 namespace {
 
@@ -153,51 +65,36 @@ const agent::ProbeResult kNoResponse{0, false};
 
 } // namespace
 
-TEST(auth_probe_records_a_2xx_as_valid) {
+TEST(auth_probe_classifies_a_2xx_as_valid) {
     const agent::Config cfg = endpoint("https://probe-valid.example/v1");
     const auto s =
         agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(200); });
     ASSERT(s.state == agent::AuthState::Valid);
     ASSERT(s.http_code == 200);
-    // And it is persisted, so it survives a restart.
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Valid);
 }
 
-TEST(auth_probe_records_a_401_as_rejected) {
+TEST(auth_probe_classifies_a_401_as_rejected) {
     const agent::Config cfg = endpoint("https://probe-rejected.example/v1");
     const auto s =
         agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(401); });
     ASSERT(s.state == agent::AuthState::Rejected);
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
+    ASSERT(s.http_code == 401);
 }
 
-TEST(auth_probe_does_not_cache_an_inconclusive_result) {
-    // The important negative: a 500 must not overwrite a verdict the user has
-    // not invalidated. Their token may be fine and the server may be down.
+TEST(auth_probe_leaves_a_500_unknown) {
+    // A server error must not be reported as a broken credential: the token may
+    // be fine and the server may be down.
     const agent::Config cfg = endpoint("https://probe-500.example/v1");
-    agent::AuthStatus good;
-    good.state = agent::AuthState::Rejected;
-    good.http_code = 401;
-    agent::auth_status_write(cfg, good);
-
     const auto s =
         agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(500); });
     ASSERT(s.state == agent::AuthState::Unknown);
-    // The previous verdict stands.
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Rejected);
 }
 
-TEST(auth_probe_does_not_cache_a_transport_failure) {
+TEST(auth_probe_leaves_a_transport_failure_unknown) {
     const agent::Config cfg = endpoint("https://probe-refused.example/v1");
-    agent::AuthStatus good;
-    good.state = agent::AuthState::Valid;
-    good.http_code = 200;
-    agent::auth_status_write(cfg, good);
-
     const auto s =
         agent::auth_probe_blocking(cfg, [](const agent::Config&) { return kNoResponse; });
     ASSERT(s.state == agent::AuthState::Unknown);
-    ASSERT(agent::auth_status_read(cfg).state == agent::AuthState::Valid);
 }
 
 // Probes are plain function pointers, so the call counter is file-static rather
@@ -212,8 +109,8 @@ agent::ProbeResult counting_probe(const agent::Config&) {
 } // namespace
 
 TEST(auth_probe_skips_a_provider_with_no_endpoint) {
-    // Nothing to ask, so nothing is probed and nothing is recorded -- and the
-    // injected probe must not run, which the call counter proves.
+    // Nothing to ask, so nothing is probed -- and the injected probe must not
+    // run, which the call counter proves.
     const agent::Config cfg = endpoint("");
     g_probe_calls = 0;
     const auto s = agent::auth_probe_blocking(cfg, counting_probe);
@@ -221,33 +118,27 @@ TEST(auth_probe_skips_a_provider_with_no_endpoint) {
     ASSERT(s.state == agent::AuthState::Unknown);
 }
 
-TEST(auth_probe_turns_a_rejection_into_the_bang_column) {
-    // The whole chain the feature exists for, end to end.
-    const agent::Config cfg = endpoint("https://probe-mark.example/v1");
-    agent::auth_probe_blocking(cfg, [](const agent::Config&) { return answering(403); });
-    const auto s = agent::auth_status_read(cfg);
-    ASSERT(agent::provider_mark(s.state, true, true) == '!');
+// The checkbox column. These are the three states /get provider list promises:
+// verified, configured-but-not-working, and not configured at all.
+
+TEST(provider_mark_for_a_valid_token_is_a_tick) {
+    ASSERT(agent::provider_mark(agent::AuthState::Valid, true) == 'x');
 }
 
-// The filename is a hash, not the endpoint. This is what keeps a "../" in a
-// provider's api_base from walking out of the cache directory -- a type-level
-// property now, since a path takes a uint64 key and never a string.
-
-TEST(auth_cache_key_depends_only_on_the_endpoint_and_flavor) {
-    const agent::Config a = endpoint("https://keyed.example/v1");
-    const agent::Config b = endpoint("https://keyed.example/v2");
-    const agent::Config c = endpoint("https://keyed.example/v1", "anthropic");
-    ASSERT(agent::auth_cache_key(a).hash != agent::auth_cache_key(b).hash);
-    ASSERT(agent::auth_cache_key(a).hash != agent::auth_cache_key(c).hash);
-    ASSERT(agent::auth_cache_key(a).hash == agent::auth_cache_key(a).hash);
+TEST(provider_mark_for_a_rejected_token_is_a_bang) {
+    // Configured and keyed, but the server refused it.
+    ASSERT(agent::provider_mark(agent::AuthState::Rejected, true) == '!');
 }
 
-TEST(auth_status_path_contains_no_endpoint_text) {
-    // The endpoint appears nowhere in the path, which is what makes it safe to
-    // open: a hostile api_base cannot appear as "..".
-    const agent::Config cfg = endpoint("../../../../etc/passwd");
-    const auto path = agent::auth_status_path(cfg);
-    ASSERT(path.find("..") == std::string::npos);
-    ASSERT(path.find("passwd") == std::string::npos);
-    ASSERT(path.find("auth-") != std::string::npos);
+TEST(provider_mark_for_an_unanswered_probe_is_a_bang) {
+    // The probe could not tell (no answer, or a 5xx): configured, but not
+    // working as far as this run knows, which is exactly what [!] means.
+    ASSERT(agent::provider_mark(agent::AuthState::Unknown, true) == '!');
+}
+
+TEST(provider_mark_for_an_unconfigured_provider_is_blank) {
+    // No endpoint, or a required key that is absent: nothing to verify, so
+    // nothing is claimed -- whatever a previous probe may have said.
+    ASSERT(agent::provider_mark(agent::AuthState::Unknown, false) == ' ');
+    ASSERT(agent::provider_mark(agent::AuthState::Valid, false) == ' ');
 }
