@@ -360,8 +360,14 @@ private:
                 continue;
             }
             const char* role = (m.role == "assistant") ? kRoleAssistant : kRoleUser;
-            // Every other turn is a plain text block; content is always
-            // emitted so an empty reply never produces an invalid message.
+            // Anthropic rejects an empty text block -- "text content block
+            // must be non-empty" -- where OpenAI tolerates "". A turn with no
+            // text (a cancelled run, a reply stripped to nothing, an empty
+            // message already in a saved session) is skipped rather than sent
+            // as an empty block: one 400s the whole request, and then every
+            // later request in that session.
+            if (m.content.empty())
+                continue;
             json block = {{"type", "text"}, {"text", m.content}};
             json blocks = json::array();
             blocks.push_back(std::move(block));

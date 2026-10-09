@@ -140,6 +140,47 @@ TEST(anthropic_request_body_translates_internal_messages) {
     ASSERT_EQ(out[2]["content"][0]["content"], "file body");
 }
 
+// Anthropic rejects an EMPTY text block -- "text content block must be
+// non-empty" -- where OpenAI tolerates "". The builder used to emit one for
+// every message with no text (a cancelled turn, a reply that carried only
+// tool_use blocks, an empty assistant message already in history), which 400s
+// the whole request and then every later request in that session.
+TEST(anthropic_request_omits_empty_text_blocks) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    std::vector<agent::Message> msgs = {text_msg("user", "hi"),
+                                        text_msg("assistant", ""), // e.g. a cancelled turn
+                                        text_msg("user", "still there?")};
+    agent::json body = d->build_chat_body(cfg, msgs, {}, true);
+
+    const agent::json& out = body["messages"];
+    ASSERT_EQ(out.size(), 2u); // the empty turn is skipped, not sent
+    for (const auto& m : out) {
+        ASSERT_FALSE(m["content"].empty()); // no empty content arrays either
+        for (const auto& b : m["content"]) {
+            if (b["type"] == "text")
+                ASSERT_FALSE(b["text"].get<std::string>().empty());
+        }
+    }
+    ASSERT_EQ(out[0]["content"][0]["text"], "hi");
+    ASSERT_EQ(out[1]["content"][0]["text"], "still there?");
+
+    // A tool-only assistant turn keeps its blocks (there is no text to drop).
+    agent::Message tool_only;
+    tool_only.role = "assistant";
+    tool_only.tool_calls = agent::json::array(
+        {{{"id", "toolu_2"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"b.txt"})"}}}}});
+    std::vector<agent::Message> with_tool = {text_msg("user", "read it"), tool_only};
+    agent::json body2 = d->build_chat_body(cfg, with_tool, {}, true);
+    ASSERT_EQ(body2["messages"].size(), 2u);
+    ASSERT_EQ(body2["messages"][1]["content"].size(), 1u);
+    ASSERT_EQ(body2["messages"][1]["content"][0]["type"], "tool_use");
+}
+
 TEST(anthropic_tools_use_input_schema) {
     auto d = anthropic();
     agent::Config cfg;
