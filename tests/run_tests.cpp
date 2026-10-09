@@ -1594,6 +1594,17 @@ TEST(workspace_adopts_legacy_state_without_deleting_it) {
     ss << f.rdbuf();
     ASSERT(ss.str().find("newer-model") != std::string::npos);
 
+    // The artefact names the consumers actually use, through the accessors
+    // they call: a typo here would be a user silently losing their remembered
+    // approvals, so it is pinned rather than assumed.
+    {
+        std::ofstream pf("/tmp/amber_state_adopt/.amber/policy.json");
+        pf << "{\"rules\":[]}\n";
+    }
+    ASSERT_EQ(agent::Workspace::settings_path(), agent::Workspace::state_dir() + "/settings");
+    ASSERT_EQ(agent::Workspace::policy_path(), agent::Workspace::state_dir() + "/policy.json");
+    ASSERT(std::filesystem::exists(agent::Workspace::state_dir() + "/policy.json"));
+
     if (!saved_home.empty())
         setenv("HOME", saved_home.c_str(), 1);
     if (!saved_xdg_state.empty())
@@ -4738,6 +4749,13 @@ TEST(experience_store_legacy_seed_once) {
         std::ofstream f(legacy);
         f << R"({"version":1,"memories":[{"id":"m1","name":"proj","content":"uses make","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
     }
+    // A store written by the pre-state-layout amber, in the project tree: it
+    // must be adopted too, not only the older ~/.amber file.
+    run_cmd("mkdir -p /tmp/amber_sk2_ws2/.amber");
+    {
+        std::ofstream f("/tmp/amber_sk2_ws2/.amber/experience.json");
+        f << R"({"version":1,"memories":[{"id":"m2","name":"proj","content":"from the project tree","tags":[],"evidence":3,"last_confirm_turn":0,"score":0,"promoted":true}],"skills":[]})";
+    }
     setenv("HOME", "/tmp/amber_sk2_home", 1);
 
     agent::Config cfg;
@@ -4747,8 +4765,9 @@ TEST(experience_store_legacy_seed_once) {
         std::ifstream f(ec.store_path);
         std::stringstream ss;
         ss << f.rdbuf();
-        ASSERT(ss.str().find("\"memories\"") != std::string::npos);
-        ASSERT(ss.str().find("uses make") != std::string::npos);
+        // The project-tree store is the more recent one, so it is what the
+        // adoption leaves in place.
+        ASSERT(ss.str().find("from the project tree") != std::string::npos);
     }
     {
         std::ifstream f(legacy);
@@ -4765,7 +4784,7 @@ TEST(experience_store_legacy_seed_once) {
         std::ifstream f(ec2.store_path);
         std::stringstream ss;
         ss << f.rdbuf();
-        ASSERT(ss.str().find("uses make") != std::string::npos);
+        ASSERT(ss.str().find("from the project tree") != std::string::npos);
     }
 }
 
