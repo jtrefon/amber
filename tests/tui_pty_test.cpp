@@ -658,8 +658,20 @@ TEST(set_model_lists_every_configured_providers_cached_models) {
             "the bar does not show the provider that owns the picked model", tui);
     tui.send("/set model ");
     tui.pump(600);
-    require(pick_by_fragment(tui, "lph", "model set to alpha-shared"),
-            "the other provider's catalogue is not searchable or selectable", tui);
+    // The OTHER direction, and scoped to the output produced from here: a pick
+    // that switches beta -> alpha exercises what a same-provider pick cannot.
+    // Two surfaces must both follow it -- the dispatch line names the provider
+    // the HOST now points at, the bar the one the WINDOW agent does -- or a
+    // model is requested from the provider it does not belong to.
+    const size_t mark = tui.raw.size();
+    require(pick_by_fragment(tui, "lph", "model set to alpha-shared (remembered for alpha)"),
+            "the pick did not switch the host's provider", tui);
+    bool bar_moved = false;
+    for (int waited = 0; waited < 10000 && !bar_moved; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        bar_moved = text_since(tui, mark).find("alpha|alpha-shared") != std::string::npos;
+    }
+    require(bar_moved, "picking the other provider's model left the window agent behind", tui);
 }
 
 // ── the provider tabs narrow the list (and therefore what Enter runs) ──
