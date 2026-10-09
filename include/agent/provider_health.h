@@ -3,7 +3,6 @@
 
 #include "agent/config.h"
 
-#include <cstdint>
 #include <functional>
 #include <string>
 
@@ -17,7 +16,7 @@ namespace agent {
 // `Unknown`, because reporting a working token as broken after a network blip
 // is worse than admitting the probe could not tell.
 enum class AuthState {
-    Unknown,  // never probed, stale, or the answer was inconclusive
+    Unknown,  // no answer, or the answer was inconclusive
     Valid,    // the endpoint answered 2xx to an authenticated GET /models
     Rejected, // the endpoint answered 401 or 403
 };
@@ -25,49 +24,6 @@ enum class AuthState {
 // Classify one probe outcome. `transport_ok` is whether an HTTP response was
 // actually received; `http_code` is meaningless (and ignored) when it is false.
 AuthState auth_state_from_http(long http_code, bool transport_ok);
-
-// What a probe recorded, and when.
-struct AuthStatus {
-    AuthState state = AuthState::Unknown;
-    long http_code = 0;
-    long long checked_ms = 0;
-};
-
-// The identity of one endpoint's verdict: a hash, never the endpoint text.
-//
-// This exists as a type so a path is built from a uint64 and cannot be handed a
-// string. The endpoint is user- and server-supplied, so a path built from it
-// could in principle be walked out of the cache directory with "../"; hashing
-// first means the filename is sixteen hex digits. Keeping that a property of the
-// TYPE is what stops a future edit from passing the raw endpoint in.
-struct AuthCacheKey {
-    uint64_t hash = 0;
-};
-
-// Key for cfg's endpoint: per (api_base, flavor), matching the catalog cache, so
-// two providers on one host must not share a verdict and neither may share one
-// across wire protocols.
-AuthCacheKey auth_cache_key(const Config& cfg);
-
-// Cache location for a key, under the global config dir.
-std::string auth_status_path(AuthCacheKey key);
-
-// Cache location for cfg's endpoint verdict. Convenience over the two calls above.
-std::string auth_status_path(const Config& cfg);
-
-// Disk-only read. Never touches the network. Returns Unknown for an absent,
-// corrupt, or expired record -- a stale rejection must not outlive the token it
-// described, or fixing the key would leave the old verdict showing.
-AuthStatus auth_status_read(const Config& cfg);
-
-// Persist a verdict (atomic tmp+rename).
-void auth_status_write(const Config& cfg, const AuthStatus& status);
-
-// Wall clock in ms, exposed so a caller can synthesise an expired record.
-long long auth_status_now_ms();
-
-// A verdict younger than the TTL is still shown.
-bool auth_status_fresh(const AuthStatus& status);
 
 // What one probe attempt observed: the HTTP status, and whether a response was
 // received at all. `transport_ok == false` means the server never spoke.
@@ -77,13 +33,20 @@ struct ProbeResult {
 };
 
 // Perform one authenticated GET /models and report what came back. The only
-// part of the probe that is not pure; injectable so the classification and
-// caching above it are testable without a network.
+// part of the probe that is not pure; injectable so the classification above it
+// is testable without a network.
 using ProbeFn = ProbeResult (*)(const Config&);
 
-// Blocking probe: run `probe` (the real GET /models when null), classify the
-// result, and cache it. For worker threads only -- it blocks on the network.
-// Returns the recorded status.
+// One classified probe outcome. Nothing is cached: /get provider list runs the
+// probe when it is asked and settles each row with the answer, so a verdict can
+// never outlive the token it described.
+struct AuthStatus {
+    AuthState state = AuthState::Unknown;
+    long http_code = 0;
+};
+
+// Blocking probe: run `probe` (the real GET /models when null) and classify the
+// result. For worker threads only -- it blocks on the network.
 AuthStatus auth_probe_blocking(const Config& cfg, ProbeFn probe = nullptr);
 
 // Non-blocking probe for the UI thread: runs auth_probe_blocking on a detached
@@ -92,12 +55,16 @@ void auth_probe_async(const Config& cfg, std::function<void(std::function<void()
                       std::function<void(const AuthStatus&)> done);
 
 // The checkbox column in /get provider list:
-//   'x' configured and the server accepted the token
-//   '!' configured but the key is missing, or the server rejected it
-//   ' ' not configured
+//   'x' configured, and the endpoint accepted the token
+//   '!' configured, but the probe did not confirm it: the token was rejected,
+//       or no answer came back
+//   ' ' not configured: no endpoint, or a required key that is absent, so there
+//       is nothing to verify
 //
-// has_endpoint false wins over everything: there is nothing to be valid.
-char provider_mark(AuthState state, bool has_endpoint, bool has_key);
+// `configured` is the caller's verdict on the definition (an endpoint exists
+// and, when one is required, a key is present). The mark never claims a token
+// works without a probe that said so.
+char provider_mark(AuthState state, bool configured);
 
 } // namespace agent
 

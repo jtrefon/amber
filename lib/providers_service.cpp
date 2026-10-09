@@ -85,7 +85,10 @@ ProviderService::ProviderService(std::vector<std::unique_ptr<ProviderRepository>
 ProviderService::~ProviderService() = default;
 
 std::vector<Provider> ProviderService::available() const {
-    // Later repositories override earlier ones on name collisions.
+    // Later repositories override earlier ones on name collisions. A definition
+    // that names no flavor inherits the one it overrides -- a provider file
+    // written before the flavor was carried through a save says nothing, and
+    // must not revert a preset's protocol to the openai baseline.
     std::vector<Provider> out;
     for (const auto& repo : repos_) {
         for (const auto& p : repo->all()) {
@@ -94,9 +97,16 @@ std::vector<Provider> ProviderService::available() const {
             if (it == out.end()) {
                 out.push_back(p);
             } else {
-                *it = p;
+                Provider merged = p;
+                if (merged.flavor.empty())
+                    merged.flavor = it->flavor;
+                *it = std::move(merged);
             }
         }
+    }
+    for (auto& p : out) {
+        if (p.flavor.empty())
+            p.flavor = "openai";
     }
     return out;
 }
@@ -104,9 +114,14 @@ std::vector<Provider> ProviderService::available() const {
 std::optional<Provider> ProviderService::find(const std::string& name) const {
     std::optional<Provider> found;
     for (const auto& repo : repos_) {
-        if (auto p = repo->find(name))
+        if (auto p = repo->find(name)) {
+            if (p->flavor.empty() && found)
+                p->flavor = found->flavor;
             found = *p;
+        }
     }
+    if (found && found->flavor.empty())
+        found->flavor = "openai";
     return found;
 }
 
@@ -182,6 +197,22 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.flavor = sel.provider.flavor;
 }
 
+Provider provider_from_edit(const Provider& existing, const Config& cfg, bool builtin) {
+    Provider p;
+    p.name = cfg.provider_name;
+    p.api_base = cfg.api_base;
+    p.api_key = cfg.api_key;
+    // A provider that required a key still requires one after an edit that left
+    // the field empty: clearing the key must not turn it into a keyless
+    // provider, which would stop the key prompt from ever firing again.
+    p.requires_key = existing.requires_key || !cfg.api_key.empty();
+    p.default_model = cfg.model;
+    p.default_context_size = cfg.context_size;
+    p.builtin = builtin;
+    p.flavor = existing.flavor;
+    return p;
+}
+
 bool seed_provider(const std::string& name, const Config& connection) {
     if (name.empty())
         return false;
@@ -191,6 +222,9 @@ bool seed_provider(const std::string& name, const Config& connection) {
     p.api_key = connection.api_key;
     p.default_model = connection.model;
     p.default_context_size = connection.context_size;
+    // The seeded file is a copy of the connection, protocol included, so it
+    // speaks what the connection speaks until the user edits it.
+    p.flavor = connection.flavor;
     return make_file_provider_repository()->save(p);
 }
 

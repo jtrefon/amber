@@ -58,6 +58,11 @@ std::optional<Provider> parse_file(const std::string& path) {
     if (!f)
         return std::nullopt;
     Provider p;
+    // A file that names no flavor reports none, rather than the openai
+    // default: absence means "inherit the definition this file overrides"
+    // (ProviderService resolves it, falling back to openai). A file saved by
+    // amber always names its flavor, so this is the legacy/hand-written case.
+    p.flavor.clear();
     std::string line;
     while (std::getline(f, line)) {
         if (line.empty() || line[0] == '#')
@@ -101,9 +106,11 @@ public:
         f << "api_key=" << p.api_key << "\n";
         f << "default_model=" << p.default_model << "\n";
         f << "requires_key=" << (p.requires_key ? "1" : "0") << "\n";
-        // Only written when it is not the default: a file that says nothing
-        // about flavor means openai, which is what every existing file means.
-        if (p.flavor != "openai")
+        // Always written when known, including the openai baseline: absence
+        // now means "inherit the definition this file overrides", so a saved
+        // file must say which protocol it speaks. An empty flavor (a caller
+        // that does not know it) writes nothing and inherits.
+        if (!p.flavor.empty())
             f << "flavor=" << p.flavor << "\n";
         if (p.default_context_size > 0)
             f << "default_context_size=" << p.default_context_size << "\n";

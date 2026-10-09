@@ -224,6 +224,8 @@ void SessionController::restore_into(Window& w, const agent::Session& s) {
     pts.erase(std::remove_if(pts.begin(), pts.end(),
                              [&w](const PendingToolLine& pt) { return pt.window_id == w.id; }),
               pts.end());
+    // Provider rows hold indices into the same scrollback, so they go with it.
+    tui_.provider_rows_.drop_window(w.id);
     std::vector<RestoredCall> pending;
     for (const auto& m : s.messages)
         restore_message_lines(m, pending);

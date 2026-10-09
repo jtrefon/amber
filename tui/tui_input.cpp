@@ -1553,15 +1553,17 @@ void SlashDispatcher::refresh_model_list() {
 // the plugins' business; this flow only reacts to the state the domain reported.
 // Returns false when the user cancelled.
 bool SlashDispatcher::seed_new_provider(const std::string& a) {
-    agent::seed_provider(a, tui_.cfg_);
-    agent::Config prov_cfg;
+    // The provider exists -- select() failed only because it has no endpoint --
+    // so its definition carries the wire protocol, which the edit form does not
+    // edit and a save must not drop.
+    agent::Provider existing;
+    if (auto p = tui_.providers_->find(a))
+        existing = *p;
+    agent::Config seed = tui_.cfg_;
+    seed.flavor = existing.flavor;
+    agent::seed_provider(a, seed);
+    agent::Config prov_cfg = seed;
     prov_cfg.provider_name = a;
-    prov_cfg.api_base = tui_.cfg_.api_base;
-    prov_cfg.api_key = tui_.cfg_.api_key;
-    prov_cfg.model = tui_.cfg_.model;
-    prov_cfg.model_explicit = tui_.cfg_.model_explicit;
-    prov_cfg.context_size = tui_.cfg_.context_size;
-    prov_cfg.context_explicit = tui_.cfg_.context_explicit;
     if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
         refresh_provider_feed();
         tui_.append_line(P_STATUS, "provider file created at " + agent::global_config_dir() +
@@ -1569,9 +1571,7 @@ bool SlashDispatcher::seed_new_provider(const std::string& a) {
                                        ".conf \u2014 edit it or re-run /set provider " + a);
         return false;
     }
-    tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                          prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                          prov_cfg.model, prov_cfg.context_size, false});
+    tui_.providers_->save(agent::provider_from_edit(existing, prov_cfg, false));
     // Newly configured: its catalogue has never been fetched, and without it
     // the provider contributes no rows to /set model.
     tui_.refresh_provider_catalogs_async();
@@ -1595,9 +1595,7 @@ bool SlashDispatcher::prompt_provider_key(const std::string& a, const agent::Pro
     }
     if (!edit_provider_form(prov_cfg, "Configure: " + a))
         return false;
-    tui_.providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base,
-                                          prov_cfg.api_key, !prov_cfg.api_key.empty(),
-                                          prov_cfg.model, prov_cfg.context_size, p.builtin});
+    tui_.providers_->save(agent::provider_from_edit(p, prov_cfg, p.builtin));
     return true;
 }
 
@@ -1668,18 +1666,7 @@ void SlashDispatcher::land_provider_switch() {
 }
 
 void SlashDispatcher::cmd_provider_list() {
-    // Cache-only: this runs on the UI thread and must not block on the network.
-    // Reading the verdict means a token the user rejected an hour ago still reads
-    // as rejected, instead of reverting to "not checked yet" on every restart.
-    for (const auto& p : tui_.providers_->available()) {
-        agent::Config probe = tui_.cfg_;
-        probe.api_base = p.api_base;
-        probe.flavor = p.flavor;
-        probe.api_key = p.api_key;
-        const bool active = p.name == tui_.cfg_.provider_name;
-        tui_.append_line(P_STATUS, provider_list_line(p.name, p.api_base, active,
-                                                      agent::auth_status_read(probe).state));
-    }
+    tui_.show_provider_list();
 }
 
 // --- plugin runtime surface (/get plugin, /set plugin) --------------------
@@ -2483,11 +2470,6 @@ void Tui::refresh_provider_catalogs_async() {
         auto entry = agent::model_catalog_read(cfg);
         if (entry && agent::model_catalog_fresh(*entry))
             continue; // already good
-        // Probe the credential as well as the catalogue: the same GET /models
-        // answers "is this token good?", and that verdict is what /get provider
-        // list shows. Doing it here means it costs no extra request -- the
-        // catalogue fetch was going out anyway for a cold provider.
-        agent::auth_probe_async(cfg, ui_poster(), [this](const agent::AuthStatus&) { draw(); });
         agent::model_catalog_refresh_async(cfg, ui_poster(), [this](bool) {
             // Any catalogue landing changes the union, whichever provider it
             // came from. cfg_ is untouched: this path exists to grow the list,
@@ -2496,6 +2478,59 @@ void Tui::refresh_provider_catalogs_async() {
             draw();
         });
     }
+}
+
+// /get provider list: one row per provider, printed at once, and a live GET
+// /models per configured provider that settles its own row in place. Nothing is
+// read from a cache: the answer is fetched when the user asks, so a row can
+// never show a verdict older than the token it describes.
+void Tui::show_provider_list() {
+    if (!providers_)
+        return;
+    const unsigned request = ++provider_list_seq_;
+    const std::string ts = timestamp();
+    for (const auto& p : providers_->available()) {
+        const bool active = p.name == cfg_.provider_name;
+        // The active provider's key may live in the global config rather than in
+        // its own definition (apply_selection keeps whatever is configured when
+        // the definition carries none).
+        const bool has_key = !p.api_key.empty() || (active && !cfg_.api_key.empty());
+
+        ProviderListRow row;
+        row.name = p.name;
+        row.api_base = p.api_base;
+        row.requires_key = p.requires_key;
+        row.has_key = has_key;
+        row.active = active;
+        // Only a provider that can be queried at all is probed: no endpoint, or
+        // a required key that is absent, is already a settled answer.
+        row.pending = !p.api_base.empty() && (!p.requires_key || has_key);
+
+        const size_t index = append_rich_to(win(), provider_list_line(row, ts));
+        if (!row.pending)
+            continue;
+
+        provider_rows_.add(win().id, index, request, ts, row);
+        agent::Config probe;
+        probe.provider_name = p.name;
+        probe.api_base = p.api_base;
+        probe.flavor = p.flavor;
+        probe.api_key = p.api_key.empty() && active ? cfg_.api_key : p.api_key;
+        agent::auth_probe_async(probe, ui_poster(),
+                                [this, request, name = p.name](const agent::AuthStatus& s) {
+                                    settle_provider_row(request, name, s.state);
+                                });
+    }
+    draw();
+}
+
+void Tui::settle_provider_row(unsigned request, const std::string& name, agent::AuthState state) {
+    auto settled = provider_rows_.settle(request, name, state);
+    if (!settled)
+        return; // trimmed away, or its window's scrollback was replaced
+    if (Window* w = window_by_id(settled->window_id); w && settled->index < w->lines.size())
+        w->lines[settled->index] = std::move(settled->line);
+    draw();
 }
 
 void Tui::refresh_models_async(bool announce) {
@@ -2645,10 +2680,8 @@ std::string Tui::prompt_api_key(const std::string& reason) {
     // Persist to the provider's own config file (overlays the preset on
     // restart) and to the global config, exactly like the provider editor.
     auto sel = providers_->find(provider);
-    bool builtin = sel ? sel->builtin : false;
-    providers_->save(agent::Provider{provider, prov_cfg.api_base, key,
-                                     /*requires_key=*/true, prov_cfg.model, prov_cfg.context_size,
-                                     builtin});
+    agent::Provider existing = sel ? *sel : agent::Provider{};
+    providers_->save(agent::provider_from_edit(existing, prov_cfg, existing.builtin));
     cfg_.api_key = key;
     cfg_.provider_name = provider;
     cfg_.save_global(agent::global_config_path());
@@ -2702,8 +2735,10 @@ void Tui::add_new_provider() {
 
     // Seed from the provider domain (built-in or saved).
     agent::Config prov_cfg;
+    agent::Provider existing;
     prov_cfg.provider_name = new_name;
     if (auto p = providers_->find(new_name)) {
+        existing = *p;
         prov_cfg.api_base = p->api_base;
         prov_cfg.api_key = p->api_key;
         prov_cfg.model = p->default_model;
@@ -2711,9 +2746,7 @@ void Tui::add_new_provider() {
     if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
         return;
     prov_cfg.provider_name = new_name;
-    providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
-                                     !prov_cfg.api_key.empty(), prov_cfg.model,
-                                     prov_cfg.context_size, false});
+    providers_->save(agent::provider_from_edit(existing, prov_cfg, false));
     cfg_.provider_name = new_name;
     cfg_.api_base = prov_cfg.api_base;
     cfg_.api_key = prov_cfg.api_key;
@@ -2729,6 +2762,7 @@ void Tui::add_new_provider() {
 void Tui::activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
                                      bool is_preset) {
     agent::Config prov_cfg;
+    agent::Provider existing = sel ? *sel : agent::Provider{};
     prov_cfg.provider_name = id;
     if (sel) {
         prov_cfg.api_base = sel->api_base;
@@ -2743,9 +2777,7 @@ void Tui::activate_and_edit_provider(const std::string& id, const agent::Provide
     if (!edit_provider_form(prov_cfg, "Edit: " + id))
         return;
 
-    providers_->save(agent::Provider{prov_cfg.provider_name, prov_cfg.api_base, prov_cfg.api_key,
-                                     !prov_cfg.api_key.empty(), prov_cfg.model,
-                                     prov_cfg.context_size, is_preset});
+    providers_->save(agent::provider_from_edit(existing, prov_cfg, is_preset));
     cfg_.provider_name = id;
     cfg_.api_base = prov_cfg.api_base;
     cfg_.api_key = prov_cfg.api_key;

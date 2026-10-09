@@ -23,6 +23,7 @@
 #include "render_engine.h"
 #include "session_controller.h"
 #include "slash_dispatcher.h"
+#include "model_picker.h"
 
 #include <atomic>
 #include <chrono>
@@ -181,7 +182,7 @@ private:
     size_t append_line_to(Window& w, int color, const std::string& text, const std::string& ts);
     void append_rich(const rich::Line& l);
     void append_markdown(Window& w, const std::string& md);
-    void append_rich_to(Window& w, const rich::Line& l);
+    size_t append_rich_to(Window& w, const rich::Line& l);
     void banner(const std::string& text);
     void trim_lines(Window& w);
     void fold_reasoning(Window& w);
@@ -230,6 +231,11 @@ private:
     // refresh_async does its own single-flight per endpoint, so several providers
     // fetch concurrently.
     void refresh_provider_catalogs_async();
+    // /get provider list: print every provider as a pending row and settle each
+    // one IN PLACE when its probe answers, so the list is one line per provider
+    // and its colour reflects an answer that was just fetched.
+    void show_provider_list();
+    void settle_provider_row(unsigned request, const std::string& name, agent::AuthState state);
     void on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
                              const std::string& flavor);
     void adopt_detected_model();
@@ -314,6 +320,11 @@ private:
     agent::ServerInfo last_detected_;
     int policy_timeout_ = 60;
     std::atomic<bool> models_refresh_inflight_{false};
+    // Rows of /get provider list still awaiting their probe, and the id of the
+    // invocation that printed them (two runs of the command coexist, and a late
+    // answer must settle its own row, not the newer one).
+    PendingProviderRows provider_rows_;
+    unsigned provider_list_seq_ = 0;
 };
 
 } // namespace tui

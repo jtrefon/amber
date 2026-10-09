@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <string>
 
 // The /set model regression, reproduced end to end.
 //
@@ -170,4 +172,108 @@ TEST(provider_repro_listing_never_depends_on_credentials) {
     ASSERT_EQ(rows.size(), 1u);
     ASSERT_EQ(rows[0].provider, std::string("keyless"));
     ASSERT_EQ(rows[0].id, std::string("keyless/model"));
+}
+
+// The protocol a save must not drop. /set provider anthropic wrote a provider
+// file with no flavor line, and the reloaded provider then spoke the openai
+// baseline: {api_base}/models with a Bearer header instead of
+// {api_base}/v1/models with x-api-key, so its model list was always empty. The
+// edit form carries no protocol field, which is why the save carries the
+// definition's flavor over.
+namespace {
+
+// Presets live in a process-global table; every test that registers one takes it
+// back out, so the next test sees the same world.
+struct ScopedPreset {
+    ScopedPreset() = default;
+    ~ScopedPreset() { agent::unregister_provider_presets_for("test-provider"); }
+    ScopedPreset(const ScopedPreset&) = delete;
+    ScopedPreset& operator=(const ScopedPreset&) = delete;
+
+    static void register_anthropic() {
+        agent::Provider preset;
+        preset.name = "anthropic";
+        preset.api_base = "https://api.anthropic.com";
+        preset.default_model = "claude-sonnet-4-5";
+        preset.requires_key = true;
+        preset.flavor = "anthropic";
+        preset.builtin = true;
+        agent::register_provider_preset(preset, "test-provider");
+    }
+};
+
+std::string read_file(const std::filesystem::path& p) {
+    std::ifstream f(p);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+} // namespace
+
+TEST(provider_repro_a_save_keeps_the_preset_protocol) {
+    ScopedConfigHome home;
+    ScopedPreset preset;
+    ScopedPreset::register_anthropic();
+
+    auto providers = agent::make_default_provider_service(agent::Config{});
+    const auto sel = providers->select("anthropic");
+    ASSERT_EQ(sel.provider.flavor, std::string("anthropic"));
+
+    // What the edit form produces when the user enters a key.
+    agent::Config edited;
+    edited.provider_name = sel.provider.name;
+    edited.api_base = sel.provider.api_base;
+    edited.api_key = "sk-ant-test";
+    edited.model = sel.provider.default_model;
+    ASSERT_TRUE(providers->save(agent::provider_from_edit(sel.provider, edited, true)));
+
+    // The file names the protocol, and the reloaded provider speaks it.
+    const std::string contents = read_file(home.dir / "amber" / "providers" / "anthropic.conf");
+    ASSERT(contents.find("flavor=anthropic") != std::string::npos);
+    const auto back = providers->select("anthropic");
+    ASSERT(back.ok());
+    ASSERT_EQ(back.provider.flavor, std::string("anthropic"));
+}
+
+// A file written by the buggy path names no flavor, and absence now means
+// "inherit the definition this file overrides": the provider heals on the next
+// read instead of having to be deleted and re-added.
+TEST(provider_repro_a_file_without_a_flavor_inherits_the_preset) {
+    ScopedConfigHome home;
+    ScopedPreset preset;
+    ScopedPreset::register_anthropic();
+    std::ofstream f(home.dir / "amber" / "providers" / "anthropic.conf");
+    f << "provider=anthropic\napi_base=https://api.anthropic.com\napi_key=sk-ant-test\n"
+         "requires_key=1\n";
+    f.close();
+
+    auto providers = agent::make_default_provider_service(agent::Config{});
+    const auto found = providers->find("anthropic");
+    ASSERT(found.has_value());
+    ASSERT_EQ(found->flavor, std::string("anthropic"));
+}
+
+TEST(provider_repro_a_file_may_state_the_baseline_explicitly) {
+    ScopedConfigHome home;
+    ScopedPreset preset;
+    ScopedPreset::register_anthropic();
+    std::ofstream f(home.dir / "amber" / "providers" / "anthropic.conf");
+    f << "provider=anthropic\napi_base=https://proxy.example/v1\napi_key=sk-test\n"
+         "requires_key=1\nflavor=openai\n";
+    f.close();
+
+    auto providers = agent::make_default_provider_service(agent::Config{});
+    const auto found = providers->find("anthropic");
+    ASSERT(found.has_value());
+    ASSERT_EQ(found->flavor, std::string("openai"));
+}
+
+// And a provider nobody presets gets the documented baseline.
+TEST(provider_repro_a_file_without_a_preset_defaults_to_openai) {
+    ScopedConfigHome home;
+    write_provider(home.dir, "nobody", "https://api.nobody.example/v1", /*with_key=*/true);
+
+    auto providers = agent::make_default_provider_service(agent::Config{});
+    const auto found = providers->find("nobody");
+    ASSERT(found.has_value());
+    ASSERT_EQ(found->flavor, std::string("openai"));
 }

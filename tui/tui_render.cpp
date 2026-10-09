@@ -55,10 +55,13 @@ void Tui::append_rich(const rich::Line& l) {
     append_rich_to(win(), l);
 }
 
-void Tui::append_rich_to(Window& w, const rich::Line& l) {
+size_t Tui::append_rich_to(Window& w, const rich::Line& l) {
     w.lines.push_back(l);
     trim_lines(w);
     w.scroll_top = render_engine_->max_scroll(w);
+    // The line is last whatever the trim dropped, so the index is stable for a
+    // caller that will rewrite it in place (a provider row settling).
+    return w.lines.size() - 1;
 }
 void Tui::append_markdown(Window& w, const std::string& md) {
     if (w.markdown_on) {
@@ -108,6 +111,8 @@ void Tui::trim_lines(Window& w) {
             pt.index -= 5000;
         }
     }
+    // Provider rows hold indices the same way, and shift with them.
+    provider_rows_.trimmed(w.id, 5000);
 }
 
 std::string RenderEngine::drawer_token(const std::string& input) {

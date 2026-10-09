@@ -26,6 +26,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -657,8 +658,20 @@ TEST(set_model_lists_every_configured_providers_cached_models) {
             "the bar does not show the provider that owns the picked model", tui);
     tui.send("/set model ");
     tui.pump(600);
-    require(pick_by_fragment(tui, "lph", "model set to alpha-shared"),
-            "the other provider's catalogue is not searchable or selectable", tui);
+    // The OTHER direction, and scoped to the output produced from here: a pick
+    // that switches beta -> alpha exercises what a same-provider pick cannot.
+    // Two surfaces must both follow it -- the dispatch line names the provider
+    // the HOST now points at, the bar the one the WINDOW agent does -- or a
+    // model is requested from the provider it does not belong to.
+    const size_t mark = tui.raw.size();
+    require(pick_by_fragment(tui, "lph", "model set to alpha-shared (remembered for alpha)"),
+            "the pick did not switch the host's provider", tui);
+    bool bar_moved = false;
+    for (int waited = 0; waited < 10000 && !bar_moved; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        bar_moved = text_since(tui, mark).find("alpha|alpha-shared") != std::string::npos;
+    }
+    require(bar_moved, "picking the other provider's model left the window agent behind", tui);
 }
 
 // ── the provider tabs narrow the list (and therefore what Enter runs) ──
@@ -736,6 +749,86 @@ TEST(system_commands_do_not_freeze_the_ui) {
     require(tui.wait_for("ps: exit 0", 20000), "the job result never arrived", tui);
 }
 
+// ── /get provider list probes each provider when it is asked ──
+//
+// The list used to read a cached verdict and print [ ] for anything unverified,
+// which is indistinguishable from "not configured" -- every configured provider
+// read empty once the verdict aged out. Each row is now printed at once and
+// settled by a live GET /models, so a provider that cannot be reached says so.
+
+TEST(get_provider_list_settles_each_row_from_a_live_probe) {
+    Tui tui;
+    tui.name = "get_provider_list_settles_each_row_from_a_live_probe";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("/get provider list\r");
+    // The fixture's two configured providers point at a closed port: the probe
+    // gets no answer, and the row must say that rather than claim [ ].
+    if (!require(tui.wait_for("no answer", 10000), "a probed provider never settled", tui))
+        return;
+    require(tui.text().find("not checked yet") == std::string::npos,
+            "the list still reports a stale verdict instead of probing", tui);
+    require(tui.text().find("no API key") != std::string::npos,
+            "an unkeyed preset does not say what is missing", tui);
+}
+
+// ── configuring anthropic keeps its protocol ──
+//
+// The provider editor has no protocol field, and every save rebuilt the
+// definition from the form: configuring anthropic wrote a file with no
+// flavor=anthropic line, and the reloaded provider then spoke the openai
+// baseline -- {api_base}/models with a Bearer header instead of
+// {api_base}/v1/models with x-api-key, so its model list was always empty.
+
+TEST(configuring_anthropic_keeps_its_protocol) {
+    Tui tui;
+    tui.name = "configuring_anthropic_keeps_its_protocol";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider anthropic\r");
+    if (!require(tui.wait_for("Configure: anthropic", 10000), "the provider editor did not open",
+                 tui))
+        return;
+
+    // The Server URL field is focused first and holds the preset's endpoint
+    // ("https://api.anthropic.com", 25 characters). Clear it EXACTLY: one
+    // backspace past the start of a field moves the focus to the next one, so an
+    // over-long burst would type the URL into the key field instead. The closed
+    // port keeps the switch's catalogue fetch off the real API.
+    tui.send(std::string(25, '\b'));
+    tui.send("http://127.0.0.1:9/v1");
+    tui.pump(300);
+    tui.send("\t"); // Server URL -> API Key
+    tui.pump(300);
+    tui.send("sk-ant-pty-test");
+    tui.pump(300);
+    tui.send("\r"); // Enter from a field reaches the OK button
+    tui.pump(300);
+    tui.send("\r"); // OK accepts
+    if (!require(tui.wait_for("provider switched to anthropic", 10000),
+                 "the switch never completed", tui))
+        return;
+
+    std::ifstream f(fixture().workspace + "/xdg/amber/providers/anthropic.conf");
+    const std::string saved((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    // A failure here means the clear above missed: the preset's endpoint length
+    // changed, so adjust the burst (and this test still has to assert the
+    // protocol below).
+    require(saved.find("api_base=http://127.0.0.1:9/v1") != std::string::npos,
+            "the endpoint the user typed did not reach the file", tui);
+    require(saved.find("flavor=anthropic") != std::string::npos,
+            "the saved provider lost its protocol", tui);
+
+    // Leave the shared fixture as it was found: the tests after this one read
+    // the same provider directory and global config.
+    std::error_code ec;
+    fs::remove(fixture().workspace + "/xdg/amber/providers/anthropic.conf", ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -752,6 +845,8 @@ int main(int argc, char** argv) {
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();
+    get_provider_list_settles_each_row_from_a_live_probe();
+    configuring_anthropic_keeps_its_protocol();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session
