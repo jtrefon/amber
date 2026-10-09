@@ -1037,6 +1037,49 @@ TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// ── picking a keyless provider's model opens the key form ──
+//
+// The drawer lists every configured provider's cached catalogue, so a row can
+// belong to a provider that has an endpoint and no key. Selecting such a row
+// used to print a warning and stop -- the user had to know to go and type
+// /provider <name> themselves. It now lands the same way /provider does: the
+// key form opens, and cancelling leaves the session untouched.
+TEST(picking_a_keyless_providers_model_opens_the_key_form) {
+    Tui tui;
+    tui.name = "picking_a_keyless_providers_model_opens_the_key_form";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/delta.conf";
+    if (!require(write_file(conf, "provider=delta\napi_base=http://127.0.0.1:9/delta/v1\n"
+                                  "default_model=delta-model\nrequires_key=1\n"),
+                 "could not seed the keyless provider", tui))
+        return;
+    agent::Config cfg;
+    cfg.provider_name = "delta";
+    cfg.api_base = "http://127.0.0.1:9/delta/v1";
+    cfg.flavor = "openai";
+    agent::model_catalog_write(cfg, R"({"data":[{"id":"delta-model","context_length":8000}]})");
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(open_set_model(tui), "the drawer has no rows", tui))
+        return;
+
+    tui.send("delta");
+    tui.pump(500);
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r");
+    require(tui.wait_for("Configure: delta", 10000),
+            "selecting a keyless provider's model did not offer the key form", tui);
+
+    // Leave the fixture as it was found (the seeded cache is inert without the
+    // provider file, so only the file needs removing).
+    tui.send("\x1b");
+    tui.pump(400);
+    std::error_code ec;
+    fs::remove(conf, ec);
+}
+
 // ── /get model list says WHY it is empty ──
 //
 // The user-facing half of the 404: the command used to print "refresh running
@@ -1136,6 +1179,7 @@ int main(int argc, char** argv) {
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
     settings_activation_switches_the_session_to_the_providers_protocol();
+    picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     get_config_paths_prints_the_resolved_layout();
     system_commands_do_not_freeze_the_ui();

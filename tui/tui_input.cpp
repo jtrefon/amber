@@ -1506,10 +1506,12 @@ void SlashDispatcher::cmd_model_set_for(const std::string& provider, const std::
     // cached catalogue, so validating before the switch would reject a model
     // that is perfectly valid for the provider the user just picked.
     auto sel = tui_.providers_->select(provider);
-    if (!sel.ok()) {
-        tui_.append_line(P_STATUS, "provider " + provider + ": " + sel.error);
+    // The same landing /provider gives, key prompt included: the drawer named
+    // the provider, so a missing key is one form away -- not a warning the user
+    // has to translate into a second command. Cancelling the form returns with
+    // nothing changed.
+    if (!ensure_provider_ready(provider, sel))
         return;
-    }
     agent::apply_selection(tui_.cfg_, sel);
     if (!sel.warning.empty())
         tui_.append_line(P_STATUS, "provider " + provider + ": " + sel.warning);
