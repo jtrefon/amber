@@ -167,7 +167,10 @@ TEST(anthropic_request_omits_empty_text_blocks) {
     ASSERT_EQ(out[0]["content"][0]["text"], "hi");
     ASSERT_EQ(out[1]["content"][0]["text"], "still there?");
 
-    // A tool-only assistant turn keeps its blocks (there is no text to drop).
+    // A tool-only assistant turn keeps its blocks (there is no text to drop),
+    // and a history that stops mid-tool gets its tool_use closed immediately
+    // after: the pairing is the API's contract, so the unanswered id is
+    // answered explicitly rather than left to 400 the next request.
     agent::Message tool_only;
     tool_only.role = "assistant";
     tool_only.tool_calls = agent::json::array(
@@ -176,9 +179,67 @@ TEST(anthropic_request_omits_empty_text_blocks) {
           {"function", {{"name", "read"}, {"arguments", R"({"path":"b.txt"})"}}}}});
     std::vector<agent::Message> with_tool = {text_msg("user", "read it"), tool_only};
     agent::json body2 = d->build_chat_body(cfg, with_tool, {}, true);
-    ASSERT_EQ(body2["messages"].size(), 2u);
+    ASSERT_EQ(body2["messages"].size(), 3u);
     ASSERT_EQ(body2["messages"][1]["content"].size(), 1u);
     ASSERT_EQ(body2["messages"][1]["content"][0]["type"], "tool_use");
+    ASSERT_EQ(body2["messages"][2]["content"][0]["type"], "tool_result");
+    ASSERT_EQ(body2["messages"][2]["content"][0]["tool_use_id"], "toolu_2");
+}
+
+// Anthropic requires EVERY tool_result of a turn inside the ONE message that
+// immediately follows the assistant's tool_use blocks. The internal history
+// keeps one message per result, so a two-tool turn used to go out as
+// assistant -> user(result A) -> user(result B), and the API answered
+// "tool_use ids were found without tool_result blocks immediately after",
+// naming B. A result that never arrived (a cancelled dispatch, a crash mid
+// tool-run) is answered in that same message too, because the pairing is the
+// API's contract and an unanswered id 400s every later request in the session.
+TEST(anthropic_tool_results_share_the_message_that_follows) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    agent::Message assistant;
+    assistant.role = "assistant";
+    assistant.content = "reading both";
+    assistant.tool_calls = agent::json::array();
+    assistant.tool_calls.push_back(
+        {{"id", "call_a"},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"a"})"}}}});
+    assistant.tool_calls.push_back(
+        {{"id", "call_b"},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
+
+    std::vector<agent::Message> msgs = {text_msg("user", "read both"), assistant,
+                                        tool_result_msg("call_a", "A body"),
+                                        tool_result_msg("call_b", "B body")};
+    agent::json body = d->build_chat_body(cfg, msgs, {}, true);
+    const agent::json& out = body["messages"];
+    ASSERT_EQ(out.size(), 3u); // user, assistant, ONE user carrying both results
+    ASSERT_EQ(out[2]["role"], "user");
+    ASSERT_EQ(out[2]["content"].size(), 2u);
+    ASSERT_EQ(out[2]["content"][0]["tool_use_id"], "call_a");
+    ASSERT_EQ(out[2]["content"][1]["tool_use_id"], "call_b");
+
+    // A result that never arrived is answered explicitly, in that same
+    // immediately-following message.
+    std::vector<agent::Message> partial = {text_msg("user", "go"), assistant,
+                                           tool_result_msg("call_a", "A body")};
+    agent::json body2 = d->build_chat_body(cfg, partial, {}, true);
+    const agent::json& out2 = body2["messages"];
+    ASSERT_EQ(out2.size(), 3u);
+    ASSERT_EQ(out2[2]["content"].size(), 2u);
+    ASSERT_EQ(out2[2]["content"][1]["tool_use_id"], "call_b");
+    ASSERT_FALSE(out2[2]["content"][1]["content"].get<std::string>().empty());
+
+    // An empty result reads as a missing block to the API; say so instead.
+    std::vector<agent::Message> empty = {text_msg("user", "go"), assistant,
+                                         tool_result_msg("call_a", ""),
+                                         tool_result_msg("call_b", "B body")};
+    agent::json body3 = d->build_chat_body(cfg, empty, {}, true);
+    ASSERT_FALSE(body3["messages"][2]["content"][0]["content"].get<std::string>().empty());
 }
 
 TEST(anthropic_tools_use_input_schema) {
