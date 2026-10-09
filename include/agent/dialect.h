@@ -86,6 +86,17 @@ public:
 // refusing.
 std::unique_ptr<Dialect> make_dialect(const std::string& flavor);
 
+// Join a versioned API path onto a configured api_base without doubling the
+// version segment. A base pasted from a provider's own docs often carries the
+// version already -- "https://api.anthropic.com/v1" is what every example
+// shows -- and base + "/v1/models" would then request /v1/v1/models: a 404 the
+// user cannot explain from the config file, because the file is what they
+// pasted. A trailing slash is trimmed for the same reason (the provider form
+// strips it, a hand-edited file need not), and an empty base stays empty so
+// callers keep their "no endpoint" behaviour.
+std::string versioned_url(const std::string& api_base, const std::string& version,
+                          const std::string& path);
+
 // Register a dialect factory (built-ins register here; provider plugins
 // register into the same table). `owner` is the plugin id for plugin-provided
 // dialects, empty for built-ins; it is what `disable` uses to take exactly the

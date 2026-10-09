@@ -9,6 +9,7 @@
 #include "tui/window_ops.h"
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
+#include "agent/config_paths.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/skill_commands.h"
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <stdexcept>
@@ -286,6 +288,21 @@ void SlashDispatcher::cmd_get_config() {
     tui_.redraw_after_modal();
 }
 
+// Where amber keeps its own files, resolved (XDG overrides included). One line
+// per entry, so the readout stays greppable, and the same table the bundled
+// amber-config skill renders its body from -- the two cannot describe
+// different files.
+void SlashDispatcher::cmd_get_config_paths() {
+    for (const auto& p : agent::config_paths()) {
+        std::string line = "  " + p.what;
+        if (line.size() < 18)
+            line += std::string(18 - line.size(), ' ');
+        else
+            line += "  ";
+        tui_.append_line(P_STATUS, line + p.path);
+    }
+}
+
 void SlashDispatcher::cmd_get_provider() {
     tui_.append_line(P_STATUS,
                      "provider: " + tui_.cfg_.provider_name + " (" + tui_.cfg_.api_base + ")");
@@ -379,7 +396,7 @@ void SlashDispatcher::apply_policy_rule(const std::string& name, const std::stri
         return;
     }
     if (tui_.win().agent) {
-        std::string policy_path = agent::Workspace::local_dir() + "/policy.json";
+        std::string policy_path = agent::Workspace::policy_path();
         tui_.win().agent->policy().save(policy_path);
     }
     refresh_policy_feed();
@@ -1178,6 +1195,8 @@ void SlashDispatcher::register_config_set_actions() {
 void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.get", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.config", [this](const std::string&) { cmd_get_config(); });
+    register_action("core.config.get.config.paths",
+                    [this](const std::string&) { cmd_get_config_paths(); });
     register_action("core.config.get.model", [this](const std::string&) { cmd_get_model(); });
     register_action("core.config.get.model.list",
                     [this](const std::string&) { cmd_get_model_list(); });
@@ -1294,8 +1313,10 @@ void SlashDispatcher::register_get_reasoning_actions() {
                 std::to_string(agent::load_compression_config(tui_.cfg_).keep_last_prompts));
     });
     register_action("core.config.get.skills", [this](const std::string& a) { cmd_skills_get(a); });
+    // The leaf lists everything; passing "show" here made it a NAME FILTER, so
+    // the documented "/get skills show" matched nothing.
     register_action("core.config.get.skills.show",
-                    [this](const std::string&) { cmd_skills_get("show"); });
+                    [this](const std::string&) { cmd_skills_get(""); });
 }
 
 void SlashDispatcher::register_config_get_actions() {
@@ -1508,10 +1529,14 @@ void SlashDispatcher::cmd_get_model() {
 void SlashDispatcher::cmd_get_model_list() {
     refresh_model_list();
     auto entry = agent::model_catalog_read(tui_.cfg_);
-    if (!entry || !agent::model_catalog_fresh(*entry))
+    if (!entry || !agent::model_catalog_fresh(*entry)) {
+        // The refresh may fail, and the user who asked must hear why -- the
+        // failure arrives after this line, through on_models_refreshed.
+        tui_.report_model_failure_ = true;
         tui_.refresh_models_async(false);
+    }
     if (model_info_.empty()) {
-        tui_.append_line(P_STATUS, "no cached model list yet - refresh running in background");
+        tui_.append_line(P_STATUS, "no cached model list yet - refreshing ...");
         return;
     }
     for (const auto& m : model_info_) {
@@ -1667,6 +1692,19 @@ void SlashDispatcher::land_provider_switch() {
 
 void SlashDispatcher::cmd_provider_list() {
     tui_.show_provider_list();
+}
+
+bool SlashDispatcher::adopt_provider(const std::string& id) {
+    auto sel = tui_.providers_->select(id);
+    if (!sel.ok()) {
+        tui_.append_line(P_STATUS, "provider " + id + ": " + sel.error);
+        return false;
+    }
+    agent::apply_selection(tui_.cfg_, sel);
+    if (!sel.warning.empty())
+        tui_.append_line(P_STATUS, "warning: " + sel.warning);
+    land_provider_switch();
+    return true;
 }
 
 // --- plugin runtime surface (/get plugin, /set plugin) --------------------
@@ -1909,10 +1947,12 @@ void SlashDispatcher::cmd_provider_test(const std::string& name) {
     pc.api_base = p->api_base;
     pc.api_key = p->api_key;
     pc.flavor = p->flavor;
-    agent::model_catalog_refresh_async(pc, tui_.ui_poster(), [this, name, pc](bool fetched) {
-        const bool ok = fetched && !agent::list_model_info_cached(pc).empty();
-        tui_.append_line(P_STATUS, name + ": " + (ok ? "OK" : "FAILED"));
-    });
+    agent::model_catalog_refresh_async(
+        pc, tui_.ui_poster(), [this, name, pc](const agent::CatalogFetchReport& r) {
+            const bool ok = r.fetched && !agent::list_model_info_cached(pc).empty();
+            tui_.append_line(P_STATUS,
+                             name + ": " + (ok ? "OK" : "FAILED (" + r.failure_reason() + ")"));
+        });
 }
 
 void SlashDispatcher::cmd_session_load(const std::string& id) {
@@ -2470,13 +2510,16 @@ void Tui::refresh_provider_catalogs_async() {
         auto entry = agent::model_catalog_read(cfg);
         if (entry && agent::model_catalog_fresh(*entry))
             continue; // already good
-        agent::model_catalog_refresh_async(cfg, ui_poster(), [this](bool) {
-            // Any catalogue landing changes the union, whichever provider it
-            // came from. cfg_ is untouched: this path exists to grow the list,
-            // not to switch or autodetect the connection.
-            slash_dispatcher_->refresh_model_list();
-            draw();
-        });
+        agent::model_catalog_refresh_async(cfg, ui_poster(),
+                                           [this](const agent::CatalogFetchReport&) {
+                                               // Any catalogue landing changes the union, whichever
+                                               // provider it came from. cfg_ is untouched: this
+                                               // path exists to grow the list, not to switch or
+                                               // autodetect the connection. A failure is reported
+                                               // by the endpoint's own command, not from a warm-up.
+                                               slash_dispatcher_->refresh_model_list();
+                                               draw();
+                                           });
     }
 }
 
@@ -2538,21 +2581,27 @@ void Tui::refresh_models_async(bool announce) {
         return;
     const std::string api_base = cfg_.api_base;
     const std::string flavor = cfg_.flavor;
-    agent::model_catalog_refresh_async(cfg_, ui_poster(),
-                                       [this, announce, api_base, flavor](bool fetched) {
-                                           on_models_refreshed(fetched, announce, api_base, flavor);
-                                       });
+    agent::model_catalog_refresh_async(
+        cfg_, ui_poster(), [this, announce, api_base, flavor](const agent::CatalogFetchReport& r) {
+            on_models_refreshed(r, announce, api_base, flavor);
+        });
 }
 
-void Tui::on_models_refreshed(bool fetched, bool announce, const std::string& api_base,
-                              const std::string& flavor) {
+void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool announce,
+                              const std::string& api_base, const std::string& flavor) {
     models_refresh_inflight_ = false;
+    // /get model list asked for an answer; consume the ask here whatever the
+    // endpoint, so a failure for a switched-away endpoint cannot surface later.
+    const bool asked = std::exchange(report_model_failure_, false);
     // A provider switch while the fetch was in flight makes the result belong
     // to a different endpoint; drop it rather than merge the wrong catalog.
     if (cfg_.api_base != api_base || cfg_.flavor != flavor)
         return;
-    if (!fetched && announce)
-        append_line(P_STATUS, "detect: server unreachable at " + api_base);
+    // Say WHY, not just that the list is missing: the endpoint asked and the
+    // status that came back are the two facts a wrong server URL (or the wrong
+    // protocol) shows up in, and the user who asked is the one who can act.
+    if (!refresh.fetched && (announce || asked))
+        append_line(P_STATUS, refresh.failure_reason());
     agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
     if (info.ok) {
         const bool changed =
@@ -2590,30 +2639,30 @@ void Tui::test_connection(bool announce) {
     append_line(P_STATUS, "testing " + cfg_.api_base + "...");
     const std::string api_base = cfg_.api_base;
     const std::string flavor = cfg_.flavor;
-    agent::model_catalog_refresh_async(cfg_, ui_poster(), [this, api_base, flavor](bool fetched) {
-        if (cfg_.api_base != api_base || cfg_.flavor != flavor)
-            return;
-        if (!fetched) {
-            append_line(P_STATUS, "test: no response from " + api_base +
-                                      " (check URL/token and that the server is running)");
+    agent::model_catalog_refresh_async(
+        cfg_, ui_poster(), [this, api_base, flavor](const agent::CatalogFetchReport& r) {
+            if (cfg_.api_base != api_base || cfg_.flavor != flavor)
+                return;
+            if (!r.fetched) {
+                append_line(P_STATUS, "test: " + r.failure_reason());
+                draw();
+                return;
+            }
+            agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
+            if (!info.ok) {
+                append_line(P_STATUS, "test: " + api_base + " answered but listed no models");
+                draw();
+                return;
+            }
+            last_detected_ = info;
+            std::string note = "test: OK - " + cfg_.api_base + "  model=" + cfg_.model +
+                               " n_ctx=" + std::to_string(cfg_.context_size);
+            if (info.context_train > 0 && info.context_train != cfg_.context_size)
+                note += " (max " + std::to_string(info.context_train) + ")";
+            append_line(P_STATUS, note);
+            refresh_model_list();
             draw();
-            return;
-        }
-        agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
-        if (!info.ok) {
-            append_line(P_STATUS, "test: " + api_base + " answered but listed no models");
-            draw();
-            return;
-        }
-        last_detected_ = info;
-        std::string note = "test: OK - " + cfg_.api_base + "  model=" + cfg_.model +
-                           " n_ctx=" + std::to_string(cfg_.context_size);
-        if (info.context_train > 0 && info.context_train != cfg_.context_size)
-            note += " (max " + std::to_string(info.context_train) + ")";
-        append_line(P_STATUS, note);
-        refresh_model_list();
-        draw();
-    });
+        });
     (void)announce;
 }
 
@@ -2747,12 +2796,11 @@ void Tui::add_new_provider() {
         return;
     prov_cfg.provider_name = new_name;
     providers_->save(agent::provider_from_edit(existing, prov_cfg, false));
-    cfg_.provider_name = new_name;
-    cfg_.api_base = prov_cfg.api_base;
-    cfg_.api_key = prov_cfg.api_key;
-    cfg_.model = prov_cfg.model;
-    cfg_.model_explicit = !prov_cfg.model.empty();
-    cfg_.save_global(agent::global_config_path());
+    // Adopt through the domain rather than assigning cfg_ here: the saved
+    // definition is the single source of the protocol, the key and the model,
+    // and the switch has to reach the window agent too.
+    if (!slash_dispatcher_->adopt_provider(new_name))
+        return;
     refresh_provider_feed();
     append_line(P_STATUS, "provider '" + new_name + "' added and activated");
 }
@@ -2778,14 +2826,12 @@ void Tui::activate_and_edit_provider(const std::string& id, const agent::Provide
         return;
 
     providers_->save(agent::provider_from_edit(existing, prov_cfg, is_preset));
-    cfg_.provider_name = id;
-    cfg_.api_base = prov_cfg.api_base;
-    cfg_.api_key = prov_cfg.api_key;
-    if (!prov_cfg.model.empty()) {
-        cfg_.model = prov_cfg.model;
-        cfg_.model_explicit = true;
-    }
-    cfg_.save_global(agent::global_config_path());
+    // Re-resolve through the provider domain: the form edits the definition,
+    // the domain decides what the session speaks. This is what carries the
+    // protocol (and the endpoint/key/model) to cfg_, the window agent and the
+    // feeds in one step.
+    if (!slash_dispatcher_->adopt_provider(id))
+        return;
     refresh_provider_feed();
     append_line(P_STATUS, "provider '" + id + "' activated");
     test_connection(false);

@@ -189,6 +189,19 @@ std::string global_config_path();
 // Directory holding global amber state (~/.config/amber, or $XDG_CONFIG_HOME/amber).
 std::string global_config_dir();
 
+// Directory for regenerable data (model catalogues): $XDG_CACHE_HOME/amber,
+// else ~/.cache/amber. The XDG spec puts caches here rather than in the config
+// tree, and nothing here is worth backing up or migrating: a lost cache is a
+// re-fetch.
+std::string cache_dir();
+
+// The user's home directory. $HOME when it is a sane absolute path, else the
+// passwd entry. $HOME unset is a broken environment, not a reason to write
+// into the current directory: the old ".amber" fallback put the GLOBAL config
+// inside the workspace-local .amber, so running amber from two projects
+// appeared to move the provider files.
+std::string user_home_dir();
+
 // Create the global config file with commented defaults on first run so a
 // fresh install has a file to edit instead of silently running bare defaults.
 // Never overwrites an existing file; returns true when a file was written.

@@ -47,6 +47,14 @@ public:
     // provider and a /set model pick from another provider end here, so a
     // switch cannot mean two different things depending on how it was typed.
     void land_provider_switch();
+    // Adopt a provider definition the settings screen just wrote. The provider
+    // form has no protocol field, so what the session speaks has to be
+    // re-resolved from the definition through the provider domain: assigning
+    // cfg_ field by field is how a settings-screen activation kept the PREVIOUS
+    // provider's dialect and asked an Anthropic endpoint for /models (404, no
+    // models). Returns false, with a message, when the saved definition is
+    // unusable.
+    bool adopt_provider(const std::string& id);
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
@@ -97,6 +105,7 @@ public:
     void cmd_skills_install(const std::string& source);
     void cmd_skills_uninstall(const std::string& name);
     void cmd_get_config();
+    void cmd_get_config_paths();
     void cmd_get_model();
     void cmd_get_model_list();
     void cmd_get_model_context();

@@ -1,5 +1,6 @@
 #include "agent/plugins_bundled.h"
 
+#include "plugins/amber_self/amber_self_plugin.h"
 #include "plugins/anthropic/anthropic_plugin.h"
 #include "plugins/clock/clock_plugin.h"
 #include "plugins/commandcode/commandcode_plugin.h"
@@ -65,6 +66,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // Example command plugin: registers the /hello namespace. Small enough to
     // read in one sitting and the reference for the command capability.
     plugins.push_back(std::make_shared<plugins::HelloPlugin>());
+    // Self-knowledge: registers the amber-config skill, so the agent can answer
+    // "where does amber keep this?" and change amber's own settings without
+    // guessing at paths. The body is rendered from agent::config_paths().
+    plugins.push_back(std::make_shared<plugins::AmberSelfPlugin>());
     return plugins;
 }
 

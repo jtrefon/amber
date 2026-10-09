@@ -37,6 +37,52 @@ std::string read_whole_file(const std::string& path) {
 
 } // namespace
 
+namespace {
+
+// System skills: code-contributed, owned by the plugin that registered them.
+std::mutex& system_skill_mutex() {
+    static std::mutex mtx;
+    return mtx;
+}
+
+std::vector<std::pair<SystemSkill, std::string>>& system_skill_table() {
+    static std::vector<std::pair<SystemSkill, std::string>> table; // skill, owner
+    return table;
+}
+
+} // namespace
+
+void register_system_skill(const SystemSkill& skill, const std::string& owner) {
+    std::scoped_lock lock(system_skill_mutex());
+    for (auto& entry : system_skill_table()) {
+        if (entry.first.name == skill.name) {
+            entry = {skill, owner};
+            return;
+        }
+    }
+    system_skill_table().emplace_back(skill, owner);
+}
+
+void unregister_system_skills_for(const std::string& owner) {
+    if (owner.empty())
+        return;
+    std::scoped_lock lock(system_skill_mutex());
+    auto& table = system_skill_table();
+    table.erase(std::remove_if(table.begin(), table.end(),
+                               [&](const std::pair<SystemSkill, std::string>& e) {
+                                   return e.second == owner;
+                               }),
+                table.end());
+}
+
+std::vector<SystemSkill> system_skills() {
+    std::scoped_lock lock(system_skill_mutex());
+    std::vector<SystemSkill> out;
+    for (const auto& entry : system_skill_table())
+        out.push_back(entry.first);
+    return out;
+}
+
 SkillCatalog::SkillCatalog(const Config& cfg, const SkillScanPaths& paths, std::string home)
     : cfg_(cfg), interop_enabled_(cfg.skills_interop) {
     if (cfg.skills_max_discovery > 0)
@@ -88,6 +134,35 @@ void SkillCatalog::absorb_authored(const std::string& root, SkillScope scope,
     }
 }
 
+// Absorb code-contributed skills. They sit below every authored scope (a user
+// who writes their own skill of the same name shadows it) and above learned
+// ones (a bundled system skill is documentation the harness ships, and it is
+// the more reliable of the two).
+void SkillCatalog::absorb_system(std::set<std::string>& selected) {
+    for (const auto& s : system_skills()) {
+        SkillEntry e;
+        e.name = s.name;
+        e.scope = SkillScope::System;
+        e.origin = SkillOrigin::Authored;
+        e.meta.name = s.name;
+        e.meta.description = s.description;
+        e.meta.body = s.body ? s.body() : std::string();
+        apply_override_state(e.name, e.state);
+        if (e.state == kDisabled || e.state == kBlocked)
+            continue;
+        if (selected.count(e.name)) {
+            if (e.state != kForceEnabled)
+                continue;
+            entries_.push_back(std::move(e));
+            continue;
+        }
+        if (e.state == kForceEnabled)
+            e.state = kEnabled;
+        selected.insert(e.name);
+        entries_.push_back(std::move(e));
+    }
+}
+
 void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
     entries_.clear();
     body_cache_.clear();
@@ -101,6 +176,7 @@ void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
         absorb_authored(paths_.claude, SkillScope::Interop, selected, warnings);
         absorb_authored(paths_.codex, SkillScope::Interop, selected, warnings);
     }
+    absorb_system(selected);
 
     for (const auto& sk : learned) {
         SkillEntry e;
@@ -148,7 +224,11 @@ std::optional<std::string> SkillCatalog::read_body(const std::string& name) {
     auto it = body_cache_.find(name);
     if (it != body_cache_.end())
         return it->second;
-    if (e->origin == SkillOrigin::Learned) {
+    // Learned and system skills carry their body: there is no file to read,
+    // which is also what makes a system skill impossible to damage.
+    if (e->origin == SkillOrigin::Learned || e->scope == SkillScope::System) {
+        if (e->meta.body.empty() || estimate_tokens(e->meta.body) > body_budget_)
+            return std::nullopt;
         body_cache_[name] = e->meta.body;
         return e->meta.body;
     }

@@ -58,6 +58,21 @@ std::unique_ptr<Dialect> make_dialect(const std::string& flavor) {
     return find_locked(flavor);
 }
 
+std::string versioned_url(const std::string& api_base, const std::string& version,
+                          const std::string& path) {
+    if (api_base.empty())
+        return {};
+    std::string base = api_base;
+    while (base.size() > 1 && base.back() == '/')
+        base.pop_back();
+    // The version is matched as a path segment: "/anthropic/v1" is versioned,
+    // "/myv1" is a name that merely ends in those characters.
+    const bool already_versioned =
+        base.size() >= version.size() &&
+        base.compare(base.size() - version.size(), version.size(), version) == 0;
+    return already_versioned ? base + path : base + version + path;
+}
+
 void register_dialect(const std::string& flavor, std::function<std::unique_ptr<Dialect>()> factory,
                       const std::string& owner) {
     std::scoped_lock lock(dialect_mutex());

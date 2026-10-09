@@ -540,6 +540,23 @@ InstallResult ProviderCapability::install(PluginServices& services) {
     return r;
 }
 
+SkillCapability::SkillCapability(SystemSkill skill) : skill_(std::move(skill)) {}
+
+InstallResult SkillCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (skill_.name.empty() || !is_kebab_name(skill_.name)) {
+        r.error = "skill capability needs a kebab-case name";
+        return r;
+    }
+    const std::string owner = services.owner();
+    register_system_skill(skill_, owner);
+    r.ok = true;
+    r.contribution.kind = CapabilityKind::Skill;
+    r.contribution.name = skill_.name;
+    r.contribution.remove = [owner] { unregister_system_skills_for(owner); };
+    return r;
+}
+
 StatusSegmentCapability::StatusSegmentCapability(std::string id, int priority, int drop_priority,
                                                  StatusRegistry::Render render, StatusAlign align)
     : id_(std::move(id)), priority_(priority), drop_priority_(drop_priority), align_(align),

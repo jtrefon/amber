@@ -63,6 +63,19 @@ TEST(gemini_flavor_and_endpoints) {
               std::string("https://generativelanguage.googleapis.com/v1beta/models"));
 }
 
+// Same paste trap as anthropic: the docs' URLs carry /v1beta already, and the
+// version must not be doubled into a 404.
+TEST(gemini_endpoints_tolerate_a_versioned_base) {
+    auto d = make_gemini_dialect();
+    Config cfg = gemini_cfg();
+    cfg.api_base = "https://generativelanguage.googleapis.com/v1beta";
+    cfg.stream = false;
+    ASSERT_EQ(d->chat_url(cfg), std::string("https://generativelanguage.googleapis.com/v1beta/"
+                                            "models/gemini-2.5-pro:generateContent"));
+    ASSERT_EQ(d->models_url(cfg),
+              std::string("https://generativelanguage.googleapis.com/v1beta/models"));
+}
+
 TEST(gemini_auth_headers) {
     auto d = make_gemini_dialect();
     Config cfg = gemini_cfg();

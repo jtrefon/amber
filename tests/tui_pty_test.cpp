@@ -14,11 +14,15 @@
 
 #include <fcntl.h>
 #include <csignal>
+#include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cerrno>
 #include <cstdio>
@@ -27,11 +31,14 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "agent/model_probe.h"
 #include "agent/session.h"
+#include "agent/workspace.h"
 #include "tests/minitest.h"
 
 namespace {
@@ -91,7 +98,7 @@ struct Tui {
     ~Tui() { stop(); }
 
     bool start(const std::string& binary, const std::string& workspace,
-               const std::string& path_prefix = "") {
+               const std::string& path_prefix = "", int rows = 0, int cols = 0) {
         master = posix_openpt(O_RDWR | O_NOCTTY);
         if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0)
             return false;
@@ -118,6 +125,14 @@ struct Tui {
             // (1 s by default) to decide it is not an escape-sequence prefix,
             // which would stall the teardown below.
             setenv("ESCDELAY", "25", 1);
+            // A test whose output needs more room than the 80x24 default asks
+            // for it here. The pty has no winsize of its own, and ncurses reads
+            // LINES/COLUMNS at initscr (the app never calls use_env(FALSE)), so
+            // the environment is what gives it a size.
+            if (rows > 0 && cols > 0) {
+                setenv("LINES", std::to_string(rows).c_str(), 1);
+                setenv("COLUMNS", std::to_string(cols).c_str(), 1);
+            }
             if (!path_prefix.empty()) {
                 std::string path = path_prefix;
                 if (const char* inherited = getenv("PATH"))
@@ -359,11 +374,18 @@ bool build_fixture(Fixture& fx) {
     fx.workspace = buf.data();
     fx.workspace_name = fs::path(fx.workspace).filename().string();
 
-    fs::create_directories(fx.workspace + "/.amber");
     fs::create_directories(fx.workspace + "/xdg");
     setenv("AMBER_WORKSPACE", fx.workspace.c_str(), 1);
     setenv("XDG_CONFIG_HOME", (fx.workspace + "/xdg").c_str(), 1);
-    if (!write_file(fx.workspace + "/.amber/settings",
+    // Per-project state and the model cache live under their own XDG roots
+    // now; without these the child would read and write the developer's real
+    // ~/.local/state and ~/.cache.
+    setenv("XDG_STATE_HOME", (fx.workspace + "/state").c_str(), 1);
+    setenv("XDG_CACHE_HOME", (fx.workspace + "/cache").c_str(), 1);
+    // The path resolvers are pure (nothing is created by asking), so the
+    // fixture creates the state dir it writes the settings file into.
+    fs::create_directories(fs::path(agent::Workspace::settings_path()).parent_path(), ec);
+    if (!write_file(agent::Workspace::settings_path(),
                     "api_base=http://127.0.0.1:9/v1\nmodel=pty-test\n"))
         return false;
 
@@ -487,6 +509,126 @@ void assert_no_escape_tail(const std::string& delta, const std::string& tail) {
     std::cerr << "FAIL: escape-sequence tail '" << tail << "' leaked into the prompt\n";
     failed++;
 }
+
+// A fake Anthropic endpoint that records every request path it is asked for.
+// /v1/models answers with an Anthropic-shaped listing; anything else is a 404,
+// exactly like the real API (api.anthropic.com/models is a 404). A test that
+// cares WHICH URL the app builds -- not what it parses -- asserts the path.
+class FakeModelsEndpoint {
+public:
+    ~FakeModelsEndpoint() { stop(); }
+
+    bool start() {
+        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0)
+            return false;
+        int opt = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0; // ephemeral: two tests can never collide on a port
+        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+            return fail();
+        socklen_t len = sizeof(addr);
+        if (getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) < 0)
+            return fail();
+        port_ = ntohs(addr.sin_port);
+        if (listen(listen_fd_, 8) < 0)
+            return fail();
+        thread_ = std::thread([this] { serve(); });
+        return true;
+    }
+
+    int port() const { return port_; }
+
+    std::string base() const { return "http://127.0.0.1:" + std::to_string(port_); }
+
+    // The most recent path requested, e.g. "/v1/models".
+    std::string last_path() {
+        std::scoped_lock lk(mtx_);
+        return paths_.empty() ? std::string() : paths_.back();
+    }
+
+    bool saw(const std::string& path) {
+        std::scoped_lock lk(mtx_);
+        return std::find(paths_.begin(), paths_.end(), path) != paths_.end();
+    }
+
+    void stop() {
+        stopping_ = true;
+        if (thread_.joinable())
+            thread_.join();
+        if (listen_fd_ >= 0) {
+            close(listen_fd_);
+            listen_fd_ = -1;
+        }
+    }
+
+private:
+    bool fail() {
+        close(listen_fd_);
+        listen_fd_ = -1;
+        return false;
+    }
+
+    void serve() {
+        while (!stopping_) {
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(listen_fd_, &rfds);
+            timeval tv{0, 200000}; // 200 ms: the loop must see `stopping_`
+            if (select(listen_fd_ + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                continue;
+            int c = accept(listen_fd_, nullptr, nullptr);
+            if (c < 0)
+                continue;
+            handle(c);
+            close(c);
+        }
+    }
+
+    void handle(int c) {
+        char buf[4096];
+        const ssize_t n = recv(c, buf, sizeof(buf) - 1, 0);
+        if (n <= 0)
+            return;
+        std::string req(buf, static_cast<size_t>(n));
+        // "GET /path HTTP/1.1" -> "/path" (query dropped: the anthropic
+        // listing asks for one page with ?limit=1000, and the test asserts the
+        // endpoint, not the query -- the dialect test pins the query).
+        std::string path = "/";
+        const size_t sp1 = req.find(' ');
+        const size_t sp2 = sp1 == std::string::npos ? std::string::npos : req.find(' ', sp1 + 1);
+        if (sp1 != std::string::npos && sp2 != std::string::npos) {
+            path = req.substr(sp1 + 1, sp2 - sp1 - 1);
+            const size_t q = path.find('?');
+            if (q != std::string::npos)
+                path.resize(q);
+        }
+        {
+            std::scoped_lock lk(mtx_);
+            paths_.push_back(path);
+        }
+        const bool ok = path == "/v1/models";
+        const std::string body =
+            ok ? R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})"
+               : R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
+        const std::string http =
+            std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
+            "\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) +
+            "\r\nConnection: close\r\n\r\n" + body;
+        ssize_t ignored = send(c, http.c_str(), http.size(), 0);
+        (void)ignored;
+    }
+
+    int listen_fd_ = -1;
+    int port_ = 0;
+    std::atomic<bool> stopping_{false};
+    std::thread thread_;
+    std::mutex mtx_;
+    std::vector<std::string> paths_;
+};
 
 } // namespace
 
@@ -829,6 +971,152 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// ── activating a provider from /settings switches the whole session ──
+//
+// The settings screen ("Activate & edit") updated the session config by hand:
+// provider_name, api_base, api_key, model -- never the protocol. The session
+// kept speaking the PREVIOUS provider's dialect, so /get model list requested
+// {api_base}/models (openai) from an Anthropic endpoint and got a 404, while
+// the file on disk and /get provider list both looked correct. A fake endpoint
+// records the path, because "which URL did it request" is the whole question.
+TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
+    Tui tui;
+    tui.name = "settings_activation_switches_the_session_to_the_providers_protocol";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/anthropic.conf";
+    if (!require(write_file(conf, "provider=anthropic\napi_base=" + endpoint.base() +
+                                      "\nflavor=anthropic\napi_key=sk-ant-pty\n"
+                                      "default_model=claude-pty-1\nrequires_key=1\n"),
+                 "could not seed the anthropic provider", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/settings\r");
+    if (!require(tui.wait_for("Providers (", 10000), "the settings screen did not open", tui))
+        return;
+    tui.send("/anthropic"); // filter the provider list down to the one row
+    tui.pump(400);
+    tui.send("\r"); // select the provider -> its actions menu
+    tui.pump(800);
+    tui.send("\r"); // "Activate & edit" -> the provider form
+    if (!require(tui.wait_for("Edit: anthropic", 10000), "the provider form did not open", tui))
+        return;
+    tui.send("\r"); // Enter from a field reaches the OK button
+    tui.pump(300);
+    tui.send("\r"); // OK accepts
+    if (!require(tui.wait_for("provider 'anthropic' activated", 10000),
+                 "the activation never completed", tui))
+        return;
+
+    // The session must speak the activated provider's protocol: its catalogue
+    // fetch goes to /v1/models. Before the fix it kept the previous flavor and
+    // requested /models, which the endpoint answers with a 404 -- the exact
+    // shape of "no models for anthropic".
+    bool right_path = false;
+    for (int waited = 0; waited < 10000 && !right_path; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        right_path = endpoint.saw("/v1/models");
+    }
+    require(right_path,
+            ("the session kept the previous protocol; requested " + endpoint.last_path()).c_str(),
+            tui);
+    require(!endpoint.saw("/models"),
+            "the openai baseline URL was requested from an anthropic endpoint", tui);
+
+    // And the listing reaches the user: /get model list prints the fake model.
+    tui.send("/get model list\r");
+    require(tui.wait_for("claude-pty-1", 10000), "the provider's model list never appeared", tui);
+
+    // Leave the shared fixture as it was found.
+    std::error_code ec;
+    fs::remove(conf, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── /get model list says WHY it is empty ──
+//
+// The user-facing half of the 404: the command used to print "refresh running
+// in background" and never mention that the fetch had already failed, so a
+// wrong URL or the wrong protocol read as "this provider has no models". The
+// reason now names the endpoint asked and what came back.
+TEST(get_model_list_reports_why_the_catalogue_is_empty) {
+    Tui tui;
+    tui.name = "get_model_list_reports_why_the_catalogue_is_empty";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/dead.conf";
+    if (!require(write_file(conf, "provider=dead\napi_base=http://127.0.0.1:9/v1\nflavor=openai\n"
+                                  "requires_key=0\ndefault_model=dead-model\n"),
+                 "could not seed the dead provider", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider dead\r");
+    if (!require(tui.wait_for("provider switched to dead", 10000), "the switch never completed",
+                 tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    tui.send("/get model list\r");
+    if (!require(tui.wait_for("no cached model list yet", 10000), "the command printed nothing",
+                 tui))
+        return;
+    bool reason = false;
+    for (int waited = 0; waited < 10000 && !reason; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        reason = text_since(tui, mark).find("http://127.0.0.1:9/v1/models") != std::string::npos;
+    }
+    require(reason, "an empty list never said which endpoint failed", tui);
+    require(text_since(tui, mark).find("no answer") != std::string::npos,
+            "the failure does not say that no answer came back", tui);
+
+    std::error_code ec;
+    fs::remove(conf, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── amber knows where its own files are ──
+//
+// The agent had no way to answer "where does amber keep X?": nothing in the
+// prompt mentioned amber's own layout. /get config paths prints the resolved
+// table, and the bundled amber-self plugin contributes the amber-config skill
+// whose body is rendered from that same table.
+TEST(get_config_paths_prints_the_resolved_layout) {
+    Tui tui;
+    tui.name = "get_config_paths_prints_the_resolved_layout";
+    // The readout is 16 rows of absolute paths; give the terminal room for all
+    // of them so the assertion is about the layout, not about scrolling.
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 60, 200));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/get config paths\r");
+    // The fixture's XDG roots are the ones resolved: state is the per-project
+    // state dir, NOT the workspace tree (that is the whole point of the move).
+    if (!require(tui.wait_for(fixture().workspace + "/state/amber/projects/", 10000),
+                 "/get config paths did not print the state dir", tui))
+        return;
+    const std::string text = tui.text();
+    require(text.find(fixture().workspace + "/xdg/amber/providers") != std::string::npos,
+            "the providers dir is missing from the readout", tui);
+    require(text.find(fixture().workspace + "/.amber") != std::string::npos,
+            "the project config dir is missing from the readout", tui);
+    require(text.find(fixture().workspace + "/.amber/sessions") == std::string::npos,
+            "the readout still claims sessions live in the project tree", tui);
+
+    // The same knowledge reaches the agent: the shipped skill is indexed.
+    tui.send("/get skills show\r");
+    require(tui.wait_for("amber-config", 10000), "the amber-config skill is not in the catalog",
+            tui);
+    require(tui.text().find("system \u00b7 authored \u00b7 amber-config") != std::string::npos,
+            "the amber-config skill is not reported as a system skill", tui);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -847,6 +1135,9 @@ int main(int argc, char** argv) {
     set_model_provider_tabs_narrow_the_rows();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
+    settings_activation_switches_the_session_to_the_providers_protocol();
+    get_model_list_reports_why_the_catalogue_is_empty();
+    get_config_paths_prints_the_resolved_layout();
     system_commands_do_not_freeze_the_ui();
 
     // The TUI must terminate through its own quit path: a force-killed session

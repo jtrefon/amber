@@ -53,9 +53,13 @@ Message msg_from_json(const json& j) {
 }
 
 std::string default_dir() {
-    // Project-local sessions live under "<workspace>/.amber/sessions" so all
-    // amber data stays next to the project instead of scattering into $XDG.
-    return agent::Workspace::local_dir() + "/sessions";
+    // Sessions are per-project STATE: they live under the user's state dir
+    // (~/.local/state/amber/projects/<slug>/sessions), not in the project tree,
+    // so running amber in $HOME no longer leaves a project directory there and
+    // a deleted checkout does not take the conversation history with it. A
+    // pre-move .amber/sessions copy is adopted once, in place.
+    agent::Workspace::adopt_legacy_state("sessions");
+    return agent::Workspace::state_dir() + "/sessions";
 }
 
 } // namespace

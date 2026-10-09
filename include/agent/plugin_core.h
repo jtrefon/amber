@@ -26,6 +26,7 @@ inline constexpr const char* kTools = "tools";
 inline constexpr const char* kUi = "ui";
 inline constexpr const char* kMemory = "memory";
 inline constexpr const char* kSearch = "search";
+inline constexpr const char* kDocs = "docs";
 inline constexpr const char* kOther = "other";
 } // namespace plugin_category
 

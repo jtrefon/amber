@@ -1,6 +1,12 @@
 
 #include "agent/workspace.h"
 
+#include "agent/config.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
@@ -9,6 +15,16 @@ namespace agent {
 namespace fs = std::filesystem;
 
 namespace {
+
+// The XDG state root comes from the environment, so it gets the same sanity
+// check as the config root: a relative or ".."-laden value must not redirect
+// where amber writes.
+bool is_sane_state_root(const std::string& path) {
+    const fs::path p(path);
+    if (!p.is_absolute())
+        return false;
+    return std::all_of(p.begin(), p.end(), [](const fs::path& part) { return part != ".."; });
+}
 
 std::string& root_storage() {
     static std::string root;
@@ -91,10 +107,91 @@ void Workspace::set_root(const std::string& path) {
 }
 
 std::string Workspace::local_dir() {
-    std::string dir = ensure_root() + "/.amber";
+    // Deliberately NOT created here: this is the project's shareable config
+    // dir (skills, MCP servers, plugins), and merely running amber must not
+    // create it -- in $HOME that used to leave a stray ~/.amber behind. Every
+    // writer creates the directories it needs.
+    return ensure_root() + "/.amber";
+}
+
+std::string workspace_state_slug(const std::string& workspace_path) {
+    std::string slug;
+    slug.reserve(workspace_path.size());
+    for (char c : workspace_path) {
+        const auto u = static_cast<unsigned char>(c);
+        slug.push_back(std::isalnum(u) ? c : '-');
+    }
+    // Bound the name so a deep path cannot exceed a filesystem's filename
+    // limit once the state dirs are appended.
+    constexpr std::size_t kMaxSlug = 60;
+    if (slug.size() > kMaxSlug)
+        slug.resize(kMaxSlug);
+    const auto trim_dashes = [](std::string& s) {
+        const auto first = s.find_first_not_of('-');
+        if (first == std::string::npos) {
+            s.clear();
+            return;
+        }
+        s = s.substr(first, s.find_last_not_of('-') - first + 1);
+    };
+    trim_dashes(slug);
+    if (slug.empty())
+        slug = "project";
+    // FNV-1a of the full path, always appended: sanitizing maps distinct paths
+    // onto one name ("/a-b/c" and "/a/b-c" both become "a-b-c"), and two
+    // projects sharing a state directory would silently share sessions.
+    uint64_t h = 1469598103934665603ULL;
+    for (unsigned char c : workspace_path) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    char suffix[16];
+    std::snprintf(suffix, sizeof(suffix), "-%08llx", h & 0xffffffffULL);
+    return slug + suffix;
+}
+
+std::string Workspace::state_dir() {
+    std::string base;
+    const char* xdg = std::getenv("XDG_STATE_HOME");
+    if (xdg && *xdg && is_sane_state_root(xdg)) {
+        base = xdg;
+    } else {
+        const std::string home = user_home_dir();
+        base = home.empty() ? ".amber-state" : home + "/.local/state";
+    }
+    return base + "/amber/projects/" + workspace_state_slug(ensure_root());
+}
+
+void Workspace::adopt_legacy_state(const std::string& name) {
+    const std::string src = local_dir() + "/" + name;
+    const std::string dst = state_dir() + "/" + name;
     std::error_code ec;
-    fs::create_directories(fs::path(dir), ec);
-    return dir;
+    if (!fs::exists(src, ec) || fs::exists(dst, ec))
+        return;
+    // Copy to a staging name and rename: a half-finished copy must never be
+    // mistaken for the real thing on the next run. The parent is created
+    // first -- the state tree does not exist on the first run after the move.
+    const std::string tmp = dst + ".incoming";
+    fs::create_directories(fs::path(dst).parent_path(), ec);
+    fs::remove_all(tmp, ec);
+    fs::copy(src, tmp, fs::copy_options::recursive, ec);
+    if (ec) {
+        fs::remove_all(tmp, ec);
+        return;
+    }
+    fs::rename(tmp, dst, ec);
+    if (ec)
+        fs::remove_all(tmp, ec);
+}
+
+std::string Workspace::settings_path() {
+    adopt_legacy_state("settings");
+    return state_dir() + "/settings";
+}
+
+std::string Workspace::policy_path() {
+    adopt_legacy_state("policy.json");
+    return state_dir() + "/policy.json";
 }
 
 bool Workspace::confine(const std::string& path, std::string& resolved, std::string& error) {

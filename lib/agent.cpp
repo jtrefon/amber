@@ -684,11 +684,11 @@ std::string Agent::confirm_turn(const std::string& candidate,
 void Agent::log_and_push_user_prompt(const std::string& prompt) {
     if (!log_.enabled()) {
         // Default-on transcript: nothing the agent saw is ever lost, even
-        // when the user never configured log_path. Per-session file under
-        // the workspace's .amber dir; {ts} expands to the session id.
+        // when the user never configured log_path. Per-session file under the
+        // project's state dir; {ts} expands to the session id.
         std::string path = cfg_.log_path;
         if (path.empty())
-            path = Workspace::local_dir() + "/logs/{ts}.jsonl";
+            path = Workspace::state_dir() + "/logs/{ts}.jsonl";
         log_.open(path);
     }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});

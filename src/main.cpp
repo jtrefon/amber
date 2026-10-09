@@ -600,7 +600,7 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
                            std::move(host.gate), std::move(host.mem_store),
                            std::move(host.retriever));
-        agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
+        agent.policy().init(agent::Workspace::policy_path());
         agent.set_events(host.plugin_runtime.events());
         agent.set_prompt_registry(host.plugin_runtime.prompts());
         std::cout << "\n" << agent.run(prompt) << "\n";

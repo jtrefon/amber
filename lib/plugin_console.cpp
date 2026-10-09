@@ -22,6 +22,8 @@ const char* capability_kind_name(CapabilityKind kind) {
         return "command";
     case CapabilityKind::SearchBackend:
         return "search";
+    case CapabilityKind::Skill:
+        return "skill";
     }
     return "?";
 }
@@ -47,6 +49,7 @@ int category_rank(const std::string& category) {
     static const char* kOrder[] = {
         plugin_category::kProvider, plugin_category::kTools,  plugin_category::kObservability,
         plugin_category::kUi,       plugin_category::kMemory, plugin_category::kSearch,
+        plugin_category::kDocs,
     };
     for (std::size_t i = 0; i < sizeof(kOrder) / sizeof(kOrder[0]); ++i)
         if (category == kOrder[i])

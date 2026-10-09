@@ -422,26 +422,34 @@ TEST(model_picker_empty_rows_produce_an_empty_subtree) {
 }
 
 // The cache read is exercised for real rather than mocked: the catalogue is
-// written under $XDG_CONFIG_HOME/amber/cache keyed by api_base+flavor, so
-// pointing XDG_CONFIG_HOME at a temporary directory and writing the file
-// proves the whole path -- including that the FLAVOUR reaches the key. A
-// provider that does not speak openai must not read openai's cache.
+// written under the XDG cache root ($XDG_CACHE_HOME/amber) keyed by
+// api_base+flavor, so pointing the roots at a temporary directory and writing
+// the file proves the whole path -- including that the FLAVOUR reaches the
+// key. A provider that does not speak openai must not read openai's cache.
 namespace {
 
 struct ScopedConfigHome {
     std::string saved;
+    std::string saved_cache;
     ScopedConfigHome() {
         const char* old = std::getenv("XDG_CONFIG_HOME");
         saved = old ? old : "";
+        const char* old_cache = std::getenv("XDG_CACHE_HOME");
+        saved_cache = old_cache ? old_cache : "";
         dir = std::filesystem::temp_directory_path() / "amber_picker_test_cfg";
-        std::filesystem::create_directories(dir / "amber" / "cache");
+        std::filesystem::create_directories(dir / "cache" / "amber");
         setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        setenv("XDG_CACHE_HOME", (dir / "cache").c_str(), 1);
     }
     ~ScopedConfigHome() {
         if (saved.empty())
             unsetenv("XDG_CONFIG_HOME");
         else
             setenv("XDG_CONFIG_HOME", saved.c_str(), 1);
+        if (saved_cache.empty())
+            unsetenv("XDG_CACHE_HOME");
+        else
+            setenv("XDG_CACHE_HOME", saved_cache.c_str(), 1);
         std::error_code ec;
         std::filesystem::remove_all(dir, ec);
     }
@@ -463,7 +471,7 @@ std::size_t fnv1a(const std::string& key) {
     return h;
 }
 
-void write_catalogue(const std::filesystem::path& cfg_root, const std::string& api_base,
+void write_catalogue(const std::filesystem::path& cache_root, const std::string& api_base,
                      const std::string& flavor, const std::string& body) {
     char name[64];
     std::snprintf(name, sizeof(name), "models-%016zx.json", fnv1a(api_base + "\n" + flavor));
@@ -476,7 +484,7 @@ void write_catalogue(const std::filesystem::path& cfg_root, const std::string& a
             quoted += '\\';
         quoted += c;
     }
-    std::ofstream f(cfg_root / "amber" / "cache" / name);
+    std::ofstream f(cache_root / "cache" / "amber" / name);
     f << R"({"fetched_ms":)" << now_ms() << R"(,"body":")" << quoted << R"("})";
 }
 

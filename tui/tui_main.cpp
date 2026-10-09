@@ -134,10 +134,10 @@ void apply_global_config(agent::Config& cfg) {
         cfg.load("amber.conf");
 }
 
-// Project-local overrides (non-LLM settings) live in .amber/settings so they stay
-// with the project while provider config remains global.
+// Project-local overrides (non-LLM settings) live in the per-project state dir
+// while provider config remains global.
 void apply_local_settings(agent::Config& cfg) {
-    const std::string path = agent::Workspace::local_dir() + "/settings";
+    const std::string path = agent::Workspace::settings_path();
     std::ifstream sf(path);
     if (sf)
         cfg.load(path);
