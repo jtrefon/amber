@@ -87,6 +87,58 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-10-14 — The skill tools are a plugin, and the last core registration disappears
+
+Branch `refactor/tool-skills-plugin`. Closes tools-domain **§5.4**.
+
+- **`plugins/tool_skills/`**: `read_skill`, `list_skills` and `write_skill` as
+  three ToolCapabilities (`Read`/`Read`/`Write`, verbs activating/listing/
+  authoring) plus the skills prose as a `System` prompt block
+  (`prompts/skills.md` → `prompts/tools/skills.md`,
+  `tool_doc_priority::kSkills`). `register_skills` and `register_skill_tools`
+  are deleted: `lib/agent.cpp` registers nothing, and
+  `register_default_tools` installs the same capability vector for bare hosts
+  (one definition, two paths). The toggle takes tools **and** prose in one
+  action.
+- **Deviation from §5.4's anticipated mechanism, recorded not hidden:** the
+  spec expected a host-services contract ("move catalog ownership to the host
+  so a plugin can receive it"). It is not needed. The run scope already carries
+  the running agent's catalog to the tool call — that is what `RunScope` was
+  built for — and no production path executes a skill tool outside a session.
+  `effective_catalog(fallback)` becomes `session_catalog()`; the tools report
+  "only available inside an agent session" instead of serving a catalog bound
+  at registration, a binding a registry shared by every window could not keep
+  honest anyway. A provider would have existed only for calls nobody makes
+  (D22). Catalog *ownership* is unchanged: hosts inject the shared per-project
+  instance, standalone constructions keep the documented private fallback.
+- **The discovery block follows the tool.** `Agent::collect_skill_blocks` emits
+  "Available skills …" only while `read_skill` is registered, so a disabled
+  plugin leaves no advertisement of a tool the model cannot call. Activated
+  bodies are deliberately **not** gated: they are content the model has already
+  seen, and dropping them would lose context.
+- **The Read role now has three carriers** (`read`, `read_skill`,
+  `list_skills`), so the audit's deficiency fires only when all of them are
+  gone — the two tests that pinned "read is the only reader" now state the new
+  set, and `audit_the_shipped_tool_set_is_clean` still finds nothing.
+- **Defect found by the probe suite, fixed here: the bench measured doc-less
+  prompts.** The tools split moved tool documentation into per-plugin `System`
+  blocks, and the runner never attached the runtime's prompt registry to its
+  agent — so bench prompts had been missing every tool doc since that split
+  (the §3.6 entry's claim that it "restored the tool documentation" was not in
+  the code). Moving the skills prose into a block turned the silent loss into a
+  visible one: `loop_text_repeat` failed because the 2 KB-smaller system prompt
+  shifted when the compression gate fires. `bench/runner.cpp` now attaches
+  `plugins.prompts()`, exactly as both hosts do, and the bench measures the
+  documented prompt a user sees.
+- **Verification:** 1015 tests green (`make test` exit 0), `make check` clean.
+  Hermetic bench before/after: **8/8, every scenario identical** — total
+  700.5 → 700.5, `win 0 | lose 0 | same 8` — so neither the prompt move nor the
+  restored docs move a scenario
+  (`bench/results/tool-skills-after.json` vs
+  `bench/results/tools-domain-hermetic-baseline.json`). The toggle experiment
+  (`--disable tool_skills`) also passes 8/8
+  (`bench/results/tool-skills-off-hermetic.json`).
+
 ### 2026-09-13 — The template lives where plugins live (`plugins/_template/`)
 
 Branch `feat/plugin-template`. Closes PF-5.2.
@@ -1188,6 +1240,7 @@ What a plugin author can rely on today. Update with every landed task.
 | Plugin description + category (grouped registry list) | ✅ | PF-1 |
 | Wallet contribution — balance and/or quota windows (fetch only; polling + rendering core) | ✅ | PF-3.4, unified 2026-09-12 |
 | Search backend contribution — one plugin per mode, resolved live by the tool | ✅ | 2026-09-13 |
+| Skill tools (`read_skill`/`list_skills`/`write_skill`) — one plugin, resolving the running agent's catalog through the run scope | ✅ | 2026-10-14 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
 | OpenCode Go provider (presets + wallet) | ✅ | PF-3.5 |
 | OpenCode Zen provider (presets only) | ✅ | PF-3.5 |

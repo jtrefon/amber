@@ -992,7 +992,9 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    ASSERT_EQ(r.snapshot_tools().size(), 9u);
+    // The nine tool-plugin tools plus the three skill tools, which arrive
+    // through the same install path (one definition, two paths).
+    ASSERT_EQ(r.snapshot_tools().size(), 12u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -1305,7 +1307,7 @@ TEST(dialect_openai_builds_tool_payload) {
         agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 9u);
+    ASSERT_EQ(s.size(), 12u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -7349,16 +7351,16 @@ TEST(run_scope_nested_restores_outer) {
     ASSERT_EQ(agent::current_run_scope(), nullptr);
 }
 
-TEST(run_scope_resolves_scoped_skill_catalog) {
+TEST(run_scope_resolves_the_session_skill_catalog) {
     agent::Config cfg;
-    agent::SkillCatalog a(cfg, {}, "/tmp/amber_rs_home_a");
     agent::SkillCatalog b(cfg, {}, "/tmp/amber_rs_home_b");
-    // No scope installed: the bound fallback answers.
-    ASSERT_EQ(&agent::effective_catalog(a), &a);
+    // No scope installed: no session, so no catalog answers. The skill tools
+    // report that instead of serving one bound at registration.
+    ASSERT_EQ(agent::session_catalog(), nullptr);
     agent::RunScope scope;
     scope.skills = &b;
     agent::ScopedRunScope guard(scope);
-    ASSERT_EQ(&agent::effective_catalog(a), &b);
+    ASSERT_EQ(agent::session_catalog(), &b);
 }
 
 TEST(run_scope_record_activation_goes_to_agent_sink) {
@@ -7470,7 +7472,7 @@ struct ScopeObservation {
 // Reports what the run scope resolved to for THIS worker thread.
 class ScopeProbeTool : public agent::Tool {
 public:
-    ScopeProbeTool(ScopeObservation& obs, agent::SkillCatalog& bound) : obs_(obs), bound_(bound) {}
+    explicit ScopeProbeTool(ScopeObservation& obs) : obs_(obs) {}
 
     std::string name() const noexcept override { return "probe"; }
     bool is_read_only() const noexcept override { return true; }
@@ -7487,7 +7489,9 @@ public:
         }
         obs_.saw_scope = agent::current_run_scope() != nullptr;
         obs_.cancelled = agent::run_cancelled(obs_.inert);
-        obs_.resolved_catalog = &agent::effective_catalog(bound_);
+        // The session catalog, resolved the way the skill tools resolve it:
+        // from the running agent's scope, never from a registration binding.
+        obs_.resolved_catalog = agent::session_catalog();
         agent::record_activation(skill_name(args), "body");
         agent::ToolResult r;
         r.ok = true;
@@ -7505,7 +7509,6 @@ private:
         return "probe-skill";
     }
     ScopeObservation& obs_;
-    agent::SkillCatalog& bound_;
 };
 
 // Installs a nested scope on the worker, the way a sub-agent's Agent::run does
@@ -7558,10 +7561,9 @@ bool run_probe_dispatch(agent::ToolRegistry& reg, agent::Config& cfg,
 TEST(dispatch_worker_sees_installed_run_scope) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound");
     ScopeObservation obs;
     agent::ToolRegistry reg;
-    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs));
 
     agent::CancellationToken token;
     agent::RunScope scope;
@@ -7575,10 +7577,9 @@ TEST(dispatch_worker_sees_installed_run_scope) {
 TEST(dispatch_worker_cancel_reads_scoped_token) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound2");
     ScopeObservation obs;
     agent::ToolRegistry reg;
-    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs));
 
     agent::CancellationToken token;
     token.request(); // the calling agent's run was cancelled
@@ -7593,11 +7594,10 @@ TEST(dispatch_worker_cancel_reads_scoped_token) {
 TEST(dispatch_worker_resolves_scoped_catalog) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound3");
     agent::SkillCatalog scoped(cfg, {}, "/tmp/amber_fix033_scoped3");
     ScopeObservation obs;
     agent::ToolRegistry reg;
-    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs));
 
     agent::RunScope scope;
     scope.skills = &scoped;
@@ -7610,10 +7610,9 @@ TEST(dispatch_worker_resolves_scoped_catalog) {
 TEST(dispatch_worker_records_activation_in_scope) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_bound4");
     ScopeObservation obs;
     agent::ToolRegistry reg;
-    reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+    reg.register_tool(std::make_unique<ScopeProbeTool>(obs));
 
     agent::ActivationSink sink;
     agent::RunScope scope;
@@ -7648,13 +7647,11 @@ TEST(dispatch_worker_nested_scope_keeps_ancestor_token) {
 TEST(dispatch_sibling_scopes_do_not_cross_cancel) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound_a(cfg, {}, "/tmp/amber_fix033_sib_a");
-    agent::SkillCatalog bound_b(cfg, {}, "/tmp/amber_fix033_sib_b");
     ScopeObservation obs_a, obs_b;
     obs_a.wait_for_cancel = true; // A must see the cancel; B must not wait for one
     agent::ToolRegistry reg_a, reg_b;
-    reg_a.register_tool(std::make_unique<ScopeProbeTool>(obs_a, bound_a));
-    reg_b.register_tool(std::make_unique<ScopeProbeTool>(obs_b, bound_b));
+    reg_a.register_tool(std::make_unique<ScopeProbeTool>(obs_a));
+    reg_b.register_tool(std::make_unique<ScopeProbeTool>(obs_b));
 
     agent::CancellationToken token_a, token_b;
     agent::Config cfg_a = cfg, cfg_b = cfg;
@@ -7686,7 +7683,6 @@ TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
     // once it is reachable from workers.
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
-    agent::SkillCatalog bound(cfg, {}, "/tmp/amber_fix033_act");
     agent::ActivationSink sink;
     std::atomic<int> next{0};
     constexpr int kThreads = 8, kPerThread = 8;
@@ -7700,7 +7696,7 @@ TEST(dispatch_concurrent_workers_share_zero_activation_loss) {
             for (int i = 0; i < kPerThread; ++i) {
                 ScopeObservation obs;
                 agent::ToolRegistry reg;
-                reg.register_tool(std::make_unique<ScopeProbeTool>(obs, bound));
+                reg.register_tool(std::make_unique<ScopeProbeTool>(obs));
                 agent::Config local = cfg;
                 run_probe_dispatch(reg, local, "skill-" + std::to_string(next.fetch_add(1)));
             }
@@ -7725,7 +7721,7 @@ TEST(agent_request_cancel_is_per_agent) {
     cfg_a.cancel_token = agent::CancellationToken{};
     cfg_b.cancel_token = agent::CancellationToken{};
     agent::Agent a(cfg_a, reg);
-    agent::Agent b(cfg_b, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    agent::Agent b(cfg_b, reg, {}, {}, {}, {}, {}, {}, {});
     a.request_cancel();
     ASSERT_TRUE(a.config_snapshot()->cancel_token.is_requested());
     ASSERT_FALSE(b.config_snapshot()->cancel_token.is_requested());
@@ -7763,7 +7759,7 @@ TEST(agent_fork_copies_identical_context) {
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
     dst.fork_from(src);
     auto& s = src.context().get_all();
     auto& d = dst.context().get_all();
@@ -7779,7 +7775,7 @@ TEST(agent_fork_legs_diverge_independently) {
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
     dst.fork_from(src);
     // Push on the fork must not touch the parent's sealed stack.
     agent::Message m;
@@ -7797,7 +7793,7 @@ TEST(agent_fork_copies_runtime_state) {
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
     src.meta_["origin"] = "test";
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
     dst.fork_from(src);
     // Same wire prefix requires the same model/mode/thinking — cfg follows.
     ASSERT_EQ(dst.config_snapshot()->model, "parent-model");
@@ -7808,7 +7804,7 @@ TEST(agent_fork_keeps_own_cancel_token) {
     agent::Config cfg;
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {}, false);
+    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
     dst.fork_from(src);
     // Cancelling the fork must not cancel the parent — tokens stay separate.
     dst.request_cancel();

@@ -103,11 +103,10 @@ std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegis
                                             const Config& sub_cfg, const AgentHooks& sub_hooks,
                                             Message sys, std::string& err) {
     try {
-        // Skill tools stay with the parent session: registering them here
-        // would bind read_skill/list_skills/write_skill to this sub's
-        // SkillCatalog, replace the parent's bindings in the shared registry,
-        // and dangle once the sub is destroyed.
-        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_, false);
+        // The sub shares the parent's registry, where the skill tools are
+        // already installed. Its own runs resolve this sub's catalog through
+        // the run scope, so nothing is rebound here and nothing can dangle.
+        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_);
         sub.set_context({std::move(sys)});
         return sub.run(prompt);
     } catch (const std::exception& e) {

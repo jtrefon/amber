@@ -75,6 +75,22 @@ struct CatalogEnv {
     }
 };
 
+// The skill tools resolve the RUNNING session's catalog through the run scope
+// (run_scope.h); a test installs one the way Agent::run does for its worker
+// thread. RAII: the guard must outlive every call that resolves through it.
+class ScopedCatalog {
+public:
+    explicit ScopedCatalog(agent::SkillCatalog& catalog)
+        : scope_{nullptr, &catalog, &activated_}, guard_(scope_) {}
+
+    agent::ActivationSink& activated() { return activated_; }
+
+private:
+    agent::ActivationSink activated_;
+    agent::RunScope scope_;
+    agent::ScopedRunScope guard_;
+};
+
 } // namespace
 
 // [SK-01] Union discovery: authored at all scopes (interop gated) + learned.
@@ -308,24 +324,17 @@ TEST(skill_tool_read_skill_activates) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
-    auto tool = agent::make_read_skill_tool(catalog);
-
-    // Activation is per-run state now: install a scope with a sink, like
-    // Agent::run does for its worker thread.
-    agent::ActivationSink activated;
-    agent::RunScope scope;
-    scope.skills = &catalog;
-    scope.activated = &activated;
-    agent::ScopedRunScope guard(scope);
+    ScopedCatalog scoped(catalog);
+    auto tool = agent::make_read_skill_tool();
 
     auto r1 = tool->execute({{"name", "checklist"}});
     ASSERT(r1.ok);
-    ASSERT_EQ(activated.snapshot().size(), 1u);
-    ASSERT(activated.snapshot()[0].body.find("body of checklist") != std::string::npos);
+    ASSERT_EQ(scoped.activated().snapshot().size(), 1u);
+    ASSERT(scoped.activated().snapshot()[0].body.find("body of checklist") != std::string::npos);
 
     auto r2 = tool->execute({{"name", "checklist"}});
     ASSERT(r2.ok);
-    ASSERT_EQ(activated.snapshot().size(), 1u);
+    ASSERT_EQ(scoped.activated().snapshot().size(), 1u);
 }
 
 // [SK-03] read_skill unknown name -> error, nothing activated.
@@ -335,16 +344,12 @@ TEST(skill_tool_read_skill_unknown) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
-    auto tool = agent::make_read_skill_tool(catalog);
-    agent::ActivationSink activated;
-    agent::RunScope scope;
-    scope.skills = &catalog;
-    scope.activated = &activated;
-    agent::ScopedRunScope guard(scope);
+    ScopedCatalog scoped(catalog);
+    auto tool = agent::make_read_skill_tool();
     auto r = tool->execute({{"name", "nope"}});
     ASSERT_FALSE(r.ok);
     ASSERT_EQ(r.error, "unknown skill: nope");
-    ASSERT_EQ(activated.snapshot().size(), 0u);
+    ASSERT_EQ(scoped.activated().snapshot().size(), 0u);
 }
 
 // [SK-14] read_skill oversized body -> rejected, nothing activated.
@@ -356,16 +361,29 @@ TEST(skill_tool_read_skill_oversized) {
     cfg.skills_body_budget_tokens = 5000;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
-    auto tool = agent::make_read_skill_tool(catalog);
-    agent::ActivationSink activated;
-    agent::RunScope scope;
-    scope.skills = &catalog;
-    scope.activated = &activated;
-    agent::ScopedRunScope guard(scope);
+    ScopedCatalog scoped(catalog);
+    auto tool = agent::make_read_skill_tool();
     auto r = tool->execute({{"name", "mega"}});
     ASSERT_FALSE(r.ok);
     ASSERT_EQ(r.error, "skill body exceeds skills_body_budget_tokens");
-    ASSERT_EQ(activated.snapshot().size(), 0u);
+    ASSERT_EQ(scoped.activated().snapshot().size(), 0u);
+}
+
+// The tools resolve the running agent's catalog; with no session installed they
+// report that instead of serving one bound at registration.
+TEST(skill_tools_error_outside_a_session) {
+    auto read = agent::make_read_skill_tool();
+    auto r = read->execute({{"name", "anything"}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("agent session") != std::string::npos);
+
+    auto list = agent::make_list_skills_tool();
+    ASSERT_FALSE(list->execute(json::object()).ok);
+
+    auto write = agent::make_write_skill_tool();
+    auto w = write->execute({{"name", "x"}, {"description", "d"}, {"body", "b"}});
+    ASSERT_FALSE(w.ok);
+    ASSERT(w.error.find("agent session") != std::string::npos);
 }
 
 // [SK-15] list_skills filters by origin.
@@ -381,7 +399,8 @@ TEST(skill_tool_list_skills_filtered) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover(learned);
-    auto tool = agent::make_list_skills_tool(catalog);
+    ScopedCatalog scoped(catalog);
+    auto tool = agent::make_list_skills_tool();
 
     auto all = tool->execute(json::object());
     ASSERT(all.ok);
@@ -404,10 +423,11 @@ TEST(skill_tool_write_skill_authors) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
+    ScopedCatalog scoped(catalog);
 
-    auto write = agent::make_write_skill_tool(catalog);
-    auto read = agent::make_read_skill_tool(catalog);
-    auto list = agent::make_list_skills_tool(catalog);
+    auto write = agent::make_write_skill_tool();
+    auto read = agent::make_read_skill_tool();
+    auto list = agent::make_list_skills_tool();
     ASSERT_TRUE(write->requires_approval(json::object()));
     ASSERT_FALSE(read->requires_approval(json::object()));
     ASSERT_FALSE(list->requires_approval(json::object()));
@@ -433,7 +453,8 @@ TEST(skill_tool_write_skill_validation) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
-    auto write = agent::make_write_skill_tool(catalog);
+    ScopedCatalog scoped(catalog);
+    auto write = agent::make_write_skill_tool();
 
     auto bad_name = write->execute({{"name", "Bad Name"}, {"description", "d"}, {"body", "b"}});
     ASSERT_FALSE(bad_name.ok);
@@ -601,7 +622,7 @@ TEST(skill_trust_malicious_body_no_privilege) {
     agent::Config cfg;
     agent::SkillCatalog catalog(cfg, env.paths, env.home);
     catalog.discover({});
-    auto read = agent::make_read_skill_tool(catalog);
+    auto read = agent::make_read_skill_tool();
     agent::ActivationSink activated;
     agent::RunScope scope;
     scope.skills = &catalog;
@@ -630,7 +651,7 @@ TEST(skill_trust_malicious_body_no_privilege) {
         agent::approve_tool(*bash, {{"command", "rm -rf /"}}, cfg, hooks, session, nullptr));
     ASSERT(asked);
 
-    auto write = agent::make_write_skill_tool(catalog);
+    auto write = agent::make_write_skill_tool();
     ASSERT_TRUE(write->requires_approval(json::object()));
 }
 
@@ -659,9 +680,11 @@ TEST(skill_trust_block_provenance_persists) {
            std::string::npos);
 }
 
-// prompts/skills.md loads non-empty at session start.
+// The skills prose travels with the tool_skills plugin: it lives in
+// prompts/tools/ like every other tool's documentation and is contributed as a
+// System prompt block (plugin_runtime_test covers the install/unwind half).
 TEST(skill_trust_prompts_skills_loaded) {
-    std::string p = agent::load_prompt("prompts/skills.md");
+    std::string p = agent::load_prompt("prompts/tools/skills.md");
     ASSERT_FALSE(p.empty());
     ASSERT(p.find("read_skill") != std::string::npos);
     ASSERT(p.find("when the user asks") != std::string::npos);

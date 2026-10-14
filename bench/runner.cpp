@@ -317,21 +317,30 @@ std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptio
     return fake;
 }
 
+// The agent loads its prompt files through absolute paths: the run chdirs into
+// the scenario workspace, where the repo-relative defaults do not resolve.
+void pin_prompt_paths(agent::Config& cfg) {
+    if (!cfg.system_prompt_path.empty())
+        cfg.system_prompt_path = fs::absolute(cfg.system_prompt_path).string();
+    if (!cfg.tools_prompt_path.empty())
+        cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
+}
+
 // Run the agent with the workspace as CWD (the env card advertises getcwd()).
 // Returns false and fills `error` when the run threw.
-bool run_agent_in_workspace(const Scenario& s, agent::Config& cfg, agent::ToolRegistry& registry,
-                            RunComponents& comps, std::unique_ptr<agent::LLMClient> client,
-                            const fs::path& ws, std::string& final_text, long& wall_ms, long& t0,
-                            std::string& error) {
+bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& comps,
+                            std::unique_ptr<agent::LLMClient> client, const fs::path& ws,
+                            std::string& final_text, long& wall_ms, long& t0, std::string& error) {
     try {
-        if (!cfg.system_prompt_path.empty())
-            cfg.system_prompt_path = fs::absolute(cfg.system_prompt_path).string();
-        if (!cfg.tools_prompt_path.empty())
-            cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
+        pin_prompt_paths(host.cfg);
         CwdGuard cwd(ws);
-        agent::Agent agent(cfg, registry, comps.hooks, std::move(comps.compressor),
+        agent::Agent agent(host.cfg, host.registry, comps.hooks, std::move(comps.compressor),
                            std::move(comps.gate), std::move(comps.mem_store),
                            std::move(comps.retriever), std::move(client));
+        // The runtime's prompt registry carries the documentation each tool
+        // plugin contributes, exactly as it does in every host: a run measures
+        // the prompt a user would see, not one silently missing its docs.
+        agent.set_prompt_registry(host.plugins.prompts());
         agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
         t0 = now_ms();
         final_text = agent.run(s.prompt);
@@ -631,8 +640,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     std::string final_text;
     long wall_ms = 0;
     long t0 = 0;
-    if (!run_agent_in_workspace(s, host.cfg, host.registry, comps, std::move(client), ws,
-                                final_text, wall_ms, t0, err)) {
+    if (!run_agent_in_workspace(s, host, comps, std::move(client), ws, final_text, wall_ms, t0,
+                                err)) {
         comps.meter.stop();
         rep.failures.emplace_back(err);
         fs::remove_all(ws);

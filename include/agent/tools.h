@@ -40,15 +40,13 @@ std::vector<std::unique_ptr<Tool>> make_process_tools(JobService& jobs);
 // entry.
 std::vector<std::unique_ptr<Tool>> wrap_tool(std::unique_ptr<Tool> tool);
 
-// Skill tools bind to the session SkillCatalog, which they need for lookup,
-// body caching/activation, and re-scan on authoring.
-std::unique_ptr<Tool> make_read_skill_tool(SkillCatalog& catalog);
-std::unique_ptr<Tool> make_list_skills_tool(SkillCatalog& catalog);
-std::unique_ptr<Tool> make_write_skill_tool(SkillCatalog& catalog);
-
-// Register the skill tools. Called by the Agent once its catalog exists; the
-// catalog outlives the registry (both are session-scoped).
-void register_skill_tools(ToolRegistry& reg, SkillCatalog& catalog);
+// Skill tools resolve the RUNNING agent's catalog through the run scope
+// (run_scope.h), so they hold no catalog and can be installed by the
+// tool_skills plugin like any other tool. Outside a session they report that
+// instead of serving a catalog nobody asked for.
+std::unique_ptr<Tool> make_read_skill_tool();
+std::unique_ptr<Tool> make_list_skills_tool();
+std::unique_ptr<Tool> make_write_skill_tool();
 
 // Author a SKILL.md into the given scope (project|global). Shared by
 // write_skill and /set skills create. Returns an empty string on success or a

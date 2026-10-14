@@ -138,19 +138,15 @@ public:
           std::unique_ptr<CompressionGate> gate = {},
           std::shared_ptr<MemoryStore> memory_store = {},
           std::unique_ptr<MemoryRetriever> retriever = {}, std::unique_ptr<LLMClient> client = {},
-          LLMClientFactory client_factory = {}, bool register_skills = true,
-          std::shared_ptr<SkillCatalog> skills = {});
+          LLMClientFactory client_factory = {}, std::shared_ptr<SkillCatalog> skills = {});
     // `memory_store`/`skills` are shared_ptr because a project scopes them:
-    // every agent on one workspace shares ONE catalog and ONE store (skill
-    // tools resolve the calling agent's catalog through RunScope, so the
-    // registry binding is a fallback, never a hijack). Hosts with several
-    // agents on one project (TUI windows) inject the shared instances;
-    // single-agent hosts pass nothing and get private ones.
-    //
-    // `register_skills` exists for hosts that construct short-lived agents
-    // sharing a parent's registry (sub-agents): the sub's registration would
-    // REPLACE the parent's bindings with references that dangle once the sub
-    // is destroyed (use-after-free on the next skill call).
+    // every agent on one workspace shares ONE catalog and ONE store. The
+    // catalog is the RUNNING agent's — the skill tools resolve it through
+    // RunScope (run_scope.h), so whichever agent constructs them, a call is
+    // always answered by the agent that is running. Hosts with several agents
+    // on one project (TUI windows) inject the shared instances; single-agent
+    // hosts pass nothing and get private ones. The skill tools themselves are
+    // installed by the tool_skills plugin, not here.
 
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns

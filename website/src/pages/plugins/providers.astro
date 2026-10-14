@@ -178,10 +178,14 @@ const dialectSpec = `${site.repo}/blob/main/docs/spec/llm-client/dialect.md`;
     The other bundled plugins are not providers. The tool set is one plugin per
     tunable unit (<code>plugins/tool_search/</code>, <code>tool_read/</code>,
     <code>tool_write/</code>, <code>tool_bash/</code>, <code>tool_process/</code>,
-    <code>tool_plan/</code>, <code>tool_task/</code>), plus
-    <code>plugins/metrics/</code> (an event observer with no contributions) and
-    <code>plugins/hello/</code> (the command example),
-    <strong>18 bundled plugins</strong> in total. See
+    <code>tool_plan/</code>, <code>tool_task/</code>,
+    <code>tool_skills/</code>), the search backends are one plugin each
+    (<code>plugins/search_grep/</code>, <code>plugins/search_semantic/</code>),
+    and alongside them <code>plugins/clock/</code> (the bar's clock),
+    <code>plugins/metrics/</code> (an event observer with no contributions),
+    <code>plugins/hello/</code> (the command example) and
+    <code>plugins/amber_self/</code> (the amber-config skill),
+    <strong>23 bundled plugins</strong> in total. See
     <a href={`${specDir}/developer-guide.md`} rel="noopener">the developer guide</a>.
   </p>
 </PluginDocsLayout>

@@ -12,6 +12,7 @@
 #include "plugins/tool_process/tool_process_plugin.h"
 #include "plugins/tool_read/tool_read_plugin.h"
 #include "plugins/tool_search/tool_search_plugin.h"
+#include "plugins/tool_skills/tool_skills_plugin.h"
 #include "plugins/tool_task/tool_task_plugin.h"
 #include "plugins/tool_write/tool_write_plugin.h"
 
@@ -89,6 +90,7 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
     install_capabilities(bare, plugins::make_process_tool_capabilities());
     install_capabilities(bare, plugins::make_plan_tool_capabilities());
     install_capabilities(bare, plugins::make_task_tool_capabilities());
+    install_capabilities(bare, plugins::make_skill_tool_capabilities());
     // The search backends, from the same definitions the bundled plugins
     // declare: a bare host's search tool resolves the shipped pair.
     install_capabilities(bare, plugins::make_grep_backend_capabilities());

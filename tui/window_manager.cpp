@@ -38,7 +38,7 @@ Window& WindowManager::new_window(const std::string& title) {
     auto agent_cfg = cfg_;
     agent_cfg.cancel_token = agent::CancellationToken{};
     agent::Agent a(std::move(agent_cfg), reg_, agent::AgentHooks{}, std::move(compressor),
-                   std::move(gate), std::move(mem_store), std::move(retriever), {}, {}, true,
+                   std::move(gate), std::move(mem_store), std::move(retriever), {}, {},
                    shared_skills());
     w->agent = std::make_unique<agent::Agent>(std::move(a));
     w->agent->policy().init(agent::Workspace::policy_path());

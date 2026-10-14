@@ -1,9 +1,11 @@
 # Spec: The Tools Domain as Plugins
 
-Status: **partly implemented.** §3.1 (one plugin per tunable unit), §3.3
-(display verbs), §3.4 (prompts travel with the tool) and §4.9 are in. §5.3
-(the config flags), §5.4 (the skill tools), §3.6 (the bench records plugin
-state) and §5.2 (the audit) are not, and the reasons are recorded in §8.
+Status: **implemented.** §3.1 (one plugin per tunable unit), §3.3 (display
+verbs), §3.4 (prompts travel with the tool), §3.6 (the bench records plugin
+state), §4.9, §5.2 (the audit), §5.3 (the config flags) and §5.4 (the skill
+tools) are in. §5.4 closed with a deviation from the mechanism it anticipated —
+the run scope carries the catalog, so no host-services contract was needed; the
+reason is recorded in §8.
 Supersedes: nothing. Extends `plugin-framework-v2.md` §4 (extension points).
 Tracker: `docs/plugin-framework-tracker.md` (PF-5).
 
@@ -19,7 +21,10 @@ It is written to be argued with. §4 lists what is decided, §5 what is not.
 
 ## 1. Where we actually are
 
-Established by reading the tree at `main` (`2eb3214`), not from memory:
+Established by reading the tree at `main` (`2eb3214`), not from memory. Kept as
+the pre-work snapshot (the rows below describe the state the plan started from);
+for current status use the availability table in the tracker and the developer
+guide:
 
 | Thing | State | Evidence |
 |---|---|---|
@@ -31,7 +36,7 @@ Established by reading the tree at `main` (`2eb3214`), not from memory:
 | Tool display | ❌ **hardcoded name→verb table and a name `if/else` chain** | `tui/tool_display.cpp:26-40`, `:72-100` |
 | Tool prompts | ❌ one static `prompts/tools.md`, loaded wholesale | `lib/agent.cpp:156-167` |
 | Prompt-block contribution | ⚠️ implemented, **no caller** | `include/agent/extensions.h:370`; tracker availability table |
-| Skill tools | ❌ registered directly by the agent | `lib/agent.cpp:98` |
+| Skill tools | ~~registered directly by the agent~~ ✅ one plugin, `plugins/tool_skills/` — the tools resolve the running agent's catalog through the run scope | `lib/plugins_bundled.cpp`; `include/agent/run_scope.h` |
 | MCP tools | ❌ registered directly — **parked by decision, see §6** | `lib/mcp_tools.cpp:101` |
 | Experiment harness | ✅ scenario loader, oracle scorer, KPI aggregation (hermetic + live) | `bench/` |
 
@@ -239,7 +244,10 @@ flags positionally, so `register_default_tools`' signature changes with it — i
 remaining purpose is hosts that hold a bare registry and no runtime.)
 
 **5.4 Do skill tools move too?** **RESOLVED: yes**, as one plugin — it also
-removes the last direct tool registration from `lib/agent.cpp`.
+removes the last direct tool registration from `lib/agent.cpp`. **DONE
+2026-10-14** (`plugins/tool_skills/`), with one deviation: the mechanism is the
+run scope, not the host-services contract this section anticipated. The reason
+is recorded in §8.
 
 **5.5 Wallet vs Allowance.** **RESOLVED: one mechanism, one registry, one flag,
 one segment, one command pair, named wallet**, with `AllowanceSnapshot`'s richer
@@ -273,8 +281,23 @@ Implemented (branch `docs/tools-domain`):
   toggle would have changed the schema and left the prose behind.
   `Agent::ensure_system_prompt` now re-derives it and rebuilds only when the
   text changed.
+- **§5.4 (skill tools)** — **done 2026-10-14**, branch
+  `refactor/tool-skills-plugin`. `plugins/tool_skills/` contributes
+  `read_skill`/`list_skills`/`write_skill` and the skills prose (moved to
+  `prompts/tools/skills.md`, a `System` block at
+  `tool_doc_priority::kSkills`, so the toggle takes tools **and** prose). One
+  deviation from the mechanism §5.4 anticipated, recorded rather than hidden:
+  **no host-services contract was needed.** The run scope already carries the
+  running agent's catalog to the tool call (`session_catalog()`), and no
+  production path executes a skill tool outside a session — a host-services
+  provider would have existed only for calls nobody makes (D22). The registry
+  binding goes with it: a shared registry could not keep that promise across
+  windows and sub-agents anyway. `lib/agent.cpp` no longer registers any tool;
+  `register_default_tools` installs the same capability vector for bare hosts.
+  The discovery block is emitted only while `read_skill` is registered, so a
+  disabled plugin leaves no advertisement of a tool the model cannot call.
 
-Left, with the reason it is not done yet:
+The items this plan listed, with their outcome:
 
 - **§5.3 (delete `plan_tool`/`task_tool`)** — **done**. The two config keys,
   their env vars, and the two trailing `bool` parameters of
@@ -288,10 +311,8 @@ Left, with the reason it is not done yet:
   Evidence: hermetic scorecard unchanged (871.25/1000, 8/8) against
   `bench/results/tools-domain-hermetic-baseline.txt` — the prompt move and the
   wider tool set move no hermetic scenario.
-- **§5.4 (skill tools)** — `read_skill`/`list_skills`/`write_skill` bind to the
-  session `SkillCatalog`, which the `Agent` owns and creates. Moving them means
-  moving catalog ownership to the host so a plugin can receive it, which is a
-  change to the host services contract, not a file move.
+- **§5.4 (skill tools)** — **done 2026-10-14**, in the implemented list above
+  (with the deviation from the mechanism this section anticipated).
 - **§3.6 (bench records plugin state + a disable knob)** — **done** (branch
   `docs/tools-domain`). The harness builds the real plugin runtime, records the
   plugin set in `RunMeta` (JSON + text + scorecard), and `--disable ID[,ID]`
