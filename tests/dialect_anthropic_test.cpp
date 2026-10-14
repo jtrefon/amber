@@ -242,6 +242,125 @@ TEST(anthropic_tool_results_share_the_message_that_follows) {
     ASSERT_FALSE(body3["messages"][2]["content"][0]["content"].get<std::string>().empty());
 }
 
+// An assistant tool turn whose ids were never answered (a cancelled or failed
+// dispatch, a session saved mid-turn) must close in a user message of its own
+// BEFORE the next assistant turn. Emitting those answers inside the next
+// assistant message leaves the ids unanswered -- "tool_use ids were found
+// without tool_result blocks immediately after" -- and puts a tool_result
+// block in a role the API has no place for, which 400s every later request in
+// the session.
+TEST(anthropic_unanswered_turn_closes_before_the_next_assistant_message) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    agent::Message abandoned;
+    abandoned.role = "assistant";
+    abandoned.tool_calls = agent::json::array();
+    abandoned.tool_calls.push_back(
+        {{"id", "call_1"},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"a"})"}}}});
+
+    agent::Message next;
+    next.role = "assistant";
+    next.tool_calls = agent::json::array();
+    next.tool_calls.push_back({{"id", "call_2"},
+                               {"type", "function"},
+                               {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
+
+    std::vector<agent::Message> msgs = {text_msg("user", "go"), abandoned, next,
+                                        tool_result_msg("call_2", "B body")};
+    agent::json body = d->build_chat_body(cfg, msgs, {}, true);
+
+    const agent::json& out = body["messages"];
+    ASSERT_EQ(out.size(), 5u); // user, abandoned turn, answers, next turn, result
+    ASSERT_EQ(out[1]["role"], "assistant");
+    ASSERT_EQ(out[1]["content"][0]["type"], "tool_use");
+    ASSERT_EQ(out[2]["role"], "user");
+    ASSERT_EQ(out[2]["content"][0]["type"], "tool_result");
+    ASSERT_EQ(out[2]["content"][0]["tool_use_id"], "call_1");
+    ASSERT_FALSE(out[2]["content"][0]["content"].get<std::string>().empty());
+    ASSERT_EQ(out[3]["role"], "assistant");
+    ASSERT_EQ(out[3]["content"][0]["id"], "call_2");
+    ASSERT_EQ(out[4]["role"], "user");
+    ASSERT_EQ(out[4]["content"][0]["tool_use_id"], "call_2");
+
+    // A tool_result block has no valid place in an assistant message.
+    for (const auto& m : out)
+        if (m["role"] == "assistant")
+            for (const auto& b : m["content"])
+                ASSERT_FALSE(b["type"] == "tool_result");
+}
+
+// A call that reached history without an id -- a text-extracted <tool_call>
+// from a template-style model, or a router that omits ids -- still needs one
+// on the wire: every tool_use must carry a non-empty id and its tool_result
+// must echo it. The id is numbered from the history alone, so replaying the
+// same conversation sends the same ids.
+TEST(anthropic_wire_synthesizes_missing_tool_ids) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    agent::Message reply;
+    reply.role = "assistant";
+    reply.tool_calls = agent::json::array();
+    reply.tool_calls.push_back(
+        {{"type", "function"}, {"function", {{"name", "read"}, {"arguments", R"({"path":"a"})"}}}});
+    reply.tool_calls.push_back(
+        {{"id", ""},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
+
+    std::vector<agent::Message> msgs = {text_msg("user", "go"), reply,
+                                        tool_result_msg("", "A body"),
+                                        tool_result_msg("", "B body")};
+    agent::json body = d->build_chat_body(cfg, msgs, {}, true);
+
+    const agent::json& out = body["messages"];
+    ASSERT_EQ(out.size(), 3u);
+    ASSERT_EQ(out[1]["content"].size(), 2u);
+    const auto id_a = out[1]["content"][0]["id"].get<std::string>();
+    const auto id_b = out[1]["content"][1]["id"].get<std::string>();
+    ASSERT_FALSE(id_a.empty());
+    ASSERT_FALSE(id_b.empty());
+    ASSERT(id_a != id_b);
+    ASSERT_EQ(out[2]["role"], "user");
+    ASSERT_EQ(out[2]["content"][0]["tool_use_id"], id_a);
+    ASSERT_EQ(out[2]["content"][1]["tool_use_id"], id_b);
+}
+
+// A tool_result the turn never asked for has no valid place in the protocol
+// ("unexpected tool_use_id found in tool_result blocks"); it is dropped rather
+// than replayed.
+TEST(anthropic_wire_drops_tool_results_nobody_asked_for) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    agent::Message reply;
+    reply.role = "assistant";
+    reply.tool_calls = agent::json::array();
+    reply.tool_calls.push_back(
+        {{"id", "call_1"},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"a"})"}}}});
+
+    std::vector<agent::Message> msgs = {text_msg("user", "go"), reply,
+                                        tool_result_msg("call_1", "A body"),
+                                        tool_result_msg("call_orphan", "stray")};
+    agent::json body = d->build_chat_body(cfg, msgs, {}, true);
+
+    const agent::json& out = body["messages"];
+    ASSERT_EQ(out.size(), 3u);
+    ASSERT_EQ(out[2]["content"].size(), 1u);
+    ASSERT_EQ(out[2]["content"][0]["tool_use_id"], "call_1");
+    for (const auto& m : out)
+        for (const auto& b : m["content"])
+            ASSERT_FALSE(b.value("tool_use_id", std::string()) == "call_orphan");
+}
+
 TEST(anthropic_tools_use_input_schema) {
     auto d = anthropic();
     agent::Config cfg;
