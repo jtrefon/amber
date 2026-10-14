@@ -4,6 +4,7 @@
 // Scenarios map to docs/spec/llm-client/agent-loop-reliability.md [AL-xx].
 
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <memory>
@@ -37,6 +38,18 @@ agent::Config loop_cfg() {
     cfg.system_prompt_path = "prompts/system.md";
     cfg.tools_prompt_path = "prompts/tools.md";
     return cfg;
+}
+
+// A scratch workspace carrying one authored skill, so the discovery block has
+// something to list. The caller makes it the workspace root for the test.
+std::string workspace_with_one_skill(const std::string& name) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / ("amber_skill_gate_" + name);
+    fs::remove_all(dir);
+    fs::create_directories(dir / ".amber" / "skills" / "demo");
+    std::ofstream skill(dir / ".amber" / "skills" / "demo" / "SKILL.md");
+    skill << "---\nname: demo\ndescription: a demo skill\n---\nBody.\n";
+    return dir.string();
 }
 
 // Hooks that auto-approve every approval-gated tool, for tests that exercise
@@ -1966,6 +1979,41 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     ASSERT(system.find("\n## read\n") != std::string::npos);
     ASSERT(system.find("\n## bash\n") != std::string::npos);
     ASSERT_FALSE((bool)reg.find("search"));
+}
+
+// The discovery block advertises skills as "activate with read_skill", so it is
+// emitted only while that tool is installed — the same rule the tool prose
+// follows: the model is never told about a tool it cannot call.
+TEST(discovery_block_follows_the_read_skill_tool) {
+    agent::Workspace::set_root(workspace_with_one_skill("discovery-gate"));
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+
+    const std::string header = "Available skills (activate with read_skill):";
+    auto first_request = [&]() {
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        agent_test::FakeLLMClient* raw = fake.get();
+        push_text(*fake, "done");
+        agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+        ag.run("go");
+        ASSERT(!raw->requests.empty());
+        return raw->requests.front();
+    };
+
+    // Control: with the skill tools installed, the demo skill is advertised.
+    bool advertised = false;
+    for (const auto& msg : first_request())
+        advertised = advertised || msg.content.find(header) != std::string::npos;
+    ASSERT(advertised);
+
+    // Gate: remove the activation tool, and the block goes with it.
+    ASSERT_TRUE(reg.remove_tool("read_skill"));
+    for (const auto& msg : first_request())
+        ASSERT(msg.content.find(header) == std::string::npos);
 }
 
 // Toggling a tool plugin changes the schema at once, so the documentation must

@@ -208,6 +208,15 @@ struct Fixture {
     Workspace ws;
 };
 
+// Every System prompt block the runtime currently holds, concatenated: what a
+// tool's prose contributes to the compiled prompt.
+std::string system_blocks_text(PluginRuntime& runtime) {
+    std::string all;
+    for (auto& text : runtime.prompts().render_all(PromptPlacement::System))
+        all += text;
+    return all;
+}
+
 // A plugin whose only capability declines — the shape the core tools plugin has
 // whenever a gated tool (todowrite, task) is switched off.
 class DecliningCapabilityPlugin : public IPlugin {
@@ -357,6 +366,55 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     ASSERT_TRUE(runtime.set_state("tool_plan", false));
     ASSERT_FALSE((bool)f.tools.find("todowrite"));
     ASSERT_TRUE((bool)f.tools.find("task"));
+}
+
+// The skill tools are ordinary plugin contributions: one plugin, three tools,
+// and the plugin's own prose. Nothing registers them from the Agent any more.
+TEST(runtime_bundles_the_skill_tools) {
+    ScratchConfig scratch("skill-tools");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE(runtime.status("tool_skills").enabled);
+    ASSERT_TRUE((bool)f.tools.find("read_skill"));
+    ASSERT_TRUE((bool)f.tools.find("list_skills"));
+    ASSERT_TRUE((bool)f.tools.find("write_skill"));
+}
+
+TEST(disabling_tool_skills_removes_its_tools_and_prose) {
+    ScratchConfig scratch("skill-tools-off");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_TRUE((bool)f.tools.find("read_skill"));
+    ASSERT_TRUE(system_blocks_text(runtime).find("Skills are reusable procedures") !=
+                std::string::npos);
+
+    // The tools and the prose describing them leave together: a prompt that
+    // documents a tool the registry cannot serve is the staleness §3.4 exists
+    // to prevent.
+    ASSERT_TRUE(runtime.set_state("tool_skills", false));
+    ASSERT_FALSE((bool)f.tools.find("read_skill"));
+    ASSERT_FALSE((bool)f.tools.find("list_skills"));
+    ASSERT_FALSE((bool)f.tools.find("write_skill"));
+    ASSERT_TRUE(system_blocks_text(runtime).find("Skills are reusable procedures") ==
+                std::string::npos);
 }
 
 // The audit answers the question a toggle raises: what can the harness no
