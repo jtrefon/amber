@@ -20,6 +20,7 @@
 #include "plugins/tool_process/tool_process_plugin.h"
 #include "plugins/tool_read/tool_read_plugin.h"
 #include "plugins/tool_search/tool_search_plugin.h"
+#include "plugins/tool_skills/tool_skills_plugin.h"
 #include "plugins/tool_task/tool_task_plugin.h"
 #include "plugins/tool_write/tool_write_plugin.h"
 
@@ -46,6 +47,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     plugins.push_back(std::make_shared<plugins::ToolProcessPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolPlanPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolTaskPlugin>());
+    // The skill tools: one plugin, three views of the same catalog, and the
+    // prose that documents them. They resolve the running agent's catalog
+    // through the run scope, so the plugin holds no host state at all.
+    plugins.push_back(std::make_shared<plugins::ToolSkillsPlugin>());
     // Search backends: each is its own plugin, so the mode a user wants to
     // experiment with (or drop) is one toggle away, and the search tool resolves
     // whichever set is enabled rather than a compiled-in pair.

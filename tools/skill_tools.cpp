@@ -1,6 +1,5 @@
 
 #include "agent/config.h"
-#include "agent/registry.h"
 #include "agent/run_scope.h"
 #include "agent/skill_catalog.h"
 #include "agent/tool.h"
@@ -103,11 +102,9 @@ std::string author_skill(SkillCatalog& catalog, const std::string& name,
 }
 
 // read_skill: activate a skill. Loads and caches the SKILL.md body through the
-// catalog; the harness appends the body to the next prompt copy.
+// running agent's catalog; the harness appends the body to the next prompt copy.
 class ReadSkillTool : public Tool {
 public:
-    explicit ReadSkillTool(SkillCatalog& catalog) : catalog_(catalog) {}
-
     std::string name() const noexcept override { return "read_skill"; }
 
     bool is_read_only() const noexcept override { return true; }
@@ -133,17 +130,22 @@ public:
             return r;
         }
         std::string name = a["name"].get<std::string>();
-        // The catalog bound at registration is the fallback; when the tool
-        // runs inside an agent turn the CALLING agent's catalog answers —
-        // a shared registry must never serve a sibling window's project.
-        SkillCatalog& catalog = effective_catalog(catalog_);
-        if (!catalog.lookup(name)) {
+        // The RUNNING agent's catalog, never one bound at registration: a
+        // shared registry must not serve a sibling window's project.
+        SkillCatalog* catalog = session_catalog();
+        if (!catalog) {
+            ToolResult r;
+            r.ok = false;
+            r.error = "read_skill is only available inside an agent session";
+            return r;
+        }
+        if (!catalog->lookup(name)) {
             ToolResult r;
             r.ok = false;
             r.error = "unknown skill: " + name;
             return r;
         }
-        auto body = catalog.read_body(name);
+        auto body = catalog->read_body(name);
         if (!body) {
             ToolResult r;
             r.ok = false;
@@ -158,16 +160,11 @@ public:
         r.meta = {{"name", name}, {"activated", true}};
         return r;
     }
-
-private:
-    SkillCatalog& catalog_;
 };
 
 // list_skills: return the discovery surface, optionally filtered.
 class ListSkillsTool : public Tool {
 public:
-    explicit ListSkillsTool(SkillCatalog& catalog) : catalog_(catalog) {}
-
     std::string name() const noexcept override { return "list_skills"; }
 
     bool is_read_only() const noexcept override { return true; }
@@ -200,22 +197,23 @@ public:
             r.error = "invalid origin filter '" + origin_filter + "' (use 'authored' or 'learned')";
             return r;
         }
+        SkillCatalog* catalog = session_catalog();
+        if (!catalog) {
+            ToolResult r;
+            r.ok = false;
+            r.error = "list_skills is only available inside an agent session";
+            return r;
+        }
         ToolResult r;
-        r.output = render_entries(effective_catalog(catalog_).entries(), name_filter,
-                                  named_origin(origin_filter));
+        r.output = render_entries(catalog->entries(), name_filter, named_origin(origin_filter));
         return r;
     }
-
-private:
-    SkillCatalog& catalog_;
 };
 
 // write_skill: author a SKILL.md. Side-effecting and approval-gated; the model
 // must only call it on explicit user request.
 class WriteSkillTool : public Tool {
 public:
-    explicit WriteSkillTool(SkillCatalog& catalog) : catalog_(catalog) {}
-
     std::string name() const noexcept override { return "write_skill"; }
 
     bool requires_approval(const json&) const noexcept override { return true; }
@@ -251,8 +249,14 @@ public:
         std::string description = a.value("description", "");
         std::string body = a.value("body", "");
         std::string scope = a.value("scope", "project");
-        std::string error =
-            author_skill(effective_catalog(catalog_), name, description, body, scope);
+        SkillCatalog* catalog = session_catalog();
+        if (!catalog) {
+            ToolResult r;
+            r.ok = false;
+            r.error = "write_skill is only available inside an agent session";
+            return r;
+        }
+        std::string error = author_skill(*catalog, name, description, body, scope);
         ToolResult r;
         if (!error.empty()) {
             r.ok = false;
@@ -263,27 +267,18 @@ public:
         r.meta = {{"name", name}, {"scope", scope}};
         return r;
     }
-
-private:
-    SkillCatalog& catalog_;
 };
 
 } // namespace agent
 
-std::unique_ptr<agent::Tool> agent::make_read_skill_tool(SkillCatalog& catalog) {
-    return std::make_unique<agent::ReadSkillTool>(catalog);
+std::unique_ptr<agent::Tool> agent::make_read_skill_tool() {
+    return std::make_unique<agent::ReadSkillTool>();
 }
 
-std::unique_ptr<agent::Tool> agent::make_list_skills_tool(SkillCatalog& catalog) {
-    return std::make_unique<agent::ListSkillsTool>(catalog);
+std::unique_ptr<agent::Tool> agent::make_list_skills_tool() {
+    return std::make_unique<agent::ListSkillsTool>();
 }
 
-std::unique_ptr<agent::Tool> agent::make_write_skill_tool(SkillCatalog& catalog) {
-    return std::make_unique<agent::WriteSkillTool>(catalog);
-}
-
-void agent::register_skill_tools(ToolRegistry& reg, SkillCatalog& catalog) {
-    reg.register_tool(make_read_skill_tool(catalog));
-    reg.register_tool(make_list_skills_tool(catalog));
-    reg.register_tool(make_write_skill_tool(catalog));
+std::unique_ptr<agent::Tool> agent::make_write_skill_tool() {
+    return std::make_unique<agent::WriteSkillTool>();
 }

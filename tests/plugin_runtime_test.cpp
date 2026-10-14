@@ -436,14 +436,20 @@ TEST(runtime_audit_follows_the_enabled_toolset) {
     // The shipped set is complete: nothing to warn about.
     ASSERT_TRUE(runtime.audit().empty());
 
-    // Take away the only tool that can read, and the audit says so.
+    // Take away the file reader: the read_skill/list_skills pair still carries
+    // the Read role, so nothing is lost yet.
     ASSERT_TRUE(runtime.set_state("tool_read", false));
+    ASSERT_TRUE(runtime.audit().empty());
+
+    // Take away the skill tools too, and no enabled tool can read at all - the
+    // audit says so.
+    ASSERT_TRUE(runtime.set_state("tool_skills", false));
     auto findings = runtime.audit();
     ASSERT_EQ(findings.size(), 1u);
     ASSERT_TRUE(findings[0].kind == AuditFinding::Kind::Deficiency);
     ASSERT(findings[0].message.find("read") != std::string::npos);
 
-    // Restoring it clears the warning - on demand means never stale.
+    // Restoring one reader clears the warning - on demand means never stale.
     ASSERT_TRUE(runtime.set_state("tool_read", true));
     ASSERT_TRUE(runtime.audit().empty());
 }

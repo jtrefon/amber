@@ -70,7 +70,7 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<CompressionStrategy> compressor, std::unique_ptr<CompressionGate> gate,
              std::shared_ptr<MemoryStore> memory_store, std::unique_ptr<MemoryRetriever> retriever,
              std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
-             bool register_skills, std::shared_ptr<SkillCatalog> skills)
+             std::shared_ptr<SkillCatalog> skills)
     : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
       client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
@@ -89,8 +89,6 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
             learned = memory_store_->top_skills(experience_cfg_.max_skills, "");
         skills_->discover(learned);
     }
-    if (register_skills)
-        register_skill_tools(registry_, *skills_);
     publish_config(); // readers must never see a null snapshot
 }
 
@@ -230,10 +228,6 @@ std::string Agent::render_system_prompt() const {
     append_optional_section(
         system,
         load_prompt(cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path));
-    // Optional skills prompt (discovery block, authoring rule, trust boundary).
-    // Resolved via the binary dir so the sections load regardless of CWD
-    // (the benchmark runner runs with the workspace as CWD).
-    append_optional_section(system, load_optional_prompt("prompts/skills.md"));
     // Optional MCP prompt (untrusted-server posture, user-only prompts).
     append_optional_section(system, load_optional_prompt("prompts/mcp.md"));
     return system;
@@ -989,12 +983,19 @@ void Agent::collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<Pro
                                  std::size_t& seq) const {
     if (!skills_)
         return;
-    const auto discovery = skills_->discovery_block();
-    if (!discovery.empty()) {
-        std::string text = "Available skills (activate with read_skill):\n";
-        for (const auto& line : discovery)
-            text += line + "\n";
-        head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
+    // The discovery block exists to be acted on, and the only actor is
+    // read_skill. With that tool switched off (its plugin unwound it), the
+    // block would name a tool the registry cannot serve — the same rule the
+    // tool prose follows. Activated bodies are not gated: they are content the
+    // model has already seen, and dropping them would lose context.
+    if (registry_.find("read_skill")) {
+        const auto discovery = skills_->discovery_block();
+        if (!discovery.empty()) {
+            std::string text = "Available skills (activate with read_skill):\n";
+            for (const auto& line : discovery)
+                text += line + "\n";
+            head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
+        }
     }
     for (const auto& act : activated_skills_.snapshot())
         tail.push_back({prompt_priority::kActivatedSkills, seq++,

@@ -148,8 +148,10 @@ TEST(audit_the_shipped_tool_set_is_clean) {
 }
 
 TEST(audit_exposes_a_real_disabling_consequence) {
-    // Disabling the read tool is the deficiency the spec named: the harness
-    // keeps working, and can no longer bring back content.
+    // Disabling every tool that can bring content back is the deficiency the
+    // spec named: the harness keeps working, and can no longer read anything.
+    // Three tools carry the Read role (read, read_skill, list_skills), so the
+    // role empties only when all three are gone.
     ToolRegistry reg;
     JobService jobs;
     TodoStore todos;
@@ -158,6 +160,10 @@ TEST(audit_exposes_a_real_disabling_consequence) {
     ASSERT_TRUE(audit_toolset(reg).empty());
 
     ASSERT_TRUE(reg.remove_tool("read"));
+    ASSERT_TRUE(audit_toolset(reg).empty()); // read_skill still brings content back
+
+    ASSERT_TRUE(reg.remove_tool("read_skill"));
+    ASSERT_TRUE(reg.remove_tool("list_skills"));
     auto findings = audit_toolset(reg);
     ASSERT_EQ(count_of(findings, AuditFinding::Kind::Deficiency), 1u);
     ASSERT(findings[0].message.find("read") != std::string::npos);

@@ -77,11 +77,13 @@ private:
     const RunScopeChain* installed_;
 };
 
-// The catalog a skill tool should serve: the running agent's catalog when a
-// scope is installed, otherwise the catalog bound at registration.
-inline SkillCatalog& effective_catalog(SkillCatalog& fallback) noexcept {
+// The catalog the running agent serves. The skill tools resolve here and only
+// here: a catalog bound at registration would serve whichever agent happened to
+// construct the tool, which a registry shared by every window cannot promise.
+// Null outside a session - the caller reports that rather than guessing.
+inline SkillCatalog* session_catalog() noexcept {
     const RunScopeChain* s = t_run_scope;
-    return (s && s->leaf.skills) ? *s->leaf.skills : fallback;
+    return (s && s->leaf.skills) ? s->leaf.skills : nullptr;
 }
 
 // Record a session activation on the running agent's sink; a no-op outside a

@@ -595,14 +595,17 @@ in one sitting and each a template for the next:
 The other bundled plugins are not providers. The tool set is one plugin per
 tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
-`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/` and
-`plugins/tool_task/`. The search backends follow the same rule, one plugin each:
+`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/`,
+`plugins/tool_task/` and `plugins/tool_skills/` (read_skill, list_skills and
+write_skill, plus the prose that documents them — the tools resolve the running
+agent's catalog through the run scope, so the plugin holds no host state). The
+search backends follow the same rule, one plugin each:
 `plugins/search_grep/` and `plugins/search_semantic/`. Alongside them:
 `plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
 event-observing plugin with no contributions), `plugins/hello/` (the command
 example) and `plugins/amber_self/` (the `amber-self` plugin: it contributes the
 `amber-config` skill, whose body is rendered from the same table
-`/get config paths` prints). That is 22 bundled plugins in total.
+`/get config paths` prints). That is 23 bundled plugins in total.
 
 Steps:
 

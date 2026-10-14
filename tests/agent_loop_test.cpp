@@ -2199,8 +2199,7 @@ TEST(agent_runs_with_an_empty_tool_registry) {
     push_text(*fake, "I have no tools");
     push_text(*fake, "done");
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake), {},
-                    /*register_skills=*/false);
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     const std::string reply = ag.run("what can you do?");
 
     ASSERT_EQ(reply, "I have no tools");
@@ -2208,23 +2207,20 @@ TEST(agent_runs_with_an_empty_tool_registry) {
     ASSERT_EQ(raw->tool_counts.front(), static_cast<std::size_t>(0));
 }
 
-// ...and with skills on — the default in every host — the agent always has the
-// skill tools, so an empty registry is never a tool-less agent. This is why
-// "no tools at all" is not a state a disable can produce.
-TEST(agent_registers_skill_tools_even_with_an_empty_registry) {
-    agent::Workspace::set_root(cwd());
+// The skill tools arrive through the host's install path, never from the Agent
+// itself: a bare host that calls register_default_tools gets the same three
+// capabilities the tool_skills plugin declares (one definition, two paths).
+TEST(bare_install_provides_the_skill_tools) {
     agent::Config cfg = loop_cfg();
-    agent::ToolRegistry reg; // no plugin contributions
-    auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent_test::FakeLLMClient* raw = fake.get();
-    push_text(*fake, "ok");
-    push_text(*fake, "done");
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
-    ag.run("hello");
-
-    ASSERT(!raw->tool_counts.empty());
-    ASSERT_EQ(raw->tool_counts.front(), static_cast<std::size_t>(3));
+    ASSERT_TRUE((bool)reg.find("read_skill"));
+    ASSERT_TRUE((bool)reg.find("list_skills"));
+    ASSERT_TRUE((bool)reg.find("write_skill"));
 }
 
 // ---------------------------------------------------------------------------
