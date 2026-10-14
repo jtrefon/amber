@@ -91,7 +91,7 @@ dialect.
   (parsed `input`)/`tool_result` blocks; `input_schema` tools; streamed named
   events decoded to the internal `StreamChunk`; `input_tokens`/`output_tokens`
   mapped to `TokenUsage`.
-- **Regression guard**: `tests/dialect_anthropic_test.cpp` (12 tests, no network).
+- **Regression guard**: `tests/dialect_anthropic_test.cpp` (18 tests, no network).
 
 #### [DL-05] Auth header construction
 
@@ -123,6 +123,24 @@ dialect.
 - **Regression guard**: `dialect_context_overflow_hint_patterns`,
   `overflow_400_streaming_throws_non_retryable_api_error`,
   `overflow_400_buffered_throws_non_retryable_api_error` tests.
+
+#### [DL-08] Anthropic replay repairs the tool pairing contract
+
+- **Given**: A stored history that predates the live turn — an assistant tool
+  turn whose ids were never answered, a call that carries no id, or a stray
+  tool_result
+- **Input**: `build_chat_body` over that history
+- **Expected**: Every `tool_use` id is answered by a `tool_result` in the
+  immediately-following user message — unanswered ids close in a user message
+  of their own, before the next assistant turn; an id-less call gets a stable
+  synthesized id its result echoes; a tool_result no tool_use asked for is
+  dropped. The body never carries a `tool_result` block in an assistant
+  message, an empty id, or an empty content array. One unrepaired replay 400s
+  every later request in the session, which is why the walk repairs rather
+  than trusts the history it is handed.
+- **Regression guard**: `anthropic_unanswered_turn_closes_before_the_next_assistant_message`,
+  `anthropic_wire_synthesizes_missing_tool_ids`,
+  `anthropic_wire_drops_tool_results_nobody_asked_for` tests.
 
 ---
 

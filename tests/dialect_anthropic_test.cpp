@@ -265,10 +265,9 @@ TEST(anthropic_unanswered_turn_closes_before_the_next_assistant_message) {
     agent::Message next;
     next.role = "assistant";
     next.tool_calls = agent::json::array();
-    next.tool_calls.push_back(
-        {{"id", "call_2"},
-         {"type", "function"},
-         {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
+    next.tool_calls.push_back({{"id", "call_2"},
+                               {"type", "function"},
+                               {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
 
     std::vector<agent::Message> msgs = {text_msg("user", "go"), abandoned, next,
                                         tool_result_msg("call_2", "B body")};
@@ -310,9 +309,12 @@ TEST(anthropic_wire_synthesizes_missing_tool_ids) {
     reply.tool_calls.push_back(
         {{"type", "function"}, {"function", {{"name", "read"}, {"arguments", R"({"path":"a"})"}}}});
     reply.tool_calls.push_back(
-        {{"id", ""}, {"type", "function"}, {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
+        {{"id", ""},
+         {"type", "function"},
+         {"function", {{"name", "read"}, {"arguments", R"({"path":"b"})"}}}});
 
-    std::vector<agent::Message> msgs = {text_msg("user", "go"), reply, tool_result_msg("", "A body"),
+    std::vector<agent::Message> msgs = {text_msg("user", "go"), reply,
+                                        tool_result_msg("", "A body"),
                                         tool_result_msg("", "B body")};
     agent::json body = d->build_chat_body(cfg, msgs, {}, true);
 

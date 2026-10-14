@@ -53,8 +53,12 @@ json parse_arguments_object(const json& fn) {
     return (!parsed.is_discarded() && parsed.is_object()) ? parsed : json::object();
 }
 
-// Assistant tool calls (OpenAI shape) -> Anthropic tool_use blocks.
-json to_tool_use_blocks(const json& calls) {
+// Assistant tool calls (OpenAI shape) -> Anthropic tool_use blocks. A call
+// that reached history without an id (a text-extracted <tool_call>, a router
+// that omits ids) still needs one: every tool_use carries a non-empty id so
+// its tool_result has something to pair with. The numbering derives from the
+// history alone, so replaying the same conversation sends the same ids.
+json to_tool_use_blocks(const json& calls, std::size_t& next_id) {
     json blocks = json::array();
     for (const auto& tc : calls) {
         if (!tc.is_object())
@@ -63,8 +67,11 @@ json to_tool_use_blocks(const json& calls) {
         std::string name = str_field(fn, "name");
         if (name.empty())
             continue; // placeholder slots are never sent
+        std::string id = str_field(tc, "id");
+        if (id.empty())
+            id = "amber_call_" + std::to_string(next_id++);
         json block = {{"type", "tool_use"},
-                      {"id", str_field(tc, "id")},
+                      {"id", std::move(id)},
                       {"name", std::move(name)},
                       {"input", parse_arguments_object(fn)}};
         blocks.push_back(std::move(block));
@@ -72,11 +79,12 @@ json to_tool_use_blocks(const json& calls) {
     return blocks;
 }
 
-// Anthropic tool_result block for one internal tool message.
-json to_tool_result_block(const Message& m) {
+// Anthropic tool_result block answering `id`. An empty result reads as a
+// missing block to the API; say so instead.
+json tool_result_block(const std::string& id, const std::string& content) {
     return json{{"type", "tool_result"},
-                {"tool_use_id", m.tool_call_id},
-                {"content", m.content.empty() ? kNoOutput : m.content}};
+                {"tool_use_id", id},
+                {"content", content.empty() ? kNoOutput : content}};
 }
 
 // The answers for tool_use ids whose tool_result never arrived: the API wants
@@ -91,9 +99,36 @@ json take_answers(std::vector<std::string>& pending) {
     return blocks;
 }
 
-// A tool_result arrived for `id`: it is no longer waiting for one.
-void mark_answered(std::vector<std::string>& pending, const std::string& id) {
-    pending.erase(std::remove(pending.begin(), pending.end(), id), pending.end());
+// ONE user message answers every id still waiting. Its own message, because
+// the answers close the turn that just ended: a later assistant message comes
+// after them, never carries them.
+void flush_pending(json& out, std::vector<std::string>& pending) {
+    json answers = take_answers(pending);
+    if (!answers.empty())
+        out.push_back({{"role", kRoleUser}, {"content", std::move(answers)}});
+}
+
+// The id a tool message answers: its own when the turn asked for it, the
+// oldest unanswered id when it carries none (a call that reached history
+// without one), and "" for a result nobody is waiting for -- a stray
+// tool_result has no valid place in the protocol.
+std::string result_id_for(const Message& m, std::vector<std::string>& pending) {
+    if (!m.tool_call_id.empty()) {
+        auto it = std::find(pending.begin(), pending.end(), m.tool_call_id);
+        if (it == pending.end())
+            return {};
+        pending.erase(it);
+        return m.tool_call_id;
+    }
+    if (pending.empty())
+        return {};
+    const std::string id = pending.front();
+    pending.erase(pending.begin());
+    return id;
+}
+
+json text_block(const std::string& text) {
+    return json{{"type", "text"}, {"text", text}};
 }
 
 // Anthropic assistant content blocks -> the internal Message. Text blocks join
@@ -371,9 +406,13 @@ private:
     // The internal history keeps one message per tool result, and a turn may
     // hold results that never arrived; the API's contract is ONE message
     // answering every tool_use of the turn that just ended, immediately after
-    // it. The appenders below reconcile the two, one message shape each.
+    // it. The appenders below reconcile the two, one message shape each. A
+    // history restored from a session file can predate any of this, so the
+    // walk repairs rather than trusts: that is the difference between a valid
+    // replay and a 400 on every later request in the session.
     void append_messages(json& out, const std::vector<Message>& messages) const {
         std::vector<std::string> pending; // tool_use ids awaiting a tool_result
+        std::size_t next_id = 0;          // numbering for calls that arrived without one
         std::size_t i = 0;
         while (i < messages.size()) {
             const Message& m = messages[i];
@@ -383,16 +422,14 @@ private:
                 append_tool_results(out, messages, i, pending);
             } else if (m.role == "assistant" && !m.tool_calls.is_null() &&
                        m.tool_calls.is_array() && !m.tool_calls.empty()) {
-                append_assistant_tool_turn(out, m, pending);
+                append_assistant_tool_turn(out, m, pending, next_id);
                 ++i;
             } else {
                 append_text_turn(out, m, pending);
                 ++i;
             }
         }
-        json answers = take_answers(pending);
-        if (!answers.empty())
-            out.push_back({{"role", kRoleUser}, {"content", std::move(answers)}});
+        flush_pending(out, pending);
     }
 
     // ONE user message carries every tool_result of the turn, the answers for
@@ -402,32 +439,38 @@ private:
                              std::vector<std::string>& pending) const {
         json blocks = json::array();
         for (; i < messages.size() && messages[i].role == "tool"; ++i) {
-            mark_answered(pending, messages[i].tool_call_id);
-            blocks.push_back(to_tool_result_block(messages[i]));
+            const std::string id = result_id_for(messages[i], pending);
+            if (!id.empty())
+                blocks.push_back(tool_result_block(id, messages[i].content));
         }
         for (auto& b : take_answers(pending))
             blocks.push_back(std::move(b));
         if (i < messages.size() && messages[i].role == kRoleUser && !messages[i].content.empty()) {
-            blocks.push_back({{"type", "text"}, {"text", messages[i].content}});
+            blocks.push_back(text_block(messages[i].content));
             ++i;
         }
-        out.push_back({{"role", kRoleUser}, {"content", std::move(blocks)}});
+        if (!blocks.empty())
+            out.push_back({{"role", kRoleUser}, {"content", std::move(blocks)}});
     }
 
-    // An assistant turn that asked for tools: text (when any) then tool_use
-    // blocks. Its ids become the set the next message must answer.
-    void append_assistant_tool_turn(json& out, const Message& m,
-                                    std::vector<std::string>& pending) const {
-        json blocks = take_answers(pending); // a previous turn closes first
+    // An assistant turn that asked for tools: the previous turn's unanswered
+    // ids close in a user message of their own first, then text (when any)
+    // and tool_use blocks. The emitted ids become the set the next message
+    // must answer.
+    void append_assistant_tool_turn(json& out, const Message& m, std::vector<std::string>& pending,
+                                    std::size_t& next_id) const {
+        flush_pending(out, pending);
+        json blocks = json::array();
         if (!m.content.empty())
-            blocks.push_back({{"type", "text"}, {"text", m.content}});
-        for (auto& b : to_tool_use_blocks(m.tool_calls)) {
+            blocks.push_back(text_block(m.content));
+        for (auto& b : to_tool_use_blocks(m.tool_calls, next_id)) {
             const std::string id = str_field(b, "id");
             if (!id.empty())
                 pending.push_back(id);
             blocks.push_back(std::move(b));
         }
-        out.push_back({{"role", kRoleAssistant}, {"content", std::move(blocks)}});
+        if (!blocks.empty())
+            out.push_back({{"role", kRoleAssistant}, {"content", std::move(blocks)}});
     }
 
     // A plain text turn. Anthropic rejects an empty text block -- "text content
@@ -439,16 +482,15 @@ private:
     void append_text_turn(json& out, const Message& m, std::vector<std::string>& pending) const {
         if (m.content.empty())
             return;
-        const bool is_assistant = (m.role == "assistant");
-        json blocks = take_answers(pending);
-        if (!blocks.empty() && is_assistant) {
-            // The answers are a user message of their own; this turn follows.
-            out.push_back({{"role", kRoleUser}, {"content", std::move(blocks)}});
-            blocks = json::array();
+        if (m.role == "assistant") {
+            flush_pending(out, pending);
+            out.push_back(
+                {{"role", kRoleAssistant}, {"content", json::array({text_block(m.content)})}});
+            return;
         }
-        blocks.push_back({{"type", "text"}, {"text", m.content}});
-        out.push_back(
-            {{"role", is_assistant ? kRoleAssistant : kRoleUser}, {"content", std::move(blocks)}});
+        json blocks = take_answers(pending);
+        blocks.push_back(text_block(m.content));
+        out.push_back({{"role", kRoleUser}, {"content", std::move(blocks)}});
     }
 
     void append_tools(json& body, const std::vector<std::shared_ptr<Tool>>& tools) const {
