@@ -6,6 +6,8 @@
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
+#include "plugins/mcp/mcp_plugin.h"
+
 #include <agent/mcp_commands.h>
 #include <cctype>
 #include <cstring>
@@ -84,6 +86,10 @@ public:
             return false;
         return !line.empty() && (line[0] == 'y' || line[0] == 'Y');
     }
+
+    // The headless CLI has no input line; a caller gets false and shows the
+    // text itself rather than believing it landed somewhere.
+    bool fill_input(const std::string&) override { return false; }
 
     void notify(agent::UiLevel level, const std::string& message) override {
         const std::string prefix = level == agent::UiLevel::Info
@@ -276,57 +282,7 @@ json parse_kv_args(const std::string& spec) {
     return out;
 }
 
-// /mcp connect <name>: false after printing the error.
-bool run_mcp_connect(agent::ServerManager& mgr, agent::ToolRegistry& reg, const CliArgs& args) {
-    const std::string err = agent::mcp_connect(mgr, reg, args.mcp_connect_name);
-    if (err.empty())
-        return true;
-    std::cerr << "error: " << err << "\n";
-    return false;
-}
-
-int run_mcp_list(agent::ServerManager& mgr) {
-    for (const auto& l : agent::mcp_list_lines(mgr))
-        std::cout << l << "\n";
-    mgr.shutdown_all();
-    return 0;
-}
-
-int run_mcp_prompt(agent::ServerManager& mgr, const CliArgs& args) {
-    std::string text;
-    const std::string err = agent::mcp_prompt(mgr, args.mcp_prompt_server, args.mcp_prompt_name,
-                                              parse_kv_args(args.mcp_prompt_args), text);
-    mgr.shutdown_all();
-    if (!err.empty()) {
-        std::cerr << "error: " << err << "\n";
-        return 1;
-    }
-    std::cout << text;
-    return 0;
-}
-
 } // namespace
-
-int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args) {
-    if (!args.mcp_list_only && args.mcp_prompt_server.empty() && args.mcp_connect_name.empty())
-        return -1;
-    try {
-        agent::ToolRegistry mcp_registry;
-        agent::ServerManager mgr(agent::load_mcp_servers(), &cfg.cancel_token);
-        mgr.connect_all();
-        if (!args.mcp_connect_name.empty() && !run_mcp_connect(mgr, mcp_registry, args))
-            return 1;
-        if (args.mcp_list_only)
-            return run_mcp_list(mgr);
-        if (!args.mcp_prompt_server.empty())
-            return run_mcp_prompt(mgr, args);
-        mgr.shutdown_all();
-    } catch (const std::exception& e) {
-        std::cerr << "error: " << e.what() << "\n";
-        return 1;
-    }
-    return -1;
-}
 
 // Auto-detect model / context window, filling only values the user did not set
 // explicitly. Cache-first: a fresh catalog answers from disk instantly; a stale
@@ -564,6 +520,42 @@ void start_plugin_runtime(CliHost& host, agent::Config& cfg, bool no_plugins) {
                                   host.subagents, &host.plugin_runtime.prompts());
 }
 
+// The one-shot MCP surfaces read the same plugin a session uses, brought up the
+// same way — so they honour the plugin's state (`/set plugin mcp off` takes
+// them with it) instead of constructing a second client path. Returns the exit
+// code, or -1 when neither surface was requested.
+int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args, bool no_plugins) {
+    if (!args.mcp_list_only && args.mcp_prompt_server.empty())
+        return -1;
+    try {
+        CliHost host(cfg, isatty(STDIN_FILENO) != 0);
+        start_plugin_runtime(host, cfg, no_plugins);
+        agent::plugins::McpPlugin* mcp = agent::plugins::mcp_plugin_from(host.plugin_runtime);
+        if (!mcp) {
+            std::cerr << "error: the mcp plugin is off or unavailable"
+                         " (enable it with /set plugin mcp on)\n";
+            return 1;
+        }
+        if (args.mcp_list_only) {
+            for (const auto& l : mcp->list_lines())
+                std::cout << l << "\n";
+            return 0;
+        }
+        std::string text;
+        const std::string err = mcp->prompt_text(args.mcp_prompt_server, args.mcp_prompt_name,
+                                                 parse_kv_args(args.mcp_prompt_args), text);
+        if (!err.empty()) {
+            std::cerr << "error: " << err << "\n";
+            return 1;
+        }
+        std::cout << text;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "error: " << e.what() << "\n";
+        return 1;
+    }
+}
+
 // The project config is a base: explicit flags and --config override it, and a
 // model saved to the global config outranks both.
 void load_run_config(agent::Config& cfg, const CliArgs& args, const GlobalConfig& global) {
@@ -628,7 +620,7 @@ int main(int argc, char** argv) try {
         return *rc;
     load_run_config(cfg, args, global);
 
-    if (const int rc = run_mcp_surfaces(cfg, args); rc >= 0)
+    if (const int rc = run_mcp_surfaces(cfg, args, args.no_plugins); rc >= 0)
         return rc;
 
     detect_model(cfg);
@@ -644,6 +636,21 @@ int main(int argc, char** argv) try {
     CliHost host(cfg, tty);
     const agent::AgentHooks hooks = apply_headless_hooks(host, cfg, args.auto_approve, tty);
     start_plugin_runtime(host, cfg, args.no_plugins);
+    // --mcp-connect attaches one server to THIS session before the run: the
+    // connect is the run's, not a second client's.
+    if (!args.mcp_connect_name.empty()) {
+        agent::plugins::McpPlugin* mcp = agent::plugins::mcp_plugin_from(host.plugin_runtime);
+        if (!mcp) {
+            std::cerr << "error: the mcp plugin is off or unavailable"
+                         " (enable it with /set plugin mcp on)\n";
+            return 1;
+        }
+        const std::string err = mcp->connect(args.mcp_connect_name);
+        if (!err.empty()) {
+            std::cerr << "error: " << err << "\n";
+            return 1;
+        }
+    }
     return run_agent_once(cfg, host, hooks, args.prompt);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";

@@ -48,14 +48,14 @@ public:
     OwnedToolPort(ToolRegistry& registry, std::string owner)
         : registry_(registry), owner_(std::move(owner)) {}
 
-    void add(std::unique_ptr<Tool> tool) override {
+    void add(std::unique_ptr<Tool> tool, ToolMeta meta = {}) override {
         if (!tool)
             return;
         const std::string name = tool->name();
         std::scoped_lock lk(mtx_);
         if (!open_)
             return; // between activations: nothing registered, nothing to unwind
-        registry_.register_tool(std::move(tool), owner_);
+        registry_.register_tool(std::move(tool), owner_, std::move(meta));
         if (std::find(names_.begin(), names_.end(), name) == names_.end())
             names_.push_back(name);
     }

@@ -516,6 +516,44 @@ TEST(registry_generation_moves_on_every_change) {
     ASSERT(reg.generation() > replaced);
 }
 
+// The mcp plugin owns its command documentation now (the static JSON no longer
+// carries the nodes): every verb is documented AND executable, which is the
+// guard the completions suite used to provide for the static tree.
+TEST(mcp_command_surface_is_documented_and_executable) {
+    ScratchConfig scratch("mcp-docs");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    const CommandRegistry::Entry* mcp = nullptr;
+    const CommandRegistry::Entry* prompt = nullptr;
+    for (const auto& e : runtime.commands().all()) {
+        if (e.spec.root == "mcp")
+            mcp = &e;
+        if (e.spec.root == "prompt")
+            prompt = &e;
+    }
+    ASSERT_TRUE(mcp != nullptr);
+    ASSERT_TRUE(prompt != nullptr);
+
+    ASSERT(!mcp->spec.help.empty());
+    ASSERT(!mcp->spec.man.empty());
+    for (const char* verb : {"list", "show", "connect", "disconnect", "refresh", "prompts",
+                             "enable", "disable", "trust"}) {
+        ASSERT_TRUE(mcp->spec.subtree.contains(verb));
+        ASSERT_FALSE(mcp->spec.subtree[verb]["help"].get<std::string>().empty());
+        ASSERT_FALSE(mcp->spec.subtree[verb]["man"].get<std::string>().empty());
+        ASSERT_EQ(mcp->spec.handlers.count(verb), 1u); // documented AND executable
+    }
+    // The root binds too: `/mcp` with no verb lists the servers.
+    ASSERT_EQ(mcp->spec.handlers.count(""), 1u);
+    // /prompt takes free-form arguments, so it is a root handler with no
+    // children.
+    ASSERT_EQ(prompt->spec.handlers.count(""), 1u);
+    ASSERT_FALSE(prompt->spec.help.empty());
+}
+
 // MCP is a plugin: the client, the tools its servers discover, its command
 // namespace, its status segment and its prompt block all arrive through the
 // capability path. That is what makes `/set plugin mcp off` a real footprint
@@ -543,6 +581,13 @@ TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
     ASSERT_TRUE(segment_owned_by(runtime.status(), "mcp"));
     ASSERT_TRUE(command_root_present(runtime.commands(), "mcp"));
     ASSERT_TRUE(command_root_present(runtime.commands(), "prompt"));
+    // The segment reads the plugin's own manager: the connected fixture shows
+    // as its name (the format the core segment used to render).
+    bool segment_text = false;
+    for (const auto& s : runtime.status().render(StatusSnapshot{}))
+        if (s.id == "mcp")
+            segment_text = s.text.find("mcp: echo") != std::string::npos;
+    ASSERT_TRUE(segment_text);
 
     // A tool another owner registered with an MCP-shaped name is not ours.
     f.tools.register_tool(std::make_unique<StubTool>("mcp_echo_someone_elses"), "other_plugin");
@@ -1733,28 +1778,34 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 1u);
-    ASSERT_EQ(runtime.commands().all()[0].spec.root, std::string("hello"));
-    ASSERT_EQ(runtime.commands().all()[0].spec.handlers.at("greet")("amber"),
-              std::string("Hello, amber!"));
+    // The bundled set contributes four namespaces: hello, and the mcp plugin's
+    // mcp / prompt / get.
+    ASSERT_EQ(runtime.commands().size(), 4u);
+    const auto& all = runtime.commands().all();
+    const auto hello =
+        std::find_if(all.begin(), all.end(),
+                     [](const agent::CommandRegistry::Entry& e) { return e.spec.root == "hello"; });
+    ASSERT(hello != all.end());
+    ASSERT_EQ(hello->spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
 
     // A command-contributing plugin survives a disable/re-enable cycle: the
     // capability must come back with the same binding.
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 0u);
+    ASSERT_EQ(runtime.commands().size(), 3u); // the mcp plugin's three survive
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 1u);
+    ASSERT_EQ(runtime.commands().size(), 4u);
 }
 
 // The registry console groups contributions by kind, so every kind needs a
 // name: an unnamed one renders as "?" and the contribution reads as a typo.
 TEST(capability_kind_name_covers_every_kind) {
     const std::vector<CapabilityKind> kinds = {
-        CapabilityKind::Tool,    CapabilityKind::PromptBlock,   CapabilityKind::StatusSegment,
-        CapabilityKind::Panel,   CapabilityKind::Provider,      CapabilityKind::Wallet,
-        CapabilityKind::Command, CapabilityKind::SearchBackend,
+        CapabilityKind::Tool,          CapabilityKind::ToolSource, CapabilityKind::PromptBlock,
+        CapabilityKind::StatusSegment, CapabilityKind::Panel,      CapabilityKind::Provider,
+        CapabilityKind::Wallet,        CapabilityKind::Command,    CapabilityKind::SearchBackend,
+        CapabilityKind::Skill,
     };
     for (const auto kind : kinds) {
         const std::string name = capability_kind_name(kind);

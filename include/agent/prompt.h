@@ -30,6 +30,7 @@ inline constexpr int kBash = 530;
 inline constexpr int kProcess = 540;
 inline constexpr int kPlan = 550;
 inline constexpr int kSkills = 560;
+inline constexpr int kMcp = 570;
 } // namespace tool_doc_priority
 
 // Render the tool advertising section: a Markdown block listing each tool's

@@ -326,9 +326,17 @@ The items this plan listed, with their outcome:
 
 ## 6. Parked
 
-- **MCP** — explicitly parked by request. When revisited, the question is
-  whether it is a plugin at all or a *feed*: its tools are runtime-discovered,
-  which is a different shape from a compiled-in contribution.
+- **MCP** — **answered and done (2026-10-15).** The parked question was whether
+  MCP is a plugin at all or a *feed*, because its tools are runtime-discovered.
+  It is a **plugin**, and the "runtime-discovered" half is a first-class
+  contribution shape: `ToolSourceCapability` + the owner-scoped `ToolPort`
+  (tracker D25) let a plugin register a set it discovers while it is active, and
+  `plugins/mcp/` is the worked example — the client, its discovered tools, its
+  status segment, its prompt block and its `/mcp`, `/prompt` and `/get mcp`
+  namespaces all arrive and leave together, so `/set plugin mcp off` is a
+  complete footprint switch. The *feed* half stays for what a feed is for: the
+  live `<server>.<tool>` leaves in the command tree, derived from the registry
+  and merged as children only, never as the command's own fields.
 - **External (process) tier** — PF-6, deferred with its entry conditions recorded.
 - **Host services** (`ask`/`confirm`/`notify`) — still without a caller; a tool
   plugin needing user input would be the first.

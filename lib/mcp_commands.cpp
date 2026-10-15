@@ -52,39 +52,41 @@ std::vector<std::string> mcp_show_lines(const ServerManager& mgr, const std::str
     return lines;
 }
 
-std::string mcp_connect(ServerManager& mgr, ToolRegistry& reg, const std::string& server) {
+std::string mcp_connect(ServerManager& mgr, ToolPort& port, const ToolRegistry& registry,
+                        const std::string& server) {
     // Unregister the old adapters BEFORE the reconnect: the new server's
     // tool set may no longer advertise tools that used to exist, and a stale
     // McpToolAdapter would keep referencing the erased MCPClient
     // (use-after-free on the next call).
-    unregister_server_tools(reg, server);
+    unregister_server_tools(port, mgr, server);
     std::string err = mgr.connect(server);
     if (!err.empty())
         return err;
-    register_server_tools(reg, mgr, server);
+    register_server_tools(port, registry, mgr, server);
     return "";
 }
 
-void mcp_disconnect(ServerManager& mgr, ToolRegistry& reg, const std::string& server) {
-    unregister_server_tools(reg, server);
+void mcp_disconnect(ServerManager& mgr, ToolPort& port, const std::string& server) {
+    unregister_server_tools(port, mgr, server);
     mgr.disconnect(server);
 }
 
-std::string mcp_refresh(ServerManager& mgr, ToolRegistry& reg, const std::string& server) {
+std::string mcp_refresh(ServerManager& mgr, ToolPort& port, const ToolRegistry& registry,
+                        const std::string& server) {
     std::string err = mgr.refresh(server);
     if (!err.empty())
         return err;
-    unregister_server_tools(reg, server);
-    register_server_tools(reg, mgr, server);
+    unregister_server_tools(port, mgr, server);
+    register_server_tools(port, registry, mgr, server);
     return "";
 }
 
-std::string mcp_enable(ServerManager& mgr, ToolRegistry& reg, const std::string& server, bool on) {
+std::string mcp_enable(ServerManager& mgr, ToolPort& port, const std::string& server, bool on) {
     std::string err = mgr.set_enabled(server, on);
     if (!err.empty())
         return err;
     if (!on)
-        unregister_server_tools(reg, server);
+        unregister_server_tools(port, mgr, server);
     return "";
 }
 

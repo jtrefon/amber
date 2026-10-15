@@ -228,8 +228,6 @@ std::string Agent::render_system_prompt() const {
     append_optional_section(
         system,
         load_prompt(cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path));
-    // Optional MCP prompt (untrusted-server posture, user-only prompts).
-    append_optional_section(system, load_optional_prompt("prompts/mcp.md"));
     return system;
 }
 

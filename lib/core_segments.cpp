@@ -22,7 +22,6 @@ enum Priority {
     kTps = 600,
     kTokens = 700,
     kActivity = 900,
-    kMcp = 1000,
 };
 
 // Drop priority is what goes first when the terminal is too narrow: the
@@ -37,7 +36,6 @@ enum Drop {
     kModelDrop = 6,
     kLagDrop = 6,
     kTokensDrop = 7,
-    kMcpDrop = 8,
 };
 
 std::string dashed(const char* glyph) {
@@ -136,20 +134,6 @@ StatusText render_activity(const StatusSnapshot& s) {
     return StatusText{};
 }
 
-StatusText render_mcp(const StatusSnapshot& s) {
-    std::string text;
-    for (const auto& server : s.mcp_servers) {
-        if (!server.connected && !server.has_error)
-            continue;
-        if (!text.empty())
-            text += "\u00b7";
-        text += (server.connected ? "" : "!") + server.name;
-    }
-    if (text.empty())
-        return StatusText{};
-    return StatusText{"  mcp: " + text, StatusTone::Dim};
-}
-
 } // namespace
 
 std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
@@ -162,7 +146,6 @@ std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     caps.push_back(segment("tps", kTps, kTpsDrop, render_tps));
     caps.push_back(segment("tokens", kTokens, kTokensDrop, render_tokens));
     caps.push_back(segment("activity", kActivity, kActivityDrop, render_activity));
-    caps.push_back(segment("mcp", kMcp, kMcpDrop, render_mcp));
     return caps;
 }
 

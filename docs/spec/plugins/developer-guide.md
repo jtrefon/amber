@@ -68,7 +68,7 @@ bug.
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | `plugins/README.md` |
 | Tool contribution (incl. the core tool set) | ✅ Available | `ToolCapability` |
-| Tool source — a tool set discovered while the plugin is active | ✅ Available | `ToolSourceCapability`, owner-scoped `ToolPort`, §2 |
+| Tool source — a tool set discovered while the plugin is active | ✅ Available | `ToolSourceCapability`, owner-scoped `ToolPort`, §2; the `mcp` plugin is the worked example |
 | Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token |
 | Typed event subscription | ✅ Available | `Events`, §3 |
 | Prompt block contribution | ✅ Available | `PromptBlockCapability` |
@@ -81,7 +81,7 @@ bug.
 | Search backend contribution | ✅ Available | `SearchBackendCapability` |
 | Skill contribution (a skill the harness ships, no file) | ✅ Available | `SkillCapability` |
 | Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
-| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`) | ✅ Available | `PluginServices::ui` |
+| Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`, `fill_input`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
 | Log sinks | – | Deferred (no consumer) |
 | `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
@@ -645,12 +645,15 @@ with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
 write_skill, plus the prose that documents them — the tools resolve the running
 agent's catalog through the run scope, so the plugin holds no host state). The
 search backends follow the same rule, one plugin each:
-`plugins/search_grep/` and `plugins/search_semantic/`. Alongside them:
-`plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
+`plugins/search_grep/` and `plugins/search_semantic/`. `plugins/mcp/` (category
+`integration`) is the tool-source worked example: it owns the MCP client, and
+its servers' discovered tools, its status segment, its `/mcp`, `/prompt` and
+`/get mcp` commands and its prompt block all arrive and leave with it. Alongside
+them: `plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
 event-observing plugin with no contributions), `plugins/hello/` (the command
 example) and `plugins/amber_self/` (the `amber-self` plugin: it contributes the
 `amber-config` skill, whose body is rendered from the same table
-`/get config paths` prints). That is 23 bundled plugins in total.
+`/get config paths` prints). That is 24 bundled plugins in total.
 
 Steps:
 

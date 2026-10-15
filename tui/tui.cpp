@@ -20,7 +20,6 @@
 #include "key_binder.h"
 
 #include <agent.h>
-#include <agent/mcp_tools.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/tools.h>
@@ -101,14 +100,12 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
          agent::SubAgentExecutor& subagents, agent::PluginManager& plugins,
          agent::PluginRuntime& plugin_runtime)
     : cfg_(std::move(cfg)), providers_(agent::make_default_provider_service(cfg_)), reg_(reg),
-      jobs_(jobs), subagents_(subagents), plugins_(plugins), plugin_runtime_(plugin_runtime),
-      mcp_servers_(agent::load_mcp_servers(), &this->cfg_.cancel_token) {
+      jobs_(jobs), subagents_(subagents), plugins_(plugins), plugin_runtime_(plugin_runtime) {
     init_terminal();
     install_signal_handlers();
     wire_plugin_runtime();
     build_managers();
     load_key_bindings();
-    register_mcp_tools();
     restore_workspace();
 }
 
@@ -148,7 +145,12 @@ void Tui::wire_plugin_runtime() {
     ui_services_ = std::make_unique<TuiUiServices>(
         [this](const std::shared_ptr<AgentEvent>& ev) { return request_ask(ev); },
         [this](agent::UiLevel level, const std::string& msg) { notify_from_plugin(level, msg); },
-        [this](std::function<void()> work) { post_to_ui_thread(std::move(work)); });
+        [this](std::function<void()> work) { post_to_ui_thread(std::move(work)); },
+        [this](const std::string& text) {
+            input_fill_ = text;
+            draw();
+            return true;
+        });
     plugin_runtime_.attach_ui_services(ui_services_.get());
     plugin_runtime_.start();
     feed_manager_ = std::make_unique<FeedManager>(*this);
@@ -179,14 +181,6 @@ void Tui::load_key_bindings() {
         }
     }
     key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
-}
-
-void Tui::register_mcp_tools() {
-    reg_.register_tool(agent::make_read_resource_tool(mcp_servers_));
-    mcp_servers_.connect_all();
-    for (const auto& st : mcp_servers_.snapshot())
-        if (st.connected)
-            agent::register_server_tools(reg_, mcp_servers_, st.name);
 }
 
 // Restore the previous workspace: open saved sessions in their own windows. On
@@ -566,6 +560,15 @@ bool Tui::pump_io(CommandLine& cl) {
     // Time-driven plugin work (a provider's balance refresh, say). The bar reads
     // what the tick cached; segments themselves never fetch.
     plugin_runtime_.tick();
+    // Tool names can change from a plugin's worker — an MCP server that
+    // connects after the frame that asked for it — so nothing calls "refresh"
+    // at those sites any more. The tree is re-merged when the registry
+    // generation moved on, which is the one signal that cannot be missed.
+    if (const std::uint64_t gen = reg_.generation(); gen != tool_registry_generation_) {
+        tool_registry_generation_ = gen;
+        if (slash_dispatcher_)
+            slash_dispatcher_->refresh_completions();
+    }
     if (!input_fill_.empty()) {
         cl.set_text(input_fill_);
         input_fill_.clear();

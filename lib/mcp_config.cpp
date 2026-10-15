@@ -453,6 +453,23 @@ std::shared_ptr<MCPClient> ServerManager::client(const std::string& name) const 
     return it == clients_.end() ? nullptr : it->second;
 }
 
+void ServerManager::note_registered_tools(const std::string& server,
+                                          std::vector<std::string> names) {
+    std::scoped_lock lk(mtx_);
+    registered_[server] = std::move(names);
+}
+
+std::vector<std::string> ServerManager::registered_tools(const std::string& server) const {
+    std::scoped_lock lk(mtx_);
+    auto it = registered_.find(server);
+    return it == registered_.end() ? std::vector<std::string>{} : it->second;
+}
+
+void ServerManager::forget_registered_tools(const std::string& server) {
+    std::scoped_lock lk(mtx_);
+    registered_.erase(server);
+}
+
 void ServerManager::shutdown_all() {
     std::vector<std::shared_ptr<MCPClient>> all;
     {

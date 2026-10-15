@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include <cstdlib>
 #include <memory>
 #include <string>
@@ -107,7 +108,8 @@ TEST(mcp_register_server_tools_end_to_end) {
     ASSERT_EQ(mgr.connect("echo"), "");
 
     agent::ToolRegistry reg;
-    size_t n = agent::register_server_tools(reg, mgr, "echo");
+    TestToolPort port(reg, "mcp");
+    size_t n = agent::register_server_tools(port, reg, mgr, "echo");
     ASSERT_EQ(n, 1u);
     auto tool = reg.find("mcp_echo_echo_tool");
     ASSERT(tool != nullptr);
@@ -116,7 +118,7 @@ TEST(mcp_register_server_tools_end_to_end) {
     ASSERT(r.ok);
     ASSERT_EQ(r.output, "echo:hi");
 
-    size_t removed = agent::unregister_server_tools(reg, "echo");
+    size_t removed = agent::unregister_server_tools(port, mgr, "echo");
     ASSERT_EQ(removed, 1u);
     ASSERT(reg.find("mcp_echo_echo_tool") == nullptr);
     mgr.shutdown_all();
@@ -162,10 +164,12 @@ public:
 };
 } // namespace
 
-// Reconnecting a server must unregister the old adapters first: a tool the
-// new server no longer advertises would otherwise keep a stale McpToolAdapter
-// bound to the erased MCPClient (use-after-free on the next call).
-TEST(mcp_reconnect_server_tools_no_stale_adapters) {
+// Reconnecting a server must drop exactly what the previous connection
+// registered: a tool the server no longer advertises would otherwise keep a
+// stale McpToolAdapter bound to the erased MCPClient (use-after-free on the
+// next call). The record is per server, so a neighbour's tool — even one with
+// an MCP-shaped name — is never part of that set.
+TEST(mcp_reconnect_server_tools_drops_exactly_its_previous_set) {
     char buf[4096];
     std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
     std::string ws = "/tmp/amber_mcp_reconnect_ws";
@@ -180,14 +184,18 @@ TEST(mcp_reconnect_server_tools_no_stale_adapters) {
     ASSERT_EQ(mgr.connect("echo"), "");
 
     agent::ToolRegistry reg;
-    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
-    // A stale adapter with the server's prefix, left over from an older
-    // tool set.
-    reg.register_tool(std::make_unique<DecoyTool>());
+    TestToolPort port(reg, "mcp");
+    // A neighbour's tool, with the server's name shape.
+    reg.register_tool(std::make_unique<DecoyTool>(), "some_other_plugin");
+    ASSERT_EQ(agent::register_server_tools(port, reg, mgr, "echo"), 1u);
 
-    ASSERT_EQ(agent::mcp_connect(mgr, reg, "echo"), "");
+    // Reconnect: the previous set is removed by its record and rebuilt.
+    ASSERT_EQ(agent::mcp_connect(mgr, port, reg, "echo"), "");
     ASSERT(reg.find("mcp_echo_echo_tool") != nullptr);
-    ASSERT(reg.find("mcp_echo_stale_tool") == nullptr);
+    ASSERT(reg.find("mcp_echo_stale_tool") != nullptr); // never ours to remove
+
+    ASSERT_EQ(agent::unregister_server_tools(port, mgr, "echo"), 1u);
+    ASSERT(reg.find("mcp_echo_echo_tool") == nullptr);
     mgr.shutdown_all();
 }
 
@@ -209,7 +217,8 @@ TEST(mcp_adapter_lease_survives_disconnect) {
     ASSERT_EQ(mgr.connect("echo"), "");
 
     agent::ToolRegistry reg;
-    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    TestToolPort port(reg, "mcp");
+    ASSERT_EQ(agent::register_server_tools(port, reg, mgr, "echo"), 1u);
     std::shared_ptr<agent::Tool> held = reg.find("mcp_echo_echo_tool");
     ASSERT(held != nullptr);
 
@@ -243,10 +252,11 @@ TEST(mcp_unregister_never_reaches_another_owners_tool) {
     agent::ToolRegistry reg;
     // Someone else's tool, with a name that looks exactly like this server's.
     reg.register_tool(std::make_unique<DecoyTool>(), "some_other_plugin");
-    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+    TestToolPort port(reg, "mcp");
+    ASSERT_EQ(agent::register_server_tools(port, reg, mgr, "echo"), 1u);
 
-    agent::unregister_server_tools(reg, "echo");
-    ASSERT(reg.find("mcp_echo_echo_tool") == nullptr);      // ours went
-    ASSERT(reg.find("mcp_echo_stale_tool") != nullptr);     // theirs stayed
+    agent::unregister_server_tools(port, mgr, "echo");
+    ASSERT(reg.find("mcp_echo_echo_tool") == nullptr);  // ours went
+    ASSERT(reg.find("mcp_echo_stale_tool") != nullptr); // theirs stayed
     mgr.shutdown_all();
 }

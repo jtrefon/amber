@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 
+#include "agent/extensions.h"
 #include "agent/mcp_config.h"
 #include "agent/registry.h"
 #include "agent/tool.h"
@@ -47,12 +48,18 @@ std::unique_ptr<Tool> make_read_resource_tool(ServerManager& mgr);
 // suffix hash when truncated).
 std::string mcp_adapter_name(const std::string& server, const std::string& tool);
 
-// Register one adapter per discovered tool of a connected server. Collisions
-// (existing names) get a numeric suffix. Returns the number registered.
-size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr, const std::string& server);
+// Register one adapter per discovered tool of a connected server, through the
+// plugin's owner-scoped port. Collisions (a name already in the registry,
+// whoever owns it) get a numeric suffix, so a server never takes over a name
+// that is not its own. The names actually registered are recorded on the
+// manager, which is what makes unwinding exact. Returns the number registered.
+size_t register_server_tools(ToolPort& port, const ToolRegistry& registry, ServerManager& mgr,
+                             const std::string& server);
 
-// Unregister every adapter of a server (disconnect/disable).
-size_t unregister_server_tools(ToolRegistry& reg, const std::string& server);
+// Remove exactly the adapters this manager registered for a server (disconnect,
+// disable, reconnect). Owner-checked through the port, so nothing else can be
+// reached: an adapter-shaped name owned by someone else stays where it is.
+size_t unregister_server_tools(ToolPort& port, ServerManager& mgr, const std::string& server);
 
 // Build a completions.json subtree documenting the live MCP tools currently
 // registered as mcp_<server>_<tool> (children of the `mcp` command, one
