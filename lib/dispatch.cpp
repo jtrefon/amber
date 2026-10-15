@@ -190,25 +190,71 @@ bool record_decision(Approval d, const std::string& scope, PolicyStore* policy,
 
 } // namespace
 
-bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
-                  std::set<std::string>& session_approved, PolicyStore* policy) {
-    if (!hooks.on_approval)
-        return false; // fail-safe: no host, no approval
+namespace {
+
+// How to undo a refusal that a stored rule caused. Named in the reason so the
+// user hears the way out from the same sentence that tells them what happened.
+std::string rule_hint(const std::string& scope) {
+    return " (change it with /set policy rule " + scope + " ask)";
+}
+
+} // namespace
+
+namespace {
+
+// The same reason wherever the fail-safe fires: a headless run needs to hear
+// that approval was required and nobody could give it.
+ApprovalDecision no_approver_denied() {
+    return {false, "approval is required for this call, and this session has no approver "
+                   "attached (run the TUI, or pass --yes for a headless run)"};
+}
+
+// A stored rule (or read mode) refused without asking. The scope is the handle
+// the user has on it, so the reason names it.
+ApprovalDecision rule_denied(const Tool& tool, const Decision& dec) {
+    const std::string scope = dec.scope_id.empty() ? std::string(tool.name()) : dec.scope_id;
+    return {false, "denied by the stored policy rule for scope '" + scope + "'" + rule_hint(scope)};
+}
+
+// What the model hears when the host answered "no" without a word of its own.
+ApprovalDecision host_denied(const AgentHooks&) {
+    return {false, "the user was asked to approve this call and declined"};
+}
+
+} // namespace
+
+ApprovalDecision approve_tool(const Tool& tool, const json& args, const Config& cfg,
+                              const AgentHooks& hooks, std::set<std::string>& session_approved,
+                              PolicyStore* policy) {
     const std::string summary = tool.summarize(args);
-    // No policy store: fall back to the legacy whole-tool dialog, with no rule
-    // to remember the answer against.
+    // No policy store: the tool's own contract decides who sees a dialog.
     if (!policy) {
+        if (cfg.mode == AgentMode::Yolo || !tool.requires_approval(args))
+            return {true, {}};
+        if (!hooks.on_approval)
+            return no_approver_denied();
         Approval d = hooks.on_approval(tool.name(), args, summary);
         if (d == Approval::AllowSession)
             session_approved.insert(tool.name());
-        return is_grant(d);
+        if (is_grant(d))
+            return {true, {}};
+        return host_denied(hooks);
     }
-    Decision dec = decide_approval(cfg, tool, args, *policy);
+    const Decision dec = decide_approval(cfg, tool, args, *policy);
+    if (dec.v == Verdict::Allow)
+        return {true, {}};
     if (dec.v != Verdict::Prompt)
-        return dec.v == Verdict::Allow;
+        return rule_denied(tool, dec);
+    if (!hooks.on_approval)
+        return no_approver_denied();
 
-    return record_decision(hooks.on_approval(tool.name(), args, summary), dec.scope_id, policy,
-                           session_approved);
+    const Approval d = hooks.on_approval(tool.name(), args, summary);
+    if (record_decision(d, dec.scope_id, policy, session_approved))
+        return {true, {}};
+    if (d == Approval::AlwaysDeny)
+        return {false, "the user chose 'always deny' for scope '" + dec.scope_id + "'" +
+                           rule_hint(dec.scope_id)};
+    return host_denied(hooks);
 }
 
 namespace {
@@ -275,28 +321,42 @@ std::string duplicate_reason(const Config& cfg, const Call& c, Context* context)
 // The decision engine: mode (Yolo bypass / Read deny), tool contract, shell
 // classifier (benign writes free), stored always-allow/deny, and per-scope
 // session grants. Only a Prompt verdict reaches the host dialog.
-bool approve_with_policy(const Config& cfg, const Call& c, const AgentHooks& hooks,
-                         std::set<std::string>& session_approved, PolicyStore* policy,
-                         ConversationLog& log) {
-    Decision dec = decide_approval(cfg, *c.tool, c.args, *policy);
-    bool approved = dec.v == Verdict::Allow;
-    if (dec.v == Verdict::Prompt)
-        approved = approve_tool(*c.tool, c.args, cfg, hooks, session_approved, policy);
-    if (!approved)
+ApprovalDecision approve_with_policy(const Config& cfg, const Call& c, const AgentHooks& hooks,
+                                     std::set<std::string>& session_approved, PolicyStore* policy,
+                                     ConversationLog& log) {
+    // approve_tool is the gate: it consults the decision engine itself, so the
+    // verdict is not taken twice here.
+    const ApprovalDecision decision =
+        approve_tool(*c.tool, c.args, cfg, hooks, session_approved, policy);
+    if (!decision.allowed)
         log_denied_with_args(log, c);
-    return approved;
+    return decision;
 }
 
 // No policy store: Yolo bypasses, otherwise the tool's own contract decides,
 // falling back to the host dialog.
-bool approve_without_policy(const Config& cfg, const Call& c, const AgentHooks& hooks,
-                            std::set<std::string>& session_approved, ConversationLog& log) {
-    if (cfg.mode == agent::AgentMode::Yolo || !c.tool->requires_approval(c.args) ||
-        (hooks.on_approval &&
-         approve_tool(*c.tool, c.args, cfg, hooks, session_approved, /*policy=*/nullptr)))
-        return true;
-    log_denied_with_args(log, c);
-    return false;
+ApprovalDecision approve_without_policy(const Config& cfg, const Call& c, const AgentHooks& hooks,
+                                        std::set<std::string>& session_approved,
+                                        ConversationLog& log) {
+    if (cfg.mode == agent::AgentMode::Yolo || !c.tool->requires_approval(c.args))
+        return {true, {}};
+    const ApprovalDecision decision =
+        approve_tool(*c.tool, c.args, cfg, hooks, session_approved, /*policy=*/nullptr);
+    if (!decision.allowed)
+        log_denied_with_args(log, c);
+    return decision;
+}
+
+// Run the gate for one prepared call and record its outcome on the call: the
+// approval, and — when it was refused — the reason the model will be given.
+void apply_approval(const Config& cfg, Call& c, const AgentHooks& hooks,
+                    std::set<std::string>& session_approved, PolicyStore* policy,
+                    ConversationLog& log) {
+    const ApprovalDecision d =
+        policy ? approve_with_policy(cfg, c, hooks, session_approved, policy, log)
+               : approve_without_policy(cfg, c, hooks, session_approved, log);
+    c.approved = d.allowed;
+    c.denied_reason = d.reason;
 }
 
 // Parse one requested call, announce it, let interceptors see it, resolve the
@@ -328,10 +388,8 @@ Call prepare_call(const json& raw, const Config& cfg, ToolRegistry& registry,
         std::string dup = duplicate_reason(cfg, c, context);
         if (!dup.empty()) {
             c.denied_reason = dup;
-        } else if (policy) {
-            c.approved = approve_with_policy(cfg, c, hooks, session_approved, policy, log);
         } else {
-            c.approved = approve_without_policy(cfg, c, hooks, session_approved, log);
+            apply_approval(cfg, c, hooks, session_approved, policy, log);
         }
     }
     return c;

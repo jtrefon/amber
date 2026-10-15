@@ -3233,6 +3233,161 @@ TEST(agent_denies_gated_tool_without_handler) {
 }
 
 // ---------------------------------------------------------------------------
+// A denial must say why. The model's only honest report of an unexplained
+// refusal is "it was refused", which is exactly what makes an agent stop
+// asking and start guessing at the filesystem.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// One gated write_skill call through the real dispatch path; returns what the
+// model got back.
+agent::ToolResult denied_write_skill_result(const agent::Config& cfg, agent::ToolRegistry& reg,
+                                            agent::AgentHooks hooks, agent::PolicyStore* policy) {
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::ToolResult captured;
+    captured.ok = true;
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult& r, const agent::json&) {
+        captured = r;
+    };
+    agent::json calls = agent::json::array();
+    agent::json tc;
+    tc["id"] = "c1";
+    tc["type"] = "function";
+    tc["function"] = {
+        {"name", "write_skill"},
+        {"arguments", {{"name", "demo"}, {"description", "a demo"}, {"body", "steps"}}}};
+    calls.push_back(tc);
+    agent::Context ctx;
+    agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, policy, nullptr, &ctx);
+    return captured;
+}
+
+} // namespace
+
+TEST(denied_write_skill_without_an_approver_says_so) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+
+    const agent::ToolResult r =
+        denied_write_skill_result(cfg, reg, agent::AgentHooks{} /* no approver */, nullptr);
+    ASSERT_FALSE(r.ok);
+    ASSERT(!r.error.empty());
+    ASSERT(r.error.find("approv") != std::string::npos);
+}
+
+TEST(denied_tool_without_a_policy_store_or_an_approver_says_so) {
+    // The legacy path (no policy store): the tool's own contract asks, and
+    // nothing can answer — the reason says which fail-safe fired.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+
+    const agent::ToolResult r =
+        denied_write_skill_result(cfg, reg, agent::AgentHooks{}, /*policy=*/nullptr);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("approv") != std::string::npos);
+}
+
+TEST(denied_tool_with_a_policy_store_and_no_approver_says_so) {
+    // Same fail-safe through the policy path: a store exists, the verdict is
+    // Prompt, and there is still nobody to ask.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    agent::PolicyStore policy;
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, agent::AgentHooks{}, &policy);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("approv") != std::string::npos);
+}
+
+TEST(denied_write_skill_by_a_stored_rule_names_the_scope_and_the_way_out) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    agent::PolicyStore policy;
+    policy.set_rule("write_skill", agent::PolicyLevel::AlwaysDeny);
+    // The rule refuses before anyone is asked: the hook allows, and must not be
+    // consulted at all.
+    bool asked = false;
+    agent::AgentHooks hooks;
+    hooks.on_approval = [&](const std::string&, const agent::json&, const std::string&) {
+        asked = true;
+        return agent::Approval::AllowOnce;
+    };
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, &policy);
+    ASSERT_FALSE(r.ok);
+    ASSERT_FALSE(asked);
+    ASSERT(r.error.find("write_skill") != std::string::npos);      // the scope
+    ASSERT(r.error.find("/set policy rule") != std::string::npos); // how to change it
+}
+
+TEST(denied_write_skill_by_the_user_says_the_user_declined) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    agent::AgentHooks hooks;
+    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+        return agent::Approval::Deny;
+    };
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, nullptr);
+    ASSERT_FALSE(r.ok);
+    ASSERT(!r.error.empty());
+    ASSERT(r.error.find("user") != std::string::npos);
+    ASSERT(r.error.find("declin") != std::string::npos);
+}
+
+TEST(denied_write_skill_by_always_deny_names_the_rule) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    // With a policy store the choice persists, so the reason names the rule and
+    // the way to take it back.
+    agent::PolicyStore policy;
+    agent::AgentHooks hooks;
+    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+        return agent::Approval::AlwaysDeny;
+    };
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, &policy);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("always") != std::string::npos);
+    ASSERT(r.error.find("/set policy rule") != std::string::npos);
+    const agent::PolicyRule* rule = policy.find("write_skill");
+    ASSERT(rule != nullptr);
+    ASSERT(rule->level == agent::PolicyLevel::AlwaysDeny);
+}
+
+// ---------------------------------------------------------------------------
 // Shell command classification (read-only vs benign-write vs destructive vs
 // outside-workspace). The classifier drives the approval gate: read-only and
 // benign in-workspace writes run free in WRITE mode; destructive commands and
