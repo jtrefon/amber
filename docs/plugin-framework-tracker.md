@@ -1435,3 +1435,13 @@ entry names the trigger that would reopen it.
    the single status surface.
 6. `make clean && make && make test && make lint && make analyze && make check`
    green on g++ and clang++, zero new findings.
+
+## Entry: project instructions as a plugin (2026-10-15)
+
+The workspace's `AGENTS.md` reaches the system prompt through
+`plugins/project_instructions/` (category `context`): read once, cached, capped
+at 8 KB, nested files named rather than inlined. It is the same three
+mechanisms as everything else — a `PromptBlockCapability`, an id, a ledger —
+so `/set plugin instructions off` removes the block and nothing else. Proof
+that the convention was missing at all: no file named `AGENTS.md`, `CLAUDE.md`
+or `llms.txt` was read anywhere in the runtime before this.
