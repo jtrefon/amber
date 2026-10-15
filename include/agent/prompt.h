@@ -27,6 +27,10 @@ std::string load_optional_prompt(const std::string& name);
 // turn needs, and a tool's reference material can follow it.
 namespace prompt_priority {
 inline constexpr int kProjectInstructions = 400;
+// Domain blocks (an activity's prose) sit just after the project's own
+// instructions: the project's rules come first, and the activity's follow.
+inline constexpr int kDomainWorkflow = 420;
+inline constexpr int kDomainDiscipline = 430;
 } // namespace prompt_priority
 
 namespace tool_doc_priority {

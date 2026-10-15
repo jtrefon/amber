@@ -225,10 +225,11 @@ std::string Agent::render_system_prompt() const {
     append_optional_section(system, plugin_tools_advertisement(registry_));
     system += mode_prompt(cfg_.mode);
 
-    // Optional git workflow prompt.
-    append_optional_section(
-        system,
-        load_prompt(cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path));
+    // An explicit git prompt, when the user configured one. The standard git
+    // prose lives in the coding domain plugin, so a session that is not
+    // software work carries none of it.
+    if (!cfg_.git_prompt_path.empty())
+        append_optional_section(system, load_prompt(cfg_.git_prompt_path));
     // A worker runs this same assembly plus the role boundary: rendered here,
     // not composed by the task tool, so the prompt rebuild cannot lose it.
     if (in_subagent())

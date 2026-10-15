@@ -705,6 +705,26 @@ std::string instructions_block(PluginRuntime& runtime) {
 
 } // namespace
 
+TEST(coding_domain_prose_arrives_and_leaves) {
+    ScratchWorkspace ws("coding-domain");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string blocks = system_blocks_text(runtime);
+    ASSERT(blocks.find("## Version control (git)") != std::string::npos);
+    ASSERT(blocks.find("## Engineering discipline") != std::string::npos);
+    ASSERT(blocks.find("Open for extension") != std::string::npos);
+
+    // Switching the domain off removes both blocks; a generic block stays.
+    ASSERT_TRUE(runtime.set_state("coding", false));
+    const std::string after = system_blocks_text(runtime);
+    ASSERT(after.find("## Version control (git)") == std::string::npos);
+    ASSERT(after.find("## Engineering discipline") == std::string::npos);
+    ASSERT(after.find("# Skills") != std::string::npos);
+}
+
 TEST(project_instructions_reach_the_system_prompt) {
     ScratchWorkspace ws("instructions");
     write_text(ws.root() / "AGENTS.md",
