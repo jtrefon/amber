@@ -649,11 +649,16 @@ search backends follow the same rule, one plugin each:
 `integration`) is the tool-source worked example: it owns the MCP client, and
 its servers' discovered tools, its status segment, its `/mcp`, `/prompt` and
 `/get mcp` commands and its prompt block all arrive and leave with it. Alongside
-them: `plugins/clock/` (the bar's right-edge readout), `plugins/metrics/` (an
-event-observing plugin with no contributions), `plugins/hello/` (the command
-example) and `plugins/amber_self/` (the `amber-self` plugin: it contributes the
-`amber-config` skill, whose body is rendered from the same table
-`/get config paths` prints). That is 24 bundled plugins in total.
+them: `plugins/project_instructions/` (category `context`: it reads the
+workspace's `AGENTS.md` once and carries it as a session-fixed System block, so
+the agent works to the project's own conventions instead of re-deriving them —
+the block is cached because it rides in every turn, and disabling the plugin
+takes it away), `plugins/clock/` (the bar's right-edge readout),
+`plugins/metrics/` (an event-observing plugin with no contributions),
+`plugins/hello/` (the command example) and `plugins/amber_self/` (the
+`amber-self` plugin: it contributes the `amber-config` skill, whose body is
+rendered from the same table `/get config paths` prints). That is 25 bundled
+plugins in total.
 
 Steps:
 

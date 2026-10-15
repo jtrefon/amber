@@ -1,6 +1,7 @@
 #include "agent/plugins_bundled.h"
 
 #include "plugins/amber_self/amber_self_plugin.h"
+#include "plugins/project_instructions/project_instructions_plugin.h"
 #include "plugins/anthropic/anthropic_plugin.h"
 #include "plugins/clock/clock_plugin.h"
 #include "plugins/commandcode/commandcode_plugin.h"
@@ -30,6 +31,10 @@ namespace agent {
 std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     std::vector<std::shared_ptr<IPlugin>> plugins;
     // Observability
+    // Context: the project's own standing instructions (AGENTS.md), read once
+    // and carried in the system prompt, so the agent works to the project's
+    // conventions instead of re-deriving them.
+    plugins.push_back(std::make_shared<plugins::ProjectInstructionsPlugin>());
     plugins.push_back(std::make_shared<plugins::MetricsPlugin>());
     // Interface: the bar's right edge is a registered region, so the clock is
     // a contribution like any other rather than a reservation the renderer
