@@ -3282,6 +3282,40 @@ TEST(denied_write_skill_without_an_approver_says_so) {
     ASSERT(r.error.find("approv") != std::string::npos);
 }
 
+TEST(denied_tool_without_a_policy_store_or_an_approver_says_so) {
+    // The legacy path (no policy store): the tool's own contract asks, and
+    // nothing can answer — the reason says which fail-safe fired.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+
+    const agent::ToolResult r =
+        denied_write_skill_result(cfg, reg, agent::AgentHooks{}, /*policy=*/nullptr);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("approv") != std::string::npos);
+}
+
+TEST(denied_tool_with_a_policy_store_and_no_approver_says_so) {
+    // Same fail-safe through the policy path: a store exists, the verdict is
+    // Prompt, and there is still nobody to ask.
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    agent::PolicyStore policy;
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, agent::AgentHooks{}, &policy);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("approv") != std::string::npos);
+}
+
 TEST(denied_write_skill_by_a_stored_rule_names_the_scope_and_the_way_out) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Write;
