@@ -3209,6 +3209,40 @@ TEST(bash_approval_allowlist) {
 // belong to the environment card and the domain blocks. This guard exists so a
 // later edit cannot quietly re-leak domain content into core — the conflict
 // surface the domain seam was built to keep small.
+TEST(environment_card_states_the_shell_and_platform_facts) {
+    agent::EnvironmentInfo info;
+    info.os = "Ubuntu 24.04 (Linux 6.8.0) (WSL)";
+    info.workspace = "/w/project";
+    info.shell = "/bin/zsh";
+    info.tools = {"git", "python3"};
+    const std::string card = agent::render_environment_card(info);
+    ASSERT(card.find("(WSL)") != std::string::npos);
+    ASSERT(card.find("Shell: /bin/zsh") != std::string::npos);
+    ASSERT(card.find("Workspace: /w/project") != std::string::npos);
+}
+
+TEST(tool_envelope_caps_meta_and_error_text) {
+    // The fields around a result are what make context expensive: an error dump
+    // or a metadata blob arrives whole and is read whole. Both are cut with a
+    // marker, so a truncated value is visible as one.
+    agent::ToolResult big;
+    big.ok = false;
+    big.error = std::string(6000, 'x');
+    big.meta = {{"blob", std::string(2000, 'y')}};
+    const std::string env = agent::format_tool_envelope("bash", {{"command", "boom"}}, big);
+    ASSERT(env.find("more characters]") != std::string::npos);
+    ASSERT(env.size() < 3000u);
+    ASSERT(env.find("status=error") != std::string::npos);
+
+    // A small result is untouched: the caps change nothing a normal call sees.
+    agent::ToolResult small;
+    small.ok = false;
+    small.error = "no such file: a.txt";
+    const std::string small_env = agent::format_tool_envelope("read", {{"path", "a.txt"}}, small);
+    ASSERT(small_env.find("ERROR: no such file: a.txt") != std::string::npos);
+    ASSERT(small_env.find("more characters]") == std::string::npos);
+}
+
 TEST(core_system_prompt_stays_agnostic) {
     std::ifstream in("prompts/system.md");
     ASSERT(in.good());

@@ -30,6 +30,22 @@ std::string fingerprint_tool_calls(const json& calls) {
     return key;
 }
 
+namespace {
+
+// A field the model reads: enough to act on, and a marker when it was cut, so
+// a truncated value is never mistaken for the whole one. Tool output is left
+// alone — a reader's content is the result — this is for the fields around it,
+// where an error dump or a metadata blob is what makes context expensive.
+std::string capped(std::string text, std::size_t limit) {
+    if (text.size() <= limit)
+        return text;
+    const std::size_t cut = text.size() - limit;
+    text.resize(limit);
+    return text + "\n[... " + std::to_string(cut) + " more characters]";
+}
+
+} // namespace
+
 std::string format_tool_envelope(const std::string& name, const json& args,
                                  const ToolResult& result) {
     // Ensure meta is always an object, never null (tools that return early
@@ -52,9 +68,9 @@ std::string format_tool_envelope(const std::string& name, const json& args,
     // bloat context and drive degradation.
     const std::string args_dump = args.dump();
     std::string header = "[tool=" + name + (args_dump.size() <= 120 ? " args=" + args_dump : "") +
-                         " status=" + status + " meta=" + meta.dump() + "]\n";
+                         " status=" + status + " meta=" + capped(meta.dump(), 300) + "]\n";
 
-    std::string content = result.ok ? result.output : ("ERROR: " + result.error);
+    std::string content = result.ok ? result.output : capped("ERROR: " + result.error, 2000);
     if (!content.empty() && content.back() != '\n')
         content += '\n';
 

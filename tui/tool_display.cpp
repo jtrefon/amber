@@ -170,7 +170,13 @@ rich::Line result_line(const std::string& name, const agent::json& args, bool ok
     rest.pair = P_STATUS;
     rest.text = " " + describe_tool_call(name, args, registry) + "  " + text::glyph::arrow() + " ";
     if (!ok) {
-        rest.text += "error: " + error;
+        // The line is a signpost, not the report: an error dump here would
+        // rewrap into rows the user has to scroll past. The full text is in the
+        // tool's own output and the conversation log.
+        std::string shown = error;
+        if (shown.size() > kCommandCap)
+            shown = shown.substr(0, kCommandCap) + "...";
+        rest.text += "error: " + shown;
     } else {
         int lines = 1;
         for (char c : output)
