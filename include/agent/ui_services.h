@@ -75,6 +75,12 @@ public:
     // The sanctioned way to touch UI state from another thread: the callable
     // runs later on the host's UI thread, where render callables are safe.
     virtual void post_to_ui(std::function<void()> work) = 0;
+
+    // Place text in the user's input line for review — never send it. Called
+    // from the host's command dispatch (the UI thread). False when the host has
+    // no input line (the headless CLI) or attached no UI at all, so a caller
+    // can print the text instead of pretending it arrived somewhere.
+    virtual bool fill_input(const std::string& text) = 0;
 };
 
 // What a host with no way to ask attaches, and what a plugin gets when the host
@@ -89,6 +95,7 @@ public:
     bool confirm(const ConfirmSpec&) override { return false; }
     void notify(UiLevel, const std::string&) override {}
     void post_to_ui(std::function<void()>) override {}
+    bool fill_input(const std::string&) override { return false; }
 };
 
 // Process-wide null instance, so wiring code can point at one and callers never

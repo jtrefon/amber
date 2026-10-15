@@ -21,9 +21,13 @@ public:
     using Request = std::function<AskAnswer(std::shared_ptr<AgentEvent>)>;
     using Notify = std::function<void(agent::UiLevel, const std::string&)>;
     using Post = std::function<void(std::function<void()>)>;
+    // Places text in the input line (true) — never sends it. Runs on the UI
+    // thread: command dispatch is where a plugin asks for this.
+    using Fill = std::function<bool(const std::string&)>;
 
-    TuiUiServices(Request request, Notify notify, Post post)
-        : request_(std::move(request)), notify_(std::move(notify)), post_(std::move(post)) {}
+    TuiUiServices(Request request, Notify notify, Post post, Fill fill)
+        : request_(std::move(request)), notify_(std::move(notify)), post_(std::move(post)),
+          fill_(std::move(fill)) {}
 
     std::string ask_text(const agent::AskSpec& spec) override;
     std::string ask_secret(const agent::AskSpec& spec) override;
@@ -31,6 +35,7 @@ public:
     bool confirm(const agent::ConfirmSpec& spec) override;
     void notify(agent::UiLevel level, const std::string& message) override;
     void post_to_ui(std::function<void()> work) override;
+    bool fill_input(const std::string& text) override;
 
 private:
     AskAnswer ask(AgentEvent::AskKind kind, const agent::AskSpec& spec);
@@ -38,6 +43,7 @@ private:
     Request request_;
     Notify notify_;
     Post post_;
+    Fill fill_;
 };
 
 } // namespace tui

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <future>
 #include <thread>
@@ -1150,10 +1151,16 @@ public:
         return i;
     }
 
-    agent::Message chat(const std::vector<agent::Message>&,
+    // Reported, not stored: the client is destroyed with the sub-agent that
+    // owns it, so a test that kept a pointer here would read freed memory.
+    std::function<void(const std::string&)> on_system;
+
+    agent::Message chat(const std::vector<agent::Message>& messages,
                         const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override {
         tool_counts.push_back(tools.size());
+        if (on_system && !messages.empty())
+            on_system(messages.front().content);
         if (track) {
             const int a = ++track->active;
             int p = track->peak.load();
@@ -1578,6 +1585,103 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     ASSERT(reg.find("read_skill") == before);
     ASSERT(reg.find("list_skills") != nullptr);
     ASSERT(reg.find("write_skill") != nullptr);
+}
+
+// A sub-agent's prompt is the same assembly as the main agent's plus the
+// worker directive. The directive used to be composed into the context's system
+// message by the task tool and then discarded, because Agent::run rebuilds the
+// prompt whenever it differs from what the renderer produces — so the worker
+// ran with the main prompt and no role boundary at all.
+TEST(agent_loop_subagent_prompt_carries_the_worker_directive) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "report");
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
+
+    agent::set_subagent_inherited(true);
+    ASSERT_EQ(ag.run("do the job"), "report");
+    agent::set_subagent_inherited(false);
+
+    ASSERT(!raw->requests.empty());
+    const std::string& system = raw->requests.front().front().content;
+    ASSERT(system.find("## Worker directive") != std::string::npos);
+    ASSERT(system.find("concise report") != std::string::npos);
+}
+
+// The same prompt, seen by the main agent, describes no worker role.
+TEST(agent_loop_main_prompt_has_no_worker_directive) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "answer");
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
+    ASSERT_EQ(ag.run("hello"), "answer");
+    ASSERT(!raw->requests.empty());
+    ASSERT(raw->requests.front().front().content.find("## Worker directive") == std::string::npos);
+}
+
+// Through the real task tool: the delegated run's prompt carries the directive.
+TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "task", {{"prompt", "reply ok"}});
+    push_text(script, "ok");   // the sub-agent's reply
+    push_text(script, "done"); // the parent's reply
+    push_text(script, "done"); // parent probe
+    push_text(script, "yes");  // probe confirmation
+
+    // Systems are collected through a shared, mutex-guarded sink: workers run
+    // on their own threads and their clients die with them.
+    struct Seen {
+        std::mutex mtx;
+        std::vector<std::string> systems;
+        void add(const std::string& s) {
+            std::scoped_lock lk(mtx);
+            systems.push_back(s);
+        }
+        std::size_t with_directive() {
+            std::scoped_lock lk(mtx);
+            std::size_t n = 0;
+            for (const auto& s : systems)
+                if (s.find("## Worker directive") != std::string::npos)
+                    ++n;
+            return n;
+        }
+        std::size_t total() {
+            std::scoped_lock lk(mtx);
+            return systems.size();
+        }
+    };
+    auto seen = std::make_shared<Seen>();
+
+    auto parent = std::make_unique<SharedScriptFake>();
+    parent->script = script;
+    parent->on_system = [seen](const std::string& s) { seen->add(s); };
+    executor.set_factory([script, seen](const agent::Config&) {
+        auto f = std::make_unique<SharedScriptFake>();
+        f->script = script;
+        f->on_system = [seen](const std::string& s) { seen->add(s); };
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+    executor.set_config(cfg);
+
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
+    ASSERT_EQ(ag.run("delegate"), "done");
+
+    // The worker's request carries the directive; the parent's does not.
+    ASSERT(seen->with_directive() >= 1u);
+    ASSERT(seen->with_directive() < seen->total());
 }
 
 // [item-5] Cancellation must stop the run cleanly: no fabricated

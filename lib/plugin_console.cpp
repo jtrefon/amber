@@ -8,6 +8,8 @@ const char* capability_kind_name(CapabilityKind kind) {
     switch (kind) {
     case CapabilityKind::Tool:
         return "tool";
+    case CapabilityKind::ToolSource:
+        return "tool source";
     case CapabilityKind::PromptBlock:
         return "prompt";
     case CapabilityKind::StatusSegment:

@@ -55,7 +55,7 @@ private:
     bool enter_serial_mode(std::unique_lock<std::timed_mutex>& guard, std::string& err);
     // Construct and run the sub-agent, containing any exception into `err`.
     std::string run_sub_agent(const std::string& prompt, ToolRegistry& reg, const Config& sub_cfg,
-                              const AgentHooks& sub_hooks, Message sys, std::string& err);
+                              const AgentHooks& sub_hooks, std::string& err);
     void release_slot() noexcept;
 
     std::atomic<bool> parallel_{true};
@@ -79,6 +79,11 @@ private:
 // Whether the current thread is executing inside a sub-agent (nesting guard
 // for the task tool). Async dispatch workers inherit the dispatching thread's
 // state via set_subagent_inherited so the guard survives thread hops.
+// The report contract and role boundary a sub-agent's system prompt carries:
+// the same assembly as the main agent's, plus this. Rendered by
+// render_system_prompt() so a later prompt rebuild cannot lose it.
+std::string worker_directive();
+
 bool in_subagent() noexcept;
 void set_subagent_inherited(bool value) noexcept;
 

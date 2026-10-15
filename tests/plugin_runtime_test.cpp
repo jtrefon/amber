@@ -9,11 +9,13 @@
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
+#include "agent/ui_services.h"
 #include "agent/tools.h"
 #include "fake_llm.h"
 #include "plugins/commandcode/commandcode_plugin.h"
 #include "plugins/deepseek/deepseek_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
+#include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
@@ -22,6 +24,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <atomic>
@@ -54,9 +57,42 @@ public:
     ScratchConfig(const ScratchConfig&) = delete;
     ScratchConfig& operator=(const ScratchConfig&) = delete;
 
+    // The scratch config root: where a test writes the files a user would
+    // (provider confs, mcp server confs, plugin state).
+    const std::string root() const { return dir_.string(); }
+
 private:
     fs::path dir_;
 };
+
+// Point a plugin at the stdio MCP fixture server through the same config file
+// a user writes: <XDG_CONFIG_HOME>/amber/mcp/<name>.conf.
+void write_mcp_server_conf(const std::string& config_root, const std::string& name,
+                           const std::string& command, const std::string& cwd) {
+    const fs::path dir = fs::path(config_root) / "amber" / "mcp";
+    fs::create_directories(dir);
+    std::ofstream f(dir / (name + ".conf"));
+    f << "type=stdio\n"
+      << "command=" << command << "\n"
+      << "cwd=" << cwd << "\n"
+      << "enabled=1\nauto_connect=1\ntrusted=1\n";
+}
+
+// True when a registry entry is owned by `owner` (the plugin id a contribution
+// was installed under).
+bool segment_owned_by(const StatusRegistry& status, const std::string& owner) {
+    for (const auto& item : status.items())
+        if (item.owner == owner)
+            return true;
+    return false;
+}
+
+bool command_root_present(const CommandRegistry& commands, const std::string& root) {
+    for (const auto& entry : commands.all())
+        if (entry.spec.root == root)
+            return true;
+    return false;
+}
 
 // Declares one prompt block, so activation has something observable to install.
 class BlockPlugin : public IPlugin {
@@ -480,6 +516,310 @@ TEST(registry_generation_moves_on_every_change) {
 
     reg.remove_tool("a");
     ASSERT(reg.generation() > replaced);
+}
+
+// The mcp plugin owns its command documentation now (the static JSON no longer
+// carries the nodes): every verb is documented AND executable, which is the
+// guard the completions suite used to provide for the static tree.
+TEST(mcp_command_surface_is_documented_and_executable) {
+    ScratchConfig scratch("mcp-docs");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    const CommandRegistry::Entry* mcp = nullptr;
+    const CommandRegistry::Entry* prompt = nullptr;
+    for (const auto& e : runtime.commands().all()) {
+        if (e.spec.root == "mcp")
+            mcp = &e;
+        if (e.spec.root == "prompt")
+            prompt = &e;
+    }
+    ASSERT_TRUE(mcp != nullptr);
+    ASSERT_TRUE(prompt != nullptr);
+
+    ASSERT(!mcp->spec.help.empty());
+    ASSERT(!mcp->spec.man.empty());
+    for (const char* verb : {"list", "show", "connect", "disconnect", "refresh", "prompts",
+                             "enable", "disable", "trust"}) {
+        ASSERT_TRUE(mcp->spec.subtree.contains(verb));
+        ASSERT_FALSE(mcp->spec.subtree[verb]["help"].get<std::string>().empty());
+        ASSERT_FALSE(mcp->spec.subtree[verb]["man"].get<std::string>().empty());
+        ASSERT_EQ(mcp->spec.handlers.count(verb), 1u); // documented AND executable
+    }
+    // The root binds too: `/mcp` with no verb lists the servers.
+    ASSERT_EQ(mcp->spec.handlers.count(""), 1u);
+    // /prompt takes free-form arguments, so it is a root handler with no
+    // children.
+    ASSERT_EQ(prompt->spec.handlers.count(""), 1u);
+    ASSERT_FALSE(prompt->spec.help.empty());
+}
+
+// MCP is a plugin: the client, the tools its servers discover, its command
+// namespace, its status segment and its prompt block all arrive through the
+// capability path. That is what makes `/set plugin mcp off` a real footprint
+// switch — servers are not spawned, discovered tools are gone, and the surfaces
+// that describe them leave with them.
+TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
+    ScratchConfig scratch("mcp-plugin");
+    char buf[4096];
+    const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    write_mcp_server_conf(scratch.root(), "echo", "tests/fixtures/mcp_echo", cwd);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    // The plugin is bundled and on, and its configured server's discovered tool
+    // is in the registry (the fixture speaks the protocol on stdio).
+    ASSERT_TRUE(runtime.has("mcp"));
+    ASSERT_TRUE(runtime.status("mcp").enabled);
+    ASSERT_TRUE((bool)f.tools.find("mcp_echo_echo_tool"));
+
+    // Surfaces: the prompt block, the status segment and the command namespace.
+    const std::string mcp_prompt = "# MCP (Model Context Protocol)";
+    ASSERT_TRUE(system_blocks_text(runtime).find(mcp_prompt) != std::string::npos);
+    ASSERT_TRUE(segment_owned_by(runtime.status(), "mcp"));
+    ASSERT_TRUE(command_root_present(runtime.commands(), "mcp"));
+    ASSERT_TRUE(command_root_present(runtime.commands(), "prompt"));
+    // The segment reads the plugin's own manager: the connected fixture shows
+    // as its name (the format the core segment used to render).
+    bool segment_text = false;
+    for (const auto& s : runtime.status().render(StatusSnapshot{}))
+        if (s.id == "mcp")
+            segment_text = s.text.find("mcp: echo") != std::string::npos;
+    ASSERT_TRUE(segment_text);
+
+    // A tool another owner registered with an MCP-shaped name is not ours.
+    f.tools.register_tool(std::make_unique<StubTool>("mcp_echo_someone_elses"), "other_plugin");
+
+    ASSERT_TRUE(runtime.set_state("mcp", false));
+    ASSERT_FALSE(runtime.status("mcp").enabled);
+    ASSERT_FALSE((bool)f.tools.find("mcp_echo_echo_tool"));
+    ASSERT_TRUE((bool)f.tools.find("mcp_echo_someone_elses")); // survives the unwind
+    ASSERT_TRUE(system_blocks_text(runtime).find(mcp_prompt) == std::string::npos);
+    ASSERT_FALSE(segment_owned_by(runtime.status(), "mcp"));
+    ASSERT_FALSE(command_root_present(runtime.commands(), "mcp"));
+    ASSERT_FALSE(command_root_present(runtime.commands(), "prompt"));
+}
+
+// ---------------------------------------------------------------------------
+// The MCP plugin's command surface. The verbs are reached the way the
+// dispatcher reaches them — through the command specs the runtime holds — so
+// these cover what a user typing /mcp, /prompt or /get mcp actually runs,
+// against the real fixture server on stdio.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Accepts filled input, so /prompt's fill path is exercised rather than its
+// print fallback.
+class FillUi : public NullUiServices {
+public:
+    bool fill_input(const std::string& text) override {
+        filled = text;
+        return true;
+    }
+    std::string filled;
+};
+
+// Call one verb of one command root, as a dispatcher would.
+std::string run_verb(PluginRuntime& rt, const std::string& root, const std::string& verb,
+                     const std::string& arg) {
+    for (const auto& entry : rt.commands().all())
+        if (entry.spec.root == root) {
+            const auto it = entry.spec.handlers.find(verb);
+            return it == entry.spec.handlers.end() ? "<no handler>" : it->second(arg);
+        }
+    return "<no such root>";
+}
+
+// These tests toggle server state, and a toggle persists into the *project*
+// mcp dir — which, running from the checkout, is the checkout. Point the
+// workspace at a scratch dir for their lifetime.
+class ScratchWorkspace {
+public:
+    explicit ScratchWorkspace(const std::string& tag) {
+        const fs::path dir = fs::temp_directory_path() / ("amber_ws_" + tag);
+        fs::create_directories(dir);
+        previous_ = Workspace::root();
+        Workspace::set_root(dir.string());
+    }
+    ~ScratchWorkspace() { Workspace::set_root(previous_); }
+    ScratchWorkspace(const ScratchWorkspace&) = delete;
+    ScratchWorkspace& operator=(const ScratchWorkspace&) = delete;
+
+private:
+    std::string previous_;
+};
+
+// A runtime with one live fixture server configured, exactly as a user would.
+struct LiveMcp {
+    explicit LiveMcp(const std::string& tag, UiServices* ui = nullptr) : ws(tag), scratch(tag) {
+        char buf[4096];
+        const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+        // Absolute command, cwd inside the (scratch) workspace: the spawn is
+        // confined to it, exactly as a real run is.
+        write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
+        if (ui)
+            runtime.attach_ui_services(ui);
+        runtime.add_bundled();
+        runtime.start(/*use_persisted_state=*/false);
+    }
+    ScratchWorkspace ws;
+    ScratchConfig scratch;
+    Fixture f;
+    PluginRuntime runtime{f.tools, f.cfg, f.ws};
+};
+
+} // namespace
+
+TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
+    LiveMcp live("mcp-usage");
+    const std::vector<std::pair<std::string, std::string>> verbs = {
+        {"mcp", "show"},    {"mcp", "connect"}, {"mcp", "disconnect"},
+        {"mcp", "refresh"}, {"mcp", "prompts"}, {"mcp", "enable"},
+        {"mcp", "disable"}, {"mcp", "trust"},   {"prompt", ""},
+    };
+    for (const auto& [root, verb] : verbs)
+        ASSERT_TRUE(run_verb(live.runtime, root, verb, "").find("usage:") != std::string::npos);
+    // The root with an unexpected argument explains itself too.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "", "bogus").find("usage:") != std::string::npos);
+    // /mcp and /mcp list both list the configured servers.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "", "").find("echo") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "list", "").find("echo") != std::string::npos);
+}
+
+TEST(mcp_plugin_verbs_report_unknown_servers) {
+    LiveMcp live("mcp-unknown");
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "show", "nope").find("nope") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "connect", "nope").find("nope") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "refresh", "nope").find("nope") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "enable", "nope").find("nope") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "disable", "nope").find("nope") != std::string::npos);
+    // A trust toggle without on|off is a usage line, not a silent no-op.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "trust", "echo").find("usage:") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "prompts", "nope").find("not connected") !=
+                std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "prompt", "", "nope greet").find("not connected") !=
+                std::string::npos);
+}
+
+TEST(mcp_plugin_verbs_work_against_a_live_server) {
+    FillUi ui;
+    LiveMcp live("mcp-live", &ui);
+    // The auto-connect registered the fixture's tool through the plugin's port.
+    ASSERT_TRUE((bool)live.f.tools.find("mcp_echo_echo_tool"));
+
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "show", "echo").find("echo") != std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "prompts", "echo").find("greet") !=
+                std::string::npos);
+
+    // /prompt asks the server for the template and fills the input line.
+    const std::string filled = run_verb(live.runtime, "prompt", "", "echo greet name=world");
+    ASSERT_TRUE(filled.find("filled /prompt echo greet") != std::string::npos);
+    ASSERT_TRUE(ui.filled.find("greet world") != std::string::npos);
+
+    // /get mcp summarizes the servers and the prompts they expose.
+    const std::string got = run_verb(live.runtime, "get", "mcp", "");
+    ASSERT_TRUE(got.find("echo") != std::string::npos);
+    ASSERT_TRUE(got.find("greet") != std::string::npos);
+
+    // Disconnect unregisters the server's tools; connect brings them back.
+    run_verb(live.runtime, "mcp", "disconnect", "echo");
+    ASSERT_FALSE((bool)live.f.tools.find("mcp_echo_echo_tool"));
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "connect", "echo").find("connected") !=
+                std::string::npos);
+    ASSERT_TRUE((bool)live.f.tools.find("mcp_echo_echo_tool"));
+
+    // Refresh needs the connection; it reconnects and re-registers.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "refresh", "echo").find("refreshed") !=
+                std::string::npos);
+    ASSERT_TRUE((bool)live.f.tools.find("mcp_echo_echo_tool"));
+
+    // Trust is a persisted toggle.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "trust", "echo on").find("trust: on") !=
+                std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "trust", "echo off").find("trust: off") !=
+                std::string::npos);
+
+    // Disabling unregisters; re-enabling and refreshing work again.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "disable", "echo").find("disabled") !=
+                std::string::npos);
+    ASSERT_FALSE((bool)live.f.tools.find("mcp_echo_echo_tool"));
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "enable", "echo").find("enabled") !=
+                std::string::npos);
+    // Disabling disconnected the server (correctly): refresh says so rather
+    // than pretending, and connect brings it back.
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "refresh", "echo").find("not connected") !=
+                std::string::npos);
+    ASSERT_TRUE(run_verb(live.runtime, "mcp", "connect", "echo").find("connected") !=
+                std::string::npos);
+}
+
+// The read_resource tool the plugin contributes reads through the manager.
+TEST(mcp_plugin_read_resource_reads_through_the_manager) {
+    LiveMcp live("mcp-resource");
+    auto tool = live.f.tools.find("read_resource");
+    ASSERT_TRUE(tool != nullptr);
+    auto ok = tool->execute({{"server", "echo"}, {"uri", "doc://greet"}});
+    ASSERT_TRUE(ok.ok);
+    ASSERT_TRUE(ok.output.find("hello doc://greet") != std::string::npos);
+}
+
+// A server that cannot be spawned shows as a failure on the bar; a runtime with
+// no servers leaves the segment silent.
+TEST(mcp_plugin_status_segment_reports_failures) {
+    {
+        ScratchWorkspace ws("mcp-segment-bad");
+        ScratchConfig scratch("mcp-segment-bad");
+        char buf[4096];
+        const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+        write_mcp_server_conf(scratch.root(), "bad", "no-such-mcp-binary", cwd);
+        Fixture f;
+        PluginRuntime runtime(f.tools, f.cfg, f.ws);
+        runtime.add_bundled();
+        runtime.start(false);
+        std::string text = "<no mcp segment>";
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "mcp")
+                text = s.text;
+        ASSERT_TRUE(text.find("!bad") != std::string::npos);
+    }
+    {
+        ScratchWorkspace ws("mcp-segment-empty");
+        ScratchConfig scratch("mcp-segment-empty");
+        Fixture f;
+        PluginRuntime runtime(f.tools, f.cfg, f.ws);
+        runtime.add_bundled();
+        runtime.start(false);
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "mcp")
+                ASSERT_TRUE(s.text.empty());
+    }
+}
+
+// With no manager the whole host-facing API fails closed and says so, the way
+// the CLI and a disabled plugin's stale command line find it.
+TEST(mcp_plugin_inactive_api_says_not_active) {
+    plugins::McpPlugin plugin;
+    ASSERT_TRUE(plugin.manager() == nullptr);
+    ASSERT_TRUE(plugin.connect("x").find("not active") != std::string::npos);
+    ASSERT_TRUE(plugin.refresh("x").find("not active") != std::string::npos);
+    ASSERT_TRUE(plugin.set_enabled("x", false).find("not active") != std::string::npos);
+    ASSERT_TRUE(plugin.set_trusted("x", false).find("not active") != std::string::npos);
+    ASSERT_TRUE(plugin.list_lines().empty());
+    std::string error;
+    ASSERT_TRUE(plugin.show_lines("x", error).empty());
+    ASSERT_TRUE(error.find("not active") != std::string::npos);
+    std::string text;
+    ASSERT_TRUE(plugin.prompt_text("x", "y", json::object(), text).find("not active") !=
+                std::string::npos);
+    plugin.disconnect("x"); // a no-op, not a crash
+    ASSERT_EQ(plugin.capabilities().size(), 7u);
+    ASSERT_EQ(plugin.category(), "integration");
+    plugin.shutdown();
 }
 
 // The skill tools are ordinary plugin contributions: one plugin, three tools,
@@ -1658,28 +1998,34 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 1u);
-    ASSERT_EQ(runtime.commands().all()[0].spec.root, std::string("hello"));
-    ASSERT_EQ(runtime.commands().all()[0].spec.handlers.at("greet")("amber"),
-              std::string("Hello, amber!"));
+    // The bundled set contributes four namespaces: hello, and the mcp plugin's
+    // mcp / prompt / get.
+    ASSERT_EQ(runtime.commands().size(), 4u);
+    const auto& all = runtime.commands().all();
+    const auto hello =
+        std::find_if(all.begin(), all.end(),
+                     [](const agent::CommandRegistry::Entry& e) { return e.spec.root == "hello"; });
+    ASSERT(hello != all.end());
+    ASSERT_EQ(hello->spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
 
     // A command-contributing plugin survives a disable/re-enable cycle: the
     // capability must come back with the same binding.
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 0u);
+    ASSERT_EQ(runtime.commands().size(), 3u); // the mcp plugin's three survive
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 1u);
+    ASSERT_EQ(runtime.commands().size(), 4u);
 }
 
 // The registry console groups contributions by kind, so every kind needs a
 // name: an unnamed one renders as "?" and the contribution reads as a typo.
 TEST(capability_kind_name_covers_every_kind) {
     const std::vector<CapabilityKind> kinds = {
-        CapabilityKind::Tool,    CapabilityKind::PromptBlock,   CapabilityKind::StatusSegment,
-        CapabilityKind::Panel,   CapabilityKind::Provider,      CapabilityKind::Wallet,
-        CapabilityKind::Command, CapabilityKind::SearchBackend,
+        CapabilityKind::Tool,          CapabilityKind::ToolSource, CapabilityKind::PromptBlock,
+        CapabilityKind::StatusSegment, CapabilityKind::Panel,      CapabilityKind::Provider,
+        CapabilityKind::Wallet,        CapabilityKind::Command,    CapabilityKind::SearchBackend,
+        CapabilityKind::Skill,
     };
     for (const auto kind : kinds) {
         const std::string name = capability_kind_name(kind);

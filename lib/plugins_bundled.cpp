@@ -9,6 +9,7 @@
 #include "plugins/gemini/gemini_plugin.h"
 #include "plugins/hello/hello_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
+#include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/opencode_zen/opencode_zen_plugin.h"
@@ -71,6 +72,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // Example command plugin: registers the /hello namespace. Small enough to
     // read in one sitting and the reference for the command capability.
     plugins.push_back(std::make_shared<plugins::HelloPlugin>());
+    // MCP: the client as a plugin. Its servers' tool sets are discovered, not
+    // declared, so it contributes through the tool-source port; its command
+    // surface, status segment and prompt block travel with it.
+    plugins.push_back(std::make_shared<plugins::McpPlugin>());
     // Self-knowledge: registers the amber-config skill, so the agent can answer
     // "where does amber keep this?" and change amber's own settings without
     // guessing at paths. The body is rendered from agent::config_paths().

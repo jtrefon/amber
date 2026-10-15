@@ -13,9 +13,38 @@ namespace {
 
 using Entries = std::vector<agent::CommandRegistry::Entry>;
 
+// Bind one handler leaf: stamp the node's action and register a closure that
+// resolves the handler from the LIVE registry at dispatch time, so a
+// disable/re-enable can never dispatch a stale closure.
+void bind_handler(const agent::CommandRegistry::Entry& entry, nlohmann::json& node,
+                  const std::string& path, ActionRegistry& actions,
+                  const std::function<const Entries&()>& entries,
+                  const std::function<void(const std::string&)>& output) {
+    const std::string root = entry.spec.root;
+    // The root binds under its own name (a namespace whose arguments are not
+    // child commands); every other leaf uses its dotted path.
+    const std::string action =
+        path.empty() ? "plugin." + entry.owner + "." + root : "plugin." + entry.owner + "." + path;
+    node["action"] = action;
+    actions.register_action(action, [root, path, entries, output](const std::string& arg) {
+        for (const auto& live : entries()) {
+            if (live.spec.root != root)
+                continue;
+            auto h = live.spec.handlers.find(path);
+            if (h == live.spec.handlers.end())
+                break;
+            std::string out = h->second(arg);
+            if (!out.empty())
+                output(out);
+            return;
+        }
+        output("/" + root + ": command unavailable");
+    });
+}
+
 // Walk a command subtree and stamp each executable leaf with its derived action
-// (`plugin.<id>.<path>`), binding the action to a dispatch-time lookup. A leaf
-// with no handler stays inert. Returns the number of actions bound.
+// (`plugin.<id>.<path>`). A leaf with no handler stays inert. Returns the
+// number of actions bound.
 std::size_t bind_leaves(const agent::CommandRegistry::Entry& entry, nlohmann::json& children,
                         const std::string& prefix, ActionRegistry& actions,
                         const std::function<const Entries&()>& entries,
@@ -31,23 +60,7 @@ std::size_t bind_leaves(const agent::CommandRegistry::Entry& entry, nlohmann::js
         }
         if (entry.spec.handlers.find(path) == entry.spec.handlers.end())
             continue; // inert leaf: documented, not executable
-        const std::string root = entry.spec.root;
-        const std::string action = "plugin." + entry.owner + "." + path;
-        it.value()["action"] = action;
-        actions.register_action(action, [root, path, entries, output](const std::string& arg) {
-            for (const auto& live : entries()) {
-                if (live.spec.root != root)
-                    continue;
-                auto h = live.spec.handlers.find(path);
-                if (h == live.spec.handlers.end())
-                    break;
-                std::string out = h->second(arg);
-                if (!out.empty())
-                    output(out);
-                return;
-            }
-            output("/" + root + ": command unavailable");
-        });
+        bind_handler(entry, it.value(), path, actions, entries, output);
         ++bound;
     }
     return bound;
@@ -66,6 +79,14 @@ std::size_t install_plugin_commands(const std::function<const Entries&()>& entri
         if (!entry.spec.man.empty())
             node["man"] = entry.spec.man;
         node["children"] = entry.spec.subtree;
+
+        // A handler keyed by the empty path binds the ROOT node, which is how a
+        // namespace that takes free-form arguments (`/prompt <server> <name>`)
+        // is executable at all — its arguments are not child commands.
+        if (entry.spec.handlers.count("") > 0) {
+            bind_handler(entry, node, "", actions, entries, output);
+            ++bound;
+        }
 
         bound += bind_leaves(entry, node["children"], "", actions, entries, output);
 

@@ -1,6 +1,14 @@
 # amber — MCP Client Implementation Tracker
 
 - **Status:** 🟢 Complete — MC-IMP-001..010 implemented on `feat/mcp-support`, all gates green
+- **Since 2026-10-15 the feature is one plugin** (`plugins/mcp/`): the client,
+  the discovered tools, the status segment, the prompt block and the `/mcp`,
+  `/prompt` and `/get mcp` surfaces are contributions, so `/set plugin mcp off`
+  switches all of it off (tracker D25/D27). Two consequences for the notes
+  below: tool registration goes through the owner-scoped tool port (the
+  name-prefix sweep is gone, so a disconnect can no longer reach another
+  owner's tool), and the command surface lives in the plugin rather than in
+  `completions.json`.
 - **Reference:** `docs/spec/mcp/mcp-architecture.md`, `mcp-transport.md`,
   `mcp-client.md`, `mcp-ui.md`, `mcp-security.md`
 - **Issues register:** `docs/issues.md`

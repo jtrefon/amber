@@ -252,16 +252,6 @@ TEST(core_segments_prefer_a_running_tool_over_idle) {
     ASSERT_EQ(text_of(registry.render(tool), "activity"), std::string("  search\u2026"));
 }
 
-TEST(core_segments_summarize_mcp_servers) {
-    auto registry = core_registry();
-    StatusSnapshot mcp = base_snapshot();
-    mcp.mcp_servers = {{"github", true, false},
-                       {"broken", false, true},
-                       {"silent", false, false}}; // not connected, no error: hidden
-
-    ASSERT_EQ(text_of(registry.render(mcp), "mcp"), std::string("  mcp: github\u00b7!broken"));
-}
-
 TEST(core_segments_show_scroll_mode_only_when_on) {
     auto registry = core_registry();
     StatusSnapshot scrolling = base_snapshot();

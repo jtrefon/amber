@@ -5,12 +5,16 @@
 // Shared test doubles for the MCP test files: a scripted in-memory transport
 // and JSON helpers for scripting initialize/discovery responses.
 
+#include <algorithm>
 #include <deque>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "agent/extensions.h"
 #include "agent/mcp_transport.h"
+#include "agent/registry.h"
+#include "agent/tool.h"
 
 namespace mcp_test {
 
@@ -108,6 +112,44 @@ inline json init_result(const std::string& version = "2025-06-18") {
 }
 
 // Script the connect sequence: initialize + three discovery pages.
+// The port the runtime hands a plugin, as a test double: owner-tagged
+// registration into a local registry, with the names recorded. The real
+// (thread-safe, runtime-owned) implementation is exercised end to end by
+// `mcp_feature_arrives_and_leaves_as_one_plugin` in the runtime suite.
+class TestToolPort : public agent::ToolPort {
+public:
+    TestToolPort(agent::ToolRegistry& registry, std::string owner)
+        : registry_(registry), owner_(std::move(owner)) {}
+
+    void add(std::unique_ptr<agent::Tool> tool, agent::ToolMeta meta = {}) override {
+        if (!tool)
+            return;
+        const std::string name = tool->name();
+        registry_.register_tool(std::move(tool), owner_, std::move(meta));
+        names_.push_back(name);
+    }
+
+    void remove(const std::string& name) override {
+        const auto it = std::find(names_.begin(), names_.end(), name);
+        if (it == names_.end())
+            return; // never carried by this port
+        registry_.remove_owned_tool(name, owner_);
+        names_.erase(it);
+    }
+
+    void open() override {}
+    void close() override {
+        for (const auto& name : names_)
+            registry_.remove_owned_tool(name, owner_);
+        names_.clear();
+    }
+
+private:
+    agent::ToolRegistry& registry_;
+    std::string owner_;
+    std::vector<std::string> names_;
+};
+
 inline void script_connect(FakeTransport& t) {
     t.script.push_back(ok_result(init_result()));
     t.script.push_back(ok_result({{"tools", json::array()}}));

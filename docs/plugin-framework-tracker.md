@@ -87,6 +87,19 @@ measured against. Re-verify rather than trust it if the tree has moved.
 
 Newest first. Each entry: what landed, on which branch, and what it did *not*
 
+### 2026-10-15 — MCP is one plugin: the client, its discovered tools, its surfaces
+
+Branch `feat/mcp-plugin` (PR 2 of the MCP-as-a-plugin stack). Closes tools-domain **§6**.
+
+- **One plugin, five contributions.** `plugins/mcp/` (id `mcp`, category `integration`) contributes the server manager's discovered tools through the tool-source port — D25's first real consumer — `read_resource` as an ordinary tool, `prompts/mcp.md` as a `System` prompt block (`tool_doc_priority::kMcp`), the bar's `mcp:` segment, and the `/mcp`, `/prompt` and `/get mcp` command namespaces. Those namespaces used to be static `completions.json` nodes plus fourteen core TUI handlers; both are deleted, and the plugin owns the documentation with the behaviour (a test asserts every verb is documented **and** executable). `/set plugin mcp off` is now a complete footprint switch: no servers spawned, no tools, no prose, no segment, no commands.
+- **Unwinding is owner-precise.** `register_server_tools`/`unregister_server_tools` take the port, and the manager records exactly the names it registered; the name-prefix sweep is deleted. The red commit reproduced the defect it fixes: another owner's `mcp_echo_*` tool was deleted by an unrelated disconnect. The port's owner check is now the only thing that can remove an adapter.
+- **Adapters declare their meta** (verb `calling`, role `Other`): the UI renders them like any other tool, and the audit stays out of the way for a tool that only fits its own description.
+- **The TUI stopped knowing about MCP.** No manager member, no handlers, no per-command tree rebuilds: a tool set can now arrive from a plugin worker, so the tree re-merges when `ToolRegistry::generation()` moves (D26). `mcp_completion_subtree` stays, narrowed to what a feed should own — the live `<server>.<tool>` children, never the command's own fields, and nothing at all when no server is registered (otherwise a feed would resurrect a dead `/mcp` after the plugin was switched off).
+- **One host service grew** (D27): `UiServices::fill_input`, so `/prompt` can fill the input line (the [MU-02] invariant) without the plugin knowing what a TUI is. A host with no input line returns false and the plugin prints the template instead.
+- **Command specs can bind their root** (`handlers[""]`), which is how `/prompt <server> <name>` — a namespace whose arguments are not child commands — is executable at all; and the dispatcher prints multi-line plugin output line by line.
+- **CLI**: `--mcp-list` and `--mcp <server> <prompt>` read the plugin (one client path, honouring plugin state); `--mcp-connect` attaches to the run's own session. `--no-plugins` therefore no longer serves them — the architecture working as stated, and now said out loud in the help text.
+- **Verification:** 1023 unit tests + 141 bench tests green; hermetic bench before/after (the MCP prose moved into a `System` block, so the prompt changed); `make check`, `lint-changed` and `format-check-changed` clean.
+
 ### 2026-10-15 — The tool-source seam: a plugin can contribute a set it discovers
 
 Branch `feat/plugin-tool-source` (PR 1 of the MCP-as-a-plugin stack; answers the framework half of tools-domain §6).
@@ -1252,6 +1265,8 @@ What a plugin author can rely on today. Update with every landed task.
 | Wallet contribution — balance and/or quota windows (fetch only; polling + rendering core) | ✅ | PF-3.4, unified 2026-09-12 |
 | Search backend contribution — one plugin per mode, resolved live by the tool | ✅ | 2026-09-13 |
 | Skill tools (`read_skill`/`list_skills`/`write_skill`) — one plugin, resolving the running agent's catalog through the run scope | ✅ | 2026-10-14 |
+| Tool source — a plugin contributes a set it discovers while active, unwound owner-checked (`ToolPort`) | ✅ | 2026-10-15 |
+| MCP — the client, its discovered tools, segment, prompt block and command surface as one plugin | ✅ | 2026-10-15 |
 | `/get provider wallet`, `/set provider wallet on\|off` | ✅ | PF-3.4 |
 | OpenCode Go provider (presets + wallet) | ✅ | PF-3.5 |
 | OpenCode Zen provider (presets only) | ✅ | PF-3.5 |

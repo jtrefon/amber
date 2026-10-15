@@ -29,6 +29,8 @@ public:
     bool busy_reject(const std::string& what);
     void request_quit();
     void refresh_completions();
+    // Plugin command output: one status row per line.
+    void append_output(const std::string& text);
     void refresh_model_list();
     void refresh_policy_feed();
     void refresh_provider_feed();
@@ -125,13 +127,6 @@ public:
     void cmd_window_list();
     void cmd_window_rename(const std::string& name);
     void cmd_window_set(const std::string& arg);
-    void cmd_mcp_show(const std::string& server);
-    void cmd_mcp_connect(const std::string& server);
-    void cmd_mcp_disconnect(const std::string& server);
-    void cmd_mcp_refresh(const std::string& server);
-    void cmd_mcp_prompts(const std::string& server);
-    void cmd_mcp_set_enabled(const std::string& server, bool on);
-    void cmd_mcp_trust(const std::string& args);
     void cmd_plugin_settings_get(const std::string& args);
     void cmd_plugin_settings_set(const std::string& args);
     void cmd_plugin_install(const std::string& source);
@@ -152,9 +147,6 @@ public:
     void apply_compression_keep_last_prompts(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
-    void cmd_mcp(const std::string& rest);
-    void cmd_prompt(const std::string& rest);
-    void cmd_prompt_list();
     void job_ls();
     void job_start(const std::string& cmd);
     void build_settings();
@@ -169,7 +161,6 @@ private:
     void register_os_actions();
     void register_config_set_actions();
     void register_config_get_actions();
-    void register_mcp_actions();
     // The core and config groups are themselves facades over these, so one
     // domain's actions are registered in one place.
     void register_core_session_actions();

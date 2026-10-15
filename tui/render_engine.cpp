@@ -259,11 +259,6 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.running_jobs = tui_.jobs_.running_count();
     snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
     snapshot.running_tool = w.running_tool;
-    for (const auto& st : tui_.mcp_servers_.snapshot()) {
-        if (!st.connected && st.error.empty())
-            continue;
-        snapshot.mcp_servers.push_back({st.name, st.connected, !st.error.empty()});
-    }
     return snapshot;
 }
 

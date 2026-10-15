@@ -45,6 +45,10 @@ void TuiUiServices::notify(agent::UiLevel level, const std::string& message) {
         notify_(level, message);
 }
 
+bool TuiUiServices::fill_input(const std::string& text) {
+    return fill_ ? fill_(text) : false;
+}
+
 void TuiUiServices::post_to_ui(std::function<void()> work) {
     if (post_)
         post_(std::move(work));

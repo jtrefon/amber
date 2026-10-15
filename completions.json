@@ -283,11 +283,6 @@
      "help": "Show reasoning effort.",
      "man": "Shows the current reasoning effort value sent to the server (off/low/medium/high)."
     },
-    "mcp": {
-     "action": "core.config.get.mcp",
-     "help": "Show MCP server status and prompts.",
-     "man": "Summarizes the configured MCP servers and their exposed prompts."
-    },
     "learn": {
      "action": "core.config.get.learn",
      "help": "Show learned skills and memories.",
@@ -788,63 +783,6 @@
      "man": "Sends SIGKILL to a running job's process group and cleans up its resources."
     }
    }
-  },
-  "mcp": {
-   "action": "core.mcp",
-   "help": "Manage MCP servers.",
-   "man": "The mcp command manages MCP (Model Context Protocol) servers. Servers are configured globally and expose their tools to the agent as mcp_<server>_<tool>. Use '/mcp list' to see configured servers, '/mcp connect' to attach a server's tools, '/mcp trust' to approve its capabilities, and '/mcp prompts' to list its prompt templates.",
-   "children": {
-    "list": {
-     "action": "core.mcp.list",
-     "help": "List configured MCP servers and their connection state.",
-     "man": "Lists all configured MCP servers with their transport (http/command), URL, enabled state, and connection status."
-    },
-    "show": {
-     "action": "core.mcp.show",
-     "help": "Show details for one MCP server.",
-     "man": "Displays a server's full configuration: transport, endpoint, enabled flag, trust level, and the tools it exposes."
-    },
-    "connect": {
-     "action": "core.mcp.connect",
-     "help": "Connect to an MCP server and register its tools.",
-     "man": "Establishes the connection to the server and registers its tools in the agent's tool registry as mcp_<server>_<tool>."
-    },
-    "disconnect": {
-     "action": "core.mcp.disconnect",
-     "help": "Disconnect from an MCP server and unregister its tools.",
-     "man": "Closes the connection and unregisters all tools that server exposed."
-    },
-    "refresh": {
-     "action": "core.mcp.refresh",
-     "help": "Reconnect all enabled MCP servers.",
-     "man": "Disconnects and reconnects every enabled server, picking up configuration changes."
-    },
-    "prompts": {
-     "action": "core.mcp.prompts",
-     "help": "List prompt templates exposed by a server.",
-     "man": "Lists the prompt templates a server advertises. Templates are invoked with '/prompt <server> <name> k=v...'."
-    },
-    "enable": {
-     "action": "core.mcp.enable",
-     "help": "Enable a configured MCP server.",
-     "man": "Marks the server as enabled so its tools load on the next connect."
-    },
-    "disable": {
-     "action": "core.mcp.disable",
-     "help": "Disable a configured MCP server.",
-     "man": "Marks the server as disabled; its tools are unregistered until re-enabled."
-    },
-    "trust": {
-     "action": "core.mcp.trust",
-     "help": "Mark a server as trusted.",
-     "man": "Raises a server's trust level, affecting which of its tools run without approval."
-    }
-   }
-  },
-  "prompt": {
-   "action": "core.prompt",
-   "help": "Invoke an MCP prompt template (fills the input line).",
-   "man": "The prompt command invokes a prompt template exposed by an MCP server. The template's arguments are filled with the provided key=value pairs and the resulting prompt is placed into the input line for review before sending."
   },
   "sessions": {
    "action": "core.session.list",
