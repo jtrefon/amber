@@ -40,10 +40,12 @@ void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner, 
             entry.tool = std::move(owned);
             entry.owner = std::move(owner);
             entry.meta = std::move(meta);
+            ++generation_;
             return;
         }
     }
     tools_.push_back(Entry{std::move(owned), std::move(owner), std::move(meta)});
+    ++generation_;
 }
 
 ToolMeta ToolRegistry::meta_for(const std::string& name) const {
@@ -56,8 +58,6 @@ ToolMeta ToolRegistry::meta_for(const std::string& name) const {
 }
 
 std::uint64_t ToolRegistry::generation() const {
-    // RED: nothing bumps the counter yet, so a host polling it sees a set that
-    // never changes.
     std::scoped_lock lk(mtx_);
     return generation_;
 }
@@ -67,6 +67,7 @@ bool ToolRegistry::remove_tool(const std::string& name) {
     for (auto it = tools_.begin(); it != tools_.end(); ++it) {
         if (it->tool->name() == name) {
             tools_.erase(it);
+            ++generation_;
             return true;
         }
     }
@@ -78,6 +79,7 @@ bool ToolRegistry::remove_owned_tool(const std::string& name, const std::string&
     for (auto it = tools_.begin(); it != tools_.end(); ++it) {
         if (it->tool->name() == name && it->owner == owner) {
             tools_.erase(it);
+            ++generation_;
             return true;
         }
     }
@@ -103,6 +105,8 @@ size_t ToolRegistry::unregister_tools_with_prefix(const std::string& prefix) {
         return e.tool->name().rfind(prefix, 0) == 0;
     });
     const auto removed = static_cast<size_t>(std::distance(first, tools_.end()));
+    if (removed > 0)
+        ++generation_;
     tools_.erase(first, tools_.end());
     return removed;
 }

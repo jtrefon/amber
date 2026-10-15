@@ -50,6 +50,11 @@ struct Entry {
     bool bundled = true;
     // What the plugin declared at registration; installed on activation.
     std::vector<std::unique_ptr<Capability>> declared;
+    // The owner-scoped port a tool source registers discovered tools through.
+    // One per plugin for its whole life: opened at activation, cleared at
+    // deactivation (after the plugin's own stop has run), so a late add from a
+    // source that ignored the contract is a no-op rather than a dangling write.
+    std::unique_ptr<ToolPort> tool_port;
 };
 
 } // namespace detail

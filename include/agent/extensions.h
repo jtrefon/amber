@@ -413,6 +413,10 @@ private:
 // The services a capability installs into
 // ---------------------------------------------------------------------------
 
+// The port a tool source registers discovered tools through; defined with the
+// concrete capabilities below (the services only hand out the reference).
+class ToolPort;
+
 // Passed to Capability::install(). Holds only what the harness owns; a
 // capability never constructs its own registry.
 class PluginServices {
@@ -441,6 +445,13 @@ public:
     const std::string& owner() const noexcept { return owner_; }
     void set_owner(std::string owner) { owner_ = std::move(owner); }
 
+    // The port a tool source registers discovered tools through, set around the
+    // same install pass. Null in a host that installs capabilities directly
+    // with no runtime (a bare host has no owner to scope a discovered set to);
+    // a source declines there rather than failing.
+    ToolPort* tool_port() const noexcept { return tool_port_; }
+    void set_tool_port(ToolPort* port) noexcept { tool_port_ = port; }
+
     // The host's live configuration. Null before the host attaches one (tests
     // and headless hosts that do not need it).
     const Config* config = nullptr;
@@ -465,6 +476,7 @@ private:
     EventBus* events_;
     CommandRegistry* commands_;
     std::string owner_;
+    ToolPort* tool_port_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -526,6 +538,14 @@ public:
     // Removes a name this port added; a no-op for anything else, so a source
     // can never reach across owners.
     virtual void remove(const std::string& name) = 0;
+
+    // Runtime-facing lifecycle. `open` runs before a plugin's install pass
+    // (its sources may register from inside install, and from a worker after
+    // it); `close` runs at deactivation, after the plugin's own teardown, and
+    // removes everything the port carried. A source never calls either: it
+    // registers in `start` and, if it needs to reconcile, from its own work.
+    virtual void open() = 0;
+    virtual void close() = 0;
 };
 
 // Installs a tool set the plugin discovers while it is active. `start` runs at

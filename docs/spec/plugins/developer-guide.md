@@ -68,6 +68,7 @@ bug.
 |---|---|---|
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | `plugins/README.md` |
 | Tool contribution (incl. the core tool set) | ✅ Available | `ToolCapability` |
+| Tool source — a tool set discovered while the plugin is active | ✅ Available | `ToolSourceCapability`, owner-scoped `ToolPort`, §2 |
 | Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token |
 | Typed event subscription | ✅ Available | `Events`, §3 |
 | Prompt block contribution | ✅ Available | `PromptBlockCapability` |
@@ -201,6 +202,50 @@ plugin takes them all back out together.
 Rules: return errors as `ToolResult{false, "", error}`, never throw
 (`AGENTS.md` error conventions). Tool ownership is recorded by the registry, so
 unwinding is identity-scoped: a plugin can never remove another plugin's tool.
+
+### Tool source (tools the plugin discovers)
+
+Some tool sets are not knowable when a plugin is written. An MCP server
+advertises its tools only after it has been spawned and initialised, so a
+declared list is the wrong shape. `ToolSourceCapability` is the contribution for
+that case: the runtime hands `start` an owner-scoped **`ToolPort`**, the plugin
+keeps it while it is enabled, and everything added through it is recorded and
+unwound at deactivation, owner-checked, exactly like a declared contribution.
+
+```cpp
+caps.push_back(std::make_unique<agent::ToolSourceCapability>(
+    "mcp_servers",
+    [this](agent::PluginServices& svc, agent::ToolPort& port) {
+        port_ = &port;                       // kept: more tools arrive later
+        for (auto& tool : connect_and_discover(svc))
+            port.add(std::move(tool));
+    },
+    [this] { stop_workers_and_close_sessions(); }));   // runs before the port clears
+```
+
+The contract, precisely:
+
+- **You declare the source, not the set.** `add`/`remove` are the only writes;
+  a source never touches the registry. The runtime tags every add with your
+  plugin id, so a `remove` for a name this port never carried is a no-op — a
+  source can no more reach past its own set than a plugin can across owners.
+- **It is thread-safe, and the normal case is a worker.** A tool set that
+  arrives later (a server connecting, a session opening) means `add` is called
+  off the UI thread. That is allowed; the registry is mutex-guarded.
+- **`stop` runs first, then the port clears.** Whatever your `stop` does —
+  joining a worker, closing a connection — completes while the port is still
+  live and still yours, so a teardown can reconcile the set on the way out. Do
+  not use the port after `stop` returns: a late `add` is a no-op by design
+  (it is not registered, and there is nothing left to unwind).
+- **Install is repeatable.** `start` runs again at every activation and the port
+  is empty then, so building the set from scratch is correct and expected.
+- **The UI learns by polling.** Because the set can change off the UI thread,
+  hosts watch `ToolRegistry::generation()` rather than being told; there is no
+  "tools changed" call to make.
+
+A host with no runtime (a bare registry that installs capabilities directly) has
+no owner to scope a discovered set to, so the capability *declines* there — the
+same "nothing to install" state a gated tool uses.
 
 ### Prompt block
 
