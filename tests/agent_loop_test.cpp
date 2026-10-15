@@ -2016,6 +2016,55 @@ TEST(discovery_block_follows_the_read_skill_tool) {
         ASSERT(msg.content.find(header) == std::string::npos);
 }
 
+// The point of the plugin boundary: a user who wants the harness lean switches
+// a plugin off and the app keeps running. The tools, their prose and the
+// discovery block leave together, a neighbour's tool still works, and the
+// audit has nothing to warn about.
+TEST(agent_runs_a_turn_with_the_skill_plugin_disabled) {
+    agent::Workspace::set_root(workspace_with_one_skill("skills-off"));
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::HostServices host{&jobs, &todos, &subagents, &cfg.cancel_token};
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(reg, cfg, ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    // apply_state, not set_state: a test must not write the developer's
+    // plugin.conf (state is what set_state persists).
+    ASSERT_TRUE(runtime.apply_state("tool_skills", false));
+    ASSERT_FALSE(runtime.status("tool_skills").enabled);
+    ASSERT_FALSE((bool)reg.find("read_skill"));
+    ASSERT_FALSE((bool)reg.find("list_skills"));
+    ASSERT_FALSE((bool)reg.find("write_skill"));
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "bash", {{"command", "echo x"}});
+    push_text(*fake, "done");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
+    ag.set_prompt_registry(runtime.prompts());
+    ASSERT_EQ(ag.run("do it"), "done");
+
+    // The rest of the harness is intact: a neighbour ran, and read/file
+    // reading is still covered (the skill tools are not the only readers).
+    ASSERT(!raw->requests.empty());
+    ASSERT(raw->tool_counts.front() >= 1u);
+    ASSERT(runtime.audit().empty());
+
+    const std::string& system = raw->requests.front().front().content;
+    // Neither the skills prose nor the discovery block is in the prompt.
+    ASSERT(system.find("Skills are reusable procedures") == std::string::npos);
+    ASSERT(system.find("Available skills (activate with read_skill):") == std::string::npos);
+    // Only that plugin's documentation left.
+    ASSERT(system.find("\n## bash\n") != std::string::npos);
+}
+
 // Toggling a tool plugin changes the schema at once, so the documentation must
 // follow it in the same session. This is the invariant §3.4 of the tools spec
 // exists for: the model is never told about a tool it cannot call.

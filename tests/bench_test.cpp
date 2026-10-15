@@ -2382,6 +2382,36 @@ TEST(runner_rejects_unknown_plugin) {
     ASSERT(rep.name.empty()); // refused before the scenario was named
 }
 
+// The other half of that knob: disabling a real plugin must execute the
+// scenario normally — that is the lean configuration a user chooses — and the
+// run must record the set it measured, so two results under different plugin
+// sets are never compared as if they were the same measurement.
+TEST(runner_runs_with_a_plugin_disabled_and_records_it) {
+    Scenario s;
+    s.name = "skills-off";
+    s.prompt = "hello";
+    s.fake_replies = agent::json::parse(R"([{"content": "done"}, {"content": "done"}])");
+    bench::RunOptions opts;
+    opts.disable_plugins = {"tool_skills"};
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+    ASSERT(rep.kpi.steps >= 1);
+
+    bool recorded = false;
+    for (const auto& p : meta.plugins) {
+        if (p.id != "tool_skills")
+            continue;
+        recorded = true;
+        ASSERT_FALSE(p.enabled);
+    }
+    ASSERT(recorded);
+}
+
 TEST(runner_skips_unsupported_platform) {
     Scenario s;
     s.name = "unsupported-platform";
