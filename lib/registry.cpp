@@ -55,6 +55,13 @@ ToolMeta ToolRegistry::meta_for(const std::string& name) const {
     return {};
 }
 
+std::uint64_t ToolRegistry::generation() const {
+    // RED: nothing bumps the counter yet, so a host polling it sees a set that
+    // never changes.
+    std::scoped_lock lk(mtx_);
+    return generation_;
+}
+
 bool ToolRegistry::remove_tool(const std::string& name) {
     std::scoped_lock lk(mtx_);
     for (auto it = tools_.begin(); it != tools_.end(); ++it) {

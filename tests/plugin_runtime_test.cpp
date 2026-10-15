@@ -202,6 +202,39 @@ private:
     std::string tool_name_;
 };
 
+// A plugin whose tool set is DISCOVERED: it adds one tool at start and keeps
+// the port, the way a source adds again when another subject appears (a server
+// that connects, a session that opens).
+class ToolSourcePlugin : public IPlugin {
+public:
+    std::string id() const override { return "source"; }
+    std::string version() const override { return "0.1.0"; }
+    std::string name() const override { return "Tool source probe"; }
+
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<ToolSourceCapability>(
+            "source",
+            [this](PluginServices&, ToolPort& port) {
+                port_ = &port;
+                ++starts_;
+                port.add(std::make_unique<StubTool>("discovered_one"));
+            },
+            [this] {
+                port_ = nullptr;
+                ++stops_;
+            }));
+        return caps;
+    }
+
+    ToolPort* port_ = nullptr;
+    int starts_ = 0;
+    int stops_ = 0;
+};
+
 struct Fixture {
     ToolRegistry tools;
     Config cfg;
@@ -366,6 +399,87 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     ASSERT_TRUE(runtime.set_state("tool_plan", false));
     ASSERT_FALSE((bool)f.tools.find("todowrite"));
     ASSERT_TRUE((bool)f.tools.find("task"));
+}
+
+// A discovered set is contributed through the runtime's port, which records
+// what it carried so deactivation unwinds exactly that — however late a tool
+// arrived.
+TEST(tool_source_installs_and_unwinds_everything_it_added) {
+    ScratchConfig scratch("tool-source");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto source = std::make_shared<ToolSourcePlugin>();
+    runtime.add(source);
+    runtime.start(/*use_persisted_state=*/false);
+
+    ASSERT_EQ(source->starts_, 1);
+    ASSERT_TRUE((bool)f.tools.find("discovered_one"));
+    ASSERT_TRUE(source->port_ != nullptr);
+
+    // A source keeps adding while it is active: another subject appeared.
+    source->port_->add(std::make_unique<StubTool>("discovered_two"));
+    ASSERT_TRUE((bool)f.tools.find("discovered_two"));
+
+    ASSERT_TRUE(runtime.set_state("source", false));
+    ASSERT_EQ(source->stops_, 1);
+    ASSERT_FALSE((bool)f.tools.find("discovered_one"));
+    ASSERT_FALSE((bool)f.tools.find("discovered_two"));
+}
+
+TEST(tool_port_cannot_remove_another_owners_tool) {
+    ScratchConfig scratch("tool-source-owner");
+    Fixture f;
+    f.tools.register_tool(std::make_unique<StubTool>("shared_name"), "host");
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto source = std::make_shared<ToolSourcePlugin>();
+    runtime.add(source);
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(source->port_ != nullptr);
+
+    // A name this port never added: a no-op, the host's tool stays.
+    source->port_->remove("shared_name");
+    ASSERT_TRUE((bool)f.tools.find("shared_name"));
+
+    // Its own: removed.
+    source->port_->remove("discovered_one");
+    ASSERT_FALSE((bool)f.tools.find("discovered_one"));
+}
+
+TEST(tool_source_is_re_installable) {
+    ScratchConfig scratch("tool-source-replay");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto source = std::make_shared<ToolSourcePlugin>();
+    runtime.add(source);
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE((bool)f.tools.find("discovered_one"));
+
+    ASSERT_TRUE(runtime.set_state("source", false));
+    ASSERT_FALSE((bool)f.tools.find("discovered_one"));
+
+    // Enabling replays the declaration: start runs again with a fresh port.
+    ASSERT_TRUE(runtime.set_state("source", true));
+    ASSERT_EQ(source->starts_, 2);
+    ASSERT_TRUE((bool)f.tools.find("discovered_one"));
+}
+
+// The generation is how a host learns the set moved on without being told — it
+// can change from a plugin's worker, where no refresh call site exists.
+TEST(registry_generation_moves_on_every_change) {
+    ScratchConfig scratch("registry-generation");
+    ToolRegistry reg;
+    const std::uint64_t empty = reg.generation();
+    reg.register_tool(std::make_unique<StubTool>("a"));
+    const std::uint64_t added = reg.generation();
+    ASSERT(added > empty);
+
+    // A replacement is a change too: the schema the model sees moved on.
+    reg.register_tool(std::make_unique<StubTool>("a"));
+    const std::uint64_t replaced = reg.generation();
+    ASSERT(replaced > added);
+
+    reg.remove_tool("a");
+    ASSERT(reg.generation() > replaced);
 }
 
 // The skill tools are ordinary plugin contributions: one plugin, three tools,

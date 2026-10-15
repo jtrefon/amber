@@ -477,6 +477,17 @@ InstallResult ToolCapability::install(PluginServices& services) {
     return r;
 }
 
+ToolSourceCapability::ToolSourceCapability(std::string name, Start start, Stop stop)
+    : name_(std::move(name)), start_(std::move(start)), stop_(std::move(stop)) {}
+
+InstallResult ToolSourceCapability::install(PluginServices&) {
+    // RED: the port does not exist yet, so nothing is discovered into the
+    // registry. The tests written against this behave as if the set were empty.
+    InstallResult r;
+    r.declined = true;
+    return r;
+}
+
 PromptBlockCapability::PromptBlockCapability(std::string id, int priority,
                                              PromptRegistry::Render render,
                                              PromptPlacement placement)
