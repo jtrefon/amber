@@ -13,6 +13,7 @@
 #include "agent/tools.h"
 #include "fake_llm.h"
 #include "plugins/commandcode/commandcode_plugin.h"
+#include "plugins/coding/coding_library.h"
 #include "plugins/deepseek/deepseek_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
@@ -1308,6 +1309,104 @@ TEST(index_tools_travel_with_the_plugin) {
         if (entry.spec.root == "index")
             command_gone = false;
     ASSERT_TRUE(command_gone);
+}
+
+// ---------------------------------------------------------------------------
+// The coding library: the project's tags select entries, one trigger line each,
+// as a per-turn block the domain owns.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string head_blocks_text(PluginRuntime& runtime) {
+    std::string all;
+    for (auto& text : runtime.prompts().render_all(PromptPlacement::Head))
+        all += text;
+    return all;
+}
+
+} // namespace
+
+TEST(library_entry_header_is_parsed) {
+    const plugins::LibraryEntry entry = plugins::parse_library_entry(
+        "library/x.md", "name: x\ntrigger: when something applies\ntags: #cpp, "
+                        "#testing\nreference: docs\n\nbody\n");
+    ASSERT_EQ(entry.trigger, std::string("when something applies"));
+    ASSERT_EQ(entry.tags.size(), 2u);
+    ASSERT(entry.tags[0] == "cpp");
+    ASSERT(entry.tags[1] == "testing");
+    ASSERT(plugins::entry_matches(entry, {"testing"}));
+    ASSERT_FALSE(plugins::entry_matches(entry, {"python"}));
+
+    // An entry with no trigger has nothing to render, a header that does not
+    // lead the file is a body line, and an entry with no tags matches nothing.
+    ASSERT(plugins::parse_library_entry("library/y.md", "just a body\n").trigger.empty());
+    ASSERT(plugins::parse_library_entry("library/z.md", "body first\ntrigger: too late\n")
+               .trigger.empty());
+    ASSERT_FALSE(plugins::entry_matches(plugins::LibraryEntry{}, {"cpp"}));
+}
+
+TEST(index_selection_tags_are_read_from_the_section) {
+    const std::vector<std::string> tags = plugins::selected_tags_from(
+        "# Project: x\n\n## Shape\nsomething\n\n## Library selection\n#cpp #docker, #testing\n");
+    ASSERT_EQ(tags.size(), 3u);
+    ASSERT(tags[0] == "cpp");
+    ASSERT(tags[1] == "docker");
+    ASSERT(tags[2] == "testing");
+    ASSERT(plugins::selected_tags_from("# Project: x\n").empty());
+}
+
+TEST(coding_library_index_lists_what_the_project_selects) {
+    ScratchWorkspace ws("library-select");
+    ScratchState state("library-select");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp #testing\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string head = head_blocks_text(runtime);
+    ASSERT(head.find("Library entries this project selects") != std::string::npos);
+    ASSERT(head.find("when a container is mutated") != std::string::npos);
+    ASSERT(head.find("cpp-iterator-invalidation.md") != std::string::npos);
+    // None of it is in the system prefix: the selection is per-turn.
+    ASSERT(system_blocks_text(runtime).find("Library entries this project selects") ==
+           std::string::npos);
+    // A handful of lines, not a chapter.
+    std::size_t lines = 0;
+    for (char c : head)
+        if (c == '\n')
+            ++lines;
+    ASSERT(lines <= 25u);
+}
+
+TEST(coding_library_index_stays_dark_without_a_selection) {
+    ScratchWorkspace ws("library-dark");
+    ScratchState state("library-dark");
+    write_project_index("# Project: x\n\n## Shape\nno tags yet\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+
+    // A tag no entry carries selects nothing. The tags are read per turn, so
+    // the change needs no refresh.
+    write_project_index("# Project: x\n\n## Library selection\n#cobol\n");
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+}
+
+TEST(coding_library_index_leaves_with_the_domain) {
+    ScratchWorkspace ws("library-domain");
+    ScratchState state("library-domain");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(head_blocks_text(runtime).find("Library entries") != std::string::npos);
+    ASSERT_TRUE(runtime.set_state("coding", false));
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
 }
 
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {

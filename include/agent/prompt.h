@@ -45,6 +45,10 @@ inline constexpr int kProjectIndex = 410;
 inline constexpr int kDomainIdentity = 420;
 inline constexpr int kDomainWorkflow = 430;
 inline constexpr int kDomainDiscipline = 440;
+// The domain's library index: one trigger line per entry the project's own tags
+// select. A per-turn block (placement Head), so it sits after the system prefix
+// and a change to it costs the cache only from its own position.
+inline constexpr int kDomainLibrary = 450;
 } // namespace prompt_priority
 
 namespace tool_doc_priority {

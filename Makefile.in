@@ -116,6 +116,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/project_index/index_store.o \
               $(BUILD_DIR)/plugins/project_index/index_tools.o \
               $(BUILD_DIR)/plugins/coding/coding_plugin.o \
+              $(BUILD_DIR)/plugins/coding/coding_library.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
