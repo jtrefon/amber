@@ -18,6 +18,7 @@
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
+#include "plugins/project_index/project_index_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
@@ -800,6 +801,160 @@ TEST(project_instructions_report_names_the_file_and_nested) {
         if (line.find("nested: pkg/AGENTS.md") != std::string::npos)
             named_nested = true;
     ASSERT(named_nested);
+}
+
+// ---------------------------------------------------------------------------
+// Project index: amber's own notes about the project, as a session-fixed block.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A scratch state root. The index lives in the project's private state, so a
+// test that writes one must not write into the developer's real tree.
+class ScratchState {
+public:
+    explicit ScratchState(const std::string& tag)
+        : dir_(fs::temp_directory_path() / ("amber_state_" + tag)) {
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+        const char* saved = std::getenv("XDG_STATE_HOME");
+        had_ = saved != nullptr;
+        if (had_)
+            saved_ = saved;
+        setenv("XDG_STATE_HOME", dir_.c_str(), 1);
+    }
+    ~ScratchState() {
+        if (had_)
+            setenv("XDG_STATE_HOME", saved_.c_str(), 1);
+        else
+            unsetenv("XDG_STATE_HOME");
+        std::error_code ec;
+        fs::remove_all(dir_, ec);
+    }
+    ScratchState(const ScratchState&) = delete;
+    ScratchState& operator=(const ScratchState&) = delete;
+
+private:
+    fs::path dir_;
+    std::string saved_;
+    bool had_ = false;
+};
+
+// The index file a user would have, at the path the plugin reads.
+void write_project_index(const std::string& text) {
+    write_text(fs::path(Workspace::state_dir()) / "project-index.md", text);
+}
+
+// Just the index block, so a neighbouring block's headings are not mistaken for
+// its own.
+std::string project_index_block(PluginRuntime& runtime) {
+    const std::string all = system_blocks_text(runtime);
+    const std::size_t at = all.find("# Project index");
+    if (at == std::string::npos)
+        return {};
+    return all.substr(at, 5 * 1024u);
+}
+
+} // namespace
+
+TEST(project_index_reaches_the_system_prompt) {
+    ScratchWorkspace ws("index");
+    ScratchState state("index");
+    write_project_index("# Project: turbo-shop\n\nmonorepo, backend .NET 8, Angular web\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = project_index_block(runtime);
+    ASSERT(!block.empty());
+    ASSERT(block.find("turbo-shop") != std::string::npos);
+    // Precedence, stated where the agent reads it: the project's own file wins.
+    ASSERT(block.find("AGENTS.md") != std::string::npos);
+
+    // Disabling the plugin takes the block with it, and nothing else.
+    ASSERT_TRUE(runtime.set_state("project_index", false));
+    ASSERT(project_index_block(runtime).empty());
+}
+
+TEST(project_index_is_frozen_within_a_session) {
+    ScratchWorkspace ws("index-frozen");
+    ScratchState state("index-frozen");
+    write_project_index("# Project: one\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string first = project_index_block(runtime);
+    ASSERT(first.find("Project: one") != std::string::npos);
+    // The file changes on disk mid-session; the block does not, because the
+    // system prefix is what the server caches.
+    write_project_index("# Project: two\n");
+    ASSERT_EQ(project_index_block(runtime), first);
+
+    // An explicit refresh is the one thing that moves it.
+    auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
+    ASSERT(plugin != nullptr);
+    plugin->refresh();
+    ASSERT(project_index_block(runtime).find("Project: two") != std::string::npos);
+}
+
+TEST(project_index_provenance_reports_a_moved_source) {
+    ScratchWorkspace ws("index-stale");
+    ScratchState state("index-stale");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n");
+    const std::string hash =
+        plugins::ProjectIndexPlugin::hash_file((ws.root() / "docker-compose.yml").string());
+    ASSERT(!hash.empty());
+    write_project_index("# Project: compose-app\n\nsources: docker-compose.yml@" + hash +
+                        "\n\nruns in compose\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string fresh = project_index_block(runtime);
+    ASSERT(fresh.find("compose-app") != std::string::npos);
+    ASSERT(fresh.find("changed since") == std::string::npos);
+
+    // The source moves; the recorded hash no longer matches, and the block says
+    // so rather than presenting facts that may be out of date as current.
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n  db:\n");
+    auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
+    ASSERT(plugin != nullptr);
+    plugin->refresh();
+    const std::string block = project_index_block(runtime);
+    ASSERT(block.find("changed since") != std::string::npos);
+    ASSERT(block.find("docker-compose.yml@" + hash) != std::string::npos);
+}
+
+TEST(project_index_absent_leaves_no_block) {
+    ScratchWorkspace ws("index-none");
+    ScratchState state("index-none");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(project_index_block(runtime).empty());
+}
+
+TEST(project_index_is_capped_and_says_so) {
+    ScratchWorkspace ws("index-cap");
+    ScratchState state("index-cap");
+    std::string big = "# Project: big\n";
+    for (int i = 0; i < 400; ++i)
+        big += "line " + std::to_string(i) + ": a fact about this project, at length.\n";
+    write_project_index(big);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = project_index_block(runtime);
+    ASSERT(block.find("[truncated at 4 KB") != std::string::npos);
+    ASSERT(block.find("line 0:") != std::string::npos);
+    ASSERT(block.find("line 300:") == std::string::npos);
 }
 
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
