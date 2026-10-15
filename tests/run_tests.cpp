@@ -3205,6 +3205,29 @@ TEST(bash_approval_allowlist) {
 // Approval gate (side-effecting tools require host approval)
 // ---------------------------------------------------------------------------
 
+// The core prompt is the agnostic harness: platform, profession and workflow
+// belong to the environment card and the domain blocks. This guard exists so a
+// later edit cannot quietly re-leak domain content into core — the conflict
+// surface the domain seam was built to keep small.
+TEST(core_system_prompt_stays_agnostic) {
+    std::ifstream in("prompts/system.md");
+    ASSERT(in.good());
+    std::stringstream ss;
+    ss << in.rdbuf();
+    const std::string text = ss.str();
+    ASSERT(!text.empty());
+
+    for (const char* word : {"Linux", "macOS", "Windows", "engineer", "git ", "commit"})
+        ASSERT(text.find(word) == std::string::npos);
+    // The identity line names an assistant, not a profession.
+    ASSERT(text.find("an AI assistant") != std::string::npos);
+    // The load-bearing behaviours are present, so a rewrite cannot hollow it.
+    ASSERT(text.find("Information you can obtain, you obtain") != std::string::npos);
+    ASSERT(text.find("The work is shared as") != std::string::npos);
+    ASSERT(text.find("A progress note is a line or two") != std::string::npos);
+    ASSERT(text.find("the word `done`") != std::string::npos);
+}
+
 TEST(agent_denies_gated_tool_without_handler) {
     // A registry containing an approval-required tool. With no on_approval
     // handler installed, approve_call must fail safe (deny).
