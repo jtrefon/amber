@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <atomic>
@@ -54,9 +55,42 @@ public:
     ScratchConfig(const ScratchConfig&) = delete;
     ScratchConfig& operator=(const ScratchConfig&) = delete;
 
+    // The scratch config root: where a test writes the files a user would
+    // (provider confs, mcp server confs, plugin state).
+    const std::string root() const { return dir_.string(); }
+
 private:
     fs::path dir_;
 };
+
+// Point a plugin at the stdio MCP fixture server through the same config file
+// a user writes: <XDG_CONFIG_HOME>/amber/mcp/<name>.conf.
+void write_mcp_server_conf(const std::string& config_root, const std::string& name,
+                           const std::string& command, const std::string& cwd) {
+    const fs::path dir = fs::path(config_root) / "amber" / "mcp";
+    fs::create_directories(dir);
+    std::ofstream f(dir / (name + ".conf"));
+    f << "type=stdio\n"
+      << "command=" << command << "\n"
+      << "cwd=" << cwd << "\n"
+      << "enabled=1\nauto_connect=1\ntrusted=1\n";
+}
+
+// True when a registry entry is owned by `owner` (the plugin id a contribution
+// was installed under).
+bool segment_owned_by(const StatusRegistry& status, const std::string& owner) {
+    for (const auto& item : status.items())
+        if (item.owner == owner)
+            return true;
+    return false;
+}
+
+bool command_root_present(const CommandRegistry& commands, const std::string& root) {
+    for (const auto& entry : commands.all())
+        if (entry.spec.root == root)
+            return true;
+    return false;
+}
 
 // Declares one prompt block, so activation has something observable to install.
 class BlockPlugin : public IPlugin {
@@ -480,6 +514,47 @@ TEST(registry_generation_moves_on_every_change) {
 
     reg.remove_tool("a");
     ASSERT(reg.generation() > replaced);
+}
+
+// MCP is a plugin: the client, the tools its servers discover, its command
+// namespace, its status segment and its prompt block all arrive through the
+// capability path. That is what makes `/set plugin mcp off` a real footprint
+// switch — servers are not spawned, discovered tools are gone, and the surfaces
+// that describe them leave with them.
+TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
+    ScratchConfig scratch("mcp-plugin");
+    char buf[4096];
+    const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    write_mcp_server_conf(scratch.root(), "echo", "tests/fixtures/mcp_echo", cwd);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+
+    // The plugin is bundled and on, and its configured server's discovered tool
+    // is in the registry (the fixture speaks the protocol on stdio).
+    ASSERT_TRUE(runtime.has("mcp"));
+    ASSERT_TRUE(runtime.status("mcp").enabled);
+    ASSERT_TRUE((bool)f.tools.find("mcp_echo_echo_tool"));
+
+    // Surfaces: the prompt block, the status segment and the command namespace.
+    const std::string mcp_prompt = "# MCP (Model Context Protocol)";
+    ASSERT_TRUE(system_blocks_text(runtime).find(mcp_prompt) != std::string::npos);
+    ASSERT_TRUE(segment_owned_by(runtime.status(), "mcp"));
+    ASSERT_TRUE(command_root_present(runtime.commands(), "mcp"));
+    ASSERT_TRUE(command_root_present(runtime.commands(), "prompt"));
+
+    // A tool another owner registered with an MCP-shaped name is not ours.
+    f.tools.register_tool(std::make_unique<StubTool>("mcp_echo_someone_elses"), "other_plugin");
+
+    ASSERT_TRUE(runtime.set_state("mcp", false));
+    ASSERT_FALSE(runtime.status("mcp").enabled);
+    ASSERT_FALSE((bool)f.tools.find("mcp_echo_echo_tool"));
+    ASSERT_TRUE((bool)f.tools.find("mcp_echo_someone_elses")); // survives the unwind
+    ASSERT_TRUE(system_blocks_text(runtime).find(mcp_prompt) == std::string::npos);
+    ASSERT_FALSE(segment_owned_by(runtime.status(), "mcp"));
+    ASSERT_FALSE(command_root_present(runtime.commands(), "mcp"));
+    ASSERT_FALSE(command_root_present(runtime.commands(), "prompt"));
 }
 
 // The skill tools are ordinary plugin contributions: one plugin, three tools,

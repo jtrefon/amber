@@ -221,3 +221,32 @@ TEST(mcp_adapter_lease_survives_disconnect) {
     ASSERT(!r.error.empty());
     mgr.shutdown_all();
 }
+
+// Unwinding a server must never reach past its own set. Adapter names are
+// shaped `mcp_<server>_<tool>`, so another owner can legitimately hold a name
+// carrying that prefix; a prefix sweep would delete it, which is the defect
+// class the plugin ledger fixed (#112) and this path kept.
+TEST(mcp_unregister_never_reaches_another_owners_tool) {
+    char buf[4096];
+    std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    std::string ws = "/tmp/amber_mcp_owner_ws";
+    run_cmd("rm -rf " + ws);
+    agent::Workspace::set_root(ws);
+    agent::McpServerConfig cfg;
+    cfg.name = "echo";
+    cfg.type = "stdio";
+    cfg.command = "tests/fixtures/mcp_echo";
+    cfg.cwd = cwd;
+    agent::ServerManager mgr({{"echo", cfg}});
+    ASSERT_EQ(mgr.connect("echo"), "");
+
+    agent::ToolRegistry reg;
+    // Someone else's tool, with a name that looks exactly like this server's.
+    reg.register_tool(std::make_unique<DecoyTool>(), "some_other_plugin");
+    ASSERT_EQ(agent::register_server_tools(reg, mgr, "echo"), 1u);
+
+    agent::unregister_server_tools(reg, "echo");
+    ASSERT(reg.find("mcp_echo_echo_tool") == nullptr);      // ours went
+    ASSERT(reg.find("mcp_echo_stale_tool") != nullptr);     // theirs stayed
+    mgr.shutdown_all();
+}
