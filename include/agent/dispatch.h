@@ -21,12 +21,21 @@ struct Message;
 
 using json = nlohmann::json;
 
+// The outcome of the approval gate: whether the call may run, and — when it may
+// not — why, in one sentence the model can relay. Every refusal path fills the
+// reason in: a denial the model cannot explain is a denial it can only
+// paraphrase as "it was refused", after which it starts guessing.
+struct ApprovalDecision {
+    bool allowed = false;
+    std::string reason;
+};
+
 // Consult the decision engine and, when it prompts, the host hook. Records
 // the outcome (session grant / persisted rule) against the decision's scope
-// id. Returns true only when the call may run; with no hook set, approval
-// always fails (fail-safe).
-bool approve_tool(const Tool& tool, const json& args, const Config& cfg, const AgentHooks& hooks,
-                  std::set<std::string>& session_approved, PolicyStore* policy);
+// id. With no hook set, approval always fails closed and says so.
+ApprovalDecision approve_tool(const Tool& tool, const json& args, const Config& cfg,
+                              const AgentHooks& hooks, std::set<std::string>& session_approved,
+                              PolicyStore* policy);
 
 // Execute every requested tool call, recording results into `history`. Tools
 // run in parallel via std::async; approval is checked synchronously. Returns

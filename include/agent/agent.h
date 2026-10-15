@@ -91,6 +91,14 @@ struct AgentHooks {
     std::function<Approval(const std::string& tool, const json& args, const std::string& summary)>
         on_approval;
 
+    // Optional: how the host explains the denial it just returned from
+    // `on_approval` — "the approval dialog timed out after 60s", "the run was
+    // cancelled", "the UI is shutting down". Consulted immediately after a
+    // denial; empty means the model hears the generic wording. Without this the
+    // model cannot tell "the user said no" from "nobody was ever asked", and
+    // reports the wrong thing.
+    std::function<std::string()> approval_denial_reason;
+
     // Ask the host for an API key/token for the active provider. `reason` is
     // human-readable ("provider 'kilocode' requires an API key", "API key
     // rejected (HTTP 401)"). The host is responsible for persisting the key to

@@ -72,6 +72,9 @@ Decision decide_approval(const Config& cfg, const Tool& tool, const json& args,
             return d; // Allow
         if (rule->level == PolicyLevel::AlwaysDeny) {
             d.v = Verdict::DenySilent;
+            // The scope travels with the verdict: it is the handle the refusal
+            // message names so the user can change the rule.
+            d.scope_id = scope;
             return d;
         }
     }

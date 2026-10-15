@@ -647,8 +647,8 @@ TEST(skill_trust_malicious_body_no_privilege) {
         return agent::Approval::Deny;
     };
     std::set<std::string> session;
-    ASSERT_FALSE(
-        agent::approve_tool(*bash, {{"command", "rm -rf /"}}, cfg, hooks, session, nullptr));
+    ASSERT_FALSE(agent::approve_tool(*bash, {{"command", "rm -rf /"}}, cfg, hooks, session, nullptr)
+                     .allowed);
     ASSERT(asked);
 
     auto write = agent::make_write_skill_tool();

@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -134,6 +135,12 @@ public:
     static std::function<void(const std::string&)> emit_text(const PushFn& push,
                                                              AgentEvent::Type type);
     void wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push);
+    // Why a denial happened, keyed by window: recorded by whoever denied, and
+    // consumed by the agent's reason hook so the model hears the truth instead
+    // of a generic "declined".
+    void record_denial(size_t window_id, std::string why);
+    std::string take_denial(size_t window_id);
+
     void wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id,
                              const std::atomic<bool>& cancel);
 
@@ -183,6 +190,7 @@ private:
     Tui& tui_;
     std::queue<AgentEvent> queue_;
     mutable std::mutex mtx_;
+    std::map<size_t, std::string> denial_reason_;
     bool shutting_down_ = false;
     std::vector<PendingToolLine> pending_tools_;
     std::queue<AgentEvent> pending_approvals_;

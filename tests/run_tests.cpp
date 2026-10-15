@@ -3255,9 +3255,9 @@ agent::ToolResult denied_write_skill_result(const agent::Config& cfg, agent::Too
     agent::json tc;
     tc["id"] = "c1";
     tc["type"] = "function";
-    tc["function"] = {{"name", "write_skill"},
-                      {"arguments",
-                       {{"name", "demo"}, {"description", "a demo"}, {"body", "steps"}}}};
+    tc["function"] = {
+        {"name", "write_skill"},
+        {"arguments", {{"name", "demo"}, {"description", "a demo"}, {"body", "steps"}}}};
     calls.push_back(tc);
     agent::Context ctx;
     agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, policy, nullptr, &ctx);
@@ -3292,10 +3292,18 @@ TEST(denied_write_skill_by_a_stored_rule_names_the_scope_and_the_way_out) {
     agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
     agent::PolicyStore policy;
     policy.set_rule("write_skill", agent::PolicyLevel::AlwaysDeny);
+    // The rule refuses before anyone is asked: the hook allows, and must not be
+    // consulted at all.
+    bool asked = false;
+    agent::AgentHooks hooks;
+    hooks.on_approval = [&](const std::string&, const agent::json&, const std::string&) {
+        asked = true;
+        return agent::Approval::AllowOnce;
+    };
 
-    const agent::ToolResult r =
-        denied_write_skill_result(cfg, reg, agent::AgentHooks{}, &policy);
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, &policy);
     ASSERT_FALSE(r.ok);
+    ASSERT_FALSE(asked);
     ASSERT(r.error.find("write_skill") != std::string::npos);      // the scope
     ASSERT(r.error.find("/set policy rule") != std::string::npos); // how to change it
 }
@@ -3309,14 +3317,39 @@ TEST(denied_write_skill_by_the_user_says_the_user_declined) {
     agent::SubAgentExecutor subagents;
     agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
     agent::AgentHooks hooks;
-    hooks.on_approval = [](const std::string&, const agent::json&,
-                           const std::string&) { return agent::Approval::Deny; };
+    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+        return agent::Approval::Deny;
+    };
 
     const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, nullptr);
     ASSERT_FALSE(r.ok);
     ASSERT(!r.error.empty());
     ASSERT(r.error.find("user") != std::string::npos);
     ASSERT(r.error.find("declin") != std::string::npos);
+}
+
+TEST(denied_call_uses_the_hosts_reason_when_it_gives_one) {
+    // A host that knows which denial this was (cancelled, timed out, shutting
+    // down) says so; its wording beats the generic one, because only it can tell
+    // "the user declined" from "nobody was ever asked".
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor subagents;
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    agent::AgentHooks hooks;
+    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+        return agent::Approval::Deny;
+    };
+    hooks.approval_denial_reason = [] {
+        return std::string("the run was cancelled before this call was approved");
+    };
+
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, nullptr);
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("cancelled") != std::string::npos);
 }
 
 TEST(denied_write_skill_by_always_deny_names_the_rule) {
@@ -3327,14 +3360,21 @@ TEST(denied_write_skill_by_always_deny_names_the_rule) {
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+    // With a policy store the choice persists, so the reason names the rule and
+    // the way to take it back.
+    agent::PolicyStore policy;
     agent::AgentHooks hooks;
-    hooks.on_approval = [](const std::string&, const agent::json&,
-                           const std::string&) { return agent::Approval::AlwaysDeny; };
+    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+        return agent::Approval::AlwaysDeny;
+    };
 
-    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, nullptr);
+    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, &policy);
     ASSERT_FALSE(r.ok);
     ASSERT(r.error.find("always") != std::string::npos);
     ASSERT(r.error.find("/set policy rule") != std::string::npos);
+    const agent::PolicyRule* rule = policy.find("write_skill");
+    ASSERT(rule != nullptr);
+    ASSERT(rule->level == agent::PolicyLevel::AlwaysDeny);
 }
 
 // ---------------------------------------------------------------------------

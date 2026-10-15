@@ -77,6 +77,23 @@ private:
     bool timed_out_ = false;
 };
 
+// How the host explains a denial it caused without asking the user — the
+// reason the model is given, so it does not report "the user declined" for a
+// dialog that timed out or a run that was cancelled. Empty means the user
+// answered, and the generic wording is already accurate.
+inline std::string denial_cause(bool cancelled, bool shutting_down, bool dialog_shown,
+                                bool timed_out) {
+    if (cancelled)
+        return "the run was cancelled before this call was approved";
+    if (shutting_down)
+        return "the UI is shutting down";
+    if (!dialog_shown)
+        return "the host could not show the approval dialog";
+    if (timed_out)
+        return "the approval dialog timed out before the user answered";
+    return {};
+}
+
 } // namespace tui
 
 #endif // AMBER_TUI_APPROVAL_MODEL_H
