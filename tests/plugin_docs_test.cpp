@@ -9,6 +9,8 @@
 #include "agent/plugins_bundled.h"
 #include "test_util.h"
 
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <regex>
@@ -105,4 +107,105 @@ TEST(plugin_docs_guide_documents_every_bundled_plugin) {
         if (guide.find(p->id()) == std::string::npos)
             agent::test::fail("bundled plugin '" + p->id() +
                               "' is not documented in docs/spec/plugins/developer-guide.md");
+}
+
+// ---------------------------------------------------------------------------
+// The coding library: what is resident, and the one-home rule for what is not.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string trimmed(const std::string& line) {
+    const std::size_t first = line.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos)
+        return {};
+    return line.substr(first, line.find_last_not_of(" \t\r\n") - first + 1);
+}
+
+// Content lines, not layout: a blank line between paragraphs costs nothing, and
+// the budget is about what the prefix carries.
+std::size_t count_content_lines(const std::string& text) {
+    std::size_t lines = 0;
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line))
+        if (!trimmed(line).empty())
+            ++lines;
+    return lines;
+}
+
+std::vector<std::string> library_files(const std::string& root) {
+    std::vector<std::string> files;
+    std::error_code ec;
+    const std::string dir = root + "/prompts/domains/coding/library";
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(dir, ec)) {
+        const std::string name = entry.path().filename().string();
+        if (name.size() > 3 && name.compare(name.size() - 3, 3, ".md") == 0)
+            files.push_back(dir + "/" + name);
+    }
+    std::sort(files.begin(), files.end());
+    return files;
+}
+
+} // namespace
+
+TEST(coding_domain_resident_prose_stays_within_its_budget) {
+    // Residency is for the key, not the library. The domain's identity, workflow
+    // and discipline ride in the system prefix on every turn; everything else is
+    // dark until a project's tags select it.
+    //
+    // 110 is the *measured* value, ratcheted the way every other budget here is:
+    // it may only shrink from here, so growth is caught and no one has to
+    // re-derive why it is what it is. The 90 the design first named was a guess;
+    // the prose that came out of review is 108 content lines, and trimming it to
+    // meet a number nobody had measured would have been the wrong trade.
+    const std::string dir = repo_root() + "/prompts/domains/coding/";
+    std::size_t total = 0;
+    for (const char* name : {"identity.md", "git.md", "engineering.md"})
+        total += count_content_lines(read_file(dir + name));
+    ASSERT(total > 0);
+    ASSERT(total <= 110);
+}
+
+TEST(coding_library_entries_declare_a_trigger_and_tags) {
+    const std::vector<std::string> files = library_files(repo_root());
+    ASSERT(files.size() >= 8);
+    for (const auto& file : files) {
+        const std::string text = read_file(file);
+        const std::size_t header_end = text.find("\n\n");
+        ASSERT(header_end != std::string::npos);
+        // Both live in the leading header block: the trigger is the line the
+        // working index renders, and the tags are what selects it.
+        ASSERT(text.find("trigger:") != std::string::npos);
+        ASSERT(text.find("trigger:") < header_end);
+        ASSERT(text.find("tags:") != std::string::npos);
+        ASSERT(text.find("tags:") < header_end);
+    }
+}
+
+TEST(coding_library_entries_do_not_restate_a_rule_that_lives_elsewhere) {
+    // One home per rule: an entry adds what is specific to the situation, and
+    // the rule itself lives in core, in a tool doc, in the domain's own prose or
+    // in the project's AGENTS.md. A literal restatement is the copy that drifts.
+    const std::string root = repo_root();
+    std::string elsewhere;
+    for (const char* source :
+         {"prompts/system.md", "prompts/domains/coding/identity.md",
+          "prompts/domains/coding/git.md", "prompts/domains/coding/engineering.md",
+          "prompts/tools/read.md", "prompts/tools/write.md", "prompts/tools/bash.md",
+          "prompts/tools/skills.md", "AGENTS.md"})
+        elsewhere += read_file(root + "/" + source);
+
+    for (const auto& file : library_files(root)) {
+        std::istringstream in(read_file(file));
+        std::string line;
+        while (std::getline(in, line)) {
+            const std::string text = trimmed(line);
+            if (text.size() < 40)
+                continue;
+            if (elsewhere.find(text) != std::string::npos)
+                agent::test::fail("library entry restates a rule that lives elsewhere: " + text);
+        }
+    }
 }

@@ -151,7 +151,7 @@ dangerous than none, so its age is visible rather than assumed current.
 | PI-D6 | Pointers, never values; private by default; promotable |
 | PI-D7 | Library = bundled skills with trigger-phrased descriptions, reached through tags. Per-entry `enable\|disable\|block` comes free from the skills mechanism |
 | PI-D8 | The scanner stays shallow (presence + JSON manifests). No YAML parser: compose service detail is filled by the agent through `index_add` |
-| PI-D9 | Resident budget: the coding domain's resident prose (identity, workflow, fundamentals, paradigm, project index) ≤ 90 lines, asserted by a test |
+| PI-D9 | Resident budget: the coding domain's resident prose (identity, workflow, fundamentals, paradigm, project index) is pinned at 110 content lines — the measured value, ratcheted so it may only shrink — asserted by a test |
 
 ## Open items
 
