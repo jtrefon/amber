@@ -71,10 +71,15 @@ std::vector<Source> parse_sources(const std::string& body) {
 // counts as changed: "cannot check" is not "fine".
 std::vector<std::string> moved_sources(const std::vector<Source>& sources) {
     std::vector<std::string> moved;
-    const std::string root = Workspace::root();
     for (const auto& source : sources) {
-        const std::string current =
-            ProjectIndexPlugin::hash_file((fs::path(root) / source.path).string());
+        // The source list comes from a file the model writes, so it is confined
+        // like any other path: a source that climbs out of the workspace cannot
+        // be checked, and "cannot check" is not "fine".
+        std::string resolved;
+        std::string error;
+        const std::string current = Workspace::confine(source.path, resolved, error)
+                                        ? ProjectIndexPlugin::hash_file(resolved)
+                                        : std::string();
         if (current != source.hash)
             moved.push_back(source.path + "@" + source.hash);
     }

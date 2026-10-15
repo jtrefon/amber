@@ -73,12 +73,12 @@ struct Findings {
 
 void add_tag(Findings& f, const std::string& tag) {
     if (std::find(f.tags.begin(), f.tags.end(), tag) == f.tags.end())
-        f.tags.push_back(tag);
+        f.tags.emplace_back(tag);
 }
 
 void note_source(Findings& f, const std::string& rel) {
     if (std::find(f.sources.begin(), f.sources.end(), rel) == f.sources.end())
-        f.sources.push_back(rel);
+        f.sources.emplace_back(rel);
 }
 
 void scan_node(Findings& f) {
@@ -95,7 +95,7 @@ void scan_node(Findings& f) {
         if (!doc.contains(bag) || !doc[bag].is_object())
             continue;
         for (auto it = doc[bag].begin(); it != doc[bag].end(); ++it)
-            deps.push_back(it.key());
+            deps.emplace_back(it.key());
     }
     static const std::pair<const char*, const char*> kKnown[] = {
         {"next", "#next"},
@@ -113,10 +113,10 @@ void scan_node(Findings& f) {
         for (const auto& known : kKnown)
             if (dep == known.first) {
                 add_tag(f, known.second);
-                named.push_back(known.first);
+                named.emplace_back(known.first);
             }
     if (!named.empty())
-        f.shape.push_back("node project (" + join(named) + ")");
+        f.shape.emplace_back("node project (" + join(named) + ")");
 }
 
 void scan_php(Findings& f) {
@@ -136,7 +136,7 @@ void scan_php(Findings& f) {
     for (const auto& known : kKnown)
         if (text.find(known.first) != std::string::npos) {
             add_tag(f, known.second);
-            f.shape.push_back(std::string("PHP: ") + known.first);
+            f.shape.emplace_back(std::string("PHP: ") + known.first);
         }
 }
 
@@ -151,7 +151,7 @@ void scan_python(Findings& f, const std::string& rel) {
     for (const auto& known : kKnown)
         if (text.find(known.first) != std::string::npos) {
             add_tag(f, known.second);
-            f.shape.push_back(std::string("python: ") + known.first);
+            f.shape.emplace_back(std::string("python: ") + known.first);
         }
 }
 
@@ -161,7 +161,7 @@ void scan_named(Findings& f, const std::string& rel, const char* tag, const char
         return;
     note_source(f, rel);
     add_tag(f, tag);
-    f.shape.push_back(label);
+    f.shape.emplace_back(label);
 }
 
 void scan_csproj(Findings& f, const std::string& rel) {
@@ -174,12 +174,12 @@ void scan_csproj(Findings& f, const std::string& rel) {
         add_tag(f, "#efcore");
     const std::size_t at = text.find("<TargetFramework>");
     if (at == std::string::npos) {
-        f.shape.push_back("solution: " + fs::path(rel).filename().string());
+        f.shape.emplace_back("solution: " + fs::path(rel).filename().string());
         return;
     }
     const std::size_t end = text.find('<', at + 17);
     const std::string tfm = text.substr(at + 17, end - (at + 17));
-    f.shape.push_back("solution: " + fs::path(rel).filename().string() + " (" + tfm + ")");
+    f.shape.emplace_back("solution: " + fs::path(rel).filename().string() + " (" + tfm + ")");
 }
 
 // Up to three project files, at the root and in the directories a .NET solution
@@ -194,7 +194,7 @@ std::vector<std::string> csproj_files() {
         for (const auto& entry : it) {
             const std::string name = entry.path().filename().string();
             if (name.size() > 7 && name.compare(name.size() - 7, 7, ".csproj") == 0)
-                found.push_back(std::string(dir) + name);
+                found.emplace_back(std::string(dir) + name);
             if (found.size() >= 3)
                 return found;
         }
@@ -207,10 +207,11 @@ void scan_docker(Findings& f) {
                          exists_at("compose.yml");
     if (compose) {
         add_tag(f, "#dockercompose");
-        f.shape.push_back("runs in docker compose");
-        f.runs.push_back("up: docker compose up -d");
-        f.where.push_back("compose: docker-compose.yml — services and shared containers are worth "
-                          "recording");
+        f.shape.emplace_back("runs in docker compose");
+        f.runs.emplace_back("up: docker compose up -d");
+        f.where.emplace_back(
+            "compose: docker-compose.yml — services and shared containers are worth "
+            "recording");
     }
     if (exists_at("Dockerfile"))
         add_tag(f, "#docker");
@@ -218,10 +219,10 @@ void scan_docker(Findings& f) {
 
 void scan_build_files(Findings& f) {
     if (exists_at("Makefile"))
-        f.runs.push_back("build: make");
+        f.runs.emplace_back("build: make");
     if (exists_at("CMakeLists.txt")) {
         add_tag(f, "#cmake");
-        f.shape.push_back("C++ (CMake)");
+        f.shape.emplace_back("C++ (CMake)");
     }
     if (exists_at("Cargo.toml"))
         scan_named(f, "Cargo.toml", "#rust", "Rust (cargo)");
@@ -234,7 +235,7 @@ void scan_web(Findings& f) {
         scan_node(f);
     if (exists_at("tsconfig.json")) {
         add_tag(f, "#typescript");
-        f.where.push_back("typescript: tsconfig.json");
+        f.where.emplace_back("typescript: tsconfig.json");
     }
 }
 
@@ -248,9 +249,9 @@ void scan_other_manifests(Findings& f) {
     for (const auto& rel : csproj_files())
         scan_csproj(f, rel);
     if (exists_at(".github/workflows"))
-        f.runs.push_back("ci: GitHub Actions (.github/workflows)");
+        f.runs.emplace_back("ci: GitHub Actions (.github/workflows)");
     if (exists_at(".env.example"))
-        f.where.push_back("config: .env.example lists the variables the project needs");
+        f.where.emplace_back("config: .env.example lists the variables the project needs");
 }
 
 // Four independent questions -- is it containerised, how is it built, what is
@@ -267,7 +268,7 @@ Findings scan_project() {
 std::string today() {
     const std::time_t now = std::time(nullptr);
     std::tm tm{};
-#if defined(_WIN32)
+#ifdef _WIN32
     gmtime_s(&tm, &now);
 #else
     gmtime_r(&now, &tm);
@@ -279,10 +280,15 @@ std::string today() {
 
 std::string provenance(const std::vector<std::string>& sources) {
     std::vector<std::string> recorded;
-    for (const auto& rel : sources)
-        recorded.push_back(
-            rel + "@" +
-            ProjectIndexPlugin::hash_file((fs::path(Workspace::root()) / rel).string()));
+    recorded.reserve(sources.size());
+    for (const auto& rel : sources) {
+        std::string resolved;
+        std::string error;
+        recorded.emplace_back(rel + "@" +
+                              (Workspace::confine(rel, resolved, error)
+                                   ? ProjectIndexPlugin::hash_file(resolved)
+                                   : std::string()));
+    }
     return join(recorded);
 }
 
@@ -489,11 +495,11 @@ ToolResult IndexShowTool::execute(const json&) const {
 
 std::vector<std::unique_ptr<Tool>> make_index_tools() {
     std::vector<std::unique_ptr<Tool>> tools;
-    tools.push_back(std::make_unique<IndexInitTool>());
-    tools.push_back(std::make_unique<IndexAddTool>());
-    tools.push_back(std::make_unique<IndexUpdateTool>());
-    tools.push_back(std::make_unique<IndexRemoveTool>());
-    tools.push_back(std::make_unique<IndexShowTool>());
+    tools.emplace_back(std::make_unique<IndexInitTool>());
+    tools.emplace_back(std::make_unique<IndexAddTool>());
+    tools.emplace_back(std::make_unique<IndexUpdateTool>());
+    tools.emplace_back(std::make_unique<IndexRemoveTool>());
+    tools.emplace_back(std::make_unique<IndexShowTool>());
     return tools;
 }
 

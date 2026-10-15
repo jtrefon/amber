@@ -1129,6 +1129,30 @@ TEST(project_index_block_follows_a_compaction) {
     ASSERT_FALSE(runtime.events().has_subscribers(EventType::CompressionCompleted));
 }
 
+TEST(project_index_does_not_read_outside_the_workspace) {
+    ScratchWorkspace ws("index-confine");
+    ScratchState state("index-confine");
+    // A file outside the workspace, whose hash is recorded faithfully in the
+    // index. The provenance check exists to notice changes to the project's own
+    // files; a source that climbs out of the workspace is not one of those, and
+    // reading it would make the index a way to hash arbitrary paths.
+    const fs::path outside = fs::temp_directory_path() / "amber_outside_source.yml";
+    write_text(outside, "services:\n  api:\n");
+    const std::string hash = plugins::ProjectIndexPlugin::hash_file(outside.string());
+    write_project_index("# Project: x\n\nsources: ../amber_outside_source.yml@" + hash +
+                        "\n\nruns in compose\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    // Refused rather than read: "cannot check" is not "fine", so the block says
+    // the fact may be stale.
+    ASSERT(project_index_block(runtime).find("changed since") != std::string::npos);
+    std::error_code ec;
+    fs::remove(outside, ec);
+}
+
 TEST(index_add_refuses_a_credential) {
     ScratchWorkspace ws("index-add-secret");
     ScratchState state("index-add-secret");

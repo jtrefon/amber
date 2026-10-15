@@ -6,6 +6,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <sstream>
 
@@ -26,7 +27,7 @@ constexpr const char* kSecretRefusal =
 std::string stamp() {
     const std::time_t now = std::time(nullptr);
     std::tm tm{};
-#if defined(_WIN32)
+#ifdef _WIN32
     gmtime_s(&tm, &now);
 #else
     gmtime_r(&now, &tm);
@@ -195,10 +196,9 @@ bool looks_like_secret(const std::string& text) {
         std::regex(
             R"([A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY)[A-Za-z0-9_]*[ \t]*[:=][ \t]*["']?[A-Za-z0-9/+_.-]{16,})"),
     };
-    for (const auto& pattern : kPatterns)
-        if (std::regex_search(text, pattern))
-            return true;
-    return false;
+    return std::any_of(
+        std::begin(kPatterns), std::end(kPatterns),
+        [&text](const std::regex& pattern) { return std::regex_search(text, pattern); });
 }
 
 std::string log_path() {

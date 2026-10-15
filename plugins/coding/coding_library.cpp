@@ -90,12 +90,10 @@ LibraryEntry parse_library_entry(const std::string& path, const std::string& tex
 }
 
 bool entry_matches(const LibraryEntry& entry, const std::vector<std::string>& wanted) {
-    for (const auto& tag : entry.tags) {
+    return std::any_of(entry.tags.begin(), entry.tags.end(), [&wanted](const std::string& tag) {
         const std::string bare = tag[0] == '#' ? tag.substr(1) : tag;
-        if (std::find(wanted.begin(), wanted.end(), bare) != wanted.end())
-            return true;
-    }
-    return false;
+        return std::find(wanted.begin(), wanted.end(), bare) != wanted.end();
+    });
 }
 
 std::vector<std::string> selected_tags_from(const std::string& index_body) {
@@ -151,7 +149,9 @@ std::string render_working_index() {
     std::string out;
     std::size_t shown = 0;
     for (const auto& name : names) {
-        const std::string path = dir + "/" + name;
+        std::string path = dir;
+        path += "/";
+        path += name;
         const LibraryEntry entry = parse_library_entry(path, read_text(path));
         if (entry.trigger.empty() || !entry_matches(entry, wanted))
             continue;
