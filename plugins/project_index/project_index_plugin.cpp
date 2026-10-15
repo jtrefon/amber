@@ -119,8 +119,22 @@ std::string hex8(std::uint32_t value) {
 } // namespace
 
 void ProjectIndexPlugin::shutdown() {
+    compression_done_.release();
     block_.clear();
     loaded_ = false;
+}
+
+bool ProjectIndexPlugin::initialize(const PluginContext& ctx) {
+    // A *failed* compression leaves the context alone, so re-reading then would
+    // move a prefix that did not need to move. Only a compression that happened
+    // is the free moment.
+    compression_done_ =
+        Events(ctx.event_bus)
+            .subscribe<CompressionCompletedEvent>([this](const CompressionCompletedEvent& done) {
+                if (done.success)
+                    refresh();
+            });
+    return true;
 }
 
 void ProjectIndexPlugin::refresh() {

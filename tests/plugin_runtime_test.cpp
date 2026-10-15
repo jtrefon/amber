@@ -1097,6 +1097,37 @@ TEST(index_add_writes_and_creates_what_is_missing) {
     ASSERT(logged.str().find("shape") != std::string::npos);
 }
 
+TEST(project_index_block_follows_a_compaction) {
+    ScratchWorkspace ws("index-compaction");
+    ScratchState state("index-compaction");
+    write_project_index("# Project: before\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(project_index_block(runtime).find("Project: before") != std::string::npos);
+
+    write_project_index("# Project: after\n");
+
+    // A compression that failed leaves the context where it was, so the prefix
+    // must not move either.
+    CompressionCompletedEvent failed;
+    failed.success = false;
+    Events(runtime.events()).publish(failed);
+    ASSERT(project_index_block(runtime).find("Project: before") != std::string::npos);
+
+    // A compression that happened rebuilds the context anyway: the block is
+    // re-read there, and nowhere else mid-session.
+    CompressionCompletedEvent done;
+    done.success = true;
+    Events(runtime.events()).publish(done);
+    ASSERT(project_index_block(runtime).find("Project: after") != std::string::npos);
+
+    // Switching the plugin off releases the subscription with it.
+    ASSERT_TRUE(runtime.set_state("project_index", false));
+    ASSERT_FALSE(runtime.events().has_subscribers(EventType::CompressionCompleted));
+}
+
 TEST(index_add_refuses_a_credential) {
     ScratchWorkspace ws("index-add-secret");
     ScratchState state("index-add-secret");

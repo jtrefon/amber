@@ -1,6 +1,7 @@
 #ifndef AGENT_PLUGINS_PROJECT_INDEX_H
 #define AGENT_PLUGINS_PROJECT_INDEX_H
 
+#include "agent/events.h"
 #include "agent/plugin_core.h"
 
 #include <string>
@@ -35,7 +36,7 @@ public:
     }
     std::string category() const override { return "domain"; }
 
-    bool initialize(const PluginContext&) override { return true; }
+    bool initialize(const PluginContext&) override;
     void shutdown() override;
 
     std::vector<std::unique_ptr<Capability>> capabilities() override;
@@ -63,6 +64,11 @@ private:
 
     mutable std::string block_;
     mutable bool loaded_ = false;
+
+    // The compaction subscription. A compaction is the one moment where
+    // re-reading the file costs nothing: the context is rebuilt anyway, so the
+    // prefix moves regardless of what this block says.
+    Subscription compression_done_;
 };
 
 } // namespace agent::plugins
