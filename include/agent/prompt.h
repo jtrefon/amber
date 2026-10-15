@@ -29,8 +29,10 @@ namespace prompt_priority {
 inline constexpr int kProjectInstructions = 400;
 // Domain blocks (an activity's prose) sit just after the project's own
 // instructions: the project's rules come first, and the activity's follow.
-inline constexpr int kDomainWorkflow = 420;
-inline constexpr int kDomainDiscipline = 430;
+// Identity, then practice, then the discipline that practice draws on.
+inline constexpr int kDomainIdentity = 420;
+inline constexpr int kDomainWorkflow = 430;
+inline constexpr int kDomainDiscipline = 440;
 } // namespace prompt_priority
 
 namespace tool_doc_priority {
