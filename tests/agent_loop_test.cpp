@@ -8,6 +8,7 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <future>
 #include <thread>
@@ -1150,14 +1151,16 @@ public:
         return i;
     }
 
-    std::vector<std::string> systems; // the system prompt each request arrived with
+    // Reported, not stored: the client is destroyed with the sub-agent that
+    // owns it, so a test that kept a pointer here would read freed memory.
+    std::function<void(const std::string&)> on_system;
 
     agent::Message chat(const std::vector<agent::Message>& messages,
                         const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override {
         tool_counts.push_back(tools.size());
-        if (!messages.empty())
-            systems.push_back(messages.front().content);
+        if (on_system && !messages.empty())
+            on_system(messages.front().content);
         if (track) {
             const int a = ++track->active;
             int p = track->peak.load();
@@ -1638,14 +1641,37 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     push_text(script, "done"); // parent probe
     push_text(script, "yes");  // probe confirmation
 
+    // Systems are collected through a shared, mutex-guarded sink: workers run
+    // on their own threads and their clients die with them.
+    struct Seen {
+        std::mutex mtx;
+        std::vector<std::string> systems;
+        void add(const std::string& s) {
+            std::scoped_lock lk(mtx);
+            systems.push_back(s);
+        }
+        std::size_t with_directive() {
+            std::scoped_lock lk(mtx);
+            std::size_t n = 0;
+            for (const auto& s : systems)
+                if (s.find("## Worker directive") != std::string::npos)
+                    ++n;
+            return n;
+        }
+        std::size_t total() {
+            std::scoped_lock lk(mtx);
+            return systems.size();
+        }
+    };
+    auto seen = std::make_shared<Seen>();
+
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
-    SharedScriptFake* parent_raw = parent.get();
-    std::vector<SharedScriptFake*> workers;
-    executor.set_factory([script, &workers](const agent::Config&) {
+    parent->on_system = [seen](const std::string& s) { seen->add(s); };
+    executor.set_factory([script, seen](const agent::Config&) {
         auto f = std::make_unique<SharedScriptFake>();
         f->script = script;
-        workers.push_back(f.get());
+        f->on_system = [seen](const std::string& s) { seen->add(s); };
         return std::unique_ptr<agent::LLMClient>(std::move(f));
     });
     executor.set_config(cfg);
@@ -1654,15 +1680,8 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     ASSERT_EQ(ag.run("delegate"), "done");
 
     // The worker's request carries the directive; the parent's does not.
-    ASSERT(!workers.empty());
-    bool worker_saw_it = false;
-    for (SharedScriptFake* w : workers)
-        for (const auto& system : w->systems)
-            if (system.find("## Worker directive") != std::string::npos)
-                worker_saw_it = true;
-    ASSERT_TRUE(worker_saw_it);
-    ASSERT(!parent_raw->systems.empty());
-    ASSERT(parent_raw->systems.front().find("## Worker directive") == std::string::npos);
+    ASSERT(seen->with_directive() >= 1u);
+    ASSERT(seen->with_directive() < seen->total());
 }
 
 // [item-5] Cancellation must stop the run cleanly: no fabricated
