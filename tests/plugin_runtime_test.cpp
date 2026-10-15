@@ -17,6 +17,7 @@
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
+#include "plugins/project_instructions/project_instructions_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
@@ -641,16 +642,21 @@ std::string run_verb(PluginRuntime& rt, const std::string& root, const std::stri
 class ScratchWorkspace {
 public:
     explicit ScratchWorkspace(const std::string& tag) {
-        const fs::path dir = fs::temp_directory_path() / ("amber_ws_" + tag);
-        fs::create_directories(dir);
+        dir_ = fs::temp_directory_path() / ("amber_ws_" + tag);
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
         previous_ = Workspace::root();
-        Workspace::set_root(dir.string());
+        Workspace::set_root(dir_.string());
     }
     ~ScratchWorkspace() { Workspace::set_root(previous_); }
     ScratchWorkspace(const ScratchWorkspace&) = delete;
     ScratchWorkspace& operator=(const ScratchWorkspace&) = delete;
 
+    // Where the files a project would have live during the test.
+    const fs::path& root() const { return dir_; }
+
 private:
+    fs::path dir_;
     std::string previous_;
 };
 
@@ -674,6 +680,108 @@ struct LiveMcp {
 };
 
 } // namespace
+
+// ---------------------------------------------------------------------------
+// Project instructions: the project's own AGENTS.md reaches the system prompt.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+void write_text(const fs::path& path, const std::string& text) {
+    fs::create_directories(path.parent_path());
+    std::ofstream f(path);
+    f << text;
+}
+
+// Just the instructions block, so a nested heading does not have to be guessed
+// at from the whole prompt.
+std::string instructions_block(PluginRuntime& runtime) {
+    const std::string all = system_blocks_text(runtime);
+    const std::size_t at = all.find("# Project instructions (AGENTS.md)");
+    if (at == std::string::npos)
+        return {};
+    return all.substr(at, 9 * 1024u);
+}
+
+} // namespace
+
+TEST(project_instructions_reach_the_system_prompt) {
+    ScratchWorkspace ws("instructions");
+    write_text(ws.root() / "AGENTS.md",
+               "# Project\n\nBuild with `make test`. Generated files under build/ are not "
+               "hand-edited.\n");
+    write_text(ws.root() / "apps" / "web" / "AGENTS.md", "# Web\n\nNext.js app.\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = instructions_block(runtime);
+    ASSERT(!block.empty());
+    ASSERT(block.find("Build with `make test`") != std::string::npos);
+    // The convention's precedence, stated where the agent reads it.
+    ASSERT(block.find("outrank this system prompt") != std::string::npos);
+    // Nested files are named, not inlined: the nearest one wins, and the agent
+    // reads the one that applies to the tree it is working in.
+    ASSERT(block.find("apps/web/AGENTS.md") != std::string::npos);
+    ASSERT(block.find("Next.js app") == std::string::npos);
+
+    // Disabling the plugin takes the block with it.
+    ASSERT_TRUE(runtime.set_state("instructions", false));
+    ASSERT(instructions_block(runtime).empty());
+}
+
+TEST(project_instructions_are_capped_and_say_so) {
+    ScratchWorkspace ws("instructions-cap");
+    std::string big = "# Project\n";
+    for (int i = 0; i < 4000; ++i)
+        big += "line " + std::to_string(i) + ": the conventions of this project, at length.\n";
+    write_text(ws.root() / "AGENTS.md", big);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = instructions_block(runtime);
+    ASSERT(!block.empty());
+    ASSERT(block.find("[truncated at 8 KB") != std::string::npos);
+    ASSERT(block.size() <= 9 * 1024u);
+    // The cut lands on a line boundary: what the agent was given is
+    // trustworthy, and what it was not given is not silently missing.
+    ASSERT(block.find("line 0:") != std::string::npos);
+    ASSERT(block.find("line 1000:") == std::string::npos);
+}
+
+TEST(project_instructions_absent_leaves_no_block) {
+    ScratchWorkspace ws("instructions-none");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(instructions_block(runtime).empty());
+}
+
+TEST(project_instructions_report_names_the_file_and_nested) {
+    ScratchWorkspace ws("instructions-report");
+    write_text(ws.root() / "AGENTS.md", "# Project\n\nrules\n");
+    write_text(ws.root() / "pkg" / "AGENTS.md", "# Pkg\n\nrules\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    auto* plugin = dynamic_cast<plugins::ProjectInstructionsPlugin*>(runtime.find("instructions"));
+    ASSERT(plugin != nullptr);
+    const auto lines = plugin->report_lines();
+    ASSERT(!lines.empty());
+    ASSERT(lines.front().find("AGENTS.md") != std::string::npos);
+    ASSERT(lines.front().find("bytes") != std::string::npos);
+    bool named_nested = false;
+    for (const auto& line : lines)
+        if (line.find("nested: pkg/AGENTS.md") != std::string::npos)
+            named_nested = true;
+    ASSERT(named_nested);
+}
 
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
     LiveMcp live("mcp-usage");

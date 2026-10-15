@@ -22,6 +22,13 @@ std::string load_optional_prompt(const std::string& name);
 // Where a tool's own documentation sits in the tools prompt. Declared here so
 // the order is a decision, not an accident of registration: the numbers mirror
 // the order the sections are read in, search first.
+// Where the project's own instructions sit: before any tool documentation,
+// because "how this project is built and what is out of bounds" is what every
+// turn needs, and a tool's reference material can follow it.
+namespace prompt_priority {
+inline constexpr int kProjectInstructions = 400;
+} // namespace prompt_priority
+
 namespace tool_doc_priority {
 inline constexpr int kSearch = 500;
 inline constexpr int kRead = 510;
