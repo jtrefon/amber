@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 // The block rides in the system prompt on every turn, so its size is a real
 // cost. 8 KB is a generous instruction file; past that the tail is elided with
 // a marker that says how to read the rest.
-constexpr std::size_t kMaxBytes = 8 * 1024;
+constexpr std::size_t kMaxBytes = std::size_t{8} * 1024;
 
 // A nested AGENTS.md (a monorepo package's own rules) is *named* rather than
 // inlined: the convention is that the nearest file wins, and the agent reads
@@ -80,7 +80,7 @@ std::vector<std::string> nested_files(const fs::path& root) {
             continue;
         if (entry.path() == root / "AGENTS.md")
             continue;
-        found.push_back(entry.path().lexically_relative(root).string());
+        found.emplace_back(entry.path().lexically_relative(root).string());
         if (static_cast<int>(found.size()) >= kMaxNested) {
             it.disable_recursion_pending();
             break;
@@ -136,7 +136,7 @@ std::vector<std::string> ProjectInstructionsPlugin::report_lines() const {
     std::vector<std::string> lines;
     const fs::path file = root_file();
     if (file.empty() || !fs::exists(file)) {
-        lines.push_back("(no AGENTS.md in this workspace)");
+        lines.emplace_back("(no AGENTS.md in this workspace)");
         return lines;
     }
     bool truncated = false;
@@ -144,7 +144,7 @@ std::vector<std::string> ProjectInstructionsPlugin::report_lines() const {
     std::ostringstream head;
     head << file.string() << " (" << body.size() << " bytes" << (truncated ? ", truncated" : "")
          << ")";
-    lines.push_back(head.str());
+    lines.emplace_back(head.str());
     for (const auto& path : nested_files(file.parent_path()))
         lines.push_back("nested: " + path);
     return lines;

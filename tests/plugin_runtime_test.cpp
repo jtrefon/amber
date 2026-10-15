@@ -641,11 +641,10 @@ std::string run_verb(PluginRuntime& rt, const std::string& root, const std::stri
 // workspace at a scratch dir for their lifetime.
 class ScratchWorkspace {
 public:
-    explicit ScratchWorkspace(const std::string& tag) {
-        dir_ = fs::temp_directory_path() / ("amber_ws_" + tag);
+    explicit ScratchWorkspace(const std::string& tag)
+        : dir_(fs::temp_directory_path() / ("amber_ws_" + tag)), previous_(Workspace::root()) {
         fs::remove_all(dir_);
         fs::create_directories(dir_);
-        previous_ = Workspace::root();
         Workspace::set_root(dir_.string());
     }
     ~ScratchWorkspace() { Workspace::set_root(previous_); }
