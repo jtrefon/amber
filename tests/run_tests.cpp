@@ -3219,6 +3219,10 @@ TEST(environment_card_states_the_shell_and_platform_facts) {
     ASSERT(card.find("(WSL)") != std::string::npos);
     ASSERT(card.find("Shell: /bin/zsh") != std::string::npos);
     ASSERT(card.find("Workspace: /w/project") != std::string::npos);
+    // Amber's own layout travels with the environment card: a request like
+    // "turn on MCP server X" needs the command *and* the place.
+    ASSERT(card.find("Amber files: config ") != std::string::npos);
+    ASSERT(card.find("/get config paths") != std::string::npos);
 }
 
 TEST(tool_envelope_caps_meta_and_error_text) {

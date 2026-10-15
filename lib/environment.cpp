@@ -1,5 +1,7 @@
 
 #include "agent/environment.h"
+#include "agent/config.h"
+#include "agent/config_paths.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -247,6 +249,14 @@ std::string render_environment_card(const EnvironmentInfo& info) {
         add("Resources: " + info.resources);
     if (!info.tools.empty())
         add("Tools available: " + join_sorted(info.tools));
+    // Amber's own files, by root: "turn on MCP server X" is then a command and a
+    // location rather than a search. The complete table — every file and what it
+    // is for — is `/get config paths`, rendered from the same source the
+    // amber-config skill uses, so the three cannot drift apart.
+    add("Amber files: config " + global_config_dir() + ", project " + Workspace::local_dir() +
+        ", state " + Workspace::state_dir() + ", cache " + cache_dir());
+    add("Amber settings: `/get config paths` lists every file and its purpose; `/set` and `/get` "
+        "write and read them");
     return any ? card : "";
 }
 
