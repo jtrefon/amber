@@ -175,7 +175,7 @@ rich::Line result_line(const std::string& name, const agent::json& args, bool ok
         // tool's own output and the conversation log.
         std::string shown = error;
         if (shown.size() > kCommandCap)
-            shown = shown.substr(0, kCommandCap) + "...";
+            shown.replace(kCommandCap, std::string::npos, "...");
         rest.text += "error: " + shown;
     } else {
         int lines = 1;
