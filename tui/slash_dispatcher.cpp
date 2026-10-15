@@ -20,6 +20,22 @@ double SlashDispatcher::compression_threshold_effective() const {
     return agent::load_compression_config(tui_.cfg_).threshold;
 }
 
+// A plugin command may return several lines (a server list, a capability table):
+// each is its own status row, so nothing renders as one over-long line.
+void SlashDispatcher::append_output(const std::string& text) {
+    std::size_t pos = 0;
+    while (pos <= text.size()) {
+        const std::size_t nl = text.find('\n', pos);
+        const std::string line =
+            text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
+        if (!line.empty())
+            tui_.append_line(P_STATUS, line);
+        if (nl == std::string::npos)
+            break;
+        pos = nl + 1;
+    }
+}
+
 void SlashDispatcher::refresh_completions() {
     tui_.settings_.reset_completion_index();
     auto try_load = [&](const std::string& path) {
@@ -48,8 +64,7 @@ void SlashDispatcher::refresh_completions() {
         [this]() -> const std::vector<agent::CommandRegistry::Entry>& {
             return tui_.plugin_runtime_.commands().all();
         },
-        tui_.settings_, action_registry_,
-        [this](const std::string& text) { tui_.append_line(P_STATUS, text); });
+        tui_.settings_, action_registry_, [this](const std::string& text) { append_output(text); });
 
     // The tree was rebuilt from scratch, so the live feeds must be merged again:
     // without this their leaves (models, providers, policy rules, jobs, plugin

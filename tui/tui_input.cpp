@@ -774,171 +774,6 @@ void SlashDispatcher::cmd_plugin_uninstall(const std::string& id) {
                                    (registered ? " \u2014 registry entry clears on restart" : ""));
 }
 
-void SlashDispatcher::cmd_mcp(const std::string& rest) {
-    // Namespace fallback: no documented verb matched (or empty).
-    auto lines = agent::mcp_list_lines(tui_.mcp_servers_);
-    if (lines.empty())
-        tui_.append_line(P_STATUS, "(no MCP servers configured \u2014 see "
-                                   "~/.config/amber/mcp/<name>.conf)");
-    for (const auto& l : lines)
-        tui_.append_line(P_STATUS, l);
-    if (!rest.empty())
-        tui_.append_line(P_STATUS, "usage: /mcp list | show <server> | connect <server> | "
-                                   "disconnect <server> | refresh <server> | prompts <server> | "
-                                   "enable|disable <server> | trust <server> on|off");
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_show(const std::string& server) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS, "usage: /mcp show <server>");
-        tui_.draw();
-        return;
-    }
-    std::string err;
-    auto lines = agent::mcp_show_lines(tui_.mcp_servers_, server, err);
-    if (!err.empty())
-        tui_.append_line(P_STATUS, err);
-    for (const auto& l : lines)
-        tui_.append_line(P_STATUS, l);
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_connect(const std::string& server) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS, "usage: /mcp connect <server>");
-        tui_.draw();
-        return;
-    }
-    std::string err = agent::mcp_connect(tui_.mcp_servers_, tui_.reg_, server);
-    tui_.append_line(P_STATUS, err.empty() ? ("mcp server '" + server + "' connected") : err);
-    refresh_completions();
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_disconnect(const std::string& server) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS, "usage: /mcp disconnect <server>");
-        tui_.draw();
-        return;
-    }
-    agent::mcp_disconnect(tui_.mcp_servers_, tui_.reg_, server);
-    tui_.append_line(P_STATUS, "mcp server '" + server + "' disconnected");
-    refresh_completions();
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_refresh(const std::string& server) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS, "usage: /mcp refresh <server>");
-        tui_.draw();
-        return;
-    }
-    std::string err = agent::mcp_refresh(tui_.mcp_servers_, tui_.reg_, server);
-    tui_.append_line(P_STATUS, err.empty() ? ("mcp server '" + server + "' refreshed") : err);
-    refresh_completions();
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_prompts(const std::string& server) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS, "usage: /mcp prompts <server>");
-        tui_.draw();
-        return;
-    }
-    auto c = tui_.mcp_servers_.client(server);
-    if (!c) {
-        tui_.append_line(P_STATUS, "server '" + server + "' not connected");
-    } else {
-        for (const auto& p : c->prompts())
-            tui_.append_line(P_STATUS, server + " \u00b7 " + p.name + " \u00b7 " + p.description);
-    }
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_set_enabled(const std::string& server, bool on) {
-    if (server.empty()) {
-        tui_.append_line(P_STATUS,
-                         "usage: /mcp " + std::string(on ? "enable" : "disable") + " <server>");
-        tui_.draw();
-        return;
-    }
-    std::string err = agent::mcp_enable(tui_.mcp_servers_, tui_.reg_, server, on);
-    tui_.append_line(P_STATUS,
-                     err.empty() ? ("mcp server '" + server + "' " + (on ? "enabled" : "disabled"))
-                                 : err);
-    refresh_completions();
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_mcp_trust(const std::string& args) {
-    size_t sp = args.find(' ');
-    std::string server = (sp == std::string::npos) ? args : args.substr(0, sp);
-    std::string val = (sp == std::string::npos) ? "" : args.substr(sp + 1);
-    if (server.empty() || (val != "on" && val != "off")) {
-        tui_.append_line(P_STATUS, "usage: /mcp trust <server> on|off");
-        tui_.draw();
-        return;
-    }
-    std::string err = agent::mcp_trust(tui_.mcp_servers_, server, val == "on");
-    tui_.append_line(P_STATUS, err.empty() ? ("mcp server '" + server + "' trust: " + val) : err);
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_prompt_list() {
-    bool any = false;
-    for (const auto& st : tui_.mcp_servers_.snapshot()) {
-        if (!st.connected)
-            continue;
-        auto c = tui_.mcp_servers_.client(st.name);
-        if (!c)
-            continue;
-        for (const auto& p : c->prompts()) {
-            any = true;
-            tui_.append_line(P_STATUS, st.name + " \u00b7 " + p.name + " \u00b7 " + p.description);
-        }
-    }
-    if (!any)
-        tui_.append_line(P_STATUS, "(no MCP prompts available)");
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_prompt(const std::string& rest) {
-    if (rest.empty() || rest == "list") {
-        cmd_prompt_list();
-        return;
-    }
-    size_t sp = rest.find(' ');
-    std::string server = (sp == std::string::npos) ? rest : rest.substr(0, sp);
-    std::string tail = (sp == std::string::npos) ? "" : rest.substr(sp + 1);
-    size_t sp2 = tail.find(' ');
-    std::string name = (sp2 == std::string::npos) ? tail : tail.substr(0, sp2);
-    std::string args_str = (sp2 == std::string::npos) ? "" : tail.substr(sp2 + 1);
-    if (server.empty() || name.empty()) {
-        tui_.append_line(P_STATUS, "usage: /prompt list | /prompt <server> <name> [k=v ...]");
-        tui_.draw();
-        return;
-    }
-    json arguments = json::object();
-    std::stringstream ss(args_str);
-    std::string kv;
-    while (ss >> kv) {
-        size_t eq = kv.find('=');
-        if (eq == std::string::npos || eq == 0)
-            continue;
-        arguments[kv.substr(0, eq)] = kv.substr(eq + 1);
-    }
-    std::string text;
-    std::string err = agent::mcp_prompt(tui_.mcp_servers_, server, name, arguments, text);
-    if (!err.empty()) {
-        tui_.append_line(P_STATUS, err);
-        tui_.draw();
-        return;
-    }
-    tui_.input_fill_ = text;
-    tui_.draw();
-}
-
 const std::vector<palette::Command>& SlashDispatcher::commands() {
     if (commands_.empty())
         build_commands();
@@ -982,7 +817,6 @@ void SlashDispatcher::register_builtin_actions() {
     register_os_actions();
     register_config_set_actions();
     register_config_get_actions();
-    register_mcp_actions();
 }
 
 // /help, /settings, /prompt, /session reset, /window*, /stop.
@@ -992,7 +826,6 @@ void SlashDispatcher::register_core_session_actions() {
         tui_.settings_screen();
         tui_.redraw_after_modal();
     });
-    register_action("core.prompt", [this](const std::string& a) { cmd_prompt(a); });
     register_action("core.session.reset", [this](const std::string&) { cmd_session_reset(); });
     register_action("core.window.close", [this](const std::string&) { tui_.close_window(); });
     register_action("core.window.new", [this](const std::string&) { cmd_window_new(); });
@@ -1203,7 +1036,6 @@ void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.get.model.context",
                     [this](const std::string&) { cmd_get_model_context(); });
     register_action("core.config.set.model", [this](const std::string& a) { cmd_model_set(a); });
-    register_action("core.config.get.mcp", [this](const std::string& a) { cmd_get(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
     register_action("core.panel", [this](const std::string& a) { tui_.open_panels(a); });
 }
@@ -1323,22 +1155,6 @@ void SlashDispatcher::register_config_get_actions() {
     register_get_config_actions();
     register_get_plugin_policy_actions();
     register_get_reasoning_actions();
-}
-
-void SlashDispatcher::register_mcp_actions() {
-    // mcp
-    register_action("core.mcp", [this](const std::string& a) { cmd_mcp(a); });
-    register_action("core.mcp.list", [this](const std::string&) { cmd_mcp(""); });
-    register_action("core.mcp.show", [this](const std::string& a) { cmd_mcp_show(a); });
-    register_action("core.mcp.connect", [this](const std::string& a) { cmd_mcp_connect(a); });
-    register_action("core.mcp.disconnect", [this](const std::string& a) { cmd_mcp_disconnect(a); });
-    register_action("core.mcp.refresh", [this](const std::string& a) { cmd_mcp_refresh(a); });
-    register_action("core.mcp.prompts", [this](const std::string& a) { cmd_mcp_prompts(a); });
-    register_action("core.mcp.enable",
-                    [this](const std::string& a) { cmd_mcp_set_enabled(a, true); });
-    register_action("core.mcp.disable",
-                    [this](const std::string& a) { cmd_mcp_set_enabled(a, false); });
-    register_action("core.mcp.trust", [this](const std::string& a) { cmd_mcp_trust(a); });
 }
 
 const palette::Command* SlashDispatcher::find_command(const std::string& name) {

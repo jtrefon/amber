@@ -3,7 +3,6 @@
 
 #include <agent.h>
 #include <agent/learn_commands.h>
-#include <agent/mcp_config.h>
 #include <agent/plugin.h>
 #include <agent/plugin_registry.h>
 
@@ -270,7 +269,6 @@ private:
     agent::PluginManager& plugins_;             // host-owned; v1 external plugin lifecycle
     agent::PluginRuntime& plugin_runtime_;      // v2 runtime (registries + ledger)
     std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
-    agent::ServerManager mcp_servers_;          // session-scoped MCP manager
     std::string input_fill_;                    // /prompt result applied to the input line
     tui::SettingRegistry settings_;
     void build_settings();
@@ -290,7 +288,6 @@ private:
     void wire_plugin_runtime();
     void build_managers();
     void load_key_bindings();
-    void register_mcp_tools();
     void restore_workspace();
 
     // --- Event loop. run() is a facade over these steps, one per thing the
@@ -318,6 +315,7 @@ private:
     void flush_if_dirty();
 
     agent::ServerInfo last_detected_;
+    std::uint64_t tool_registry_generation_ = 0; // the set the tree reflects
     int policy_timeout_ = 60;
     std::atomic<bool> models_refresh_inflight_{false};
     // Set by /get model list when the catalogue is cold: the refresh it kicks

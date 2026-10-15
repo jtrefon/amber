@@ -522,21 +522,23 @@ TEST(test_merge_preserves_static_tree_children) {
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
 
-    // Same shape mcp_completion_subtree() produces.
+    // The mcp plugin's node, as a command contribution merges it.
+    nlohmann::json plugin_node = {
+        {"mcp", {{"action", "plugin.mcp.mcp"}, {"help", "Manage MCP servers."}, {"man", "..."}}},
+    };
+    plugin_node["mcp"]["children"]["list"]["help"] = "List configured MCP servers.";
+    reg.merge_completions_json(plugin_node);
+
+    // The live feed's shape: server branches only.
     nlohmann::json subtree = nlohmann::json::object();
-    subtree["mcp"]["action"] = "core.mcp";
-    subtree["mcp"]["help"] = "Manage MCP servers.";
-    subtree["mcp"]["man"] = "Live MCP tools appear under their server name.";
-    subtree["mcp"]["children"]["live_srv"]["action"] = "mcp.live_srv";
-    subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["action"] =
-        "mcp.live_srv.do_thing";
+    subtree["mcp"]["children"]["live_srv"]["help"] = "Tools exposed by live_srv.";
     subtree["mcp"]["children"]["live_srv"]["children"]["do_thing"]["help"] = "does the thing";
     reg.merge_completions_json(subtree);
 
-    // Static children survive in the tree alongside the live branch.
+    // The plugin's children and fields survive alongside the live branch.
     auto tree = reg.command_tree(); // mutable copy: operator[] never throws
     const auto& mcp = tree["commands"]["mcp"];
-    ASSERT(mcp["action"] == "core.mcp");
+    ASSERT(mcp["action"] == "plugin.mcp.mcp");
     ASSERT(mcp.contains("children"));
     const auto& children = mcp["children"];
     ASSERT(children.contains("list"));
@@ -870,25 +872,7 @@ TEST(test_exact_top_level_namespace_still_descends) {
     ASSERT(!has_get); // must not list "get" as a sibling
 }
 
-// ── Test: mcp / skills / plugin / prompt namespaces are documented ──
-
-TEST(test_json_documents_mcp_namespace) {
-    tui::SettingRegistry reg;
-    bool ok = reg.load_completions_json("completions.json");
-    ASSERT(ok);
-    ASSERT(!reg.help_for("mcp.list").empty());
-    ASSERT(!reg.man_for("mcp.connect").empty());
-    ASSERT(!reg.help_for("core.mcp.trust").empty()); // action-path index
-    auto subs = reg.children_of("mcp");
-    bool saw_connect = false, saw_trust = false;
-    for (const auto& s : subs) {
-        if (s == "connect")
-            saw_connect = true;
-        if (s == "trust")
-            saw_trust = true;
-    }
-    ASSERT(saw_connect && saw_trust);
-}
+// ── Test: skills / plugin namespaces are documented ──
 
 TEST(test_json_documents_skills_under_set_and_get) {
     tui::SettingRegistry reg;
@@ -950,7 +934,6 @@ TEST(test_json_documents_plugin_surface) {
     ASSERT(on && off && install && uninstall && settings);
     ASSERT_EQ(set_kids.size(), 5u);
     ASSERT(!reg.man_for("set.plugin.install").empty());
-    ASSERT(!reg.help_for("prompt").empty());
 }
 
 // The live plugin feed must not put ids beside the commands: they hang under
@@ -992,18 +975,24 @@ TEST(test_plugin_feed_keeps_ids_out_of_the_command_namespaces) {
 
 TEST(test_json_merge_unions_children) {
     tui::SettingRegistry reg;
-    bool ok = reg.load_completions_json("completions.json");
-    ASSERT(ok);
-    // A live MCP server branch lands under the existing mcp command.
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    // The mcp plugin's command contribution (merged the way
+    // install_plugin_commands merges it).
+    nlohmann::json plugin_node = {
+        {"mcp", {{"action", "plugin.mcp.mcp"}, {"help", "Manage MCP servers."}, {"man", "..."}}},
+    };
+    plugin_node["mcp"]["children"]["list"]["help"] = "List configured MCP servers.";
+    reg.merge_completions_json(plugin_node);
+
+    // The live feed's shape: server branches only, never the command's own
+    // fields (a feed that stamped an action would override the live one).
     nlohmann::json subtree = {
         {"mcp",
-         {{"action", "core.mcp"},
-          {"children",
+         {{"children",
            {{"live_srv",
-             {{"action", "mcp.live_srv"},
-              {"children",
-               {{"do_thing",
-                 {{"action", "mcp.live_srv.do_thing"}, {"help", "does the thing"}}}}}}}}}}}};
+             {{"help", "Tools exposed by live_srv."},
+              {"children", {{"do_thing", {{"help", "does the thing"}}}}}}}}}}}};
     reg.merge_completions_json(subtree);
 
     auto subs = reg.children_of("mcp");
@@ -1014,9 +1003,12 @@ TEST(test_json_merge_unions_children) {
         if (s == "live_srv")
             has_live = true;
     }
-    // Static children survive the merge alongside the live branch.
+    // The plugin's verbs survive the merge alongside the live branch...
     ASSERT(has_list && has_live);
     ASSERT(!reg.help_for("mcp.live_srv.do_thing").empty());
+    // ...and the feed did not touch the command's own fields.
+    auto tree = reg.command_tree();
+    ASSERT(tree["commands"]["mcp"]["action"] == "plugin.mcp.mcp");
 }
 
 // ── Test: subagent settings live in the get/set tree ───────────────
@@ -1066,12 +1058,12 @@ TEST(test_provider_tree_nodes) {
 
 // ── Test: no hardcoded command paths — mcp/learn are tree nodes ────
 
-TEST(test_get_mcp_learn_tree_nodes) {
+TEST(test_get_learn_tree_nodes) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    ASSERT(!reg.help_for("get.mcp").empty());
+    // get.mcp and the mcp command are the mcp plugin's contributions now; the
+    // static tree still documents learn (see the plugin suite for mcp).
     ASSERT(!reg.help_for("get.learn").empty());
-    ASSERT(!reg.man_for("mcp").empty());
 }
 
 // ── Test: get provider list node ─────────────────────────────────
@@ -1299,7 +1291,6 @@ int main() {
         test_partial_first_token_entry_names_include_compress();
         test_partial_first_token_drawer_rows_include_compress();
         test_exact_top_level_namespace_still_descends();
-        test_json_documents_mcp_namespace();
         test_json_documents_skills_under_set_and_get();
         test_json_documents_plugin_surface();
         test_plugin_feed_keeps_ids_out_of_the_command_namespaces();
@@ -1307,7 +1298,6 @@ int main() {
         test_subagent_tree_nodes();
         test_reasoning_tree_nodes();
         test_provider_tree_nodes();
-        test_get_mcp_learn_tree_nodes();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();
         test_help_page_key_from_node();

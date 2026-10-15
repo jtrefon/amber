@@ -6,8 +6,6 @@
 #include <algorithm>
 
 #include "agent/agent.h"
-#include "agent/environment.h"
-#include "agent/prompt.h"
 
 namespace agent {
 
@@ -16,24 +14,16 @@ namespace {
 thread_local bool t_in_subagent = false;
 thread_local bool t_subagent_inherited = false;
 
-// Sub-agent system prompt: the base system prompt + environment card, plus a
-// worker directive describing the focused role and the report contract.
-std::string compose_subagent_system(const Config& cfg) {
-    std::string sys =
-        load_prompt(cfg.system_prompt_path.empty() ? "prompts/system.md" : cfg.system_prompt_path);
-    const std::string env_card = render_environment_card(probe_environment());
-    if (!env_card.empty())
-        sys += "\n\n" + env_card;
-    sys += "\n\n## Worker directive\n\n"
+} // namespace
+
+std::string worker_directive() {
+    return "## Worker directive\n\n"
            "You are a focused worker agent executing one task on behalf of "
            "the main agent. The task below is yours alone — complete it with "
            "the available tools, working autonomously. When the task is "
            "complete, reply with a concise report: what you did, what you "
            "found, and what remains if anything.";
-    return sys;
 }
-
-} // namespace
 
 bool in_subagent() noexcept {
     return t_in_subagent || t_subagent_inherited;
@@ -101,13 +91,14 @@ bool SubAgentExecutor::enter_serial_mode(std::unique_lock<std::timed_mutex>& gua
 
 std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegistry& reg,
                                             const Config& sub_cfg, const AgentHooks& sub_hooks,
-                                            Message sys, std::string& err) {
+                                            std::string& err) {
     try {
         // The sub shares the parent's registry, where the skill tools are
         // already installed. Its own runs resolve this sub's catalog through
         // the run scope, so nothing is rebound here and nothing can dangle.
+        // Its system prompt is rendered by the Agent itself — the same assembly
+        // as the parent's, plus the worker directive for running in a sub.
         Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_);
-        sub.set_context({std::move(sys)});
         return sub.run(prompt);
     } catch (const std::exception& e) {
         err = std::string("sub-agent failed: ") + e.what();
@@ -137,13 +128,10 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
 
     const AgentHooks sub_hooks = sub_hooks_of();
     const Config sub_cfg = sub_config();
-    Message sys;
-    sys.role = "system";
-    sys.content = compose_subagent_system(sub_cfg);
 
     launched_.fetch_add(1);
     t_in_subagent = true;
-    const std::string result = run_sub_agent(prompt, reg, sub_cfg, sub_hooks, std::move(sys), err);
+    const std::string result = run_sub_agent(prompt, reg, sub_cfg, sub_hooks, err);
     t_in_subagent = false;
     return result;
 }

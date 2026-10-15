@@ -81,27 +81,38 @@ std::string mcp_adapter_name(const std::string& server, const std::string& tool)
     return head + buf;
 }
 
-size_t register_server_tools(ToolRegistry& reg, ServerManager& mgr, const std::string& server) {
+size_t register_server_tools(ToolPort& port, const ToolRegistry& registry, ServerManager& mgr,
+                             const std::string& server) {
     auto client = mgr.client(server);
     if (!client)
         return 0;
-    size_t n = 0;
+    std::vector<std::string> registered;
     for (const auto& def : client->tools()) {
         std::string base = mcp_adapter_name(server, def.name);
         std::string name = base;
         int suffix = 2;
-        while (reg.find(name))
+        // A name the registry already carries belongs to whoever put it there:
+        // suffix rather than replace, so registering never takes a tool over.
+        while (registry.find(name))
             name = base + "_" + std::to_string(suffix++);
         auto adapter = std::make_unique<McpToolAdapter>(
             client, def, server, name, [&mgr, server]() { return mgr.trusted(server); });
-        reg.register_tool(std::move(adapter));
-        ++n;
+        // Server tools are arbitrary: one verb for all of them ("calling"), and
+        // the Other role, which is the honest answer for a tool that only fits
+        // its own description (the audit reasons about roles, not names).
+        port.add(std::move(adapter), ToolMeta{"calling", ToolRole::Other});
+        registered.push_back(name);
     }
-    return n;
+    mgr.note_registered_tools(server, std::move(registered));
+    return mgr.registered_tools(server).size();
 }
 
-size_t unregister_server_tools(ToolRegistry& reg, const std::string& server) {
-    return reg.unregister_tools_with_prefix("mcp_" + sanitize(server) + "_");
+size_t unregister_server_tools(ToolPort& port, ServerManager& mgr, const std::string& server) {
+    const std::vector<std::string> names = mgr.registered_tools(server);
+    for (const auto& name : names)
+        port.remove(name);
+    mgr.forget_registered_tools(server);
+    return names.size();
 }
 
 namespace {
@@ -170,12 +181,13 @@ std::unique_ptr<Tool> make_read_resource_tool(ServerManager& mgr) {
 }
 
 json mcp_completion_subtree(const ToolRegistry& reg) {
-    json mcp_node = {{"action", "core.mcp"},
-                     {"help", "Manage MCP servers."},
-                     {"man", "The mcp command manages MCP servers and the tools they "
-                             "expose. Live server tools appear under their server name."},
-                     {"children", json::object()}};
-    json& children = mcp_node["children"];
+    // Only the live server branches. The command's own node — its help, man,
+    // action and verbs — belongs to the mcp plugin, which supplies it while it
+    // is enabled; a feed that also wrote those fields would either override the
+    // plugin's documentation or, worse, stamp a dead action over its live one.
+    // Nothing registered means nothing to merge: a switched-off plugin leaves
+    // no command for a feed to resurrect.
+    json children = json::object();
     for (const auto& t : reg.snapshot_tools()) {
         std::string n = t->name();
         if (n.rfind("mcp_", 0) != 0)
@@ -187,23 +199,16 @@ json mcp_completion_subtree(const ToolRegistry& reg) {
         std::string server = rest.substr(0, dot);
         std::string tool = rest.substr(dot + 1);
         if (!children.contains(server)) {
-            std::string action = "mcp." + server;
             std::string help = "Tools exposed by ";
             help += server;
             help += ".";
-            std::string man = "Live tools of the MCP server ";
-            man += server;
-            man += ".";
-            children[server] = {
-                {"action", action}, {"help", help}, {"man", man}, {"children", json::object()}};
+            children[server] = {{"help", help}, {"man", help}, {"children", json::object()}};
         }
-        std::string tool_action = "mcp.";
-        tool_action += server;
-        tool_action += ".";
-        tool_action += tool;
-        children[server]["children"][tool] = {
-            {"action", tool_action}, {"help", t->description()}, {"man", t->description()}};
+        children[server]["children"][tool] = {{"help", t->description()},
+                                              {"man", t->description()}};
     }
-    return {{"mcp", mcp_node}};
+    if (children.empty())
+        return json::object();
+    return {{"mcp", {{"children", std::move(children)}}}};
 }
 } // namespace agent

@@ -11,6 +11,7 @@
 #include "agent/prompt.h"
 #include "agent/registry.h"
 #include "agent/workspace.h"
+#include "mcp_test_util.h"
 #include "tests/test_util.h"
 
 namespace {
@@ -329,6 +330,7 @@ struct EchoManager {
     std::string ws;
     agent::ServerManager mgr;
     agent::ToolRegistry reg;
+    mcp_test::TestToolPort port{reg, "mcp"};
 
     EchoManager()
         : mgr({{"echo", [&]() {
@@ -351,13 +353,13 @@ struct EchoManager {
 // [MU-01] /mcp list renders state lines.
 TEST(mcp_commands_list_lines) {
     EchoManager env;
-    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.port, env.reg, "echo"), "");
     auto lines = agent::mcp_list_lines(env.mgr);
     ASSERT_EQ(lines.size(), 1u);
     ASSERT(lines[0].find("echo") != std::string::npos);
     ASSERT(lines[0].find("connected") != std::string::npos);
     ASSERT(lines[0].find("1 tools") != std::string::npos);
-    agent::mcp_disconnect(env.mgr, env.reg, "echo");
+    agent::mcp_disconnect(env.mgr, env.port, "echo");
     auto lines2 = agent::mcp_list_lines(env.mgr);
     ASSERT(lines2[0].find("disconnected") != std::string::npos);
     env.mgr.shutdown_all();
@@ -366,9 +368,9 @@ TEST(mcp_commands_list_lines) {
 // [MU-02] connect registers adapters; disconnect removes them.
 TEST(mcp_commands_connect_registers_tools) {
     EchoManager env;
-    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.port, env.reg, "echo"), "");
     ASSERT(env.reg.find("mcp_echo_echo_tool") != nullptr);
-    agent::mcp_disconnect(env.mgr, env.reg, "echo");
+    agent::mcp_disconnect(env.mgr, env.port, "echo");
     ASSERT(env.reg.find("mcp_echo_echo_tool") == nullptr);
     env.mgr.shutdown_all();
 }
@@ -376,7 +378,7 @@ TEST(mcp_commands_connect_registers_tools) {
 // [MU-03] /prompt get validates args and returns the flattened template.
 TEST(mcp_commands_prompt_get) {
     EchoManager env;
-    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.port, env.reg, "echo"), "");
     std::string text;
     std::string err = agent::mcp_prompt(env.mgr, "echo", "greet", {{"name", "bob"}}, text);
     ASSERT_EQ(err, "");
@@ -397,8 +399,8 @@ TEST(mcp_commands_prompt_get) {
 // refresh re-registers adapters after a discovery change.
 TEST(mcp_commands_refresh) {
     EchoManager env;
-    ASSERT_EQ(agent::mcp_connect(env.mgr, env.reg, "echo"), "");
-    ASSERT_EQ(agent::mcp_refresh(env.mgr, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_connect(env.mgr, env.port, env.reg, "echo"), "");
+    ASSERT_EQ(agent::mcp_refresh(env.mgr, env.port, env.reg, "echo"), "");
     ASSERT(env.reg.find("mcp_echo_echo_tool") != nullptr);
     env.mgr.shutdown_all();
 }

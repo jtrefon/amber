@@ -96,6 +96,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
               $(BUILD_DIR)/plugins/tool_skills/tool_skills_plugin.o \
+              $(BUILD_DIR)/plugins/mcp/mcp_plugin.o \
               $(BUILD_DIR)/plugins/search_grep/search_grep_plugin.o \
               $(BUILD_DIR)/plugins/search_semantic/search_semantic_plugin.o \
               $(BUILD_DIR)/lib/tool_prompt.o \

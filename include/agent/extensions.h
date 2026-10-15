@@ -119,13 +119,6 @@ struct StatusText {
     StatusTone tone = StatusTone::Dim;
 };
 
-// How an MCP server appears on the bar.
-struct StatusMcpServer {
-    std::string name;
-    bool connected = false;
-    bool has_error = false;
-};
-
 // What the host publishes about itself each frame. Segments are pure functions
 // of this snapshot: they are called during frame composition, so they must be
 // fast, allocation-light, and must not touch plugin state or do I/O.
@@ -147,7 +140,6 @@ struct StatusSnapshot {
     int running_jobs = 0;
     int job_seconds_left = -1;
     std::string running_tool;
-    std::vector<StatusMcpServer> mcp_servers;
 };
 
 // Which edge of the bar a segment attaches to. A segment does not address a
@@ -386,6 +378,10 @@ struct CommandSpec {
     std::string man;        // manual page for the root
     nlohmann::json subtree; // children nodes (completions.json shape)
     // Leaf path (dotted, relative to the root) -> handler returning output text.
+    // A handler keyed by the empty string binds the ROOT itself, which is how a
+    // namespace taking free-form arguments (`/prompt <server> <name>`) becomes
+    // executable: its arguments are not child commands. Output may be several
+    // lines; the host prints each.
     std::map<std::string, std::function<std::string(const std::string&)>> handlers;
 };
 
@@ -532,8 +528,9 @@ public:
     virtual ~ToolPort() = default;
 
     // Replaces an earlier add of the same name by THIS port; a name another
-    // owner holds is taken over exactly as `register_tool` takes it over.
-    virtual void add(std::unique_ptr<Tool> tool) = 0;
+    // owner holds is taken over exactly as `register_tool` takes it over. The
+    // meta travels with the registration (verb + role), like a declared tool's.
+    virtual void add(std::unique_ptr<Tool> tool, ToolMeta meta = {}) = 0;
 
     // Removes a name this port added; a no-op for anything else, so a source
     // can never reach across owners.

@@ -84,18 +84,29 @@ public:
     // in-flight call never touches a destroyed client.
     std::shared_ptr<MCPClient> client(const std::string& name) const;
 
+    // The exact adapter names registered for a server (see
+    // register_server_tools). Unwinding removes these and nothing else — the
+    // record is what replaced the name-prefix sweep, which could reach tools
+    // another owner had contributed.
+    void note_registered_tools(const std::string& server, std::vector<std::string> names);
+    std::vector<std::string> registered_tools(const std::string& server) const;
+    void forget_registered_tools(const std::string& server);
+
     // Disconnect everything (session end).
     void shutdown_all();
 
 private:
-    // Guards configs_/clients_/connect_gen_: the UI thread mutates them while
-    // worker threads may take client leases (client()) or read status.
+    // Guards configs_/clients_/connect_gen_/registered_: the UI thread mutates
+    // them while worker threads may take client leases (client()) or read
+    // status.
     mutable std::mutex mtx_;
     std::map<std::string, McpServerConfig> configs_;
     std::map<std::string, std::shared_ptr<MCPClient>> clients_;
     // Per-server connect generation: a stale handshake (started before a
     // disable/remove/re-connect) must not install its client afterwards.
     std::map<std::string, uint64_t> connect_gen_;
+    // What the host registered per server, in registration order.
+    std::map<std::string, std::vector<std::string>> registered_;
     const CancellationToken* cancel_token_ = nullptr;
 };
 

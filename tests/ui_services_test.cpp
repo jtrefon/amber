@@ -50,6 +50,10 @@ public:
         if (work)
             work();
     }
+    bool fill_input(const std::string& text) override {
+        fills.push_back(text);
+        return fill_answer;
+    }
 
     std::vector<AskSpec> text_specs;
     std::vector<AskSpec> secret_specs;
@@ -57,6 +61,8 @@ public:
     std::vector<ConfirmSpec> confirm_specs;
     std::vector<std::pair<UiLevel, std::string>> notifications;
     int posted = 0;
+    bool fill_answer = true;
+    std::vector<std::string> fills;
 };
 
 // A plugin that asks the user for a secret while contributing a tool, which is
@@ -94,6 +100,21 @@ TEST(null_ui_services_fails_closed) {
     ASSERT_FALSE(ui.confirm(ConfirmSpec{"t", "m"}));
     ui.notify(UiLevel::Error, "ignored"); // must not throw
     ui.post_to_ui([] {});                 // must not run: there is no UI thread
+    // No input line to fill: the caller shows the text instead of believing it
+    // landed somewhere.
+    ASSERT_FALSE(ui.fill_input("template text"));
+}
+
+// A host with an input line reports the fill and records what it was handed.
+TEST(host_services_a_plugin_fills_the_input_line) {
+    FakeUi ui;
+    ui.fill_answer = true;
+    ASSERT_TRUE(ui.fill_input("review this"));
+    ASSERT_EQ(ui.fills.size(), 1u);
+    ASSERT_EQ(ui.fills[0], "review this");
+
+    ui.fill_answer = false; // a host that cannot fill says so
+    ASSERT_FALSE(ui.fill_input("nope"));
 }
 
 // The plugin-facing default is the null implementation, so a capability can ask
