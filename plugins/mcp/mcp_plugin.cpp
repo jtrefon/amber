@@ -76,11 +76,9 @@ std::vector<std::unique_ptr<Capability>> McpPlugin::capabilities() {
             return std::vector<std::unique_ptr<Tool>>{};
         return wrap_tool(make_read_resource_tool(*mgr_));
     }));
-    caps.push_back(
-        make_tool_doc_capability("mcp_doc", tool_doc_priority::kMcp, "prompts/mcp.md"));
+    caps.push_back(make_tool_doc_capability("mcp_doc", tool_doc_priority::kMcp, "prompts/mcp.md"));
     caps.push_back(std::make_unique<StatusSegmentCapability>(
-        "mcp", kMcpSegmentPriority, kMcpSegmentDropPriority,
-        [this](const StatusSnapshot&) {
+        "mcp", kMcpSegmentPriority, kMcpSegmentDropPriority, [this](const StatusSnapshot&) {
             if (!mgr_)
                 return StatusText{};
             std::string text;
@@ -196,11 +194,17 @@ CommandSpec McpPlugin::build_mcp_spec() {
     spec.handlers["list"] = [this](const std::string&) { return root_handler(""); };
     spec.handlers["show"] = [this](const std::string& arg) { return show_handler(arg); };
     spec.handlers["connect"] = [this](const std::string& arg) { return connect_handler(arg); };
-    spec.handlers["disconnect"] = [this](const std::string& arg) { return disconnect_handler(arg); };
+    spec.handlers["disconnect"] = [this](const std::string& arg) {
+        return disconnect_handler(arg);
+    };
     spec.handlers["refresh"] = [this](const std::string& arg) { return refresh_handler(arg); };
     spec.handlers["prompts"] = [this](const std::string& arg) { return prompts_handler(arg); };
-    spec.handlers["enable"] = [this](const std::string& arg) { return set_enabled_handler(arg, true); };
-    spec.handlers["disable"] = [this](const std::string& arg) { return set_enabled_handler(arg, false); };
+    spec.handlers["enable"] = [this](const std::string& arg) {
+        return set_enabled_handler(arg, true);
+    };
+    spec.handlers["disable"] = [this](const std::string& arg) {
+        return set_enabled_handler(arg, false);
+    };
     spec.handlers["trust"] = [this](const std::string& arg) { return trust_handler(arg); };
     return spec;
 }
