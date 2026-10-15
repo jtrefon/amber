@@ -1,5 +1,7 @@
 
 #include "agent/environment.h"
+#include "agent/config.h"
+#include "agent/config_paths.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -23,6 +25,15 @@
 namespace agent {
 
 namespace {
+
+// First line of a file, empty when it cannot be read (a probe never throws,
+// and on a platform where the file does not exist that is the answer).
+std::string first_line(const std::string& path) {
+    std::ifstream in(path);
+    std::string line;
+    std::getline(in, line);
+    return line;
+}
 
 std::string shell_out(const std::string& cmd) {
     FILE* p = popen(cmd.c_str(), "r");
@@ -170,6 +181,12 @@ EnvironmentInfo probe_environment() {
     info.root = (geteuid() == 0);
     if (!info.root)
         info.sudo_passwordless = shell_ok("sudo -n true 2>/dev/null");
+    if (const char* sh = std::getenv("SHELL"))
+        info.shell = sh;
+    // WSL reports as Linux but is not the same machine: the Windows side is a
+    // path away, and a Linux-only reading of the environment misleads there.
+    if (first_line("/proc/version").find("microsoft") != std::string::npos)
+        info.os += " (WSL)";
     info.workspace = Workspace::root();
     info.date = date_string();
     info.timezone = timezone_string();
@@ -226,10 +243,20 @@ std::string render_environment_card(const EnvironmentInfo& info) {
         add(environment_user_line(info));
     if (!info.date.empty())
         add(environment_date_line(info));
+    if (!info.shell.empty())
+        add("Shell: " + info.shell);
     if (!info.resources.empty())
         add("Resources: " + info.resources);
     if (!info.tools.empty())
         add("Tools available: " + join_sorted(info.tools));
+    // Amber's own files, by root: "turn on MCP server X" is then a command and a
+    // location rather than a search. The complete table — every file and what it
+    // is for — is `/get config paths`, rendered from the same source the
+    // amber-config skill uses, so the three cannot drift apart.
+    add("Amber files: config " + global_config_dir() + ", project " + Workspace::local_dir() +
+        ", state " + Workspace::state_dir() + ", cache " + cache_dir());
+    add("Amber settings: `/get config paths` lists every file and its purpose; `/set` and `/get` "
+        "write and read them");
     return any ? card : "";
 }
 

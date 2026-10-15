@@ -20,6 +20,7 @@ struct EnvironmentInfo {
     std::string workspace;          // workspace root — where bash commands run
     std::string date;               // "2026-08-07"
     std::string timezone;           // "UTC+2"
+    std::string shell;              // login shell, e.g. "/bin/bash", "/bin/zsh"
     std::string resources;          // "8 cores \u00b7 16 GB RAM"
     std::vector<std::string> tools; // present non-universal tools, e.g. {"git","python3"}
 };
