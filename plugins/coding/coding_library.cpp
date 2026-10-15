@@ -159,7 +159,13 @@ std::string render_working_index() {
             out = "## Library entries this project selects\n\n"
                   "Trigger lines only: read the file when the situation matches.\n\n";
         }
-        out += "- " + entry.trigger + " — `" + path + "`\n";
+        // Piecewise: a concatenation that builds a temporary per entry is the
+        // shape the linter is right about, and this line is a per-turn cost.
+        out += "- ";
+        out += entry.trigger;
+        out += " — `";
+        out += path;
+        out += "`\n";
         if (++shown >= kMaxEntries)
             break;
     }
