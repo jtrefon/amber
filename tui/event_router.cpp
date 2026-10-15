@@ -1,7 +1,6 @@
 #include "event_router.h"
 #include "tui.h"
 #include "tool_display.h"
-#include "approval_model.h"
 #include "confirm_panel.h"
 #include "widgets.h"
 #include "textutil.h"
@@ -121,10 +120,8 @@ void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id
                                       const std::atomic<bool>& cancel) {
     hooks.on_approval = [this, window_id, &cancel](const std::string& name, const agent::json& args,
                                                    const std::string& summary) -> agent::Approval {
-        if (cancel.load()) {
-            record_denial(window_id, denial_cause(/*cancelled=*/true, false, false, false));
+        if (cancel.load())
             return agent::Approval::Deny;
-        }
         auto p = std::make_shared<std::promise<agent::Approval>>();
         auto f = p->get_future();
         AgentEvent ev;
@@ -133,14 +130,8 @@ void EventRouter::wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id
         ev.approval_promise = p;
         (void)name;
         (void)args;
-        if (!enqueue_event(*this, ev, window_id)) {
-            record_denial(window_id,
-                          denial_cause(false, shutting_down(), /*dialog_shown=*/false, false));
-            return agent::Approval::Deny;
-        }
-        return f.get();
+        return enqueue_event(*this, ev, window_id) ? f.get() : agent::Approval::Deny;
     };
-    hooks.approval_denial_reason = [this, window_id] { return take_denial(window_id); };
 
     hooks.on_api_key = [this, window_id, &cancel](const std::string& reason) -> std::string {
         if (cancel.load())
@@ -301,13 +292,7 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
     std::string prompt = ev.text;
     if (Window* w = tui_.window_by_id(ev.window_id))
         prompt = "[" + w->title + "] " + ev.text;
-    bool timed_out = false;
-    agent::Approval d = approve_dialog(prompt, tui_.policy_timeout_, 0, &timed_out);
-    // Recorded before the promise is answered: the blocked agent thread reads
-    // this reason as soon as it wakes.
-    if (d == agent::Approval::Deny && timed_out)
-        record_denial(ev.window_id, denial_cause(false, false, /*dialog_shown=*/true,
-                                                 /*timed_out=*/true));
+    agent::Approval d = approve_dialog(prompt, tui_.policy_timeout_, 0);
     const char* verdict = "denied";
     if (d == agent::Approval::AllowOnce)
         verdict = "allowed once";
@@ -317,27 +302,9 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
         verdict = "always allow";
     else if (d == agent::Approval::AlwaysDeny)
         verdict = "always deny";
-    tui_.append_line(P_STATUS, std::string("approval: ") + verdict +
-                                   (timed_out ? ", timed out" : "") + "  (" + ev.text + ")");
+    tui_.append_line(P_STATUS, std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
         ev.approval_promise->set_value(d);
-}
-
-void EventRouter::record_denial(size_t window_id, std::string why) {
-    if (why.empty())
-        return;
-    std::scoped_lock lk(mtx_);
-    denial_reason_[window_id] = std::move(why);
-}
-
-std::string EventRouter::take_denial(size_t window_id) {
-    std::scoped_lock lk(mtx_);
-    auto it = denial_reason_.find(window_id);
-    if (it == denial_reason_.end())
-        return {};
-    std::string why = std::move(it->second);
-    denial_reason_.erase(it); // consumed: a stale reason never explains a later denial
-    return why;
 }
 
 void EventRouter::pump_pending_asks() {

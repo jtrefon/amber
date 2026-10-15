@@ -112,7 +112,6 @@ agent::Approval ApprovalPanel::run() {
             // Fail-safe: a timed-out dialog denies; it never auto-confirms
             // the default selection.
             sel_ = -1;
-            timed_out_ = true;
             break;
         }
         // Poll at 250 ms while a countdown runs so the timer advances
@@ -157,13 +156,9 @@ bool ApprovalPanel::handle_dialog_key(int ch, ApprovalModel& model) {
     return false;
 }
 
-agent::Approval approve_dialog(const std::string& summary, int timeout_sec, int default_idx,
-                               bool* timed_out) {
+agent::Approval approve_dialog(const std::string& summary, int timeout_sec, int default_idx) {
     ApprovalPanel panel(summary, timeout_sec, default_idx);
-    const agent::Approval verdict = panel.run();
-    if (timed_out)
-        *timed_out = panel.timed_out();
-    return verdict;
+    return panel.run();
 }
 
 // Simple yes/no confirmation dialog kept for delete confirmations.

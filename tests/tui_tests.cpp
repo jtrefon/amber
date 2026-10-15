@@ -8,7 +8,6 @@
 #include "agent/workspace.h"
 #include <csignal>
 #include "tui/action_registry.h"
-#include "tui/approval_model.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
@@ -59,18 +58,6 @@
 // @-reference expansion must route user/model-supplied paths through
 // confine_path, which rejects absolute escapes and ../ traversal.
 // ---------------------------------------------------------------------------
-
-TEST(tui_denial_cause_names_what_the_host_did) {
-    // The reason the model is handed when the host denied without asking. An
-    // empty result means the user answered, where the generic wording is already
-    // accurate.
-    ASSERT_TRUE(tui::denial_cause(true, false, false, false).find("cancel") != std::string::npos);
-    ASSERT_TRUE(tui::denial_cause(false, true, false, false).find("shutting down") !=
-                std::string::npos);
-    ASSERT_TRUE(tui::denial_cause(false, false, false, false).find("dialog") != std::string::npos);
-    ASSERT_TRUE(tui::denial_cause(false, false, true, true).find("timed out") != std::string::npos);
-    ASSERT_TRUE(tui::denial_cause(false, false, true, false).empty());
-}
 
 TEST(sec04_confine_path_rejects_absolute) {
     agent::Workspace::set_root("/tmp/amber_tui_confine");

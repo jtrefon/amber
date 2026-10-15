@@ -20,10 +20,6 @@ public:
 
     agent::Approval run();
 
-    // True when the countdown expired instead of the user answering: the
-    // difference between "declined" and "never asked".
-    bool timed_out() const noexcept { return timed_out_; }
-
 private:
     // Key dispatch for the dialog loop; returns true when the dialog should
     // close. The model is the single source of truth for the selection.
@@ -32,7 +28,6 @@ private:
     int timeout_sec_;
     int sel_ = 0; // 0=AllowOnce, 1=AllowSession, 2=AlwaysAllow, 3=AlwaysDeny
     int remaining_ = 0;
-    bool timed_out_ = false;
 
     void draw();
     void draw_button(int i, int y, bool selected, bool has_timer);
@@ -42,10 +37,8 @@ private:
 // Convenience wrapper: shows the approval dialog and returns the decision.
 // If timeout_sec == 0 the dialog waits indefinitely.
 // default_idx 0-3 selects the initially highlighted option.
-// `timed_out` (optional) comes back true when the countdown expired instead
-// of the user answering — the difference between "declined" and "never asked".
 agent::Approval approve_dialog(const std::string& summary, int timeout_sec = 60,
-                               int default_idx = 0, bool* timed_out = nullptr);
+                               int default_idx = 0);
 
 // Simple yes/no confirmation dialog.
 class ConfirmPanel : public Panel {

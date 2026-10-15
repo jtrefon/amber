@@ -216,15 +216,8 @@ ApprovalDecision rule_denied(const Tool& tool, const Decision& dec) {
     return {false, "denied by the stored policy rule for scope '" + scope + "'" + rule_hint(scope)};
 }
 
-// The host's own account of a denial it returned (declined, timed out,
-// cancelled, shutting down) beats the generic wording: only it can tell those
-// apart.
-ApprovalDecision host_denied(const AgentHooks& hooks) {
-    if (hooks.approval_denial_reason) {
-        std::string why = hooks.approval_denial_reason();
-        if (!why.empty())
-            return {false, std::move(why)};
-    }
+// What the model hears when the host answered "no" without a word of its own.
+ApprovalDecision host_denied(const AgentHooks&) {
     return {false, "the user was asked to approve this call and declined"};
 }
 

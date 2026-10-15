@@ -3362,30 +3362,6 @@ TEST(denied_write_skill_by_the_user_says_the_user_declined) {
     ASSERT(r.error.find("declin") != std::string::npos);
 }
 
-TEST(denied_call_uses_the_hosts_reason_when_it_gives_one) {
-    // A host that knows which denial this was (cancelled, timed out, shutting
-    // down) says so; its wording beats the generic one, because only it can tell
-    // "the user declined" from "nobody was ever asked".
-    agent::Config cfg;
-    cfg.mode = agent::AgentMode::Write;
-    agent::ToolRegistry reg;
-    agent::JobService jobs;
-    agent::TodoStore todos;
-    agent::SubAgentExecutor subagents;
-    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
-    agent::AgentHooks hooks;
-    hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
-        return agent::Approval::Deny;
-    };
-    hooks.approval_denial_reason = [] {
-        return std::string("the run was cancelled before this call was approved");
-    };
-
-    const agent::ToolResult r = denied_write_skill_result(cfg, reg, hooks, nullptr);
-    ASSERT_FALSE(r.ok);
-    ASSERT(r.error.find("cancelled") != std::string::npos);
-}
-
 TEST(denied_write_skill_by_always_deny_names_the_rule) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Write;
