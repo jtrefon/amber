@@ -656,8 +656,10 @@ the block is cached because it rides in every turn, and disabling the plugin
 takes it away), `plugins/project_index/` (category `domain`: amber's own notes
 about the project — how it runs, where its parts and artefacts live, which
 library entries apply — read from the project's private state once per session,
-with the provenance line reporting a source that has moved; the tools that write
-it arrive with the next phase), `plugins/clock/` (the bar's right-edge readout),
+with the provenance line reporting a source that has moved; its tools
+(`index_init`, `index_add`, `index_update`, `index_remove`, `index_show`) and its
+`/index show|refresh` command arrive and leave with it),
+`plugins/clock/` (the bar's right-edge readout),
 `plugins/metrics/` (an event-observing plugin with no contributions),
 `plugins/hello/` (the command example) and `plugins/amber_self/` (the
 `amber-self` plugin: it contributes the `amber-config` skill, whose body is

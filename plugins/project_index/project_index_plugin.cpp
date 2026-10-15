@@ -3,10 +3,13 @@
 #include "agent/extensions.h"
 #include "agent/prompt.h"
 #include "agent/workspace.h"
+#include "index_store.h"
+#include "index_tools.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <nlohmann/json.hpp>
 #include <sstream>
 #include <vector>
 
@@ -161,11 +164,44 @@ std::string ProjectIndexPlugin::load_once() {
 
 std::vector<std::unique_ptr<Capability>> ProjectIndexPlugin::capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
-    // One capability: the plugin exists to put this text in the prompt, and
-    // disabling it takes the text away with nothing else to unpick.
+    // Three contributions, one plugin: the block that carries the index, the
+    // tools that write it, and the command that shows or re-reads it. They
+    // arrive and leave together, which is the point -- a user who switches the
+    // index off should not be left with tools that write a file nothing reads.
     caps.push_back(std::make_unique<PromptBlockCapability>(
         "project_index", prompt_priority::kProjectIndex, [this] { return load_once(); },
         PromptPlacement::System));
+
+    caps.push_back(std::make_unique<ToolCapability>(
+        "project_index_tools", [](PluginServices&) { return make_index_tools(); },
+        ToolCapability::Meta{{{"index_init", {"indexing", ToolRole::Write}},
+                              {"index_add", {"indexing", ToolRole::Write}},
+                              {"index_update", {"indexing", ToolRole::Write}},
+                              {"index_remove", {"indexing", ToolRole::Write}},
+                              // Other, not Read: the audit reasons about what can
+                              // bring *workspace* content back, and this reads
+                              // amber's own note about the project.
+                              {"index_show", {"reading", ToolRole::Other}}}}));
+
+    CommandSpec spec;
+    spec.root = "index";
+    spec.help = "The project index: amber's own notes about this project";
+    spec.man = "Usage: /index show — print the index file. /index refresh — re-read it now; the "
+               "block in the system prompt is frozen for the session, and this is what moves it.";
+    spec.subtree = json::parse(R"({
+        "show": {"help": "Print the project index", "man": "Usage: /index show"},
+        "refresh": {"help": "Re-read the index now", "man": "Usage: /index refresh"}
+    })");
+    spec.handlers["show"] = [](const std::string&) {
+        const std::string body = index_store::read_all();
+        return body.empty() ? std::string("no project index yet — amber can write one") : body;
+    };
+    spec.handlers["refresh"] = [this](const std::string&) {
+        refresh();
+        return load_once().empty() ? std::string("no project index yet")
+                                   : std::string("index re-read: the block now reflects the file");
+    };
+    caps.push_back(std::make_unique<CommandCapability>(std::move(spec)));
     return caps;
 }
 
