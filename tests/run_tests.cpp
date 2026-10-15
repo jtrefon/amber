@@ -5999,9 +5999,14 @@ TEST(environment_card_sorts_tools) {
 }
 
 TEST(environment_card_omits_unknown_fields) {
+    // A machine nothing is known about contributes no machine fields. Amber's
+    // own layout is always with the card, because it is not a probe: it is
+    // where the agent's own files are.
     agent::EnvironmentInfo info;
     std::string card = agent::render_environment_card(info);
-    ASSERT_EQ(card, "");
+    ASSERT(card.find("OS:") == std::string::npos);
+    ASSERT(card.find("User:") == std::string::npos);
+    ASSERT(card.find("Amber files: config ") != std::string::npos);
     info.os = "Linux";
     card = agent::render_environment_card(info);
     ASSERT(card.find("User:") == std::string::npos);
