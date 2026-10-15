@@ -3,6 +3,7 @@
 #include "agent/environment.h"
 #include "agent/plugin.h"
 #include "agent/prompt.h"
+#include "agent/subagent.h"
 #include "agent/tool_call_parser.h"
 #include "agent/agent_helpers.h"
 #include "agent/tool_recovery.h"
@@ -228,6 +229,10 @@ std::string Agent::render_system_prompt() const {
     append_optional_section(
         system,
         load_prompt(cfg_.git_prompt_path.empty() ? "prompts/git.md" : cfg_.git_prompt_path));
+    // A worker runs this same assembly plus the role boundary: rendered here,
+    // not composed by the task tool, so the prompt rebuild cannot lose it.
+    if (in_subagent())
+        append_section(system, worker_directive());
     return system;
 }
 

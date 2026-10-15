@@ -1641,9 +1641,11 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
     SharedScriptFake* parent_raw = parent.get();
-    executor.set_factory([script](const agent::Config&) {
+    std::vector<SharedScriptFake*> workers;
+    executor.set_factory([script, &workers](const agent::Config&) {
         auto f = std::make_unique<SharedScriptFake>();
         f->script = script;
+        workers.push_back(f.get());
         return std::unique_ptr<agent::LLMClient>(std::move(f));
     });
     executor.set_config(cfg);
@@ -1652,17 +1654,15 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     ASSERT_EQ(ag.run("delegate"), "done");
 
     // The worker's request carries the directive; the parent's does not.
+    ASSERT(!workers.empty());
     bool worker_saw_it = false;
-    bool parent_saw_it = false;
-    for (std::size_t i = 0; i < parent_raw->systems.size(); ++i) {
-        const bool has = parent_raw->systems[i].find("## Worker directive") != std::string::npos;
-        if (i == 0)
-            parent_saw_it = has;
-        else if (has)
-            worker_saw_it = true;
-    }
+    for (SharedScriptFake* w : workers)
+        for (const auto& system : w->systems)
+            if (system.find("## Worker directive") != std::string::npos)
+                worker_saw_it = true;
     ASSERT_TRUE(worker_saw_it);
-    ASSERT_FALSE(parent_saw_it);
+    ASSERT(!parent_raw->systems.empty());
+    ASSERT(parent_raw->systems.front().find("## Worker directive") == std::string::npos);
 }
 
 // [item-5] Cancellation must stop the run cleanly: no fabricated
