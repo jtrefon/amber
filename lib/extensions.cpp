@@ -477,6 +477,39 @@ InstallResult ToolCapability::install(PluginServices& services) {
     return r;
 }
 
+ToolSourceCapability::ToolSourceCapability(std::string name, Start start, Stop stop)
+    : name_(std::move(name)), start_(std::move(start)), stop_(std::move(stop)) {}
+
+InstallResult ToolSourceCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (!start_) {
+        r.error = "tool source capability '" + name_ + "' has no start";
+        return r;
+    }
+    ToolPort* port = services.tool_port();
+    if (!port) {
+        // Nothing to discover into: a host that installs capabilities directly
+        // owns no plugin whose set it could scope and unwind. That is "nothing
+        // to install", not a broken plugin.
+        r.declined = true;
+        return r;
+    }
+    // The port belongs to this plugin and lives until it is deactivated; the
+    // source keeps it and adds/removes for as long as it is enabled. The
+    // runtime clears the port after the plugin's own stop has run (see
+    // PluginRuntime::deactivate), so a source that joins its worker in stop
+    // cannot race the removal of what that worker added.
+    start_(services, *port);
+    r.ok = true;
+    r.contribution.kind = CapabilityKind::ToolSource;
+    r.contribution.name = name_;
+    if (stop_) {
+        Stop stop = stop_;
+        r.contribution.remove = [stop = std::move(stop)] { stop(); };
+    }
+    return r;
+}
+
 PromptBlockCapability::PromptBlockCapability(std::string id, int priority,
                                              PromptRegistry::Render render,
                                              PromptPlacement placement)

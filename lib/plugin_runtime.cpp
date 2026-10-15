@@ -6,6 +6,7 @@
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_external_adapter.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -34,6 +35,64 @@ std::string plugin_dir(const std::string& id) {
 std::string state_path(const std::string& id) {
     return plugin_dir(id) + "/plugin.conf";
 }
+
+// The owner-scoped port a plugin's tool sources register discovered tools
+// through. It is the registry's write path for a set that is not known at
+// declaration time: every name it carried is recorded, so deactivation removes
+// exactly that set and nothing else (owner-checked, like every other unwinder).
+//
+// Threading: a source may add from its own worker, so the record is guarded.
+// Lock order is port -> registry, and nothing takes them the other way round.
+class OwnedToolPort : public ToolPort {
+public:
+    OwnedToolPort(ToolRegistry& registry, std::string owner)
+        : registry_(registry), owner_(std::move(owner)) {}
+
+    void add(std::unique_ptr<Tool> tool) override {
+        if (!tool)
+            return;
+        const std::string name = tool->name();
+        std::scoped_lock lk(mtx_);
+        if (!open_)
+            return; // between activations: nothing registered, nothing to unwind
+        registry_.register_tool(std::move(tool), owner_);
+        if (std::find(names_.begin(), names_.end(), name) == names_.end())
+            names_.push_back(name);
+    }
+
+    void remove(const std::string& name) override {
+        std::scoped_lock lk(mtx_);
+        const auto it = std::find(names_.begin(), names_.end(), name);
+        if (it == names_.end())
+            return; // never carried by this port: not ours to remove
+        registry_.remove_owned_tool(name, owner_);
+        names_.erase(it);
+    }
+
+    // Activation: the plugin may register into it again. The record is empty
+    // (close() cleared it), so a re-activation rebuilds the set from scratch.
+    void open() override {
+        std::scoped_lock lk(mtx_);
+        open_ = true;
+    }
+
+    // Deactivation: called after the plugin's own teardown has run, so nothing
+    // this port carried can be added to while it is being emptied.
+    void close() override {
+        std::scoped_lock lk(mtx_);
+        open_ = false;
+        for (const auto& name : names_)
+            registry_.remove_owned_tool(name, owner_);
+        names_.clear();
+    }
+
+private:
+    ToolRegistry& registry_;
+    std::string owner_;
+    std::mutex mtx_;
+    std::vector<std::string> names_;
+    bool open_ = false;
+};
 
 // A missing file means "never configured" -> the default applies (bundled
 // plugins ship on).
@@ -112,6 +171,10 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     }
     plugins_[id] = std::move(entry);
     registry_.register_plugin(plugins_[id].plugin);
+    // The port is part of the plugin's registration, not of one activation: it
+    // outlives any single install pass so a source that keeps it can never
+    // write into a freed object, and a re-activation starts from an empty set.
+    plugins_[id].tool_port = std::make_unique<OwnedToolPort>(services_->tools(), id);
     return true;
 }
 
@@ -481,6 +544,10 @@ bool PluginRuntime::activate(const std::string& id) {
         return true;
     if (!registry_.activate(id))
         return false;
+    // Open the source port before the install pass: a tool source may register
+    // its discovered set from inside install, and from a worker after it.
+    if (it->second.tool_port)
+        it->second.tool_port->open();
     if (!install_capabilities(id, *it->second.plugin)) {
         // A plugin that cannot install its capabilities is not active: leaving
         // it half-installed would be the very state the ledger exists to
@@ -494,6 +561,11 @@ bool PluginRuntime::activate(const std::string& id) {
 void PluginRuntime::deactivate(const std::string& id) {
     registry_.deactivate(id);
     ledger_.unwind(id);
+    // The plugin's own teardown (a source's stop) has run by now, so a worker
+    // can no longer be adding; emptying the port is what removes the discovered
+    // set, owner-checked, and a late add afterwards is a no-op.
+    if (auto it = plugins_.find(id); it != plugins_.end() && it->second.tool_port)
+        it->second.tool_port->close();
 }
 
 bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
@@ -501,6 +573,7 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
     if (it == plugins_.end())
         return false;
     services_->set_owner(id);
+    services_->set_tool_port(it->second.tool_port.get());
     // The capabilities declared at registration are the ones installed; a
     // plugin hands them over once and the runtime owns them from then on.
     for (auto& capability : it->second.declared) {
@@ -509,10 +582,13 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
         InstallResult result = capability->install(*services_);
         if (result.declined)
             continue; // nothing to install is not a reason to fail the plugin
-        if (!result.ok)
+        if (!result.ok) {
+            services_->set_tool_port(nullptr);
             return false;
+        }
         ledger_.record(id, std::move(result.contribution));
     }
+    services_->set_tool_port(nullptr);
     return true;
 }
 

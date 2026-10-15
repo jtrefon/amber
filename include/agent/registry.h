@@ -82,6 +82,13 @@ public:
     // Snapshot of the owned tools, consistent under the registry lock.
     std::vector<std::shared_ptr<Tool>> snapshot_tools() const;
 
+    // Bumped by every change to the set (register, replace, remove). A host
+    // that renders from the registry — the command drawer reflecting live tool
+    // names, for instance — can poll this instead of being told: the set can
+    // now change from a plugin's worker thread, where no refresh call site
+    // exists to update.
+    std::uint64_t generation() const;
+
     // Remove every tool whose name starts with `prefix` (e.g. "mcp_github_").
     // Returns the number removed.
     size_t unregister_tools_with_prefix(const std::string& prefix);
@@ -105,6 +112,7 @@ private:
 
     mutable std::mutex mtx_;
     std::vector<Entry> tools_;
+    std::uint64_t generation_ = 0;
 };
 
 } // namespace agent

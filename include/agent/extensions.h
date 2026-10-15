@@ -413,6 +413,10 @@ private:
 // The services a capability installs into
 // ---------------------------------------------------------------------------
 
+// The port a tool source registers discovered tools through; defined with the
+// concrete capabilities below (the services only hand out the reference).
+class ToolPort;
+
 // Passed to Capability::install(). Holds only what the harness owns; a
 // capability never constructs its own registry.
 class PluginServices {
@@ -441,6 +445,13 @@ public:
     const std::string& owner() const noexcept { return owner_; }
     void set_owner(std::string owner) { owner_ = std::move(owner); }
 
+    // The port a tool source registers discovered tools through, set around the
+    // same install pass. Null in a host that installs capabilities directly
+    // with no runtime (a bare host has no owner to scope a discovered set to);
+    // a source declines there rather than failing.
+    ToolPort* tool_port() const noexcept { return tool_port_; }
+    void set_tool_port(ToolPort* port) noexcept { tool_port_ = port; }
+
     // The host's live configuration. Null before the host attaches one (tests
     // and headless hosts that do not need it).
     const Config* config = nullptr;
@@ -465,6 +476,7 @@ private:
     EventBus* events_;
     CommandRegistry* commands_;
     std::string owner_;
+    ToolPort* tool_port_ = nullptr;
 };
 
 // ---------------------------------------------------------------------------
@@ -504,6 +516,62 @@ private:
     std::string name_;
     Meta meta_;
     Factory factory_;
+};
+
+// What a plugin registers DISCOVERED tools through. Some tool sets are not
+// knowable at declaration time — an MCP server advertises its tools after it
+// has been spawned and initialised — so the plugin is handed this port instead
+// of the registry: the runtime owns it, tags every add with the plugin's id,
+// and records the names. Deactivation removes exactly those, owner-checked, so
+// a discovered contribution is unwound as precisely as a declared one.
+//
+// Thread-safe: a source normally adds from its own worker (a server that
+// connects later is the ordinary case), and never blocks on the UI.
+class ToolPort {
+public:
+    virtual ~ToolPort() = default;
+
+    // Replaces an earlier add of the same name by THIS port; a name another
+    // owner holds is taken over exactly as `register_tool` takes it over.
+    virtual void add(std::unique_ptr<Tool> tool) = 0;
+
+    // Removes a name this port added; a no-op for anything else, so a source
+    // can never reach across owners.
+    virtual void remove(const std::string& name) = 0;
+
+    // Runtime-facing lifecycle. `open` runs before a plugin's install pass
+    // (its sources may register from inside install, and from a worker after
+    // it); `close` runs at deactivation, after the plugin's own teardown, and
+    // removes everything the port carried. A source never calls either: it
+    // registers in `start` and, if it needs to reconcile, from its own work.
+    virtual void open() = 0;
+    virtual void close() = 0;
+};
+
+// Installs a tool set the plugin discovers while it is active. `start` runs at
+// every activation and receives the port; the plugin keeps it for as long as it
+// is enabled and adds/removes as its sources come and go. `stop` runs before
+// the runtime clears the port, so the plugin's own teardown (joining a worker,
+// closing a session) completes while its tools are still registered — a source
+// that tears down a connection can still reconcile the port on the way out.
+//
+// A capability with no port (a bare host that installs capabilities directly,
+// with no runtime) declines rather than fails: there is nothing to discover
+// into, which is not an error.
+class ToolSourceCapability : public Capability {
+public:
+    using Start = std::function<void(PluginServices&, ToolPort&)>;
+    using Stop = std::function<void()>;
+
+    ToolSourceCapability(std::string name, Start start, Stop stop = {});
+    std::string name() const override { return name_; }
+    CapabilityKind kind() const override { return CapabilityKind::ToolSource; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    std::string name_;
+    Start start_;
+    Stop stop_;
 };
 
 // Installs one ordered prompt block.
