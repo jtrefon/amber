@@ -1354,7 +1354,7 @@ std::string head_blocks_text(PluginRuntime& runtime) {
 TEST(library_entry_header_is_parsed) {
     const plugins::LibraryEntry entry = plugins::parse_library_entry(
         "library/x.md", "name: x\ntrigger: when something applies\ntags: #cpp, "
-                        "#testing\nreference: docs\n\nbody\n");
+                        "#testing\nweight: 90\nreference: docs\n\nbody\n");
     ASSERT_EQ(entry.trigger, std::string("when something applies"));
     ASSERT_EQ(entry.tags.size(), 2u);
     ASSERT(entry.tags[0] == "cpp");
@@ -1368,6 +1368,61 @@ TEST(library_entry_header_is_parsed) {
     ASSERT(plugins::parse_library_entry("library/z.md", "body first\ntrigger: too late\n")
                .trigger.empty());
     ASSERT_FALSE(plugins::entry_matches(plugins::LibraryEntry{}, {"cpp"}));
+
+    // Weight decides what survives the cap: a missing weight is the default, a
+    // malformed one is the default rather than a hidden entry, and the ceiling
+    // is 100.
+    ASSERT_EQ(entry.weight, 90);
+    ASSERT_EQ(plugins::parse_library_entry("library/a.md", "trigger: t\n").weight, 50);
+    ASSERT_EQ(plugins::parse_library_entry("library/b.md", "weight: heavy\ntrigger: t\n").weight,
+              50);
+    ASSERT_EQ(plugins::parse_library_entry("library/c.md", "weight: 800\ntrigger: t\n").weight,
+              100);
+}
+
+TEST(library_ranking_puts_the_heaviest_first) {
+    ScratchWorkspace ws("library-rank");
+    ScratchState state("library-rank");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string head = head_blocks_text(runtime);
+    // Weight, not the filesystem's order: the topic outranks the entries, and
+    // each entry outranks a lighter one.
+    const std::size_t topic = head.find("which layer to reach for first");
+    const std::size_t iterator = head.find("still holds an iterator");
+    const std::size_t ownership = head.find("say who owns it");
+    const std::size_t concurrency = head.find("async task outlives");
+    const std::size_t dependencies = head.find("a build must work somewhere else");
+    const std::size_t build_loop = head.find("does not document how");
+    ASSERT(topic != std::string::npos);
+    ASSERT(topic < iterator);
+    ASSERT(iterator < ownership);
+    ASSERT(ownership < concurrency);
+    ASSERT(concurrency < dependencies);
+    ASSERT(dependencies < build_loop);
+}
+
+TEST(library_topic_is_one_line_and_hides_its_children) {
+    ScratchWorkspace ws("library-topic");
+    ScratchState state("library-topic");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp #debugging\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string head = head_blocks_text(runtime);
+    ASSERT(head.find("which layer to reach for first (3 entries)") != std::string::npos);
+    ASSERT(head.find("cpp-debugging/topic.md") != std::string::npos);
+    // One line stands for three entries: the children cost nothing until they
+    // are asked for.
+    ASSERT(head.find("sanitizer") == std::string::npos);
+    ASSERT(head.find("a debugger answers the question") == std::string::npos);
+    ASSERT(head.find("cheapest reviewer") == std::string::npos);
 }
 
 TEST(index_selection_tags_are_read_from_the_section) {

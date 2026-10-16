@@ -10,14 +10,24 @@ namespace agent::plugins {
 // index renders; an entry with no trigger has nothing to render and is dropped
 // by the caller.
 struct LibraryEntry {
+    std::string name; // the file's stem, or a topic's directory name
     std::string trigger;
     std::vector<std::string> tags;
-    std::string path; // where the body is, so the agent can read it on demand
+    std::string path;         // where the body is
+    int weight = 50;          // heavier entries survive the working-index cap first
+    bool topic = false;       // a directory manifest: one line for many entries
+    std::size_t children = 0; // entries inside a topic, for the line's sake
 };
 
-// Parse one entry's header. Pure -- no I/O -- so the format is testable on its
-// own, which is the point: the index renders exactly what the header declares.
+// Parse one entry (or topic manifest) header. Pure -- no I/O -- so the format is
+// testable on its own, which is the point: the index renders exactly what the
+// header declares.
 LibraryEntry parse_library_entry(const std::string& path, const std::string& text);
+
+// The library's entries: one per markdown file, plus one per topic directory --
+// whose `topic.md` carries its line and whose children stay dark until looked
+// up. Sorted for display (weight, then name).
+std::vector<LibraryEntry> library_entries();
 
 // True when the entry carries one of `wanted`. Tags compare without their '#',
 // because the index writes them with it and an entry may write them either way.
@@ -31,9 +41,9 @@ std::vector<std::string> selected_tags_from(const std::string& index_body);
 // to the working directory, like every other prompt file.
 std::string library_dir();
 
-// The working index: one trigger line per selected entry, as a per-turn block.
-// Empty when nothing is selected -- the library is dark until a project asks
-// for a part of it.
+// The working index: one trigger line per selected entry, heaviest first, as a
+// per-turn block. Empty when nothing is selected -- the library is dark until a
+// project asks for a part of it.
 std::string render_working_index();
 
 } // namespace agent::plugins

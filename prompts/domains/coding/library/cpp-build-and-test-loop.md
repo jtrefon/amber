@@ -1,6 +1,7 @@
 name: the build and test loop
 trigger: when a change needs building or testing and the project does not document how
 tags: #cpp #cmake #make #testing
+weight: 40
 reference: none
 
 Get one command that builds and one that runs the tests, and use them before and
