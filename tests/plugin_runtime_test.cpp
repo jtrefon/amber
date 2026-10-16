@@ -1633,6 +1633,78 @@ TEST(library_selection_for_a_python_project_does_not_leak_cpp) {
     ASSERT(head.find("say who owns it") == std::string::npos);
 }
 
+TEST(profile_cpp_cmake_and_compose_selects_the_cpp_set) {
+    ScratchWorkspace ws("profile-cpp");
+    ScratchState state("profile-cpp");
+    write_text(ws.root() / "CMakeLists.txt",
+               "project(app CXX)\nadd_executable(app src/main.cpp)\n");
+    write_text(ws.root() / "src" / "main.cpp", "int main() { return 0; }\n");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  app:\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    for (const char* tag : {"#cpp", "#cmake", "#dockercompose"})
+        ASSERT(proposed.output.find(tag) != std::string::npos);
+
+    ASSERT(call_tool(f, "index_init", json{{"commit", proposed.output}}).ok);
+    const std::string head = head_blocks_text(runtime);
+    ASSERT(head.find("still holds an iterator") != std::string::npos);
+    ASSERT(head.find("say who owns it") != std::string::npos);
+    ASSERT(head.find("the PHP test runner") == std::string::npos);
+}
+
+TEST(profile_dotnet_angular_monorepo_reports_what_it_cannot_serve) {
+    ScratchWorkspace ws("profile-dotnet");
+    ScratchState state("profile-dotnet");
+    write_text(ws.root() / "api.csproj",
+               "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+               "<ItemGroup><PackageReference Include=\"Microsoft.EntityFrameworkCore\" />"
+               "</ItemGroup></Project>");
+    write_text(ws.root() / "package.json", R"({"dependencies":{"@angular/core":"17"}})");
+    write_text(ws.root() / "tsconfig.json", "{}\n");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n  web:\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    for (const char* tag : {"#dotnet", "#efcore", "#angular", "#typescript", "#dockercompose"})
+        ASSERT(proposed.output.find(tag) != std::string::npos);
+
+    ASSERT(call_tool(f, "index_init", json{{"commit", proposed.output}}).ok);
+    const std::string head = head_blocks_text(runtime);
+    // The direction nobody writes: none of the C++ set applies here.
+    ASSERT(head.find("still holds an iterator") == std::string::npos);
+    ASSERT(head.find("say who owns it") == std::string::npos);
+    ASSERT(head.find("which layer to reach for first") == std::string::npos);
+}
+
+TEST(profile_go_service_selects_nothing_yet) {
+    ScratchWorkspace ws("profile-go");
+    ScratchState state("profile-go");
+    write_text(ws.root() / "go.mod", "module example.com/svc\n\ngo 1.22\n");
+    write_text(ws.root() / "main.go", "package main\n\nfunc main() {}\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    ASSERT(proposed.output.find("#go") != std::string::npos);
+
+    ASSERT(call_tool(f, "index_init", json{{"commit", proposed.output}}).ok);
+    const std::string head = head_blocks_text(runtime);
+    ASSERT(head.find("still holds an iterator") == std::string::npos);
+    ASSERT(head.find("say who owns it") == std::string::npos);
+}
+
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
     LiveMcp live("mcp-usage");
     const std::vector<std::pair<std::string, std::string>> verbs = {
