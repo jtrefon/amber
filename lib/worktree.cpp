@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -286,6 +287,41 @@ bool save_worktrees(const std::string& state_dir, const std::vector<WorktreeEntr
     }
     fs::rename(tmp, path, ec);
     return !ec;
+}
+
+WorktreeEntry make_worktree_entry(const std::string& name, const std::string& path,
+                                  const std::string& base_oid, const std::string& session_id) {
+    WorktreeEntry entry;
+    entry.name = name;
+    entry.path = path;
+    entry.base_oid = base_oid;
+    entry.head_oid = base_oid; // a fresh worktree sits at its base
+    entry.session_id = session_id;
+    entry.pid = static_cast<long>(::getpid());
+    entry.start_ticks = process_start_ticks(entry.pid);
+    entry.created_ms = static_cast<long long>(std::time(nullptr)) * 1000;
+    return entry;
+}
+
+bool registry_add(const std::string& state_dir, const WorktreeEntry& entry) {
+    std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
+    const auto same_name = [&](const WorktreeEntry& e) { return e.name == entry.name; };
+    const auto existing = std::find_if(entries.begin(), entries.end(), same_name);
+    if (existing == entries.end())
+        entries.push_back(entry);
+    else
+        *existing = entry;
+    return save_worktrees(state_dir, entries);
+}
+
+bool registry_remove(const std::string& state_dir, const std::string& name) {
+    std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
+    const auto before = entries.size();
+    const auto same_name = [&](const WorktreeEntry& e) { return e.name == name; };
+    entries.erase(std::remove_if(entries.begin(), entries.end(), same_name), entries.end());
+    if (entries.size() == before)
+        return false;
+    return save_worktrees(state_dir, entries);
 }
 
 ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,

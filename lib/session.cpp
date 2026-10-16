@@ -306,9 +306,15 @@ json WorkspaceState::to_json() const {
         json ph = json::array();
         for (const auto& h : w.prompt_history)
             ph.push_back(h);
-        arr.push_back({{"session_id", w.session_id}, {"title", w.title}, {"prompt_history", ph}});
+        arr.push_back({{"session_id", w.session_id},
+                       {"title", w.title},
+                       {"prompt_history", ph},
+                       {"root", w.root},
+                       {"worktree", w.worktree},
+                       {"base_oid", w.base_oid},
+                       {"head_oid", w.head_oid}});
     }
-    return {{"version", 1}, {"windows", arr}, {"active", active}};
+    return {{"version", 2}, {"windows", arr}, {"active", active}};
 }
 
 WorkspaceState WorkspaceState::from_json(const json& j) {
@@ -320,6 +326,11 @@ WorkspaceState WorkspaceState::from_json(const json& j) {
         we.title = e.value("title", "");
         for (const auto& h : e.value("prompt_history", json::array()))
             we.prompt_history.push_back(h.get<std::string>());
+        // Absent in a version-1 file: no workspace means the project root.
+        we.root = e.value("root", "");
+        we.worktree = e.value("worktree", "");
+        we.base_oid = e.value("base_oid", "");
+        we.head_oid = e.value("head_oid", "");
         ws.windows.push_back(we);
     }
     return ws;

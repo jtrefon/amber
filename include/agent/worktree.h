@@ -67,6 +67,18 @@ OwnerState owner_state(const WorktreeEntry& entry);
 std::vector<WorktreeEntry> load_worktrees(const std::string& state_dir);
 bool save_worktrees(const std::string& state_dir, const std::vector<WorktreeEntry>& entries);
 
+// Build the registry entry for a worktree that was just created. The owner
+// stamp — pid plus its kernel start time — is what a later run uses to tell a
+// live window from a reused pid, and it cannot be reconstructed afterwards.
+WorktreeEntry make_worktree_entry(const std::string& name, const std::string& path,
+                                  const std::string& base_oid, const std::string& session_id);
+
+// Registry edits the window lifecycle needs, so no caller rewrites the file by
+// hand: add replaces the entry carrying the same name, remove drops it by name
+// and reports whether it was there.
+bool registry_add(const std::string& state_dir, const WorktreeEntry& entry);
+bool registry_remove(const std::string& state_dir, const std::string& name);
+
 // What a reap pass did, in the terms the UI reports to the user.
 struct ReapReport {
     std::vector<std::string> removed;                      // names
