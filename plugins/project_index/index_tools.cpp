@@ -217,12 +217,38 @@ void scan_docker(Findings& f) {
         add_tag(f, "#docker");
 }
 
+// A .cpp/.hpp at the top level or one directory down: enough to say the project
+// is C++ without pretending to know how it is built.
+bool has_cpp_source() {
+    for (const char* dir : {"", "src/", "include/", "lib/"}) {
+        std::error_code ec;
+        fs::directory_iterator it(fs::path(Workspace::workspace_root()) / dir, ec);
+        if (ec)
+            continue;
+        for (const auto& item : it) {
+            const std::string name = item.path().filename().string();
+            for (const char* ext : {".cpp", ".cc", ".hpp", ".hh"}) {
+                const std::size_t len = std::string(ext).size();
+                if (name.size() > len && name.compare(name.size() - len, len, ext) == 0)
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 void scan_build_files(Findings& f) {
     if (exists_at("Makefile"))
         f.runs.emplace_back("build: make");
     if (exists_at("CMakeLists.txt")) {
         add_tag(f, "#cmake");
+        add_tag(f, "#cpp");
         f.shape.emplace_back("C++ (CMake)");
+    } else if (has_cpp_source()) {
+        // No build file, but the sources say what the project is. The tag matters
+        // more than the shape line: without it, none of the C++ entries apply.
+        add_tag(f, "#cpp");
+        f.shape.emplace_back("C++ sources");
     }
     if (exists_at("Cargo.toml"))
         scan_named(f, "Cargo.toml", "#rust", "Rust (cargo)");
