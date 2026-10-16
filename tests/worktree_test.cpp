@@ -441,9 +441,8 @@ TEST(window_entry_persists_its_workspace) {
 
     // A workspace file written before per-window workspaces existed reads as
     // "no workspace", which means the project root.
-    const agent::json legacy = {{"version", 1},
-                                {"active", 0},
-                                {"windows", {{{"session_id", "s-2"}, {"title", "old"}}}}};
+    const agent::json legacy = {
+        {"version", 1}, {"active", 0}, {"windows", {{{"session_id", "s-2"}, {"title", "old"}}}}};
     const agent::WorkspaceState old = agent::WorkspaceState::from_json(legacy);
     ASSERT_EQ(old.windows.size(), 1u);
     ASSERT_TRUE(old.windows[0].root.empty());
