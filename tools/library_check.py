@@ -124,6 +124,27 @@ def main(argv):
 
     print(f"library-check: {len(entries)} entries, {ran} block(s) run, {manual} manual, "
           f"{len(failures)} failed")
+
+    # A vocabulary tag no entry carries selects nothing, silently. Reporting it is
+    # the evidence for which domain to write next.
+    vocabulary = set()
+    tags_doc = os.path.join(directory, "tags.md")
+    if os.path.isfile(tags_doc):
+        with open(tags_doc, encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip().startswith("- `"):
+                    vocabulary.update(re.findall(r"`([^`]+)`", line))
+    carried = set()
+    for path in entries:
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("tags:"):
+                    carried.update(t.strip().lstrip("#")
+                                   for t in line.split(":", 1)[1].replace(",", " ").split())
+                    break
+    unused = sorted(vocabulary - carried)
+    if unused:
+        print("  no entry yet for: " + " ".join(unused))
     return 1 if failures else 0
 
 

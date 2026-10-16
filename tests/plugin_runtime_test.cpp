@@ -1562,6 +1562,77 @@ TEST(library_lookup_travels_with_the_domain) {
     ASSERT(f.tools.find("library_lookup") == nullptr);
 }
 
+// ---------------------------------------------------------------------------
+// Selection precision: a project's tags must pull what applies, and nothing else.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// The selection line the scanner proposed, as the index writes it.
+std::string selection_line_from(const std::string& proposal) {
+    const std::size_t at = proposal.find("## Library selection");
+    if (at == std::string::npos)
+        return {};
+    const std::size_t start = proposal.find('\n', at);
+    if (start == std::string::npos)
+        return {};
+    const std::size_t end = proposal.find('\n', start + 1);
+    return proposal.substr(start + 1,
+                           end == std::string::npos ? std::string::npos : end - start - 1);
+}
+
+} // namespace
+
+TEST(library_selection_pulls_only_what_a_rust_project_needs) {
+    ScratchWorkspace ws("select-rust");
+    ScratchState state("select-rust");
+    write_text(ws.root() / "Cargo.toml", "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    ASSERT(selection_line_from(proposed.output).find("#rust") != std::string::npos);
+
+    // Confirmed, as the agent would after the user agreed.
+    ASSERT(call_tool(f, "index_init", json{{"commit", proposed.output}}).ok);
+    const std::string head = head_blocks_text(runtime);
+    // The entry tagged for Rust applies...
+    ASSERT(head.find("say who owns it") != std::string::npos);
+    // ...and the C++ toolchain does not.
+    ASSERT(head.find("still holds an iterator") == std::string::npos);
+    ASSERT(head.find("behaves like a scripting language") == std::string::npos);
+}
+
+TEST(library_selection_for_a_python_project_does_not_leak_cpp) {
+    ScratchWorkspace ws("select-python");
+    ScratchState state("select-python");
+    write_text(ws.root() / "requirements.txt", "django\npytest\n");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  db:\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    // The scanner proposes only vocabulary tags, which is what makes them
+    // selectable at all.
+    ASSERT(proposed.output.find("#python") != std::string::npos);
+    ASSERT(proposed.output.find("#django") != std::string::npos);
+    ASSERT(proposed.output.find("#dockercompose") != std::string::npos);
+
+    ASSERT(call_tool(f, "index_init", json{{"commit", proposed.output}}).ok);
+    const std::string head = head_blocks_text(runtime);
+    // Nothing from the C++ set applies here. (Nothing applies yet: python,
+    // django and dockercompose have no entries -- tools/library_check.py reports
+    // exactly that silence.)
+    ASSERT(head.find("still holds an iterator") == std::string::npos);
+    ASSERT(head.find("say who owns it") == std::string::npos);
+}
+
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
     LiveMcp live("mcp-usage");
     const std::vector<std::pair<std::string, std::string>> verbs = {
