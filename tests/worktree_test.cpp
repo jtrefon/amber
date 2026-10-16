@@ -310,16 +310,19 @@ TEST(worktree_reap_removes_only_dead_owner_worktrees) {
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "dead");
     ASSERT_FALSE(fs::exists(repo.worktree_path("dead")));
-#else
-    ASSERT_EQ(report.removed.size(), 0u);
-#endif
-    ASSERT_TRUE(fs::exists(repo.worktree_path("alive")));
 
     const auto left = agent::load_worktrees(state.string());
     ASSERT_EQ(left.size(), 1u);
     ASSERT_EQ(left[0].name, "alive");
+#else
+    // No procfs: every owner reads Unknown, and Unknown never reaps.
+    ASSERT_EQ(report.removed.size(), 0u);
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 2u);
+#endif
+    ASSERT_TRUE(fs::exists(repo.worktree_path("alive")));
 
     ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), repo.worktree_path("alive"), err));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), repo.worktree_path("dead"), err));
     fs::remove_all(state);
 }
 
@@ -361,14 +364,12 @@ TEST(worktree_reap_drops_entries_whose_path_vanished) {
     ASSERT_TRUE(
         agent::save_worktrees(state.string(), {entry_for("gone", repo.worktree_path("gone"))}));
 
+    // A vanished directory is metadata to tidy on every platform: there is
+    // nothing left that a removal could lose.
     const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
-#ifdef __linux__
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "gone");
     ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
-#else
-    ASSERT_EQ(report.removed.size(), 0u);
-#endif
     fs::remove_all(state);
 }
 

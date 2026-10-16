@@ -293,7 +293,24 @@ ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
     ReapReport report;
     std::vector<WorktreeEntry> survivors;
     for (const auto& entry : load_worktrees(state_dir)) {
-        if (owner_state(entry) == OwnerState::Alive || is_live_session(entry, live_sessions)) {
+        // A restored window re-attaches before the reaper runs: its workspace
+        // is spoken for however its owner pid looks.
+        if (is_live_session(entry, live_sessions)) {
+            survivors.push_back(entry);
+            continue;
+        }
+        std::error_code ec;
+        if (!fs::exists(entry.path, ec)) {
+            // Nothing can be lost: the directory is already gone, so the entry
+            // is metadata to tidy, and prunes the repository's share of it.
+            prune_worktrees(repo);
+            report.removed.push_back(entry.name);
+            continue;
+        }
+        // Only a provably dead owner makes a candidate. Unknown -- no procfs,
+        // no usable stamp -- must never reap, or a live window loses the
+        // workspace it is working in.
+        if (owner_state(entry) != OwnerState::Dead) {
             survivors.push_back(entry);
             continue;
         }
