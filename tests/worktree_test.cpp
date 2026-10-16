@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "agent/session.h"
 #include "agent/worktree.h"
 #include "tests/test_util.h"
 
@@ -371,6 +372,82 @@ TEST(worktree_reap_drops_entries_whose_path_vanished) {
     ASSERT_EQ(report.removed[0], "gone");
     ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
     fs::remove_all(state);
+}
+
+// The owner stamp is what a later run uses to tell a live window from a reused
+// pid, so creation must fill it rather than leave it to chance.
+TEST(worktree_entry_carries_an_owner_stamp) {
+    const agent::WorktreeEntry e =
+        agent::make_worktree_entry("w1", "/tmp/amber-wt/x/w1", "abc123", "s-7");
+    ASSERT_EQ(e.name, "w1");
+    ASSERT_EQ(e.path, "/tmp/amber-wt/x/w1");
+    ASSERT_EQ(e.base_oid, "abc123");
+    ASSERT_EQ(e.head_oid, "abc123"); // a fresh worktree sits at its base
+    ASSERT_EQ(e.session_id, "s-7");
+    ASSERT_EQ(e.pid, static_cast<long>(::getpid()));
+#ifdef __linux__
+    ASSERT(e.start_ticks > 0);
+#endif
+    ASSERT(e.created_ms > 0);
+}
+
+// The registry is the only thing that makes a worktree reapable, so adding the
+// same name twice must update rather than duplicate, and removing must name it.
+TEST(worktree_registry_add_replaces_and_remove_drops) {
+    const fs::path state = temp_state_dir("registry");
+
+    agent::WorktreeEntry first = agent::make_worktree_entry("w1", "/tmp/a/w1", "oid1", "s-1");
+    ASSERT_TRUE(agent::registry_add(state.string(), first));
+    first.base_oid = "oid2";
+    ASSERT_TRUE(agent::registry_add(state.string(), first));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
+    ASSERT_EQ(agent::load_worktrees(state.string())[0].base_oid, "oid2");
+
+    agent::WorktreeEntry other = agent::make_worktree_entry("w2", "/tmp/a/w2", "oid1", "s-2");
+    ASSERT_TRUE(agent::registry_add(state.string(), other));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 2u);
+
+    ASSERT_TRUE(agent::registry_remove(state.string(), "w1"));
+    const auto left = agent::load_worktrees(state.string());
+    ASSERT_EQ(left.size(), 1u);
+    ASSERT_EQ(left[0].name, "w2");
+    ASSERT_FALSE(agent::registry_remove(state.string(), "w1"));
+    fs::remove_all(state);
+}
+
+// A window's workspace must survive a restart: the worktree path, its name and
+// the commits it sits at, so a wiped /tmp can be rebuilt exactly.
+TEST(window_entry_persists_its_workspace) {
+    agent::WorkspaceState ws;
+    agent::WorkspaceState::WindowEntry we;
+    we.session_id = "s-1";
+    we.title = "chat";
+    we.prompt_history = {"hello"};
+    we.root = "/tmp/amber-wt/proj/w1";
+    we.worktree = "w1";
+    we.base_oid = "base123";
+    we.head_oid = "head456";
+    ws.windows.push_back(we);
+    ws.active = 0;
+
+    const agent::WorkspaceState back = agent::WorkspaceState::from_json(ws.to_json());
+    ASSERT_EQ(back.windows.size(), 1u);
+    ASSERT_EQ(back.windows[0].root, "/tmp/amber-wt/proj/w1");
+    ASSERT_EQ(back.windows[0].worktree, "w1");
+    ASSERT_EQ(back.windows[0].base_oid, "base123");
+    ASSERT_EQ(back.windows[0].head_oid, "head456");
+    ASSERT_EQ(back.windows[0].session_id, "s-1");
+    ASSERT_EQ(back.windows[0].prompt_history.size(), 1u);
+
+    // A workspace file written before per-window workspaces existed reads as
+    // "no workspace", which means the project root.
+    const agent::json legacy = {{"version", 1},
+                                {"active", 0},
+                                {"windows", {{{"session_id", "s-2"}, {"title", "old"}}}}};
+    const agent::WorkspaceState old = agent::WorkspaceState::from_json(legacy);
+    ASSERT_EQ(old.windows.size(), 1u);
+    ASSERT_TRUE(old.windows[0].root.empty());
+    ASSERT_TRUE(old.windows[0].worktree.empty());
 }
 
 TEST(worktree_reap_leaves_an_attached_session_alone) {
