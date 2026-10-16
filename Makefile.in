@@ -46,6 +46,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/statusbar.o \
             $(BUILD_DIR)/lib/session.o \
             $(BUILD_DIR)/lib/workspace.o \
+            $(BUILD_DIR)/lib/worktree.o \
             $(BUILD_DIR)/lib/config_paths.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
