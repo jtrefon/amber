@@ -48,6 +48,7 @@ selects nothing, so an entry arrives with the tag rather than ahead of it.
 - `errors` — how a function reports failure
 - `abi` — what a binary agrees on with its consumers
 - `io` — sockets, readiness, async I/O
+- `git` — history, archaeology, recovery, collaboration
 - `perf` — measuring and improving speed
 - `concurrency` — threads, async, cancellation
 - `async` — asynchronous work specifically
