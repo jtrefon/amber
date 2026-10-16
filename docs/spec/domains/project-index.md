@@ -1,8 +1,9 @@
 # The project index
 
 Status: design record, agreed 2026-10-15. Implementation phases:
-`docs/project-index-tracker.md`. Library content spec:
-`docs/spec/domains/coding-library.md`.
+`docs/project-index-tracker.md` (all five landed — the tracker opens with the
+commits and the two points where what shipped differs from what is written here).
+Library content spec: `docs/spec/domains/coding-library.md`.
 
 ## The problem
 
@@ -149,18 +150,24 @@ dangerous than none, so its age is visible rather than assumed current.
 | PI-D4 | The prompt block is frozen for the session — the render is cached at activation and never re-rendered mid-turn |
 | PI-D5 | Mutations: `init` approval-gated; add/update/remove free, redaction-checked, append-logged |
 | PI-D6 | Pointers, never values; private by default; promotable |
-| PI-D7 | Library = bundled skills with trigger-phrased descriptions, reached through tags. Per-entry `enable\|disable\|block` comes free from the skills mechanism |
+| PI-D7 | The library is **files**: `prompts/domains/coding/library/*.md`, one concept per file, a `trigger:` / `tags:` header. The project index's tags select entries, and the working index renders one trigger line each plus the path to read the body with `read`. This decision first named *bundled skills* with per-entry `enable\|disable\|block`; the skills mechanism has no tags and no per-project selection, so the selection lives with the index and the toggles were given up (see open item 5) |
 | PI-D8 | The scanner stays shallow (presence + JSON manifests). No YAML parser: compose service detail is filled by the agent through `index_add` |
 | PI-D9 | Resident budget: the coding domain's resident prose (identity, workflow, fundamentals, paradigm, project index) is pinned at 110 content lines — the measured value, ratcheted so it may only shrink — asserted by a test |
 
 ## Open items
 
-1. **Compaction hook** — confirm a plugin can subscribe and re-render safely *at*
-   that moment (`ContextEventSource` and the compression observer exist; the
-   plugin-facing path needs checking). Blocks PI-3 only.
+1. ~~**Compaction hook**~~ — **done**: `CompressionCompletedEvent` was already
+   published by the agent, so the block re-reads on a subscription. Only a
+   compression that *succeeded* re-reads; a failed one leaves the context alone.
 2. **Demotion measurement** — how "never pulled" is counted, so index entries can
    self-prune. Manual pruning in v1.
 3. **Web references** — a doc URL in an entry is reachable only through `curl` via
    bash (approval-gated). A coding-domain fetch tool stays deferred.
-4. **Frozen-render test** — pin that nothing re-renders blocks mid-session and
-   reintroduces a prefix change by accident.
+4. **Frozen-render test** — **partly done**: the block's own freeze is pinned
+   (identical across renders, moved only by activation, compaction or an explicit
+   refresh). What is not asserted is a repository-wide rule that no other block
+   re-renders mid-session; that would be a test over every contributor.
+5. **Library ↔ skills catalog** — should library entries appear in the skill
+   catalog (per-entry `enable|disable|block`, `read_skill`)? They are plain files
+   today; the question is whether the catalog integration is worth the coupling
+   (see PI-D7).
