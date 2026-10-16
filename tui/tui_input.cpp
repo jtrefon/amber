@@ -828,13 +828,17 @@ void SlashDispatcher::register_core_session_actions() {
     });
     register_action("core.session.reset", [this](const std::string&) { cmd_session_reset(); });
     register_action("core.window.close", [this](const std::string&) { tui_.close_window(); });
-    register_action("core.window.new", [this](const std::string&) { cmd_window_new(); });
+    register_action("core.window.new", [this](const std::string& a) { cmd_window_new(false, a); });
+    register_action("core.window.new.noworkdir",
+                    [this](const std::string& a) { cmd_window_new(true, a); });
     register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
     register_action("core.window.rename", [this](const std::string& a) { cmd_window_rename(a); });
     register_action("core.window.set", [this](const std::string& a) { cmd_window_set(a); });
     register_action("core.window", [this](const std::string& a) {
         if (!a.empty())
-            tui_.append_line(P_STATUS, "usage: /window new|close|list|rename|set <number>");
+            tui_.append_line(P_STATUS,
+                             "usage: /window new [name] | new noworkdir [name] | close | list | "
+                             "rename | set <number>");
         cmd_window_list();
     });
     register_action("core.stop", [this](const std::string&) {
@@ -925,6 +929,8 @@ void SlashDispatcher::register_set_engine_actions() {
     register_action("core.config.set", [this](const std::string& a) { cmd_set(a); });
     register_action("core.config.set.detection.loop",
                     [this](const std::string& v) { cmd_set_detection_toggle("loop", v); });
+    register_action("core.config.set.worktree",
+                    [this](const std::string& v) { cmd_set_worktree(v); });
     register_action("core.config.set.detection.duplicate",
                     [this](const std::string& v) { cmd_set_detection_toggle("duplicate", v); });
     register_action("core.config.set.subagent.parallel",
@@ -1103,6 +1109,7 @@ void SlashDispatcher::register_readout_actions() {
                     [this](const std::string& a) { cmd_get_detection(a); });
     register_action("core.config.get.detection.loop",
                     [this](const std::string&) { cmd_get_detection("loop"); });
+    register_action("core.config.get.worktree", [this](const std::string&) { cmd_get_worktree(); });
     register_action("core.config.get.detection.duplicate",
                     [this](const std::string&) { cmd_get_detection("duplicate"); });
     register_action("core.config.get.subagent", [this](const std::string&) { cmd_get_subagent(); });
@@ -2093,8 +2100,30 @@ void SlashDispatcher::cmd_help(const std::string& arg) {
     tui_.draw();
 }
 
-void SlashDispatcher::cmd_window_new() {
-    tui_.new_window("chat");
+// /set worktree: whether a new window prepares its own git worktree. Kept as a
+// tree node rather than a hardcoded command check, like every other setting.
+void SlashDispatcher::cmd_set_worktree(const std::string& val) {
+    if (!valid_toggle(val)) {
+        tui_.append_line(P_STATUS, "usage: /set worktree on|off|toggle (got: " + val + ")");
+        return;
+    }
+    const bool on = parse_toggle(val, tui_.cfg_.worktree_auto);
+    tui_.cfg_.worktree_auto = on;
+    tui_.append_line(P_STATUS, std::string("worktree: ") + (on ? "on" : "off") +
+                                   " \u2014 a new window prepares its own working copy");
+    if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
+        tui_.append_line(P_STATUS,
+                         "warning: could not save to " + tui_.session_controller_->settings_path());
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_get_worktree() {
+    tui_.append_line(P_STATUS,
+                     std::string("worktree: ") + (tui_.cfg_.worktree_auto ? "on" : "off"));
+}
+
+void SlashDispatcher::cmd_window_new(bool noworkdir, const std::string& name) {
+    tui_.new_window("chat", /*prepare_workspace=*/!noworkdir, name);
     tui_.draw();
 }
 void SlashDispatcher::cmd_window_close() {

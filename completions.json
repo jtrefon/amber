@@ -71,7 +71,14 @@
     "new": {
      "action": "core.window.new",
      "help": "Open a new chat window.",
-     "man": "Opens an additional chat window with its own agent, conversation history, and scrollback. Each window operates independently."
+     "man": "Opens an additional chat window with its own agent, conversation history, and scrollback. Each window operates independently. In a git repository the window also prepares its own worktree under $TMPDIR/amber-wt (named after the optional name: '/window new fix-auth'), so two windows can build and commit without fighting over one working copy. '/window new noworkdir' skips that and works in the project root.",
+     "children": {
+      "noworkdir": {
+       "action": "core.window.new.noworkdir",
+       "help": "Open a new window on the project root.",
+       "man": "Opens a chat window without preparing a git worktree: its tools operate in the project root, as every window did before worktrees existed. Useful for a quick question, or for a window you do not intend to build in."
+      }
+     }
     },
     "close": {
      "action": "core.window.close",
@@ -186,6 +193,16 @@
      "action": "core.config.get.think",
      "help": "Show the thinking/reasoning display mode.",
      "man": "Displays the current thinking mode (on/off/auto). Thinking/reasoning tokens from the model are shown or hidden based on this setting."
+    },
+    "worktree": {
+     "action": "core.config.get.worktree",
+     "help": "Whether new windows prepare their own git worktree.",
+     "man": "Reports whether a new window prepares its own git worktree under $TMPDIR/amber-wt. See '/set worktree' to change it.",
+     "choices": [
+      "on",
+      "off",
+      "toggle"
+     ]
     },
     "detection": {
      "action": "core.config.get.detection",
@@ -383,6 +400,16 @@
       "on",
       "off",
       "auto"
+     ]
+    },
+    "worktree": {
+     "action": "core.config.set.worktree",
+     "help": "Prepare a git worktree for each new window.",
+     "man": "When on (the default), a new chat window - or Ctrl+N - prepares its own git worktree under $TMPDIR/amber-wt, so two windows build, debug and commit in their own working copies of the repository instead of fighting over one. '/window new noworkdir' skips it for a single window. Off means every window works in the project root.",
+     "choices": [
+      "on",
+      "off",
+      "toggle"
      ]
     },
     "detection": {

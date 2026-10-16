@@ -586,6 +586,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
+    scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
     ScopedRunScope scope_guard(scope);
 
     // Snapshot BEFORE compression — immutable, never mutate live stack.
@@ -1122,6 +1123,7 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
+    scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
     ScopedRunScope scope_guard(scope);
     open_turn(user_prompt);
 

@@ -184,7 +184,11 @@ void Tui::load_key_bindings() {
 }
 
 // Restore the previous workspace: open saved sessions in their own windows. On
-// first launch (no saved workspace) show the welcome mural instead.
+// first launch (no saved workspace) show the welcome mural instead. Each window
+// comes back to the tree it was working in: the recorded root is adopted here
+// (no git), and start_workspace_pass rebuilds one whose directory is gone and
+// reaps the workspaces no window claims — both need git, and the first paint
+// must never wait on a subprocess.
 void Tui::restore_workspace() {
     auto ws = session_controller_->load_workspace();
     if (ws.windows.empty()) {
@@ -192,10 +196,11 @@ void Tui::restore_workspace() {
         return;
     }
     for (const auto& we : ws.windows) {
-        Window& w = new_window(we.title.empty() ? "chat" : we.title);
+        Window& w = new_window(we.title.empty() ? "chat" : we.title, /*prepare_workspace=*/false);
         w.session_id = we.session_id;
         w.prompt_history = we.prompt_history;
         w.history_pos = w.prompt_history.size();
+        adopt_recorded_workspace(w, we);
     }
     if (ws.active < window_manager_->count())
         window_manager_->set_active(ws.active);
@@ -225,8 +230,12 @@ Tui::~Tui() {
     session_controller_->save_workspace_now();
 }
 
-Window& Tui::new_window(const std::string& title) {
-    return window_manager_->new_window(title);
+Window& Tui::new_window(const std::string& title, bool prepare_workspace,
+                        const std::string& workspace_name) {
+    Window& w = window_manager_->new_window(title);
+    if (prepare_workspace)
+        prepare_window_workspace(w, workspace_name);
+    return w;
 }
 
 Window& Tui::open_welcome_window() {
@@ -483,10 +492,12 @@ void Tui::run() {
 // merges the live feeds (models, providers, policy rules, jobs, plugin states),
 // and merging feeds before the rebuild wiped their leaves from the tree.
 void Tui::run_startup(CommandLine& cl) {
-    render_engine_->request_git_refresh(); // worker-side: never blocks the first paint
-    render_engine_->draw();
+    render_engine_->request_git_refresh(
+        active_workspace_root()); // worker-side: never blocks the first paint
+    render_engine_->draw();       // first paint: nothing below this line may fork before it
     render_engine_->draw_input("");
     render_engine_->flush();
+    start_workspace_pass(); // git, but off this thread: reap, rebuild, record heads
     detect_server(false);
     timeout(kTickTimeoutMs);
 
@@ -1003,6 +1014,10 @@ void Tui::flush() {
 }
 
 void Tui::draw() {
+    // A notice produced while the welcome mural was active has been waiting for
+    // a window that shows scrollback; this is where every path ends up, so it
+    // lands on the first paint that can show it.
+    flush_workspace_notice();
     render_engine_->draw();
 }
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {

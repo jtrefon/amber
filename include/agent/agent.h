@@ -184,6 +184,11 @@ public:
     void set_detection_loop(bool on) { cfg_.detection_loop = on; }
     void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
 
+    // Confine this agent's tools to `root` (a window's worktree). Empty means
+    // the process's project root. Installed into every run scope, so tools
+    // running on dispatch workers confine to the same tree as the agent.
+    void set_workspace_root(std::string root) { workspace_root_ = std::move(root); }
+
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
     // injected factory — the next turn talks to the new model. `window` is
@@ -308,6 +313,10 @@ public:
     std::string learn_pin(const std::string& id, bool pinned);
 
 private:
+    // The root this agent's tools are confined to, when it is not the project
+    // root: a window working in its own worktree sets it at creation, and every
+    // run installs it into the run scope so dispatch workers inherit it.
+    std::string workspace_root_;
     // Publish the display-relevant config for other threads. Copy-on-write:
     // `cfg_` stays the worker's private working copy, readers get an immutable
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.

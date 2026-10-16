@@ -24,6 +24,10 @@ void TuiWindowOpsHooks::on_switch() {
 
 void TuiWindowOpsHooks::on_close() {
     tui_.autosave();
+    // The workspace is released while the window still exists (autosave just
+    // ran, so its conversation is safe), and its notice is flushed on the next
+    // redraw — appending now would write into the window being erased.
+    tui_.release_window_workspace(tui_.win());
     // on_close fires before the window is erased, so win() is the closing
     // one. Drop only ITS spinner rows; a sibling's must survive.
     size_t closing_id = tui_.win().id;
@@ -36,6 +40,7 @@ void TuiWindowOpsHooks::on_close() {
 }
 
 void TuiWindowOpsHooks::redraw() {
+    tui_.flush_workspace_notice();
     tui_.draw();
 }
 

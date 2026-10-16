@@ -159,6 +159,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/tui_render.o \
              $(BUILD_DIR)/tui/tui_input.o \
              $(BUILD_DIR)/tui/tui_session.o \
+             $(BUILD_DIR)/tui/tui_workspace.o \
              $(BUILD_DIR)/tui/tui_main.o \
              $(BUILD_DIR)/tui/command_line.o \
              $(BUILD_DIR)/tui/action_registry.o \

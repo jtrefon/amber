@@ -5,6 +5,7 @@
 #include <agent/learn_commands.h>
 #include <agent/plugin.h>
 #include <agent/plugin_registry.h>
+#include <agent/session.h>
 
 #include "widgets.h"
 #include "textutil.h"
@@ -94,7 +95,12 @@ public:
     Tui(const Tui&) = delete;
     Tui& operator=(const Tui&) = delete;
 
-    Window& new_window(const std::string& title);
+    // Open a chat window. prepare_workspace gives it its own git worktree when
+    // the project is a repository and `worktree` is on, named by
+    // `workspace_name` (or after the window). Preparation never blocks the
+    // window: a failure opens it on the project root and says why.
+    Window& new_window(const std::string& title, bool prepare_workspace = true,
+                       const std::string& workspace_name = "");
     Window& open_welcome_window();
     Window& ensure_chat_window();
     void run();
@@ -280,6 +286,10 @@ private:
     void activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
                                     bool is_preset);
     bool quit_ = false;
+    // A workspace release happens while the closing window still exists (the
+    // erase follows), so its message waits here for the next redraw instead of
+    // being written into a window that is about to disappear.
+    std::string pending_workspace_notice_;
 
     // --- Construction. The constructor is a facade over these phases, which
     // --- must stay in this order (the runtime needs the live config before it
@@ -289,6 +299,39 @@ private:
     void build_managers();
     void load_key_bindings();
     void restore_workspace();
+
+    // ---- per-window workspaces -------------------------------------------
+    // A window's workspace is a git worktree of the project, kept under
+    // $TMPDIR/amber-wt: volatile by design, because uncommitted work is all it
+    // holds. See docs/fix-proposal/window-worktrees-2026-10-16.md.
+    // Give the window a freshly prepared worktree (never throws; reports by
+    // line, and leaves the window on the project root on any failure).
+    void prepare_window_workspace(Window& w, const std::string& requested_name);
+    // Remove the window's workspace when that can lose nothing; otherwise keep
+    // it and say why. The notice is flushed after the window is erased.
+    void release_window_workspace(Window& w);
+    void flush_workspace_notice();
+    // The tree the ACTIVE window's tools, prompts and status bar refer to: its
+    // workspace when it has one, else the project root.
+    std::string active_workspace_root() const;
+    // Adopt a restored window's recorded workspace. String-level only: the
+    // first paint must never wait on a subprocess, so anything that needs git
+    // (reaping, rebuilding a wiped workspace) is queued for start_workspace_pass.
+    void adopt_recorded_workspace(Window& w, const agent::WorkspaceState::WindowEntry& entry);
+    // The git half of the workspace lifecycle, off the UI thread: reap what no
+    // window claims, rebuild workspaces whose directory is gone, and record
+    // where each live workspace stopped. Results are posted back.
+    void start_workspace_pass();
+    // Apply what the pass found, on the UI thread.
+    void apply_workspace_result(const std::vector<std::pair<size_t, std::string>>& rebuilt,
+                                const std::vector<std::string>& notices);
+    struct PendingRebuild {
+        size_t window_id = 0;
+        std::string name;
+        std::string base;
+        std::string path;
+    };
+    std::vector<PendingRebuild> pending_rebuild_;
 
     // --- Event loop. run() is a facade over these steps, one per thing the
     // --- loop does: start up, drain, dispatch a key, act on the result.

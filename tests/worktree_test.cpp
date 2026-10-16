@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "agent/session.h"
 #include "agent/worktree.h"
 #include "tests/test_util.h"
 
@@ -280,7 +281,7 @@ TEST(worktree_reap_never_touches_an_unknown_owner) {
     ASSERT(agent::owner_state(e) == agent::OwnerState::Unknown);
     ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_TRUE(fs::exists(path));
     ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
@@ -305,7 +306,7 @@ TEST(worktree_reap_removes_only_dead_owner_worktrees) {
     alive.start_ticks = agent::process_start_ticks(alive.pid);
     ASSERT_TRUE(agent::save_worktrees(state.string(), {dead, alive}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
 #ifdef __linux__
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "dead");
@@ -342,7 +343,7 @@ TEST(worktree_reap_keeps_a_dirty_orphan_and_says_why) {
     e.base_oid = base;
     ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_TRUE(fs::exists(path));
 #ifdef __linux__
@@ -366,10 +367,208 @@ TEST(worktree_reap_drops_entries_whose_path_vanished) {
 
     // A vanished directory is metadata to tidy on every platform: there is
     // nothing left that a removal could lose.
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "gone");
     ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
+    fs::remove_all(state);
+}
+
+// The owner stamp is what a later run uses to tell a live window from a reused
+// pid, so creation must fill it rather than leave it to chance.
+TEST(worktree_entry_carries_an_owner_stamp) {
+    const agent::WorktreeEntry e =
+        agent::make_worktree_entry("w1", "/tmp/amber-wt/x/w1", "abc123", "s-7");
+    ASSERT_EQ(e.name, "w1");
+    ASSERT_EQ(e.path, "/tmp/amber-wt/x/w1");
+    ASSERT_EQ(e.base_oid, "abc123");
+    ASSERT_EQ(e.head_oid, "abc123"); // a fresh worktree sits at its base
+    ASSERT_EQ(e.session_id, "s-7");
+    ASSERT_EQ(e.pid, static_cast<long>(::getpid()));
+#ifdef __linux__
+    ASSERT(e.start_ticks > 0);
+#endif
+    ASSERT(e.created_ms > 0);
+}
+
+// The registry is the only thing that makes a worktree reapable, so adding the
+// same name twice must update rather than duplicate, and removing must name it.
+TEST(worktree_registry_add_replaces_and_remove_drops) {
+    const fs::path state = temp_state_dir("registry");
+
+    agent::WorktreeEntry first = agent::make_worktree_entry("w1", "/tmp/a/w1", "oid1", "s-1");
+    ASSERT_TRUE(agent::registry_add(state.string(), first));
+    first.base_oid = "oid2";
+    ASSERT_TRUE(agent::registry_add(state.string(), first));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
+    ASSERT_EQ(agent::load_worktrees(state.string())[0].base_oid, "oid2");
+
+    agent::WorktreeEntry other = agent::make_worktree_entry("w2", "/tmp/a/w2", "oid1", "s-2");
+    ASSERT_TRUE(agent::registry_add(state.string(), other));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 2u);
+
+    ASSERT_TRUE(agent::registry_remove(state.string(), "w1"));
+    const auto left = agent::load_worktrees(state.string());
+    ASSERT_EQ(left.size(), 1u);
+    ASSERT_EQ(left[0].name, "w2");
+    ASSERT_FALSE(agent::registry_remove(state.string(), "w1"));
+    fs::remove_all(state);
+}
+
+// A window's workspace must survive a restart: the worktree path, its name and
+// the commits it sits at, so a wiped /tmp can be rebuilt exactly.
+TEST(window_entry_persists_its_workspace) {
+    agent::WorkspaceState ws;
+    agent::WorkspaceState::WindowEntry we;
+    we.session_id = "s-1";
+    we.title = "chat";
+    we.prompt_history = {"hello"};
+    we.root = "/tmp/amber-wt/proj/w1";
+    we.worktree = "w1";
+    we.base_oid = "base123";
+    we.head_oid = "head456";
+    ws.windows.push_back(we);
+    ws.active = 0;
+
+    const agent::WorkspaceState back = agent::WorkspaceState::from_json(ws.to_json());
+    ASSERT_EQ(back.windows.size(), 1u);
+    ASSERT_EQ(back.windows[0].root, "/tmp/amber-wt/proj/w1");
+    ASSERT_EQ(back.windows[0].worktree, "w1");
+    ASSERT_EQ(back.windows[0].base_oid, "base123");
+    ASSERT_EQ(back.windows[0].head_oid, "head456");
+    ASSERT_EQ(back.windows[0].session_id, "s-1");
+    ASSERT_EQ(back.windows[0].prompt_history.size(), 1u);
+
+    // A workspace file written before per-window workspaces existed reads as
+    // "no workspace", which means the project root.
+    const agent::json legacy = {
+        {"version", 1}, {"active", 0}, {"windows", {{{"session_id", "s-2"}, {"title", "old"}}}}};
+    const agent::WorkspaceState old = agent::WorkspaceState::from_json(legacy);
+    ASSERT_EQ(old.windows.size(), 1u);
+    ASSERT_TRUE(old.windows[0].root.empty());
+    ASSERT_TRUE(old.windows[0].worktree.empty());
+}
+
+// The path a restored window is about to re-attach to claims its workspace,
+// even when the registry entry predates the session id — reaping it would
+// destroy the very tree the window is coming back to.
+TEST(worktree_reap_leaves_a_claimed_path_alone) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("claimed");
+    std::string err;
+    const std::string path = repo.worktree_path("claimed");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+
+    agent::WorktreeEntry e = entry_for("claimed", path);
+    e.base_oid = base;
+    e.session_id.clear(); // the window's session id is minted after creation
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {path});
+    ASSERT_EQ(report.removed.size(), 0u);
+    ASSERT_TRUE(fs::exists(path));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+    fs::remove_all(state);
+}
+
+// The background pass, as one call: reap what nothing claims, rebuild what is
+// gone, and record where a live workspace stopped.
+TEST(workspace_pass_reaps_rebuilds_and_records) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("pass");
+    std::string err;
+
+    // An orphan whose owner is gone, plus a window's workspace whose directory
+    // has been wiped — /tmp is volatile by design, the commits are not.
+    const std::string orphan = repo.worktree_path("orphan");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), orphan, base, err));
+    agent::WorktreeEntry entry = entry_for("orphan", orphan);
+    entry.base_oid = base;
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {entry}));
+
+    const std::string rebuilt = repo.worktree_path("kept");
+    agent::WorkspacePass pass;
+    pass.project = repo.dir.string();
+    pass.state_dir = state.string();
+    pass.live_sessions.push_back("s-live");
+    pass.live_paths.push_back(rebuilt);
+    pass.rebuilds.push_back({7, "kept", base, rebuilt});
+
+    const agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
+    ASSERT_EQ(result.rebuilt.size(), 1u);
+    ASSERT_EQ(result.rebuilt[0].first, 7u);
+    ASSERT_EQ(result.rebuilt[0].second, rebuilt);
+    ASSERT_TRUE(fs::exists(rebuilt + "/f.txt")); // rebuilt at the recorded commit
+#ifdef __linux__
+    // The orphan is gone and said so; without procfs nothing is provably dead.
+    ASSERT_EQ(result.notices.size(), 2u);
+    ASSERT_FALSE(fs::exists(orphan));
+#else
+    ASSERT_EQ(result.notices.size(), 1u);
+#endif
+    bool kept_recorded = false;
+    for (const auto& e : agent::load_worktrees(state.string()))
+        kept_recorded = kept_recorded || e.name == "kept";
+    ASSERT(kept_recorded);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), rebuilt, err));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), orphan, err));
+    fs::remove_all(state);
+}
+
+// A rebuild that cannot happen is reported, not silently skipped: the window
+// stays on the project root and says why.
+TEST(workspace_pass_reports_a_rebuild_it_cannot_do) {
+    TempRepo repo;
+    const fs::path state = temp_state_dir("pass-fail");
+    agent::WorkspacePass pass;
+    pass.project = repo.dir.string();
+    pass.state_dir = state.string();
+    pass.rebuilds.push_back({3, "gone", "not-a-commit", repo.worktree_path("gone")});
+
+    const agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
+    ASSERT_EQ(result.rebuilt.size(), 0u);
+    ASSERT_EQ(result.notices.size(), 1u);
+    ASSERT(result.notices[0].find("could not be rebuilt") != std::string::npos);
+    ASSERT_FALSE(fs::exists(repo.worktree_path("gone")));
+    fs::remove_all(state);
+}
+
+// Giving a workspace back: removed when nothing can be lost, kept with the
+// reason when something can.
+TEST(workspace_release_removes_only_when_nothing_can_be_lost) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("release");
+    std::string err;
+
+    const std::string clean = repo.worktree_path("given-back");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), clean, base, err));
+    ASSERT_TRUE(agent::registry_add(state.string(),
+                                    agent::make_worktree_entry("given-back", clean, base, "s")));
+    const std::string removed =
+        agent::release_workspace(repo.dir.string(), state.string(), "given-back", clean);
+    ASSERT(removed.find("removed") != std::string::npos);
+    ASSERT_FALSE(fs::exists(clean));
+    ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
+
+    const std::string dirty = repo.worktree_path("kept");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), dirty, base, err));
+    {
+        std::ofstream out(fs::path(dirty) / "wip.txt");
+        out << "work in progress\n";
+    }
+    const std::string kept =
+        agent::release_workspace(repo.dir.string(), state.string(), "kept", dirty);
+    ASSERT(kept.find("kept") != std::string::npos);
+    ASSERT_TRUE(fs::exists(fs::path(dirty) / "wip.txt"));
+
+    fs::remove(fs::path(dirty) / "wip.txt");
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), dirty, err));
     fs::remove_all(state);
 }
 
@@ -382,7 +581,7 @@ TEST(worktree_reap_leaves_an_attached_session_alone) {
 
     // A restored window re-attaches before the reaper runs; its workspace is
     // spoken for even when the pid that created it is gone.
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {"s-live"});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {"s-live"}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
     fs::remove_all(state);

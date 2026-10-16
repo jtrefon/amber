@@ -147,6 +147,8 @@ void apply_detection_keys(Config& c, const std::string& key, const std::string& 
         c.detection_duplicate = parse_bool(val);
     else if (key == "wallet")
         c.wallet_enabled = parse_bool(val);
+    else if (key == "worktree")
+        c.worktree_auto = parse_bool(val);
 }
 
 void apply_compression_keys(Config& c, const std::string& key, const std::string& val,
@@ -382,6 +384,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
     f << "skills_interop=" << (skills_interop ? 1 : 0) << "\n";
+    f << "worktree=" << (worktree_auto ? 1 : 0) << "\n";
     f << "skills_max_discovery=" << skills_max_discovery << "\n";
     f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
     return static_cast<bool>(f);

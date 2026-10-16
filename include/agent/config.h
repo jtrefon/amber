@@ -39,6 +39,13 @@ struct Config {
     // preference, not a per-provider setting: bar space is global, and the
     // wallet follows whichever provider is active.
     bool wallet_enabled = true;
+
+    // Prepare a git worktree workspace for each new chat window. On by default
+    // in a repository: two windows then build and commit in their own working
+    // copies instead of fighting over one. /window new noworkdir skips it for
+    // a single window; the workspace lives under $TMPDIR and holds uncommitted
+    // work only until it is committed.
+    bool worktree_auto = true;
     int max_tool_iterations = 100;
     long max_wall_ms = 0; // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;

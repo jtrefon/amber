@@ -22,13 +22,15 @@ RenderEngine::RenderEngine(Tui& tui) : tui_(tui) {
                                std::memory_order_release);
 }
 
-std::string RenderEngine::current_project_name() {
-    std::string cwd;
-    std::array<char, 4096> buf;
-    if (getcwd(buf.data(), buf.size()))
-        cwd = buf.data();
-    size_t slash = cwd.rfind('/');
-    std::string project = (slash == std::string::npos) ? cwd : cwd.substr(slash + 1);
+std::string RenderEngine::current_project_name(const std::string& root) {
+    std::string dir = root;
+    if (dir.empty()) {
+        std::array<char, 4096> buf;
+        if (getcwd(buf.data(), buf.size()))
+            dir = buf.data();
+    }
+    size_t slash = dir.rfind('/');
+    std::string project = (slash == std::string::npos) ? dir : dir.substr(slash + 1);
     return project.empty() ? std::string("project") : project;
 }
 
@@ -723,15 +725,17 @@ void RenderEngine::draw_drawer(const std::string& input) {
     draw_drawer_rows(top, header, rows, win.first, win.second);
 }
 
-void RenderEngine::request_git_refresh() {
+void RenderEngine::request_git_refresh(const std::string& root) {
     // Non-blocking: git is two subprocesses, and this runs at startup (before the
     // first paint) and after every tool result. One refresh at a time; a request
-    // that arrives while one is in flight is satisfied by it.
+    // that arrives while one is in flight is satisfied by it. The root is the
+    // ACTIVE window's workspace, so the bar reports the branch of the tree the
+    // user is working in — a window's worktree, not the project it came from.
     if (git_pub_->in_flight.exchange(true))
         return;
     auto pub = git_pub_; // by value: the worker never touches this RenderEngine
-    std::thread([pub] {
-        auto next = std::make_shared<GitState>(read_git_state());
+    std::thread([pub, root] {
+        auto next = std::make_shared<GitState>(read_git_state(root));
         std::atomic_store_explicit(&pub->state, std::shared_ptr<const GitState>(std::move(next)),
                                    std::memory_order_release);
         pub->in_flight.store(false);
@@ -742,23 +746,39 @@ std::shared_ptr<const RenderEngine::GitState> RenderEngine::git_state() const {
     return std::atomic_load_explicit(&git_pub_->state, std::memory_order_acquire);
 }
 
-RenderEngine::GitState RenderEngine::read_git_state() {
-    auto read_stdout = [](const char* cmd) -> std::string {
-        std::string result;
-        FILE* pipe = popen(cmd, "r");
-        if (!pipe)
-            return result;
-        char buf[256];
-        while (fgets(buf, sizeof(buf), pipe))
-            result += buf;
-        pclose(pipe);
+namespace {
+
+std::string read_stdout(const std::string& cmd) {
+    std::string result;
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe)
         return result;
-    };
+    char buf[256];
+    while (fgets(buf, sizeof(buf), pipe))
+        result += buf;
+    pclose(pipe);
+    return result;
+}
+
+// A workspace path reaches a shell here, so it is quoted rather than trusted to
+// be free of spaces or quotes (a worktree sits under $TMPDIR, which a user may
+// set to anything).
+std::string shell_quoted(const std::string& s) {
+    std::string out = "'";
+    for (const char c : s)
+        out += (c == '\'') ? std::string("'\\''") : std::string(1, c);
+    return out + "'";
+}
+
+} // namespace
+
+RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
+    const std::string dir = root.empty() ? std::string(".") : shell_quoted(root);
 
     GitState st;
-    st.project = current_project_name();
+    st.project = current_project_name(root);
 
-    std::string ref = read_stdout("git symbolic-ref HEAD 2>/dev/null");
+    std::string ref = read_stdout("git -C " + dir + " symbolic-ref HEAD 2>/dev/null");
     if (ref.empty())
         return st;
     ref.erase(ref.find_last_not_of(" \n\r") + 1);
@@ -767,8 +787,9 @@ RenderEngine::GitState RenderEngine::read_git_state() {
     else
         st.branch = ref;
 
-    std::string stat = read_stdout(
-        "git diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' 2>/dev/null");
+    std::string stat = read_stdout("git -C " + dir +
+                                   " diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' "
+                                   "':!*.d' 2>/dev/null");
     if (!stat.empty()) {
         auto extract = [&](const std::string& needle) -> int {
             size_t pos = stat.find(needle);

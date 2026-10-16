@@ -67,21 +67,69 @@ OwnerState owner_state(const WorktreeEntry& entry);
 std::vector<WorktreeEntry> load_worktrees(const std::string& state_dir);
 bool save_worktrees(const std::string& state_dir, const std::vector<WorktreeEntry>& entries);
 
+// Build the registry entry for a worktree that was just created. The owner
+// stamp — pid plus its kernel start time — is what a later run uses to tell a
+// live window from a reused pid, and it cannot be reconstructed afterwards.
+WorktreeEntry make_worktree_entry(const std::string& name, const std::string& path,
+                                  const std::string& base_oid, const std::string& session_id);
+
+// Registry edits the window lifecycle needs, so no caller rewrites the file by
+// hand: add replaces the entry carrying the same name, remove drops it by name
+// and reports whether it was there.
+bool registry_add(const std::string& state_dir, const WorktreeEntry& entry);
+bool registry_remove(const std::string& state_dir, const std::string& name);
+
 // What a reap pass did, in the terms the UI reports to the user.
 struct ReapReport {
     std::vector<std::string> removed;                      // names
     std::vector<std::pair<std::string, std::string>> kept; // name -> why it stayed
 };
 
-// Remove worktrees whose owner is provably gone and which no live session
-// references. Entries whose owner cannot be judged (no procfs, no usable
-// stamp) are left alone — "cannot tell" never authorizes a removal. An entry
-// whose directory has already vanished is dropped and pruned: there is
-// nothing left to lose, and the repository's stale metadata should go with
-// it. A candidate that cannot be removed safely is kept WITH its reason, so
-// the next run reports it again instead of losing it in a log line.
+// The background workspace pass, as plain data: the caller says what the live
+// windows claim and what has to be rebuilt, and gets back the lines to show and
+// the rebuilds that succeeded. Everything here forks git, so it belongs on a
+// worker — the UI thread must never wait on a subprocess.
+struct WorkspacePass {
+    struct Rebuild {
+        size_t window_id = 0; // for the caller to match the result to a window
+        std::string name;
+        std::string base; // the commit to rebuild at
+        std::string path;
+    };
+    std::string project;
+    std::string state_dir;
+    std::vector<std::string> live_sessions;
+    std::vector<std::string> live_paths;
+    std::vector<Rebuild> rebuilds;
+};
+
+struct WorkspacePassResult {
+    std::vector<std::string> notices;
+    std::vector<std::pair<size_t, std::string>> rebuilt; // window id -> path
+};
+
+WorkspacePassResult run_workspace_pass(const WorkspacePass& pass);
+
+// Give a window's workspace back: remove it when nothing can be lost (git
+// refuses a dirty tree, and an unreferenced HEAD is refused by name) and drop
+// its registry entry. Returns the line to show the user either way.
+std::string release_workspace(const std::string& project, const std::string& state_dir,
+                              const std::string& name, const std::string& path);
+
+// Remove worktrees whose owner is provably gone and which nothing claims.
+// A live session id claims one; so does a path a restored window is about to
+// re-attach to — the path matters because the registry entry may predate the
+// session id, and reaping a workspace out from under a restored window is the
+// one failure this whole mechanism exists to prevent. Entries whose owner
+// cannot be judged (no procfs, no usable stamp) are left alone — "cannot tell"
+// never authorizes a removal. An entry whose directory has already vanished is
+// dropped and pruned: there is nothing left to lose, and the repository's
+// stale metadata should go with it. A candidate that cannot be removed safely
+// is kept WITH its reason, so the next run reports it again instead of losing
+// it in a log line.
 ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
-                          const std::vector<std::string>& live_sessions);
+                          const std::vector<std::string>& live_sessions,
+                          const std::vector<std::string>& live_paths);
 
 } // namespace agent
 

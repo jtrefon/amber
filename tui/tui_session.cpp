@@ -496,6 +496,13 @@ void SessionController::save_workspace_now() {
         we.session_id = w->session_id;
         we.title = w->title;
         we.prompt_history = w->prompt_history;
+        // The window's workspace travels with it: a restart re-attaches to the
+        // same tree, and the reaper treats that path as claimed. Losing this
+        // would make a live window's workspace look abandoned (head_oid stays
+        // empty here; the registry carries the live one).
+        we.root = w->root;
+        we.worktree = w->worktree;
+        we.base_oid = w->base_oid;
         ws.windows.push_back(we);
     }
     ws.active = tui_.window_manager_->active();
