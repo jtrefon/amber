@@ -646,7 +646,8 @@ std::string run_verb(PluginRuntime& rt, const std::string& root, const std::stri
 class ScratchWorkspace {
 public:
     explicit ScratchWorkspace(const std::string& tag)
-        : dir_(fs::temp_directory_path() / ("amber_ws_" + tag)), previous_(Workspace::root()) {
+        : dir_(fs::temp_directory_path() / ("amber_ws_" + tag)),
+          previous_(Workspace::project_root()) {
         fs::remove_all(dir_);
         fs::create_directories(dir_);
         Workspace::set_root(dir_.string());

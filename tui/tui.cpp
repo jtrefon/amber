@@ -323,7 +323,7 @@ void Tui::run_command_async(const std::string& label, const std::string& cmd) {
     // The job service owns execution: timeout-bounded, output-capped, visible in
     // /jobs and killable. This returns immediately — the UI thread must never
     // wait on a subprocess.
-    std::string id = jobs_.start(cmd, agent::Workspace::root(), 60, 30);
+    std::string id = jobs_.start(cmd, agent::Workspace::project_root(), 60, 30);
     if (id.empty()) {
         append_line(P_STATUS, label + ": failed to start: " + cmd);
         return;
@@ -921,7 +921,7 @@ void Tui::show_prompt_popup(CommandLine& cl) {
 
 void Tui::pick_reference_file(CommandLine& cl) {
     namespace fs = std::filesystem;
-    const std::string root = agent::Workspace::root();
+    const std::string root = agent::Workspace::project_root();
     std::vector<std::string> items;
     for (const auto& e : fs::directory_iterator(root)) {
         std::string name = e.path().filename().string();

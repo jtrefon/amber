@@ -1,6 +1,7 @@
 #ifndef AGENT_RUN_SCOPE_H
 #define AGENT_RUN_SCOPE_H
 
+#include <string>
 #include <vector>
 
 #include "agent/activation_sink.h"
@@ -15,6 +16,10 @@ struct RunScope {
     const CancellationToken* cancel_token = nullptr;
     SkillCatalog* skills = nullptr;
     ActivationSink* activated = nullptr;
+    // The root this run's tools are confined to (a window's worktree). Null
+    // means the project root. The pointee must outlive every scope installed
+    // from this frame — the agent owns the string, the frame only borrows it.
+    const std::string* workspace_root = nullptr;
 };
 
 // The active scope for a thread, flattened into a value: the leaf frame plus
@@ -29,7 +34,8 @@ struct RunScopeChain {
     std::vector<const CancellationToken*> cancel_chain; // leaf-first
 
     bool empty() const noexcept {
-        return cancel_chain.empty() && leaf.skills == nullptr && leaf.activated == nullptr;
+        return cancel_chain.empty() && leaf.skills == nullptr && leaf.activated == nullptr &&
+               leaf.workspace_root == nullptr;
     }
 };
 
@@ -37,6 +43,16 @@ inline thread_local const RunScopeChain* t_run_scope = nullptr;
 
 inline const RunScopeChain* current_run_scope() noexcept {
     return t_run_scope;
+}
+
+// The workspace root the current run installed, or null when the run operates
+// in the project root. An empty string counts as "not set": a caller that
+// cleared its root must not confine tools to the empty path.
+inline const std::string* scoped_workspace_root() noexcept {
+    const RunScopeChain* s = t_run_scope;
+    if (!s || !s->leaf.workspace_root || s->leaf.workspace_root->empty())
+        return nullptr;
+    return s->leaf.workspace_root;
 }
 
 // Snapshot the calling thread's chain. Empty when no scope is installed.

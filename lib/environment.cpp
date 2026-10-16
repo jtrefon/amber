@@ -187,7 +187,7 @@ EnvironmentInfo probe_environment() {
     // path away, and a Linux-only reading of the environment misleads there.
     if (first_line("/proc/version").find("microsoft") != std::string::npos)
         info.os += " (WSL)";
-    info.workspace = Workspace::root();
+    info.workspace = Workspace::workspace_root();
     info.date = date_string();
     info.timezone = timezone_string();
     info.resources = resources_string();

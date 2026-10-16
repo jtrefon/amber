@@ -28,7 +28,7 @@ std::string string_arg(const json& args, const char* key) {
 }
 
 std::string read_text(const std::string& rel) {
-    std::ifstream in(fs::path(Workspace::root()) / rel, std::ios::binary);
+    std::ifstream in(fs::path(Workspace::workspace_root()) / rel, std::ios::binary);
     if (!in)
         return {};
     std::ostringstream ss;
@@ -38,7 +38,7 @@ std::string read_text(const std::string& rel) {
 
 bool exists_at(const std::string& rel) {
     std::error_code ec;
-    return fs::exists(fs::path(Workspace::root()) / rel, ec);
+    return fs::exists(fs::path(Workspace::workspace_root()) / rel, ec);
 }
 
 std::string join(const std::vector<std::string>& items) {
@@ -188,7 +188,7 @@ std::vector<std::string> csproj_files() {
     std::vector<std::string> found;
     for (const char* dir : {"", "src/", "services/", "apps/"}) {
         std::error_code ec;
-        fs::directory_iterator it(fs::path(Workspace::root()) / dir, ec);
+        fs::directory_iterator it(fs::path(Workspace::workspace_root()) / dir, ec);
         if (ec)
             continue;
         for (const auto& entry : it) {
@@ -295,7 +295,7 @@ std::string provenance(const std::vector<std::string>& sources) {
 // The proposal, in the index's own shape, so the body that comes back through
 // `commit` is written as it will be read.
 std::string render_proposal(const Findings& f) {
-    const std::string name = fs::path(Workspace::root()).filename().string();
+    const std::string name = fs::path(Workspace::project_root()).filename().string();
     std::string out = "# Project: " + (name.empty() ? std::string("this project") : name) + "\n";
     out += "index v1 · refreshed " + today();
     if (!f.sources.empty())

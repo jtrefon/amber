@@ -6069,7 +6069,7 @@ TEST(environment_probe_collects_facts) {
     ASSERT(info.os.find("Linux") != std::string::npos);
 #endif
     ASSERT_FALSE(info.user.empty());
-    ASSERT_EQ(info.workspace, agent::Workspace::root());
+    ASSERT_EQ(info.workspace, agent::Workspace::workspace_root());
     ASSERT_FALSE(info.date.empty());
     ASSERT_FALSE(info.timezone.empty());
     ASSERT_FALSE(info.resources.empty());

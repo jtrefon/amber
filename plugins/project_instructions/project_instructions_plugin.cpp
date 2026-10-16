@@ -36,7 +36,7 @@ bool is_scannable_dir(const fs::path& p) {
 }
 
 fs::path root_file() {
-    const std::string root = Workspace::root();
+    const std::string root = Workspace::workspace_root();
     return root.empty() ? fs::path() : fs::path(root) / "AGENTS.md";
 }
 

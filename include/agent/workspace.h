@@ -8,22 +8,35 @@ namespace agent {
 
 // Path confinement for filesystem-touching tools.
 //
-// Tools may only read or write inside a "workspace root". By default the root
-// is the process working directory at first use, but it can be overridden with
-// the AMBER_WORKSPACE environment variable or set explicitly for tests.
+// Tools may only read or write inside a "workspace root": by default the
+// directory amber was started in (overridable with AMBER_WORKSPACE, or set
+// explicitly for tests), or — while a window works in its own git worktree —
+// that worktree, resolved per RUN through the run scope. Resolving per run is
+// what lets two windows confine to different trees while a tool running on a
+// dispatch worker still inherits the dispatching agent's root.
+//
+// The PROJECT root is a separate question: state, project config, policy and
+// the shared skill/memory pools belong to the project every window has in
+// common, worktree windows included. A worktree is a working copy, not a
+// second project, so those stay keyed to the directory amber was started in.
 //
 // This is a defense-in-depth measure: the model driving the agent should not be
 // able to escape the workspace via absolute paths (e.g. "/etc/passwd") or
 // traversal ("../../../etc/shadow").
 class Workspace {
 public:
-    // The active workspace root as an absolute, normalized path.
-    static std::string root();
+    // The PROJECT root as an absolute, normalized path: what state_dir(),
+    // local_dir(), settings, policy and the shared pools are keyed to.
+    static std::string project_root();
 
-    // Override the root (used by tests and by the harness at startup).
+    // The root the running agent's tools are confined to: the active run's
+    // worktree override when one is installed, else project_root().
+    static std::string workspace_root();
+
+    // Override the project root (used by tests and by the harness at startup).
     static void set_root(const std::string& path);
 
-    // The project-local CONFIG directory: "<root>/.amber". Holds what a
+    // The project-local CONFIG directory: "<project root>/.amber". Holds what a
     // project shares with its collaborators (skills, MCP servers, plugins) --
     // never private state. Not created on access: a read-only run must not
     // leave a directory behind, and running amber in $HOME used to create a
@@ -64,10 +77,6 @@ public:
     // Strip the workspace root prefix from `path`, returning a relative path.
     // If `path` is not under the root, returns it unchanged.
     static std::string relative(const std::string& path);
-
-    // Clear the cached root so the next call to root() re-initializes from
-    // the environment or cwd. Used by tests to avoid interference across
-    // test cases. Not thread-safe — call only between tests, not concurrently.
 };
 
 // The stable, filesystem-safe directory name for one workspace path.
