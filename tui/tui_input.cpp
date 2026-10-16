@@ -2257,7 +2257,7 @@ void SlashDispatcher::job_start(const std::string& cmd) {
         tui_.append_line(P_STATUS, "usage: /job start <command>");
         return;
     }
-    std::string id = tui_.jobs_.start(cmd, agent::Workspace::root());
+    std::string id = tui_.jobs_.start(cmd, agent::Workspace::project_root());
     if (id.empty()) {
         tui_.append_line(P_STATUS, "failed to start: " + cmd);
         return;

@@ -38,7 +38,7 @@ std::optional<std::string> validated_pattern(const json& a, ToolResult& r) {
 std::optional<std::string> search_root(const json& a, ToolResult& r) {
     const std::string req = a.value("path", std::string(""));
     if (req.empty())
-        return Workspace::root();
+        return Workspace::workspace_root();
     std::string confined;
     std::string err;
     if (!Workspace::confine(req, confined, err)) {

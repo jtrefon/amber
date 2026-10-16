@@ -24,7 +24,7 @@ namespace {
 std::unique_ptr<McpTransport> make_transport(const McpServerConfig& cfg) {
     int timeout_ms = cfg.timeout_s * 1000;
     if (cfg.type == "stdio") {
-        std::string cwd = cfg.cwd.empty() ? Workspace::root() : cfg.cwd;
+        std::string cwd = cfg.cwd.empty() ? Workspace::project_root() : cfg.cwd;
         return std::make_unique<StdioTransport>(cfg.command, cfg.args, cwd, nullptr, timeout_ms);
     }
     return std::make_unique<HttpTransport>(cfg.url, cfg.auth_token, timeout_ms, nullptr);

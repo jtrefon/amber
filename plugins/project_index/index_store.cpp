@@ -47,7 +47,7 @@ bool blank(const std::string& text) {
 }
 
 std::string default_title() {
-    const std::string name = fs::path(Workspace::root()).filename().string();
+    const std::string name = fs::path(Workspace::project_root()).filename().string();
     return "# Project: " + (name.empty() ? std::string("this project") : name) + "\n";
 }
 

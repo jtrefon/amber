@@ -265,7 +265,7 @@ SkillScanPaths default_scan_paths() {
     SkillScanPaths paths;
     paths.project = Workspace::local_dir() + "/skills";
     paths.global = global_config_dir() + "/skills";
-    std::string ws = Workspace::root();
+    std::string ws = Workspace::project_root();
     paths.claude = ws + "/.claude/skills";
     paths.codex = ws + "/.codex/skills";
     return paths;

@@ -967,9 +967,9 @@ namespace {
 bool confinement_probe_escapes_rejected(ProbeResult& r) {
     r.expected = "legal path resolves; ../ and absolute escapes rejected";
     // Capture and restore the active root so later probes/tools (the bash
-    // tool spawns with Workspace::root()) are not left pointing at a deleted
+    // tool spawns with Workspace::project_root()) are not left pointing at a deleted
     // temp directory.
-    const std::string prior = agent::Workspace::root();
+    const std::string prior = agent::Workspace::project_root();
     const std::string root =
         fs::temp_directory_path() / "amber_probe_ws" / std::to_string(::getpid());
     fs::create_directories(root);

@@ -107,7 +107,7 @@ struct CwdGuard {
 // scenarios in a serial run (and into the harness probes), pointing at a
 // workspace that is removed at teardown.
 struct WorkspaceGuard {
-    explicit WorkspaceGuard(const fs::path& dir) : saved_(agent::Workspace::root()) {
+    explicit WorkspaceGuard(const fs::path& dir) : saved_(agent::Workspace::project_root()) {
         agent::Workspace::set_root(dir.string());
     }
     ~WorkspaceGuard() { agent::Workspace::set_root(saved_); }

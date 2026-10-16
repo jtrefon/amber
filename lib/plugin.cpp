@@ -224,7 +224,7 @@ std::vector<std::string> PluginManager::default_plugin_roots() {
         roots.emplace_back(home + "/.config/amber/plugins");
         roots.emplace_back(home + "/.local/share/amber/plugins");
     }
-    const std::string ws = Workspace::root();
+    const std::string ws = Workspace::project_root();
     if (!ws.empty())
         roots.emplace_back(ws + "/.amber/plugins");
     roots.emplace_back("/usr/local/share/amber/plugins");
@@ -382,7 +382,7 @@ bool PluginManager::write_initialize(PluginInfo& info, Session& s) {
                 {"params",
                  {{"protocol_version", kProtocolVersion},
                   {"settings", info.settings},
-                  {"workspace", Workspace::root()}}}};
+                  {"workspace", Workspace::project_root()}}}};
     const std::string line = req.dump() + "\n";
     if (write(s.in_fd, line.data(), line.size()) == (ssize_t)line.size())
         return true;

@@ -175,7 +175,7 @@ void run_via_jobs(JobService* jobs, const CancellationToken& cancel_token,
     // with NO output. A long-running task that keeps emitting output (e.g. a
     // build) is normally never cut off, but a hard wall-clock ceiling (2x the
     // idle budget) guarantees a constantly emitting command cannot run forever.
-    const std::string id = jobs->start(command, Workspace::root(),
+    const std::string id = jobs->start(command, Workspace::workspace_root(),
                                        /*hard_timeout_s=*/2L * timeout,
                                        /*idle_timeout_s=*/timeout);
     if (id.empty()) {
@@ -209,7 +209,7 @@ int wait_status_code(int status) {
 void run_direct(const std::string& command, int timeout,
                 const std::chrono::steady_clock::time_point& t0, ToolResult& r) {
     int read_fd = -1;
-    const pid_t pid = spawn_command(command, Workspace::root(), read_fd, r);
+    const pid_t pid = spawn_command(command, Workspace::workspace_root(), read_fd, r);
     if (pid < 0)
         return;
     setpgid(pid, pid); // race-free with the child also setting it
@@ -290,7 +290,7 @@ private:
             cmd = a["command"].get<std::string>();
         // A command must be PROVABLY read-only to run without approval;
         // anything else (writes, destructive commands, escapes) is gated.
-        return classify_shell(cmd, Workspace::root()).effect != ShellEffect::ReadOnly;
+        return classify_shell(cmd, Workspace::workspace_root()).effect != ShellEffect::ReadOnly;
     }
 
     bool is_read_only() const noexcept override { return false; }
