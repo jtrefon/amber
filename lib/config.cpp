@@ -227,6 +227,16 @@ void Config::load(const std::string& path) {
     }
 }
 
+void Config::load_workspace_defaults(const std::string& path) {
+    // The provider's endpoint is not a project default: it is where the
+    // selection says requests go. Snapshot it across the load.
+    const bool from_provider = api_base_from_provider;
+    const std::string endpoint = api_base;
+    load(path);
+    if (from_provider)
+        api_base = endpoint;
+}
+
 namespace {
 
 // An environment-provided config root is only honoured when it is a sane

@@ -91,6 +91,13 @@ struct Config {
     bool model_explicit = false;
     bool context_explicit = false;
 
+    // Set true when api_base came from a selected provider's definition
+    // (apply_selection, i.e. ~/.config/amber/providers/<name>.conf) rather than
+    // from a config file or a default. A workspace amber.conf is a base layer,
+    // so load_workspace_defaults() keeps this endpoint: a checkout that pins a
+    // local server cannot redirect `/set provider`'s traffic to it.
+    bool api_base_from_provider = false;
+
     // Compatibility fallback for OpenAI o-series / vLLM style servers that use
     // the reasoning_effort field instead of a jinja kwarg: "off" disables it.
     std::string reasoning_effort = "off";
@@ -166,6 +173,13 @@ struct Config {
     // Load from a simple KEY=VALUE config file, then overlay env vars
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).
     void load(const std::string& path);
+
+    // Load a workspace `amber.conf` as a *base* layer: it supplies the keys
+    // nothing above it set. The endpoint a selected provider resolved survives,
+    // so a project file cannot redirect a selected provider's traffic; with no
+    // provider selected the file's api_base IS the endpoint, so local
+    // development against a project-local server keeps working.
+    void load_workspace_defaults(const std::string& path);
 
     // Non-fatal parse problems encountered by load() (one bad numeric value
     // skips that key with its default, never the whole file).

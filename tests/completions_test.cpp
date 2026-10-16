@@ -1268,6 +1268,117 @@ TEST(test_completion_context_non_slash_uses_top_level_names) {
     ASSERT(std::find(ctx.rows.begin(), ctx.rows.end(), "help") != ctx.rows.end());
 }
 
+// ── Test: the top-level list offers both verbs (owner report) ──────
+// "/get is in the drawer, /set is not" cannot come from the tree —
+// complete("") lists every top-level command — so pin it at each place the
+// drawer derives its rows from: the registry, the row builder, and the
+// completion context. Typing the verb must descend into it, not report that
+// nothing matched.
+
+TEST(test_top_level_completion_lists_get_and_set) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    const auto top = reg.complete("");
+    bool has_get = false, has_set = false;
+    for (const auto& k : top) {
+        if (k == "get")
+            has_get = true;
+        if (k == "set")
+            has_set = true;
+    }
+    ASSERT(has_get);
+    ASSERT(has_set);
+
+    // The drawer's own builders: entry names (what arrow/Tab select) and the
+    // painted rows (name + short help, so the help text identifies the row).
+    const auto entries = tui::drawer_entry_names("/", reg);
+    bool entry_get = false, entry_set = false;
+    for (const auto& e : entries) {
+        if (e == "get")
+            entry_get = true;
+        if (e == "set")
+            entry_set = true;
+    }
+    ASSERT(entry_get);
+    ASSERT(entry_set);
+
+    const std::string get_help = reg.help_for("get");
+    const std::string set_help = reg.help_for("set");
+    REQUIRE_NONEMPTY(get_help);
+    REQUIRE_NONEMPTY(set_help);
+    bool row_get = false, row_set = false;
+    for (const auto& r : tui::drawer_rows("/", reg, "")) {
+        if (r.find(get_help) != std::string::npos)
+            row_get = true;
+        if (r.find(set_help) != std::string::npos)
+            row_set = true;
+    }
+    ASSERT(row_get);
+    ASSERT(row_set);
+
+    // "/set" descends into the verb: the rows are its children (bare names; the
+    // context keeps the "/set " prefix), never "(no matching option)".
+    const auto ctx = tui::completion_context::for_input("/set", reg);
+    ASSERT(ctx.prefix == "/set ");
+    bool ctx_descends = false;
+    for (const auto& r : ctx.rows)
+        if (r == "model")
+            ctx_descends = true;
+    ASSERT(ctx_descends);
+}
+
+// ── Test: no feed erases a documented verb or its children ─────────
+// AGENTS.md: a feed never clobbers a documented node. A feed that replaced
+// set's children instead of merging into them is the one mechanism that could
+// take "/set" out of the drawer, so merge every live feed shape at once and
+// check the documented tree survives alongside the new leaves.
+
+TEST(test_feeds_never_clobber_documented_verbs) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto documented = reg.children_of("set");
+    REQUIRE_NONEMPTY(documented);
+
+    nlohmann::json feeds = nlohmann::json::object();
+    // refresh_model_list / refresh_policy_feed / refresh_job_feed /
+    // refresh_plugin_feed / refresh_provider_feed, in one subtree each.
+    feeds["set"]["children"]["model"]["children"]["alpha::large"]["action"] =
+        "core.config.set.model.alpha::large";
+    feeds["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] = "b";
+    feeds["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] = "b";
+    feeds["job"]["children"]["kill"]["children"]["7"]["action"] = "c";
+    feeds["set"]["children"]["plugin"]["children"]["on"]["children"]["mcp"]["action"] = "d";
+    feeds["get"]["children"]["plugin"]["children"]["info"]["children"]["mcp"]["action"] = "d";
+    feeds["set"]["children"]["provider"]["children"]["kilocode"]["action"] = "e";
+    reg.merge_completions_json(feeds);
+
+    bool has_get = false, has_set = false;
+    for (const auto& k : reg.complete("")) {
+        if (k == "get")
+            has_get = true;
+        if (k == "set")
+            has_set = true;
+    }
+    ASSERT(has_get);
+    ASSERT(has_set);
+
+    const auto after = reg.children_of("set");
+    for (const auto& child : documented) {
+        bool kept = false;
+        for (const auto& a : after)
+            if (a == child)
+                kept = true;
+        ASSERT(kept);
+    }
+
+    bool feed_leaf = false;
+    for (const auto& k : reg.complete("set.model"))
+        if (k == "set.model.alpha::large")
+            feed_leaf = true;
+    ASSERT(feed_leaf);
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1335,6 +1446,8 @@ int main() {
         test_completion_context_namespace_descend_is_not_a_filter();
         test_completion_context_trailing_space_descends();
         test_completion_context_non_slash_uses_top_level_names();
+        test_top_level_completion_lists_get_and_set();
+        test_feeds_never_clobber_documented_verbs();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;
