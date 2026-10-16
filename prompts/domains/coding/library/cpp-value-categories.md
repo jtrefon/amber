@@ -2,6 +2,7 @@ trigger: when a value is copied where a move was meant, or std::move made things
 tags: #cpp #memory #ownership
 weight: 65
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/value_category
 
 Three questions decide what the compiler calls, and the answers are not what the

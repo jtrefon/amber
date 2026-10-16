@@ -28,7 +28,7 @@ long parse_attempt(const std::string& text) noexcept {
 // redundant cwd-anchor habit the environment card teaches away. Other `cd`
 // targets (e.g. `cd /tmp && ...`) are not counted.
 bool is_workspace_cd(const std::string& cmd) {
-    const std::string root = agent::Workspace::root();
+    const std::string root = agent::Workspace::project_root();
     if (root.empty())
         return false;
     size_t i = cmd.find_first_not_of(" \t");

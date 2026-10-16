@@ -84,7 +84,7 @@ const Window& WindowManager::win() const {
 }
 
 std::shared_ptr<agent::SkillCatalog> WindowManager::shared_skills() {
-    const std::string root = agent::Workspace::root();
+    const std::string root = agent::Workspace::project_root();
     std::scoped_lock lk(pool_mtx_);
     auto& p = catalogs_[root];
     if (!p) {
@@ -98,7 +98,7 @@ std::shared_ptr<agent::SkillCatalog> WindowManager::shared_skills() {
 std::shared_ptr<agent::MemoryStore>
 WindowManager::shared_store(const agent::ExperienceConfig& exp_cfg) {
     std::scoped_lock lk(pool_mtx_);
-    return store_for(agent::Workspace::root(), exp_cfg);
+    return store_for(agent::Workspace::project_root(), exp_cfg);
 }
 
 std::shared_ptr<agent::MemoryStore>

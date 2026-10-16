@@ -22,7 +22,7 @@ std::string command_arg(const json& args) {
 bool is_benign_bash(const Tool& tool, const std::string& cmd) {
     if (tool.name() != "bash")
         return false;
-    const ShellEffect effect = classify_shell(cmd, Workspace::root()).effect;
+    const ShellEffect effect = classify_shell(cmd, Workspace::workspace_root()).effect;
     return effect == ShellEffect::ReadOnly || effect == ShellEffect::Write;
 }
 
@@ -30,7 +30,8 @@ bool is_benign_bash(const Tool& tool, const std::string& cmd) {
 // ("bash:rm", "outside:/abs/dir"); other gated tools key on their bare name
 // (write, process_start, ...), which is also the legacy policy key.
 std::string scope_id_of(const Tool& tool, const std::string& cmd) {
-    return tool.name() == "bash" ? classify_shell(cmd, Workspace::root()).scope_id : tool.name();
+    return tool.name() == "bash" ? classify_shell(cmd, Workspace::workspace_root()).scope_id
+                                 : tool.name();
 }
 
 } // namespace

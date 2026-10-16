@@ -1,6 +1,7 @@
 trigger: when adding a library, or when a build must work somewhere else
 tags: #cpp #packaging #vendoring
 verified: 2026-10
+sources: model knowledge 2026-10; not yet reviewed against the guides
 weight: 45
 reference: none
 

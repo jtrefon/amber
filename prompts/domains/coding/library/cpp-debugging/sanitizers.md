@@ -1,6 +1,7 @@
 trigger: when memory, lifetime or indexing behaviour is in question — a sanitizer names the fault, a debugger waits for it
 tags: #cpp #debugging #testing #sanitizers
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: none
 
 Undefined behaviour does not need a debugger; it needs a build that reports it.

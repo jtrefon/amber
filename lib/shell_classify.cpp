@@ -211,7 +211,7 @@ bool is_path_like(const std::string& s) {
 
 // If an unquoted token names a path that escapes the workspace root, return
 // the folder scope id ("outside:/abs/dir"); otherwise "". The workspace root
-// is read from Workspace::root() — the parameter keeps the signature explicit
+// is read from Workspace::workspace_root() — the parameter keeps the signature explicit
 // for tests and matches the policy engine's calls.
 std::string outside_scope_for(const Tok& t, bool is_target) {
     const std::string& s = t.text;

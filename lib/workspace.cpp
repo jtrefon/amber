@@ -2,6 +2,7 @@
 #include "agent/workspace.h"
 
 #include "agent/config.h"
+#include "agent/run_scope.h"
 
 #include <algorithm>
 #include <cctype>
@@ -37,7 +38,7 @@ std::string normalize(const fs::path& p) {
     return p.lexically_normal().generic_string();
 }
 
-std::string ensure_root() {
+std::string ensure_project_root() {
     std::string& r = root_storage();
     if (!r.empty())
         return r;
@@ -98,8 +99,14 @@ bool ancestor_stays_inside(const fs::path& abs, const fs::path& base, const std:
 
 } // namespace
 
-std::string Workspace::root() {
-    return ensure_root();
+std::string Workspace::project_root() {
+    return ensure_project_root();
+}
+
+std::string Workspace::workspace_root() {
+    if (const std::string* scoped = scoped_workspace_root())
+        return *scoped;
+    return ensure_project_root();
 }
 
 void Workspace::set_root(const std::string& path) {
@@ -111,7 +118,7 @@ std::string Workspace::local_dir() {
     // dir (skills, MCP servers, plugins), and merely running amber must not
     // create it -- in $HOME that used to leave a stray ~/.amber behind. Every
     // writer creates the directories it needs.
-    return ensure_root() + "/.amber";
+    return ensure_project_root() + "/.amber";
 }
 
 std::string workspace_state_slug(const std::string& workspace_path) {
@@ -159,7 +166,7 @@ std::string Workspace::state_dir() {
         const std::string home = user_home_dir();
         base = home.empty() ? ".amber-state" : home + "/.local/state";
     }
-    return base + "/amber/projects/" + workspace_state_slug(ensure_root());
+    return base + "/amber/projects/" + workspace_state_slug(ensure_project_root());
 }
 
 void Workspace::adopt_legacy_state(const std::string& name) {
@@ -199,7 +206,7 @@ bool Workspace::confine(const std::string& path, std::string& resolved, std::str
         error = "empty path";
         return false;
     }
-    const std::string base = ensure_root();
+    const std::string base = workspace_root();
     const fs::path req(path);
     const fs::path abs = req.is_absolute() ? req : (fs::path(base) / req);
     const std::string norm = normalize(abs);
@@ -242,7 +249,7 @@ bool Workspace::confine(const std::string& path, std::string& resolved, std::str
 }
 
 std::string Workspace::relative(const std::string& path) {
-    std::string base = ensure_root();
+    std::string base = workspace_root();
     if (path.compare(0, base.size(), base) == 0 &&
         (path.size() == base.size() || path[base.size()] == '/')) {
         std::string rel = path.substr(base.size());

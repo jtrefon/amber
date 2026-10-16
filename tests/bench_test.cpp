@@ -473,7 +473,7 @@ TEST(recorder_denied_and_timeout_flags) {
 TEST(recorder_counts_workspace_cd_prefix) {
     Recorder rec;
     agent::AgentHooks hooks = rec.hooks();
-    const std::string root = agent::Workspace::root();
+    const std::string root = agent::Workspace::project_root();
     hooks.on_tool_call("bash", {{"command", "cd " + root + " && grep foo ."}});
     hooks.on_tool_call("bash", {{"command", "cd " + root + "&& ls"}});
     hooks.on_tool_call("bash", {{"command", "cd " + root + "/ && ls"}});
@@ -927,7 +927,7 @@ TEST(e2e_hermetic_run_metrics) {
 }
 
 TEST(e2e_hermetic_restores_workspace_root) {
-    const std::string prior = agent::Workspace::root();
+    const std::string prior = agent::Workspace::project_root();
 
     std::string dir = tmp_dir("wsrestore");
     write_file(dir + "/s.json", R"({
@@ -953,7 +953,7 @@ TEST(e2e_hermetic_restores_workspace_root) {
     ASSERT_EQ(rep.failures.size(), 0u);
 
     // The root must be back to the pre-run value — never a deleted temp ws.
-    ASSERT_EQ(agent::Workspace::root(), prior);
+    ASSERT_EQ(agent::Workspace::project_root(), prior);
 }
 
 int main() {

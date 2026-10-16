@@ -1,6 +1,7 @@
 trigger: when a warning appears, or a rule is being argued about instead of checked
 tags: #cpp #lint #tooling
 verified: 2026-10
+sources: model knowledge 2026-10; not yet reviewed against the guides
 reference: none
 
 The compiler is the reviewer that never gets tired. Treat its output as findings

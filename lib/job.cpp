@@ -236,7 +236,7 @@ std::string JobService::start(const std::string& command, const std::string& cwd
                               long hard_timeout_s, long idle_timeout_s) {
     // Confine the working directory to the workspace: an unconfined cwd would
     // let the model root a background shell anywhere on disk.
-    std::string dir = cwd.empty() ? Workspace::root() : cwd;
+    std::string dir = cwd.empty() ? Workspace::workspace_root() : cwd;
     std::string confined, err;
     if (!Workspace::confine(dir, confined, err))
         return ""; // empty id = error

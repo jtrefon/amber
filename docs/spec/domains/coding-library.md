@@ -60,11 +60,21 @@ debugging), **Python** (uv/venv, pytest, ruff/mypy, pdb).
 4. **Header** (shared with project-index entries):
 
    ```
-   name: <short name>
+   name: <short name>                 (optional: the file's stem is the name)
    trigger: <when this applies>
    tags: #dotnet #efcore
+   weight: <0-100>                    (optional: 50 default, topics 60)
+   verified: <YYYY-MM>
+   reference: <url | path>
+   sources: <book and chapter | article url | "model knowledge <YYYY-MM>">
    reference: <url | path>            (optional)
    ```
+
+   `sources:` is provenance, not authority: it names what was actually consulted —
+   a chapter of one of the guides in the owner's library, a current article, or
+   explicitly model knowledge, which is the honest marker for an entry that has
+   not been reviewed against a guide yet. Paraphrase, never paste: a reference
+   points at the source of truth, it does not reproduce it.
 
 5. **Entries earn their line.** An entry that is never pulled is a line that
    should be dark; pruning is manual in v1 and measured later (see the spec's open

@@ -1,6 +1,7 @@
 trigger: when a C++ failure needs more than reading the code — which layer to reach for first
 tags: #cpp #debugging
 verified: 2026-10
+sources: model knowledge 2026-10; not yet reviewed against the guides
 weight: 70
 reference: none
 

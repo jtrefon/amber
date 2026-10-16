@@ -206,6 +206,11 @@ TEST(coding_library_entries_declare_their_provenance) {
         ASSERT(text.find("verified:") < header_end);
         ASSERT(text.find("reference:") != std::string::npos);
         ASSERT(text.find("reference:") < header_end);
+        // Provenance: what the entry was actually consulted from. Expert content
+        // written from model memory alone says so, so the debt is visible rather
+        // than implied.
+        ASSERT(text.find("sources:") != std::string::npos);
+        ASSERT(text.find("sources:") < header_end);
     }
 }
 
