@@ -50,6 +50,9 @@ selects nothing, so an entry arrives with the tag rather than ahead of it.
 - `io` — sockets, readiness, async I/O
 - `git` — history, archaeology, recovery, collaboration
 - `perf` — measuring and improving speed
+- `design` — how code is shaped: principles, SOLID, trade-offs
+- `patterns` — recurring shapes and when they pay
+- `architecture` — how a system's parts are arranged and depend
 - `concurrency` — threads, async, cancellation
 - `async` — asynchronous work specifically
 - `memory` — allocation, lifetime, ownership
