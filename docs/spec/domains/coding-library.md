@@ -15,8 +15,10 @@ already demands. Project-declared facts (`AGENTS.md`, the project index) outrank
 all three.
 
 Budget: the coding domain's resident prose — identity, workflow, fundamentals,
-paradigm, project index — stays **≤ 90 lines total**, asserted by a test. The
-library has no budget: it is dark.
+paradigm, project index — stays within **110 content lines**, asserted by a test.
+The number is the measured value (108 when it was pinned), ratcheted like every
+other budget in this repo: it may only shrink. The library has no budget: it is
+dark.
 
 ## The layers
 

@@ -13,11 +13,14 @@
 #include "agent/tools.h"
 #include "fake_llm.h"
 #include "plugins/commandcode/commandcode_plugin.h"
+#include "plugins/coding/coding_library.h"
 #include "plugins/deepseek/deepseek_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
+#include "plugins/project_index/index_store.h"
+#include "plugins/project_index/project_index_plugin.h"
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
@@ -26,6 +29,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <memory>
 #include <string>
 #include <atomic>
@@ -800,6 +804,633 @@ TEST(project_instructions_report_names_the_file_and_nested) {
         if (line.find("nested: pkg/AGENTS.md") != std::string::npos)
             named_nested = true;
     ASSERT(named_nested);
+}
+
+// ---------------------------------------------------------------------------
+// Project index: amber's own notes about the project, as a session-fixed block.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A scratch state root. The index lives in the project's private state, so a
+// test that writes one must not write into the developer's real tree.
+class ScratchState {
+public:
+    explicit ScratchState(const std::string& tag)
+        : dir_(fs::temp_directory_path() / ("amber_state_" + tag)) {
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+        const char* saved = std::getenv("XDG_STATE_HOME");
+        had_ = saved != nullptr;
+        if (had_)
+            saved_ = saved;
+        setenv("XDG_STATE_HOME", dir_.c_str(), 1);
+    }
+    ~ScratchState() {
+        if (had_)
+            setenv("XDG_STATE_HOME", saved_.c_str(), 1);
+        else
+            unsetenv("XDG_STATE_HOME");
+        std::error_code ec;
+        fs::remove_all(dir_, ec);
+    }
+    ScratchState(const ScratchState&) = delete;
+    ScratchState& operator=(const ScratchState&) = delete;
+
+private:
+    fs::path dir_;
+    std::string saved_;
+    bool had_ = false;
+};
+
+// The index file a user would have, at the path the plugin reads.
+void write_project_index(const std::string& text) {
+    write_text(fs::path(Workspace::state_dir()) / "project-index.md", text);
+}
+
+// Just the index block, so a neighbouring block's headings are not mistaken for
+// its own.
+std::string project_index_block(PluginRuntime& runtime) {
+    const std::string all = system_blocks_text(runtime);
+    const std::size_t at = all.find("# Project index");
+    if (at == std::string::npos)
+        return {};
+    return all.substr(at, 5 * 1024u);
+}
+
+} // namespace
+
+TEST(project_index_reaches_the_system_prompt) {
+    ScratchWorkspace ws("index");
+    ScratchState state("index");
+    write_project_index("# Project: turbo-shop\n\nmonorepo, backend .NET 8, Angular web\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = project_index_block(runtime);
+    ASSERT(!block.empty());
+    ASSERT(block.find("turbo-shop") != std::string::npos);
+    // Precedence, stated where the agent reads it: the project's own file wins.
+    ASSERT(block.find("AGENTS.md") != std::string::npos);
+
+    // Disabling the plugin takes the block with it, and nothing else.
+    ASSERT_TRUE(runtime.set_state("project_index", false));
+    ASSERT(project_index_block(runtime).empty());
+}
+
+TEST(project_index_is_frozen_within_a_session) {
+    ScratchWorkspace ws("index-frozen");
+    ScratchState state("index-frozen");
+    write_project_index("# Project: one\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string first = project_index_block(runtime);
+    ASSERT(first.find("Project: one") != std::string::npos);
+    // The file changes on disk mid-session; the block does not, because the
+    // system prefix is what the server caches.
+    write_project_index("# Project: two\n");
+    ASSERT_EQ(project_index_block(runtime), first);
+
+    // An explicit refresh is the one thing that moves it.
+    auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
+    ASSERT(plugin != nullptr);
+    plugin->refresh();
+    ASSERT(project_index_block(runtime).find("Project: two") != std::string::npos);
+}
+
+TEST(project_index_provenance_reports_a_moved_source) {
+    ScratchWorkspace ws("index-stale");
+    ScratchState state("index-stale");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n");
+    const std::string hash =
+        plugins::ProjectIndexPlugin::hash_file((ws.root() / "docker-compose.yml").string());
+    ASSERT(!hash.empty());
+    write_project_index("# Project: compose-app\n\nsources: docker-compose.yml@" + hash +
+                        "\n\nruns in compose\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string fresh = project_index_block(runtime);
+    ASSERT(fresh.find("compose-app") != std::string::npos);
+    ASSERT(fresh.find("changed since") == std::string::npos);
+
+    // The source moves; the recorded hash no longer matches, and the block says
+    // so rather than presenting facts that may be out of date as current.
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n  db:\n");
+    auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
+    ASSERT(plugin != nullptr);
+    plugin->refresh();
+    const std::string block = project_index_block(runtime);
+    ASSERT(block.find("changed since") != std::string::npos);
+    ASSERT(block.find("docker-compose.yml@" + hash) != std::string::npos);
+}
+
+TEST(project_index_absent_leaves_no_block) {
+    ScratchWorkspace ws("index-none");
+    ScratchState state("index-none");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(project_index_block(runtime).empty());
+}
+
+TEST(project_index_is_capped_and_says_so) {
+    ScratchWorkspace ws("index-cap");
+    ScratchState state("index-cap");
+    std::string big = "# Project: big\n";
+    for (int i = 0; i < 400; ++i)
+        big += "line " + std::to_string(i) + ": a fact about this project, at length.\n";
+    write_project_index(big);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = project_index_block(runtime);
+    ASSERT(block.find("[truncated at 4 KB") != std::string::npos);
+    ASSERT(block.find("line 0:") != std::string::npos);
+    ASSERT(block.find("line 300:") == std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Project index tools: init/add/update/remove/show, the redaction rule, the
+// command surface, and the frozen block they deliberately do not move.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Execute a registered tool the way the agent loop does.
+ToolResult call_tool(Fixture& f, const std::string& name, const json& args) {
+    const std::shared_ptr<Tool> tool = f.tools.find(name);
+    if (!tool)
+        return ToolResult{false, {}, "no such tool: " + name, nullptr};
+    return tool->execute(args);
+}
+
+std::string store_text() {
+    return plugins::index_store::read_all();
+}
+
+} // namespace
+
+TEST(index_init_proposes_and_commits) {
+    ScratchWorkspace ws("index-init");
+    ScratchState state("index-init");
+    write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n");
+    write_text(ws.root() / "package.json",
+               R"({"name":"web","dependencies":{"next":"14.0.0","react":"18.0.0"},)"
+               R"("devDependencies":{"vitest":"1.0.0"}})");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::shared_ptr<Tool> init = f.tools.find("index_init");
+    ASSERT(init != nullptr);
+    // The proposal is free; the write is the one that asks for approval.
+    ASSERT_FALSE(init->requires_approval(json::object()));
+    ASSERT_TRUE(init->requires_approval(json{{"commit", "body"}}));
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    ASSERT(proposed.output.find("#dockercompose") != std::string::npos);
+    ASSERT(proposed.output.find("#next") != std::string::npos);
+    ASSERT(proposed.output.find("#vitest") != std::string::npos);
+    // The proposal names what it read, so a disagreement is checkable.
+    ASSERT(proposed.output.find("sources:") != std::string::npos);
+    // Nothing is written until the confirmed body comes back.
+    ASSERT(!fs::exists(plugins::ProjectIndexPlugin::file_path()));
+
+    ASSERT(!project_index_block(runtime).empty() == false);
+    const ToolResult committed = call_tool(f, "index_init", json{{"commit", proposed.output}});
+    ASSERT(committed.ok);
+    ASSERT(fs::exists(plugins::ProjectIndexPlugin::file_path()));
+    // The running session's block is frozen: it moves on refresh, and would
+    // have moved by itself at the next session's activation.
+    auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
+    ASSERT(plugin != nullptr);
+    plugin->refresh();
+    ASSERT(project_index_block(runtime).find("dockercompose") != std::string::npos);
+}
+
+TEST(index_init_refuses_a_credential) {
+    ScratchWorkspace ws("index-init-secret");
+    ScratchState state("index-init-secret");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string body =
+        "# Project: x\n\n## Where things are\nADO_PAT=ghp_0123456789012345678901234567890123\n";
+    const ToolResult r = call_tool(f, "index_init", json{{"commit", body}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("pointer") != std::string::npos);
+    ASSERT(!fs::exists(plugins::ProjectIndexPlugin::file_path()));
+}
+
+TEST(index_add_writes_and_creates_what_is_missing) {
+    ScratchWorkspace ws("index-add");
+    ScratchState state("index-add");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    // Render once, so the frozen block is the empty one this session sees.
+    ASSERT(project_index_block(runtime).empty());
+
+    const ToolResult added =
+        call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "monorepo, two services"}});
+    ASSERT(added.ok);
+    // The tool returns the canonical entry it wrote: the agent's view of a
+    // mid-session change comes from the result, not from the prompt.
+    ASSERT(added.output.find("monorepo, two services") != std::string::npos);
+    const std::string body = store_text();
+    ASSERT(body.find("# Project:") != std::string::npos);
+    ASSERT(body.find("## Shape") != std::string::npos);
+    ASSERT(body.find("monorepo, two services") != std::string::npos);
+
+    // The block has not moved; a new session (or a refresh) reads the file.
+    ASSERT(project_index_block(runtime).empty());
+
+    // A second add lands under the same heading rather than repeating it.
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "postgres + redis"}}).ok);
+    const std::string two = store_text();
+    ASSERT(two.find("## Shape") == two.rfind("## Shape"));
+    ASSERT(two.find("postgres + redis") != std::string::npos);
+
+    // An unknown section is used as the heading it was given.
+    ASSERT(call_tool(f, "index_add", json{{"section", "Notes"}, {"entry", "hand-written"}}).ok);
+    ASSERT(store_text().find("## Notes") != std::string::npos);
+
+    // A later section does not capture an earlier one's entries: a new "shape"
+    // line lands inside Shape, before whatever heading follows it.
+    ASSERT(call_tool(f, "index_add", json{{"section", "runs"}, {"entry", "up: make dev"}}).ok);
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "third fact"}}).ok);
+    const std::string ordered = store_text();
+    ASSERT(ordered.find("## Shape") < ordered.find("third fact"));
+    ASSERT(ordered.find("third fact") < ordered.find("## Notes"));
+
+    // An entry with nothing in it is refused, not written as a blank line.
+    const ToolResult empty =
+        call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "   "}});
+    ASSERT_FALSE(empty.ok);
+
+    // A file a hand edit left without a trailing newline still gains its
+    // headings cleanly.
+    write_text(fs::path(plugins::ProjectIndexPlugin::file_path()), "# Project: hand-edited");
+    ASSERT(
+        call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "after a hand edit"}}).ok);
+    ASSERT(store_text().find("\n## Shape\nafter a hand edit\n") != std::string::npos);
+
+    // Every mutation is in the log, next to the file.
+    std::ifstream log(plugins::index_store::log_path());
+    std::stringstream logged;
+    logged << log.rdbuf();
+    ASSERT(logged.str().find("shape") != std::string::npos);
+}
+
+TEST(project_index_block_follows_a_compaction) {
+    ScratchWorkspace ws("index-compaction");
+    ScratchState state("index-compaction");
+    write_project_index("# Project: before\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(project_index_block(runtime).find("Project: before") != std::string::npos);
+
+    write_project_index("# Project: after\n");
+
+    // A compression that failed leaves the context where it was, so the prefix
+    // must not move either.
+    CompressionCompletedEvent failed;
+    failed.success = false;
+    Events(runtime.events()).publish(failed);
+    ASSERT(project_index_block(runtime).find("Project: before") != std::string::npos);
+
+    // A compression that happened rebuilds the context anyway: the block is
+    // re-read there, and nowhere else mid-session.
+    CompressionCompletedEvent done;
+    done.success = true;
+    Events(runtime.events()).publish(done);
+    ASSERT(project_index_block(runtime).find("Project: after") != std::string::npos);
+
+    // Switching the plugin off releases the subscription with it.
+    ASSERT_TRUE(runtime.set_state("project_index", false));
+    ASSERT_FALSE(runtime.events().has_subscribers(EventType::CompressionCompleted));
+}
+
+TEST(project_index_does_not_read_outside_the_workspace) {
+    ScratchWorkspace ws("index-confine");
+    ScratchState state("index-confine");
+    // A file outside the workspace, whose hash is recorded faithfully in the
+    // index. The provenance check exists to notice changes to the project's own
+    // files; a source that climbs out of the workspace is not one of those, and
+    // reading it would make the index a way to hash arbitrary paths.
+    const fs::path outside = fs::temp_directory_path() / "amber_outside_source.yml";
+    write_text(outside, "services:\n  api:\n");
+    const std::string hash = plugins::ProjectIndexPlugin::hash_file(outside.string());
+    write_project_index("# Project: x\n\nsources: ../amber_outside_source.yml@" + hash +
+                        "\n\nruns in compose\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    // Refused rather than read: "cannot check" is not "fine", so the block says
+    // the fact may be stale.
+    ASSERT(project_index_block(runtime).find("changed since") != std::string::npos);
+    std::error_code ec;
+    fs::remove(outside, ec);
+}
+
+TEST(index_add_refuses_a_credential) {
+    ScratchWorkspace ws("index-add-secret");
+    ScratchState state("index-add-secret");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult r = call_tool(
+        f, "index_add",
+        json{{"section", "where"}, {"entry", "api_key = \"sk-abcdefghijklmnopqrstuvwxyz\""}});
+    ASSERT_FALSE(r.ok);
+    ASSERT(r.error.find("pointer") != std::string::npos);
+    ASSERT(store_text().empty());
+}
+
+TEST(index_update_replaces_a_line_and_reports_a_miss) {
+    ScratchWorkspace ws("index-update");
+    ScratchState state("index-update");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(call_tool(f, "index_add", json{{"section", "runs"}, {"entry", "up: make dev"}}).ok);
+
+    const ToolResult updated = call_tool(
+        f, "index_update", json{{"find", "make dev"}, {"entry", "up: docker compose up -d"}});
+    ASSERT(updated.ok);
+    ASSERT(store_text().find("docker compose up -d") != std::string::npos);
+    ASSERT(store_text().find("make dev") == std::string::npos);
+
+    // A find that matches nothing is reported, not silently ignored.
+    const ToolResult missed = call_tool(f, "index_update", json{{"find", "nope"}, {"entry", "x"}});
+    ASSERT_FALSE(missed.ok);
+    ASSERT(missed.error.find("no line") != std::string::npos);
+
+    // A blank find or a blank replacement is a usage error, not a match on
+    // every line.
+    ASSERT_FALSE(call_tool(f, "index_update", json{{"find", " "}, {"entry", "x"}}).ok);
+    ASSERT_FALSE(call_tool(f, "index_update", json{{"find", "make"}, {"entry", " "}}).ok);
+    ASSERT_FALSE(call_tool(f, "index_remove", json{{"match", ""}}).ok);
+}
+
+TEST(index_store_refuses_an_empty_body) {
+    ScratchWorkspace ws("index-empty-body");
+    ScratchState state("index-empty-body");
+    std::string error;
+    ASSERT_FALSE(plugins::index_store::write_all("   \n", error));
+    ASSERT(error.find("empty") != std::string::npos);
+}
+
+TEST(index_init_scans_every_stack_it_knows) {
+    ScratchWorkspace ws("index-scan");
+    ScratchState state("index-scan");
+    write_text(ws.root() / "Makefile", "all:\n\t@true\n");
+    write_text(ws.root() / "CMakeLists.txt", "project(x)\n");
+    write_text(ws.root() / "Cargo.toml", "[package]\nname = \"x\"\n");
+    write_text(ws.root() / "go.mod", "module example.com/x\n");
+    write_text(ws.root() / "package.json", R"({"dependencies":{"@angular/core":"17"},)"
+                                           R"("devDependencies":{"typescript":"5"}})");
+    write_text(ws.root() / "tsconfig.json", "{}\n");
+    write_text(ws.root() / "composer.json", R"({"require":{"laravel/framework":"11"}})");
+    write_text(ws.root() / "requirements.txt", "django\npytest\n");
+    write_text(ws.root() / ".env.example", "KEY=\n");
+    write_text(ws.root() / ".github" / "workflows" / "ci.yml", "on: push\n");
+    write_text(ws.root() / "app.csproj",
+               "<Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>"
+               "<ItemGroup><PackageReference Include=\"Microsoft.EntityFrameworkCore\" />"
+               "</ItemGroup></Project>");
+    write_text(ws.root() / "old.csproj", "<Project></Project>");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    for (const char* tag : {"#angular", "#typescript", "#laravel", "#php", "#python", "#django",
+                            "#pytest", "#rust", "#go", "#cmake", "#dotnet", "#efcore"})
+        ASSERT(proposed.output.find(tag) != std::string::npos);
+    ASSERT(proposed.output.find("net8.0") != std::string::npos);
+    ASSERT(proposed.output.find("GitHub Actions") != std::string::npos);
+    ASSERT(proposed.output.find(".env.example") != std::string::npos);
+    ASSERT(proposed.output.find("build: make") != std::string::npos);
+}
+
+TEST(index_init_reads_a_manifest_that_is_not_json) {
+    ScratchWorkspace ws("index-bad-manifest");
+    ScratchState state("index-bad-manifest");
+    write_text(ws.root() / "package.json", "this is not json\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult proposed = call_tool(f, "index_init", json::object());
+    ASSERT(proposed.ok);
+    // The file is still named as a source even when its contents are unreadable.
+    ASSERT(proposed.output.find("#node") != std::string::npos);
+    ASSERT(proposed.output.find("package.json@") != std::string::npos);
+}
+
+TEST(index_remove_takes_a_line_out_and_reports_a_miss) {
+    ScratchWorkspace ws("index-remove");
+    ScratchState state("index-remove");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "one service"}}).ok);
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "two services"}}).ok);
+
+    const ToolResult removed = call_tool(f, "index_remove", json{{"match", "one service"}});
+    ASSERT(removed.ok);
+    ASSERT(store_text().find("one service") == std::string::npos);
+    ASSERT(store_text().find("two services") != std::string::npos);
+
+    const ToolResult missed = call_tool(f, "index_remove", json{{"match", "gone"}});
+    ASSERT_FALSE(missed.ok);
+    ASSERT(missed.error.find("no line") != std::string::npos);
+}
+
+TEST(index_show_prints_the_file_or_says_there_is_none) {
+    ScratchWorkspace ws("index-show");
+    ScratchState state("index-show");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::shared_ptr<Tool> show = f.tools.find("index_show");
+    ASSERT(show != nullptr);
+    ASSERT_TRUE(show->is_read_only());
+
+    const ToolResult none = call_tool(f, "index_show", json::object());
+    ASSERT(none.ok);
+    ASSERT(none.output.find("no project index") != std::string::npos);
+
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "a monorepo"}}).ok);
+    const ToolResult some = call_tool(f, "index_show", json::object());
+    ASSERT(some.ok);
+    ASSERT(some.output.find("a monorepo") != std::string::npos);
+}
+
+TEST(index_command_shows_the_file_and_refreshes_the_block) {
+    ScratchWorkspace ws("index-cmd");
+    ScratchState state("index-cmd");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    ASSERT(run_verb(runtime, "index", "show", "").find("no project index") != std::string::npos);
+    ASSERT(project_index_block(runtime).empty());
+    ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "angular + dotnet"}}).ok);
+    ASSERT(run_verb(runtime, "index", "show", "").find("angular") != std::string::npos);
+    // Still frozen, and the explicit refresh is what moves it.
+    ASSERT(project_index_block(runtime).empty());
+    ASSERT(run_verb(runtime, "index", "refresh", "").find("index re-read") != std::string::npos);
+    ASSERT(project_index_block(runtime).find("angular") != std::string::npos);
+}
+
+TEST(index_tools_travel_with_the_plugin) {
+    ScratchWorkspace ws("index-tools-travel");
+    ScratchState state("index-tools-travel");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(f.tools.find("index_show") != nullptr);
+
+    // Switching the index off takes its tools and its command with it: a writer
+    // nothing reads is exactly the half-state the ledger exists to prevent.
+    ASSERT_TRUE(runtime.set_state("project_index", false));
+    ASSERT(f.tools.find("index_show") == nullptr);
+    bool command_gone = true;
+    for (const auto& entry : runtime.commands().all())
+        if (entry.spec.root == "index")
+            command_gone = false;
+    ASSERT_TRUE(command_gone);
+}
+
+// ---------------------------------------------------------------------------
+// The coding library: the project's tags select entries, one trigger line each,
+// as a per-turn block the domain owns.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string head_blocks_text(PluginRuntime& runtime) {
+    std::string all;
+    for (auto& text : runtime.prompts().render_all(PromptPlacement::Head))
+        all += text;
+    return all;
+}
+
+} // namespace
+
+TEST(library_entry_header_is_parsed) {
+    const plugins::LibraryEntry entry = plugins::parse_library_entry(
+        "library/x.md", "name: x\ntrigger: when something applies\ntags: #cpp, "
+                        "#testing\nreference: docs\n\nbody\n");
+    ASSERT_EQ(entry.trigger, std::string("when something applies"));
+    ASSERT_EQ(entry.tags.size(), 2u);
+    ASSERT(entry.tags[0] == "cpp");
+    ASSERT(entry.tags[1] == "testing");
+    ASSERT(plugins::entry_matches(entry, {"testing"}));
+    ASSERT_FALSE(plugins::entry_matches(entry, {"python"}));
+
+    // An entry with no trigger has nothing to render, a header that does not
+    // lead the file is a body line, and an entry with no tags matches nothing.
+    ASSERT(plugins::parse_library_entry("library/y.md", "just a body\n").trigger.empty());
+    ASSERT(plugins::parse_library_entry("library/z.md", "body first\ntrigger: too late\n")
+               .trigger.empty());
+    ASSERT_FALSE(plugins::entry_matches(plugins::LibraryEntry{}, {"cpp"}));
+}
+
+TEST(index_selection_tags_are_read_from_the_section) {
+    const std::vector<std::string> tags = plugins::selected_tags_from(
+        "# Project: x\n\n## Shape\nsomething\n\n## Library selection\n#cpp #docker, #testing\n");
+    ASSERT_EQ(tags.size(), 3u);
+    ASSERT(tags[0] == "cpp");
+    ASSERT(tags[1] == "docker");
+    ASSERT(tags[2] == "testing");
+    ASSERT(plugins::selected_tags_from("# Project: x\n").empty());
+}
+
+TEST(coding_library_index_lists_what_the_project_selects) {
+    ScratchWorkspace ws("library-select");
+    ScratchState state("library-select");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp #testing\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string head = head_blocks_text(runtime);
+    ASSERT(head.find("Library entries this project selects") != std::string::npos);
+    ASSERT(head.find("when a container is mutated") != std::string::npos);
+    ASSERT(head.find("cpp-iterator-invalidation.md") != std::string::npos);
+    // None of it is in the system prefix: the selection is per-turn.
+    ASSERT(system_blocks_text(runtime).find("Library entries this project selects") ==
+           std::string::npos);
+    // A handful of lines, not a chapter.
+    std::size_t lines = 0;
+    for (char c : head)
+        if (c == '\n')
+            ++lines;
+    ASSERT(lines <= 25u);
+}
+
+TEST(coding_library_index_stays_dark_without_a_selection) {
+    ScratchWorkspace ws("library-dark");
+    ScratchState state("library-dark");
+    write_project_index("# Project: x\n\n## Shape\nno tags yet\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+
+    // A tag no entry carries selects nothing. The tags are read per turn, so
+    // the change needs no refresh.
+    write_project_index("# Project: x\n\n## Library selection\n#cobol\n");
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+}
+
+TEST(coding_library_index_leaves_with_the_domain) {
+    ScratchWorkspace ws("library-domain");
+    ScratchState state("library-domain");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(head_blocks_text(runtime).find("Library entries") != std::string::npos);
+    ASSERT_TRUE(runtime.set_state("coding", false));
+    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
 }
 
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
@@ -2125,9 +2756,9 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    // The bundled set contributes four namespaces: hello, and the mcp plugin's
-    // mcp / prompt / get.
-    ASSERT_EQ(runtime.commands().size(), 4u);
+    // The bundled set contributes five namespaces: hello, the project index's
+    // index, and the mcp plugin's mcp / prompt / get.
+    ASSERT_EQ(runtime.commands().size(), 5u);
     const auto& all = runtime.commands().all();
     const auto hello =
         std::find_if(all.begin(), all.end(),
@@ -2139,10 +2770,10 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     // capability must come back with the same binding.
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 3u); // the mcp plugin's three survive
+    ASSERT_EQ(runtime.commands().size(), 4u); // the mcp plugin's three and the index survive
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 4u);
+    ASSERT_EQ(runtime.commands().size(), 5u);
 }
 
 // The registry console groups contributions by kind, so every kind needs a

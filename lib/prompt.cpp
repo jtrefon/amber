@@ -20,6 +20,24 @@ std::string load_prompt(const std::string& path) {
     return ss.str();
 }
 
+std::string read_capped_file(const std::string& path, std::size_t cap, bool& truncated) {
+    truncated = false;
+    std::ifstream in(path, std::ios::binary);
+    if (!in)
+        return {};
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    std::string text = ss.str();
+    if (text.size() <= cap)
+        return text;
+    std::size_t cut = text.rfind('\n', cap);
+    if (cut == std::string::npos)
+        cut = cap;
+    text.resize(cut);
+    truncated = true;
+    return text;
+}
+
 std::string optional_prompt_path(const std::string& name) {
     const std::string dir = exe_dir();
     if (!dir.empty()) {

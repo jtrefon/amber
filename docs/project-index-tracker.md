@@ -3,6 +3,23 @@
 Phases for `docs/spec/domains/project-index.md`. Written to be picked up by a
 fresh context: each phase names its deliverable, files, tests and exit criteria.
 
+**Status: all five phases landed** on `feat/project-index` (PR #260), one commit
+each — `ca9cafc` (PI-1), `e5609d0` (PI-2), `94834a4` (PI-3), `af4588a` (PI-4),
+`4708333` (PI-5), plus `951db2c` and `33b53b0` from CI's static analysis. Two
+points where what shipped differs from the text below, both recorded in the
+spec's decision log and open items:
+
+- **PI-1's exit** names a block of ≤ 30 lines; the cap that shipped is 4 KB (a
+  byte bound rather than a line count — same purpose, and the working index's
+  25-entry cap carries the line bound where lines are the cost).
+- **PI-4's mechanism** names bundled skills with `read_skill` bodies; the library
+  shipped as markdown files under `prompts/domains/coding/library/` selected by
+  tags, with bodies read by path. The skills mechanism has no tags and no
+  per-project selection, so the selection lives with the index (PI-D7, open
+  item 5).
+
+The rest of this document is the plan as written, kept as written.
+
 **How to resume here.** Repo rules that matter for this work: `main` is
 PR-only; work happens on a feature branch; behaviour changes arrive red first
 (failing test, then implement); gates are `make test` (unit + bench), `make

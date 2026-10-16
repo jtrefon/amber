@@ -3,6 +3,7 @@
 
 #include "agent/extensions.h"
 #include "agent/prompt.h"
+#include "coding_library.h"
 
 namespace agent::plugins {
 
@@ -27,6 +28,14 @@ std::vector<std::unique_ptr<Capability>> CodingPlugin::capabilities() {
         "coding_engineering", prompt_priority::kDomainDiscipline,
         [] { return load_optional_prompt("prompts/domains/coding/engineering.md"); },
         PromptPlacement::System));
+    // The library's working index: one trigger line per entry this project's own
+    // tags select. Head placement, because it is derived from state that can
+    // change during a session and belongs after the prefix the server caches --
+    // and because the domain that owns the library is the thing that switches
+    // it off.
+    caps.push_back(std::make_unique<PromptBlockCapability>(
+        "coding_library_index", prompt_priority::kDomainLibrary,
+        [] { return render_working_index(); }, PromptPlacement::Head));
     return caps;
 }
 

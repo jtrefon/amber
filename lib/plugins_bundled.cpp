@@ -2,6 +2,7 @@
 
 #include "plugins/amber_self/amber_self_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
+#include "plugins/project_index/project_index_plugin.h"
 #include "plugins/coding/coding_plugin.h"
 #include "plugins/anthropic/anthropic_plugin.h"
 #include "plugins/clock/clock_plugin.h"
@@ -36,6 +37,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // and carried in the system prompt, so the agent works to the project's
     // conventions instead of re-deriving them.
     plugins.push_back(std::make_shared<plugins::ProjectInstructionsPlugin>());
+    // The project index: amber's own notes about this project -- how it runs,
+    // where its parts and artefacts live, which library entries apply. Written
+    // by the index tools and confirmed by the user, never derived silently.
+    plugins.push_back(std::make_shared<plugins::ProjectIndexPlugin>());
     // Domains: an activity's own prose, switchable, so the harness stays
     // generic. Coding ships enabled; the other domains are named in the
     // developer guide and arrive the same way when they are built.
