@@ -2,6 +2,7 @@ trigger: when two threads agree in a debugger and disagree in production
 tags: #cpp #concurrency #memory
 weight: 55
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/atomic/memory_order
 
 A data race is not "two threads touching a variable" — it is two accesses, at

@@ -1,6 +1,7 @@
 trigger: when a failure only shows in the running program, or a change needs a feedback loop first
 tags: #debugging #observability #testing
 verified: 2026-10
+sources: model knowledge 2026-10; not yet reviewed against the guides
 weight: 65
 reference: none
 

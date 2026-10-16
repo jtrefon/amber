@@ -1,6 +1,7 @@
 trigger: when a change needs building or testing and the project does not document how
 tags: #cpp #cmake #make #testing
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 weight: 40
 reference: none
 

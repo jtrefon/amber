@@ -1,6 +1,7 @@
 trigger: when a failure resists two hypotheses, or state is not what the code says it should be
 tags: #cpp #debugging #gdb
 verified: 2026-10
+sources: model knowledge 2026-10; not yet reviewed against the guides
 reference: none
 
 After two wrong hypotheses, the next step is a debugger rather than a third.

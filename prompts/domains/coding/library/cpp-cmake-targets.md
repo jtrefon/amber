@@ -2,6 +2,7 @@ trigger: when CMake behaves like a scripting language instead of a build system
 tags: #cpp #cmake #build
 weight: 65
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://cmake.org/cmake/help/latest/manual/cmake-buildsystem.7.html
 
 CMake is a language for describing *targets* and how they depend on each other.

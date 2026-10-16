@@ -2,6 +2,7 @@ trigger: when picking or wiring the C++ test framework for a project
 tags: #cpp #testing
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://google.github.io/googletest/
 
 The framework matters less than three properties; pick whichever gives them with
