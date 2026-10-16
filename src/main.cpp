@@ -556,12 +556,13 @@ int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args, bool no_plugins) {
     }
 }
 
-// The project config is a base: explicit flags and --config override it, and a
-// model saved to the global config outranks both.
+// The project config is a base layer: a selected provider owns the endpoint
+// (load_workspace_defaults), a model saved to the global config outranks the
+// project's, and --config plus env vars layer on top.
 void load_run_config(agent::Config& cfg, const CliArgs& args, const GlobalConfig& global) {
     std::ifstream def("amber.conf");
     if (def)
-        cfg.load("amber.conf");
+        cfg.load_workspace_defaults("amber.conf");
     apply_global_model(cfg, global);
     if (!args.config_file.empty())
         cfg.load(args.config_file);

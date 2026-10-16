@@ -8076,3 +8076,37 @@ TEST(agent_fork_keeps_own_cancel_token) {
     ASSERT_TRUE(dst.config_snapshot()->cancel_token.is_requested());
     ASSERT_FALSE(src.config_snapshot()->cancel_token.is_requested());
 }
+
+// ---------------------------------------------------------------------------
+// Workspace config vs the selected provider
+// ---------------------------------------------------------------------------
+
+// A workspace amber.conf is a base layer. An explicitly selected provider owns
+// the endpoint: running amber from a checkout that pins a local server must not
+// redirect the provider's traffic there. Every other key in the file still
+// applies; with no provider selected the file IS the endpoint, so local
+// development against a project-local server keeps working.
+TEST(workspace_config_never_overrides_a_selected_provider) {
+    const std::string path = "/tmp/amber_workspace_base.conf";
+    {
+        std::ofstream f(path);
+        f << "api_base=http://127.0.0.1:8081/v1\n";
+        f << "temperature=0.9\n";
+    }
+
+    agent::ProviderSelection sel;
+    sel.provider = test_provider("alpha", "https://alpha.test/v1");
+    agent::Config cfg;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.api_base, "https://alpha.test/v1");
+
+    cfg.load_workspace_defaults(path);
+    ASSERT_EQ(cfg.api_base, "https://alpha.test/v1");
+    ASSERT_EQ(cfg.temperature, 0.9);
+
+    // No provider selected: the file supplies the endpoint.
+    agent::Config bare;
+    bare.load_workspace_defaults(path);
+    ASSERT_EQ(bare.api_base, "http://127.0.0.1:8081/v1");
+    std::remove(path.c_str());
+}

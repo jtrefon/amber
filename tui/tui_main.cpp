@@ -127,11 +127,12 @@ void apply_global_config(agent::Config& cfg) {
         if (sel.ok())
             agent::apply_selection(cfg, sel);
     }
-    // Project-level amber.conf may still pin data paths; endpoint and model come
-    // from the provider domain above.
+    // Project-level amber.conf is a base layer: it pins data paths, and its
+    // endpoint applies only when no provider is selected -- it cannot redirect
+    // the provider domain's traffic.
     std::ifstream sf2("amber.conf");
     if (sf2)
-        cfg.load("amber.conf");
+        cfg.load_workspace_defaults("amber.conf");
 }
 
 // Project-local overrides (non-LLM settings) live in the per-project state dir

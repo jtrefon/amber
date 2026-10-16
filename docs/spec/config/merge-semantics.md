@@ -27,6 +27,11 @@ sources (file, env, flags, auto-detect) contribute to the final `Config` state.
 3. Provider fields (`api_base`, `api_key`, `model`, `context_size`) are stored in `~/.config/amber/config` only.
 4. Non-provider fields are stored in `.amber/settings` only.
 5. Server auto-detect only fills fields that are NOT marked explicit.
+6. A workspace `amber.conf` is a **base layer**: its `api_base` is the endpoint only
+   when no provider is selected. An explicit selection (`provider=` in the global
+   config, `/set provider`) owns the endpoint and survives the load
+   (`Config::load_workspace_defaults`), so a checkout that pins a local server
+   cannot redirect a selected provider's traffic.
 
 ---
 
@@ -65,12 +70,13 @@ sources (file, env, flags, auto-detect) contribute to the final `Config` state.
 - **Expected**: `.amber/settings` contains `temperature=0.7`. `~/.config/amber/config` contains `model=gpt-4`. No cross-contamination.
 - **On failure**: Provider fields leak into project settings or vice versa.
 
-#### [MS-06] CLI loads amber.conf unconditionally; TUI conditionally
+#### [MS-06] Both hosts load amber.conf as a base
 
-- **Given**: `amber.conf` exists, global config has `provider=openrouter`
-- **CLI**: `amber.conf` loaded
-- **TUI**: `amber.conf` ONLY loaded if global provider is "custom" or unset
-- **On failure**: Inconsistent loading between CLI and TUI.
+- **Given**: `amber.conf` exists and pins `api_base`, global config has `provider=openrouter`
+- **CLI and TUI**: the file is loaded through `load_workspace_defaults`, so the
+  endpoint is openrouter's; every other key in the file applies
+- **No provider selected**: the file's `api_base` is the endpoint
+- **On failure**: a project file redirects the selected provider's traffic.
 
 ---
 
@@ -78,10 +84,13 @@ sources (file, env, flags, auto-detect) contribute to the final `Config` state.
 
 - **Depends on**: `config/file-config.md`, `config/cli-config.md`, `config/ui-config.md`
 - **Depended on by**: `llm-client/model-probe.md` (auto-detect)
-- **Test coverage**: `tests/run_tests.cpp`: `config_save_preserves_autodetect_intent` (204), `config_blank_model_and_zero_context_stay_auto` (166), `autodetect_fills_only_auto_fields` (697)
+- **Test coverage**: `tests/run_tests.cpp`: `config_save_preserves_autodetect_intent` (204), `config_blank_model_and_zero_context_stay_auto` (166), `autodetect_fills_only_auto_fields` (697), `workspace_config_never_overrides_a_selected_provider`
 
 ### Known gaps
 
-1. **CLI vs TUI merge asymmetry** — CLI loads `amber.conf` unconditionally; TUI loads it only as fallback. Different final config possible on same machine.
+1. **`--config FILE` is read at a different point in each host** — after the
+   provider selection in the CLI (so the file's `api_base` wins), before it in the
+   TUI (so the selected provider wins). `amber.conf` itself is now symmetric: both
+   hosts load it through `load_workspace_defaults`.
 2. **No validation at merge time** — Invalid values from any source are only caught by `validate()` at the end.
 3. **`save_settings()` omits `show_reasoning`** — Runtime-only toggle is not persisted across sessions.
