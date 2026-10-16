@@ -452,7 +452,7 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     }
     // Tool may have modified files — refresh git state for prompt. Worker-side:
     // this runs after every tool result, so it must not fork on the UI thread.
-    tui_.render_engine_->request_git_refresh();
+    tui_.render_engine_->request_git_refresh(tui_.active_workspace_root());
 }
 
 void EventRouter::on_assistant(Window* w, const AgentEvent& ev) {

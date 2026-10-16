@@ -30,6 +30,14 @@ struct Window {
     bool read_only = false;         // welcome / log window: typing spawns chat
     bool welcome_art = false;       // renders via welcome::render() instead of lines
 
+    // This window's workspace: the worktree its tools operate in, empty when it
+    // works in the project root. base_oid is the commit the worktree was cut
+    // from — that is what rebuilds it exactly after /tmp is wiped, because the
+    // commits live in the repository, not in the worktree.
+    std::string root;
+    std::string worktree;
+    std::string base_oid;
+
     std::unique_ptr<agent::Agent> agent; // retains conversation across turns
 
     // Scrollback as rich (multi-run) lines. Markdown assistant messages and

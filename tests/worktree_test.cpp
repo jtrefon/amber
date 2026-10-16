@@ -281,7 +281,7 @@ TEST(worktree_reap_never_touches_an_unknown_owner) {
     ASSERT(agent::owner_state(e) == agent::OwnerState::Unknown);
     ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_TRUE(fs::exists(path));
     ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
@@ -306,7 +306,7 @@ TEST(worktree_reap_removes_only_dead_owner_worktrees) {
     alive.start_ticks = agent::process_start_ticks(alive.pid);
     ASSERT_TRUE(agent::save_worktrees(state.string(), {dead, alive}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
 #ifdef __linux__
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "dead");
@@ -343,7 +343,7 @@ TEST(worktree_reap_keeps_a_dirty_orphan_and_says_why) {
     e.base_oid = base;
     ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
 
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_TRUE(fs::exists(path));
 #ifdef __linux__
@@ -367,7 +367,7 @@ TEST(worktree_reap_drops_entries_whose_path_vanished) {
 
     // A vanished directory is metadata to tidy on every platform: there is
     // nothing left that a removal could lose.
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
     ASSERT_EQ(report.removed.size(), 1u);
     ASSERT_EQ(report.removed[0], "gone");
     ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
@@ -449,6 +449,31 @@ TEST(window_entry_persists_its_workspace) {
     ASSERT_TRUE(old.windows[0].worktree.empty());
 }
 
+// The path a restored window is about to re-attach to claims its workspace,
+// even when the registry entry predates the session id — reaping it would
+// destroy the very tree the window is coming back to.
+TEST(worktree_reap_leaves_a_claimed_path_alone) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("claimed");
+    std::string err;
+    const std::string path = repo.worktree_path("claimed");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+
+    agent::WorktreeEntry e = entry_for("claimed", path);
+    e.base_oid = base;
+    e.session_id.clear(); // the window's session id is minted after creation
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {path});
+    ASSERT_EQ(report.removed.size(), 0u);
+    ASSERT_TRUE(fs::exists(path));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+    fs::remove_all(state);
+}
+
 TEST(worktree_reap_leaves_an_attached_session_alone) {
     TempRepo repo;
     const fs::path state = temp_state_dir("attached");
@@ -458,7 +483,7 @@ TEST(worktree_reap_leaves_an_attached_session_alone) {
 
     // A restored window re-attaches before the reaper runs; its workspace is
     // spoken for even when the pid that created it is gone.
-    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {"s-live"});
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {"s-live"}, {});
     ASSERT_EQ(report.removed.size(), 0u);
     ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
     fs::remove_all(state);

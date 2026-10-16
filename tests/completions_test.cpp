@@ -1032,6 +1032,28 @@ TEST(test_subagent_tree_nodes) {
     ASSERT_EQ(set_kids.size(), 2u);
 }
 
+// ── Test: a window can skip its workspace, and the setting is in the tree ──
+
+TEST(test_window_worktree_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    // `/window new noworkdir` is a documented child: the tree walk consumes the
+    // token and dispatches its own action, never a hardcoded string check.
+    auto new_kids = reg.children_of("window.new");
+    REQUIRE_NONEMPTY(new_kids);
+    ASSERT_EQ(new_kids.size(), 1u);
+    ASSERT(new_kids[0].find("noworkdir") != std::string::npos);
+    ASSERT(!reg.help_for("window.new.noworkdir").empty());
+    ASSERT(!reg.man_for("window.new.noworkdir").empty());
+    // The setting that decides the default is documented like every other one.
+    ASSERT(!reg.man_for("worktree").empty());
+    auto ch = reg.choices_for("worktree");
+    ASSERT_EQ(ch.size(), 3u);
+    ASSERT_EQ(ch[0], "on");
+    ASSERT_EQ(ch[1], "off");
+    ASSERT_EQ(ch[2], "toggle");
+}
+
 // ── Test: reasoning effort lives in the get/set tree ──────────────
 
 TEST(test_reasoning_tree_nodes) {
@@ -1297,6 +1319,7 @@ int main() {
         test_json_merge_unions_children();
         test_subagent_tree_nodes();
         test_reasoning_tree_nodes();
+        test_window_worktree_tree_nodes();
         test_provider_tree_nodes();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();

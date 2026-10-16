@@ -89,9 +89,12 @@ bool reachable_from_any_ref(const std::string& repo, const std::string& oid) {
     return r.status == 0 && !trimmed(r.output).empty();
 }
 
-bool is_live_session(const WorktreeEntry& entry, const std::vector<std::string>& live) {
-    return !entry.session_id.empty() &&
-           std::find(live.begin(), live.end(), entry.session_id) != live.end();
+bool claims(const WorktreeEntry& entry, const std::vector<std::string>& sessions,
+            const std::vector<std::string>& paths) {
+    if (!entry.session_id.empty() &&
+        std::find(sessions.begin(), sessions.end(), entry.session_id) != sessions.end())
+        return true;
+    return std::find(paths.begin(), paths.end(), entry.path) != paths.end();
 }
 
 std::string registry_path(const std::string& state_dir) {
@@ -325,13 +328,14 @@ bool registry_remove(const std::string& state_dir, const std::string& name) {
 }
 
 ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
-                          const std::vector<std::string>& live_sessions) {
+                          const std::vector<std::string>& live_sessions,
+                          const std::vector<std::string>& live_paths) {
     ReapReport report;
     std::vector<WorktreeEntry> survivors;
     for (const auto& entry : load_worktrees(state_dir)) {
         // A restored window re-attaches before the reaper runs: its workspace
         // is spoken for however its owner pid looks.
-        if (is_live_session(entry, live_sessions)) {
+        if (claims(entry, live_sessions, live_paths)) {
             survivors.push_back(entry);
             continue;
         }

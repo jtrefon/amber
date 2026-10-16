@@ -43,6 +43,15 @@ reaper for sessions, logs or bench workspaces. A worktree registry must be the
 first component with an owner-liveness marker, or a second amber instance can
 "reap" a live window's workspace.
 
+## Observed, 2026-10-16
+
+Two agent sessions in one checkout produced exactly this failure while the
+feature was being built: the second session's commit landed on whichever branch
+the first had checked out, a red test reached an unrelated feature branch, and
+its PR went red on all three compilers before the branch had to be cleaned by
+hand. Nothing was lost; the cost was the cleanup — and that is the cost this
+proposal removes by giving each window its own working copy.
+
 ## Decision: core, not a plugin
 
 - No window/session lifecycle event exists (`include/agent/event_bus.h:15-32`);

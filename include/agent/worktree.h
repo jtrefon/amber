@@ -85,15 +85,20 @@ struct ReapReport {
     std::vector<std::pair<std::string, std::string>> kept; // name -> why it stayed
 };
 
-// Remove worktrees whose owner is provably gone and which no live session
-// references. Entries whose owner cannot be judged (no procfs, no usable
-// stamp) are left alone — "cannot tell" never authorizes a removal. An entry
-// whose directory has already vanished is dropped and pruned: there is
-// nothing left to lose, and the repository's stale metadata should go with
-// it. A candidate that cannot be removed safely is kept WITH its reason, so
-// the next run reports it again instead of losing it in a log line.
+// Remove worktrees whose owner is provably gone and which nothing claims.
+// A live session id claims one; so does a path a restored window is about to
+// re-attach to — the path matters because the registry entry may predate the
+// session id, and reaping a workspace out from under a restored window is the
+// one failure this whole mechanism exists to prevent. Entries whose owner
+// cannot be judged (no procfs, no usable stamp) are left alone — "cannot tell"
+// never authorizes a removal. An entry whose directory has already vanished is
+// dropped and pruned: there is nothing left to lose, and the repository's
+// stale metadata should go with it. A candidate that cannot be removed safely
+// is kept WITH its reason, so the next run reports it again instead of losing
+// it in a log line.
 ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
-                          const std::vector<std::string>& live_sessions);
+                          const std::vector<std::string>& live_sessions,
+                          const std::vector<std::string>& live_paths);
 
 } // namespace agent
 

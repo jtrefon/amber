@@ -18,6 +18,11 @@ branch checked out somewhere else, sharing one object database and one set of re
   refused, because the index would be shared and the two would fight.
 - **A worktree is not a clone**: commits, branches and stashes are all in the same
   repository, so a push in one is visible in the other immediately.
+- **The stash is shared, which is a hazard in a window workspace**: it lives in the
+  common repository, so a stash made in one worktree is visible from — and poppable
+  in — every other one. In a window's workspace prefer a throwaway WIP commit on a
+  branch to a stash: a sibling window can pop it, and the workspace lives under
+  `$TMPDIR`, which is volatile by design.
 - **Cheap and disposable**: it is how a review of someone else's branch or a
   bisect run happens without disturbing your own tree — `git bisect` in one
   worktree while you keep working in another.
