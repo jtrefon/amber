@@ -2,6 +2,7 @@ trigger: when deciding how a library is linked, or a symbol is unexpectedly visi
 tags: #cpp #build #abi
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://gcc.gnu.org/wiki/Visibility
 
 The linking model decides who pays the load, who sees the symbols, and what breaks

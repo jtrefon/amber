@@ -2,6 +2,7 @@ trigger: when deciding how a function reports failure
 tags: #cpp #errors
 weight: 55
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/utility/expected
 
 Pick the mechanism per layer and say which one in the interface, because mixing

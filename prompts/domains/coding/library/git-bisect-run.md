@@ -2,6 +2,7 @@ trigger: when something broke between two known-good points and the cause is not
 tags: #git
 weight: 65
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://git-scm.com/docs/git-bisect
 
 Bisect turns "which commit broke this" into a binary search you can automate: you

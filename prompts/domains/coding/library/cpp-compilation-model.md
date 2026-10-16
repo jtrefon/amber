@@ -2,6 +2,7 @@ trigger: when a link error or an ODR surprise makes no sense from the code you c
 tags: #cpp #tooling #build
 weight: 60
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/odr
 
 The compiler sees one translation unit; the linker sees symbols. Most "impossible"

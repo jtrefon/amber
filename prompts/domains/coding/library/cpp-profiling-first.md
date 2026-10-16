@@ -2,6 +2,7 @@ trigger: when something is slow and the obvious fix is a guess
 tags: #cpp #perf #debugging
 weight: 50
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://perf.wiki.kernel.org/index.php/Main_Page
 
 Measure, then change one thing. The most expensive habit in C++ is optimising

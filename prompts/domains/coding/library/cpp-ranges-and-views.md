@@ -2,6 +2,7 @@ trigger: when a loop is transforming or filtering a container and a view would s
 tags: #cpp
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/ranges
 
 A view is a lazy description of a sequence; the algorithm runs when something

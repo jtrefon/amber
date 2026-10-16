@@ -2,6 +2,7 @@ trigger: when a library ships to someone else, or a variant would beat an inheri
 tags: #cpp #abi
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/virtual
 
 The ABI is what the caller and the built artefact agree on: name mangling, struct

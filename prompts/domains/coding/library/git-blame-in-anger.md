@@ -2,6 +2,7 @@ trigger: when blame points at a whitespace commit, or at a line that clearly cam
 tags: #git
 weight: 55
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://git-scm.com/docs/git-blame
 
 Blame is a starting point, not an answer: the goal is the *reason* a line looks the

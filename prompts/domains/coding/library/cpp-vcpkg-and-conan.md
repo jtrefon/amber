@@ -2,6 +2,7 @@ trigger: when a C++ project needs a dependency nobody has installed, or two proj
 tags: #cpp #packaging #vendoring
 weight: 40
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://learn.microsoft.com/en-us/vcpkg/get_started/overview
 
 C++ has no central package manager; it has two credible ones and a set of

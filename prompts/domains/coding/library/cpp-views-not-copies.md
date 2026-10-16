@@ -2,6 +2,7 @@ trigger: when a function takes a string or a buffer and the call site copies mor
 tags: #cpp #memory #perf
 weight: 55
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/string/basic_string_view
 
 A view is a pointer and a length: cheap to pass, and dangerous for exactly the

@@ -2,6 +2,7 @@ trigger: when a numeric loop is the hot path and the compiler is or is not using
 tags: #cpp #perf
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html
 
 The compiler vectorises more than people expect and less than they hope; ask it

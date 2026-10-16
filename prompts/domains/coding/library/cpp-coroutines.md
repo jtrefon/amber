@@ -2,6 +2,7 @@ trigger: when async code needs a shape that callbacks and threads both make ugly
 tags: #cpp #async
 weight: 40
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/coroutines
 
 A coroutine is a function containing `co_await`, `co_yield` or `co_return`. The

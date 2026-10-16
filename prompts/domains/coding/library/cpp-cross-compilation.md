@@ -2,6 +2,7 @@ trigger: when code must build for a different machine, or a build works locally 
 tags: #cpp #build #tooling
 weight: 35
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://cmake.org/cmake/help/latest/manual/cmake-toolchains.7.html
 
 Cross-compiling is deciding the *target* separately from the *host*, and being

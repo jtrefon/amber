@@ -2,6 +2,7 @@ trigger: when a program handles many sockets, or blocking IO in threads has stop
 tags: #cpp #io
 weight: 50
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://man7.org/linux/man-pages/man7/epoll.7.html
 
 Two models, one question: who waits, and how many syscalls does an event cost?

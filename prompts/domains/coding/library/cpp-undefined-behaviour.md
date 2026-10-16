@@ -2,6 +2,7 @@ trigger: when code works in debug and fails in release, or a bug makes no sense 
 tags: #cpp #memory #debugging
 weight: 60
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/ub
 
 Undefined behaviour is a contract breach, not a crash: the compiler is allowed to

@@ -2,6 +2,7 @@ trigger: when a file was deleted and someone needs it back, or a branch was rese
 tags: #git
 weight: 70
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://git-scm.com/docs/git-log#Documentation/git-log.txt---diff-filterACDMRTUXB82308203
 
 Nothing committed is really lost; the question is which commit still has it.

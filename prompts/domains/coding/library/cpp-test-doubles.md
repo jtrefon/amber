@@ -2,6 +2,7 @@ trigger: when a unit test needs a database, a clock or a network, or a test pass
 tags: #cpp #testing
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://google.github.io/googletest/gmock_cook_book.html
 
 A double is a claim about how the real thing behaves; every wrong claim is a bug

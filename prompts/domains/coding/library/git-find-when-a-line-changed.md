@@ -2,6 +2,7 @@ trigger: when you need to know when a value, a string or a line appeared or chan
 tags: #git
 weight: 65
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://git-scm.com/docs/git-log#Documentation/git-log.txt--S
 
 `git log -S` is the pickaxe: it finds commits where the *number of occurrences* of

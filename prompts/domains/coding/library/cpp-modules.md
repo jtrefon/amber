@@ -2,6 +2,7 @@ trigger: when a header is included everywhere and the build pays for it
 tags: #cpp #build
 weight: 35
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/modules
 
 Modules replace textual inclusion with an importable interface: the compiler

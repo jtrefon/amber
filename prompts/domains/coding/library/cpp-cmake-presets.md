@@ -2,6 +2,7 @@ trigger: when every developer types a different cmake invocation, or CI and loca
 tags: #cpp #cmake #build
 weight: 45
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://cmake.org/cmake/help/latest/manual/cmake-presets.7.html
 
 A preset is a named configuration the repository owns, so the flags live in one

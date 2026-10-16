@@ -2,6 +2,7 @@ trigger: when a release is cut, or a build works in CI and fails for a user
 tags: #cpp #packaging #build
 weight: 40
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://cmake.org/cmake/help/latest/module/CPack.html
 
 The release loop is build, install, smoke-test the installed artefact, publish —

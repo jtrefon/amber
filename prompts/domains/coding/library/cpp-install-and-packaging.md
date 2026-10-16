@@ -2,6 +2,7 @@ trigger: when a library has to be consumed by something else, or a package build
 tags: #cpp #packaging #build
 weight: 40
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://cmake.org/cmake/help/latest/manual/cmake-packages.7.html
 
 Building in-tree is not shipping. Installation is a second set of decisions, and

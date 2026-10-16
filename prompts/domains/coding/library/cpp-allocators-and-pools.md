@@ -2,6 +2,7 @@ trigger: when allocation shows up in a profile, or a hot path allocates per call
 tags: #cpp #memory #perf
 weight: 50
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/memory/polymorphic_allocator
 
 Allocation is rarely slow; the *pattern* is — thousands of small, scattered

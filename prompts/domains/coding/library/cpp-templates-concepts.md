@@ -2,6 +2,7 @@ trigger: when a template failure is a wall of errors, or a constraint is being w
 tags: #cpp #templates
 weight: 60
 verified: 2026-10
+sources: model knowledge 2026-10; claims executed by their run block
 reference: https://en.cppreference.com/w/cpp/language/constraints
 
 A concept names the requirement where the error appears, which is the whole
