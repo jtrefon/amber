@@ -43,6 +43,8 @@ selects nothing, so an entry arrives with the tag rather than ahead of it.
 - `sanitizers` — memory and lifetime faults
 - `lint` — static analysis, warnings and suppressions
 - `tooling` — the tools around the code
+- `build` — build systems, linking, compilation
+- `perf` — measuring and improving speed
 - `concurrency` — threads, async, cancellation
 - `async` — asynchronous work specifically
 - `memory` — allocation, lifetime, ownership
