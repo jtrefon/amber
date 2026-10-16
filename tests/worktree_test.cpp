@@ -261,6 +261,34 @@ TEST(worktree_owner_liveness_uses_start_ticks) {
 #endif
 }
 
+// "Cannot tell" must never authorize a removal. A pid we cannot check (a
+// registry written elsewhere, a platform without procfs) leaves the worktree
+// alone: the alternative is eating a live window's work. macOS CI caught this
+// as a behaviour difference, which is what this test pins on every platform.
+TEST(worktree_reap_never_touches_an_unknown_owner) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("unknown");
+    std::string err;
+    const std::string path = repo.worktree_path("unknown");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+
+    agent::WorktreeEntry e = entry_for("unknown", path);
+    e.base_oid = base;
+    e.pid = 0; // no usable owner stamp -> Unknown
+    e.start_ticks = 0;
+    ASSERT(agent::owner_state(e) == agent::OwnerState::Unknown);
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {});
+    ASSERT_EQ(report.removed.size(), 0u);
+    ASSERT_TRUE(fs::exists(path));
+    ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+    fs::remove_all(state);
+}
+
 TEST(worktree_reap_removes_only_dead_owner_worktrees) {
     TempRepo repo;
     const std::string base = repo.head_oid();
