@@ -16,11 +16,18 @@ namespace {
 namespace fs = std::filesystem;
 
 // The working index rides in every turn, so its size is a real cost: one line
-// per selected entry, and no more than this many of them. An entry that never
-// earns its line is a line that should be dark.
+// per selected entry, and no more than this many of them. Ranking is what makes
+// the cap tolerable -- the heaviest entries are the ones that survive it.
 constexpr std::size_t kMaxEntries = 25;
 
+// The default weight, and the ceiling a header may claim. A topic outranks an
+// entry by default because pulling it reaches many entries at once.
+constexpr int kDefaultWeight = 50;
+constexpr int kTopicWeight = 60;
+
 constexpr const char* kLibraryRel = "prompts/domains/coding/library";
+constexpr const char* kTopicManifest = "topic.md";
+constexpr const char* kVocabulary = "tags.md";
 
 std::string trim(const std::string& text) {
     const std::size_t first = text.find_first_not_of(" \t\r\n");
@@ -54,15 +61,111 @@ std::string read_text(const std::string& path) {
     return ss.str();
 }
 
-bool is_library_file(const fs::directory_entry& entry) {
-    const std::string name = entry.path().filename().string();
+bool is_markdown(const std::string& name) {
     return name.size() > 3 && name.compare(name.size() - 3, 3, ".md") == 0 && name[0] != '.';
+}
+
+std::string stem_of(const std::string& name) {
+    return is_markdown(name) ? name.substr(0, name.size() - 3) : name;
 }
 
 std::string to_lower(std::string text) {
     for (char& c : text)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return text;
+}
+
+// A weight a header may carry: plain digits, clamped. Anything else is the
+// default rather than an error -- a malformed weight should not hide knowledge.
+int parse_weight(const std::string& value) {
+    if (value.empty() || value.size() > 3)
+        return kDefaultWeight;
+    int weight = 0;
+    for (char c : value) {
+        if (c < '0' || c > '9')
+            return kDefaultWeight;
+        weight = (weight * 10) + (c - '0');
+    }
+    return std::min(weight, 100);
+}
+
+// How many entries a topic holds: its own files, minus the manifest and the
+// vocabulary, if they live inside it.
+std::size_t count_children(const fs::path& dir) {
+    std::size_t count = 0;
+    std::error_code ec;
+    for (const auto& item : fs::directory_iterator(dir, ec)) {
+        if (!item.is_regular_file(ec))
+            continue;
+        const std::string name = item.path().filename().string();
+        if (is_markdown(name) && name != kTopicManifest && name != kVocabulary)
+            ++count;
+    }
+    return count;
+}
+
+// The entry's name is where it lives: the file's stem, or a topic's directory
+// name. Stable, unique, and the same string the working index renders -- a
+// header's prose name could be none of those.
+LibraryEntry read_entry(const std::string& path, const std::string& name) {
+    LibraryEntry entry = parse_library_entry(path, read_text(path));
+    entry.name = name;
+    return entry;
+}
+
+void collect_entries(const std::string& dir, std::vector<LibraryEntry>& out) {
+    std::error_code ec;
+    fs::directory_iterator it(dir, ec);
+    if (ec)
+        return;
+    for (const auto& item : it) {
+        const std::string name = item.path().filename().string();
+        if (name.empty() || name[0] == '.' || name == kVocabulary)
+            continue; // the vocabulary is a document, not an entry
+        if (item.is_regular_file(ec) && is_markdown(name)) {
+            out.push_back(read_entry(item.path().string(), stem_of(name)));
+            continue;
+        }
+        if (!item.is_directory(ec))
+            continue;
+        // A topic is a directory whose manifest declares its line. Without one
+        // it is not selectable: a directory nobody wrote a trigger for would
+        // otherwise appear as a blank line.
+        const fs::path manifest = item.path() / kTopicManifest;
+        if (!fs::is_regular_file(manifest, ec))
+            continue;
+        LibraryEntry topic = read_entry(manifest.string(), name);
+        topic.name = name;
+        topic.topic = true;
+        topic.children = count_children(item.path());
+        if (topic.weight == kDefaultWeight)
+            topic.weight = kTopicWeight;
+        out.push_back(std::move(topic));
+    }
+}
+
+bool heavier_first(const LibraryEntry& a, const LibraryEntry& b) {
+    if (a.weight != b.weight)
+        return a.weight > b.weight;
+    return a.name < b.name;
+}
+
+void append_line(std::string& out, const LibraryEntry& entry) {
+    // Piecewise: a concatenation that builds a temporary per entry is the shape
+    // the linter is right about, and this line is a per-turn cost.
+    out += "- ";
+    out += entry.trigger;
+    if (entry.topic && entry.children > 0) {
+        out += " (";
+        out += std::to_string(entry.children);
+        out += " entries)";
+    }
+    // The body is fetched through the tool rather than by path: the library
+    // lives with the install, not with the project's workspace, so a path the
+    // workspace-confined read tool cannot open would be worse than no path.
+    out += " — library_lookup(\"";
+    out += entry.name;
+    out += "\")\n";
 }
 
 } // namespace
@@ -81,12 +184,25 @@ LibraryEntry parse_library_entry(const std::string& path, const std::string& tex
             break; // not a header line: the header is over
         const std::string key = to_lower(trim(trimmed.substr(0, colon)));
         const std::string value = trim(trimmed.substr(colon + 1));
-        if (key == "trigger")
+        if (key == "name")
+            entry.name = value;
+        else if (key == "trigger")
             entry.trigger = value;
         else if (key == "tags")
             entry.tags = split_tags(value);
+        else if (key == "weight")
+            entry.weight = parse_weight(value);
     }
     return entry;
+}
+
+std::vector<LibraryEntry> library_entries() {
+    std::vector<LibraryEntry> entries;
+    const std::string dir = library_dir();
+    if (!dir.empty())
+        collect_entries(dir, entries);
+    std::sort(entries.begin(), entries.end(), heavier_first);
+    return entries;
 }
 
 bool entry_matches(const LibraryEntry& entry, const std::vector<std::string>& wanted) {
@@ -129,46 +245,35 @@ std::string library_dir() {
     return fs::is_directory(kLibraryRel, ec) ? std::string(kLibraryRel) : std::string();
 }
 
+std::vector<LibraryEntry> topic_entries(const std::string& dir) {
+    std::vector<LibraryEntry> entries;
+    if (!dir.empty())
+        collect_entries(dir, entries);
+    std::sort(entries.begin(), entries.end(), heavier_first);
+    return entries;
+}
+
+std::string read_library_text(const std::string& path) {
+    return read_text(path);
+}
+
 std::string render_working_index() {
     const std::vector<std::string> wanted = selected_tags_from(index_store::read_all());
     if (wanted.empty())
         return {};
-    const std::string dir = library_dir();
-    if (dir.empty())
+    std::vector<LibraryEntry> selected;
+    for (auto& entry : library_entries())
+        if (!entry.trigger.empty() && entry_matches(entry, wanted))
+            selected.push_back(std::move(entry));
+    if (selected.empty())
         return {};
-    std::error_code ec;
-    fs::directory_iterator it(dir, ec);
-    if (ec)
-        return {};
-    std::vector<std::string> names;
-    for (const auto& item : it)
-        if (item.is_regular_file(ec) && is_library_file(item))
-            names.push_back(item.path().filename().string());
-    std::sort(names.begin(), names.end());
 
-    std::string out;
-    std::size_t shown = 0;
-    for (const auto& name : names) {
-        std::string path = dir;
-        path += "/";
-        path += name;
-        const LibraryEntry entry = parse_library_entry(path, read_text(path));
-        if (entry.trigger.empty() || !entry_matches(entry, wanted))
-            continue;
-        if (shown == 0) {
-            out = "## Library entries this project selects\n\n"
-                  "Trigger lines only: read the file when the situation matches.\n\n";
-        }
-        // Piecewise: a concatenation that builds a temporary per entry is the
-        // shape the linter is right about, and this line is a per-turn cost.
-        out += "- ";
-        out += entry.trigger;
-        out += " — `";
-        out += path;
-        out += "`\n";
-        if (++shown >= kMaxEntries)
-            break;
-    }
+    std::string out = "## Library entries this project selects\n\n"
+                      "Trigger lines only: ask `library_lookup` for the entry by name when the "
+                      "situation matches.\n\n";
+    const std::size_t shown = std::min(selected.size(), kMaxEntries);
+    for (std::size_t i = 0; i < shown; ++i)
+        append_line(out, selected[i]);
     return out;
 }
 

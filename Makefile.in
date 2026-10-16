@@ -117,6 +117,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/project_index/index_tools.o \
               $(BUILD_DIR)/plugins/coding/coding_plugin.o \
               $(BUILD_DIR)/plugins/coding/coding_library.o \
+              $(BUILD_DIR)/plugins/coding/library_lookup_tool.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
              $(BUILD_DIR)/lib/tools_default.o \
@@ -659,6 +660,12 @@ NLOC/CCN/nesting differently, so the baseline would be meaningless"; exit 2; \
 # a silent measurement bug and a green pipeline, and they had none: the
 # fail-open behaviour in all three gates went unnoticed precisely because nothing
 # exercised them. Stdlib unittest, so this needs no dependency install.
+# library-check: execute the `run` blocks in the coding library's entries. An
+# entry whose commands no longer work is knowledge that has gone stale, and this
+# is the only check that would notice.
+library-check:
+	@python3 "$(SRC_DIR)/tools/library_check.py"
+
 gates-test:
 	@echo "gate tool tests..."
 	@cd $(SRC_DIR)/tests/gates && python3 -m unittest discover -p 'test_*.py' -v
@@ -771,6 +778,7 @@ check: $(BUILD_DIR)/smoketest
 	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory gates-test
+	@$(MAKE) --no-print-directory library-check
 	@$(MAKE) --no-print-directory gate-report
 
 # Obfuscated-payload guard. Every other gate reads a build or a metric; none of

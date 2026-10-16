@@ -1,6 +1,7 @@
-name: dependencies are a decision, not a reflex
 trigger: when adding a library, or when a build must work somewhere else
 tags: #cpp #packaging #vendoring
+verified: 2026-10
+weight: 45
 reference: none
 
 A dependency is code you did not write, you will not read, and you now maintain

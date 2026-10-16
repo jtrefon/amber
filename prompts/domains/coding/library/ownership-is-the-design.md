@@ -1,6 +1,7 @@
-name: ownership is the design
 trigger: when a value is copied, moved or cloned and the reason is not obvious — say who owns it
 tags: #cpp #rust #ownership
+verified: 2026-10
+weight: 55
 reference: none
 
 Ownership is not bookkeeping added after the design; it is most of the design.

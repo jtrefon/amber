@@ -1,6 +1,7 @@
-name: the build and test loop
 trigger: when a change needs building or testing and the project does not document how
 tags: #cpp #cmake #make #testing
+verified: 2026-10
+weight: 40
 reference: none
 
 Get one command that builds and one that runs the tests, and use them before and
@@ -18,3 +19,10 @@ after every change — a loop you cannot run is a loop you will guess in.
 
 Pass `-j` with the machine's real core count. A serial build of a large tree is
 the most common way an agent wastes its own feedback loop.
+
+## Run it
+
+```run
+# manual: needs the project's own build; `make -n` prints the plan without running it
+make -n all
+```

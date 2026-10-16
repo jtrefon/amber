@@ -7,9 +7,11 @@
 
 #include "agent/plugin_capability.h"
 #include "agent/plugins_bundled.h"
+#include "plugins/project_index/index_store.h"
 #include "test_util.h"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -134,16 +136,33 @@ std::size_t count_content_lines(const std::string& text) {
     return lines;
 }
 
-std::vector<std::string> library_files(const std::string& root) {
+std::vector<std::string> markdown_in(const std::string& dir) {
     std::vector<std::string> files;
     std::error_code ec;
-    const std::string dir = root + "/prompts/domains/coding/library";
     for (const std::filesystem::directory_entry& entry :
          std::filesystem::directory_iterator(dir, ec)) {
         const std::string name = entry.path().filename().string();
         if (name.size() > 3 && name.compare(name.size() - 3, 3, ".md") == 0)
             files.push_back(dir + "/" + name);
     }
+    return files;
+}
+
+// Every entry, one level of topics included: a topic's manifest and its children
+// are entries too, and the header contract applies to each. `tags.md` is the
+// vocabulary -- a document about entries, not one.
+std::vector<std::string> library_files(const std::string& root) {
+    const std::string dir = root + "/prompts/domains/coding/library";
+    std::vector<std::string> files;
+    for (auto& file : markdown_in(dir))
+        if (file.find("/tags.md") == std::string::npos)
+            files.push_back(std::move(file));
+    std::error_code ec;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::directory_iterator(dir, ec))
+        if (entry.is_directory(ec))
+            for (auto& nested : markdown_in(entry.path().string()))
+                files.push_back(std::move(nested));
     std::sort(files.begin(), files.end());
     return files;
 }
@@ -168,7 +187,7 @@ TEST(coding_domain_resident_prose_stays_within_its_budget) {
     ASSERT(total <= 110);
 }
 
-TEST(coding_library_entries_declare_a_trigger_and_tags) {
+TEST(coding_library_entries_declare_their_provenance) {
     const std::vector<std::string> files = library_files(repo_root());
     ASSERT(files.size() >= 8);
     for (const auto& file : files) {
@@ -181,6 +200,93 @@ TEST(coding_library_entries_declare_a_trigger_and_tags) {
         ASSERT(text.find("trigger:") < header_end);
         ASSERT(text.find("tags:") != std::string::npos);
         ASSERT(text.find("tags:") < header_end);
+        // Provenance: when the knowledge was checked, and against what. An entry
+        // without these is a claim nobody has to stand behind.
+        ASSERT(text.find("verified:") != std::string::npos);
+        ASSERT(text.find("verified:") < header_end);
+        ASSERT(text.find("reference:") != std::string::npos);
+        ASSERT(text.find("reference:") < header_end);
+    }
+}
+
+TEST(coding_library_entries_carry_no_credentials) {
+    // The pointer rule, enforced mechanically: an entry names the mechanism
+    // ($ADO_PAT, the file, the keychain entry) and never a value.
+    for (const auto& file : library_files(repo_root()))
+        if (agent::plugins::index_store::looks_like_secret(read_file(file)))
+            agent::test::fail("library entry contains a credential-shaped literal: " + file);
+}
+
+namespace {
+
+// Every backticked token on a list line of the vocabulary document. List lines
+// only, so the prose that explains the rule does not contribute tags.
+std::vector<std::string> vocabulary_tags(const std::string& root) {
+    std::vector<std::string> tags;
+    std::istringstream in(read_file(root + "/prompts/domains/coding/library/tags.md"));
+    std::string line;
+    while (std::getline(in, line)) {
+        const std::string text = trimmed(line);
+        if (text.rfind("- `", 0) != 0)
+            continue;
+        for (std::size_t at = text.find('`'); at != std::string::npos;) {
+            const std::size_t close = text.find('`', at + 1);
+            if (close == std::string::npos)
+                break;
+            tags.push_back(text.substr(at + 1, close - at - 1));
+            at = text.find('`', close + 1);
+        }
+    }
+    return tags;
+}
+
+bool mentioned(const std::vector<std::string>& list, const std::string& item) {
+    return std::find(list.begin(), list.end(), item) != list.end();
+}
+
+} // namespace
+
+TEST(coding_library_tags_come_from_the_vocabulary) {
+    const std::string root = repo_root();
+    const std::vector<std::string> vocabulary = vocabulary_tags(root);
+    ASSERT(vocabulary.size() >= 40);
+
+    // Entries, topics included: every tag an entry carries is in the list.
+    for (const auto& file : library_files(root)) {
+        const std::string text = read_file(file);
+        const std::size_t at = text.find("tags:");
+        if (at == std::string::npos)
+            continue;
+        const std::size_t end = text.find('\n', at);
+        std::istringstream line(text.substr(at + 5, end - at - 5));
+        std::string tag;
+        while (line >> tag) {
+            while (!tag.empty() && tag.back() == ',')
+                tag.pop_back();
+            if (!tag.empty() && tag[0] == '#')
+                tag.erase(0, 1);
+            if (tag.empty())
+                continue;
+            if (!mentioned(vocabulary, tag))
+                agent::test::fail("entry tag '" + tag + "' is not in the vocabulary (" + file +
+                                  ")");
+        }
+    }
+
+    // The scanner: a tag it proposes that no entry carries selects nothing, and
+    // the working index stays empty without saying why.
+    const std::string scanner = read_file(root + "/plugins/project_index/index_tools.cpp");
+    ASSERT_FALSE(scanner.empty());
+    for (std::size_t at = scanner.find("\"#"); at != std::string::npos;
+         at = scanner.find("\"#", at + 1)) {
+        const std::size_t close = scanner.find('"', at + 1);
+        if (close == std::string::npos)
+            break;
+        const std::string tag = scanner.substr(at + 2, close - at - 2);
+        if (tag.empty() || !std::isalnum(static_cast<unsigned char>(tag[0])))
+            continue; // "# Project:" is a heading, not a tag
+        if (!mentioned(vocabulary, tag))
+            agent::test::fail("the scanner proposes '" + tag + "', which is not in the vocabulary");
     }
 }
 
