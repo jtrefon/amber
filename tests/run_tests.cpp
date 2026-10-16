@@ -1497,6 +1497,50 @@ TEST(workspace_confines_relative_and_rejects_escape) {
     ASSERT_FALSE(agent::Workspace::confine("/tmp/amber_ws2/x", resolved, err));
 }
 
+// A window's worktree is a per-RUN override: tools operate inside it, while
+// state, config and policy stay keyed to the project root every window shares.
+TEST(workspace_run_scope_overrides_the_tool_root) {
+    agent::Workspace::set_root("/tmp/amber_scope_project");
+    ASSERT_EQ(agent::Workspace::workspace_root(), "/tmp/amber_scope_project");
+    ASSERT_EQ(agent::Workspace::project_root(), "/tmp/amber_scope_project");
+
+    const std::string worktree = "/tmp/amber_scope_worktree";
+    agent::RunScope scope;
+    scope.workspace_root = &worktree;
+    agent::ScopedRunScope guard(scope);
+
+    ASSERT_EQ(agent::Workspace::workspace_root(), worktree);
+    ASSERT_EQ(agent::Workspace::project_root(), "/tmp/amber_scope_project");
+
+    std::string resolved, err;
+    ASSERT_TRUE(agent::Workspace::confine("src/main.cpp", resolved, err));
+    ASSERT_EQ(resolved, worktree + "/src/main.cpp");
+
+    // The project root is not the tool root while a worktree is active.
+    ASSERT_FALSE(agent::Workspace::confine("/tmp/amber_scope_project/x", resolved, err));
+    ASSERT_EQ(agent::Workspace::relative(worktree + "/lib/a.cpp"), "lib/a.cpp");
+}
+
+// The chain a dispatch worker re-installs must carry the root even when no
+// cancel token or catalog rides along with it.
+TEST(workspace_run_scope_survives_the_chain_hop) {
+    agent::Workspace::set_root("/tmp/amber_chain_project");
+    const std::string worktree = "/tmp/amber_chain_worktree";
+
+    agent::RunScope scope;
+    scope.workspace_root = &worktree;
+    agent::RunScopeChain captured;
+    {
+        agent::ScopedRunScope guard(scope);
+        captured = agent::capture_run_scope();
+    }
+    ASSERT_EQ(agent::Workspace::workspace_root(), "/tmp/amber_chain_project");
+
+    agent::ScopedRunScope hop(captured);
+    ASSERT_EQ(agent::Workspace::workspace_root(), worktree);
+    ASSERT_EQ(agent::Workspace::project_root(), "/tmp/amber_chain_project");
+}
+
 // ---------------------------------------------------------------------------
 // project state layout (XDG)
 // ---------------------------------------------------------------------------
