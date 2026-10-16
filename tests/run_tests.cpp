@@ -8100,13 +8100,13 @@ TEST(workspace_config_never_overrides_a_selected_provider) {
     agent::apply_selection(cfg, sel);
     ASSERT_EQ(cfg.api_base, "https://alpha.test/v1");
 
-    cfg.load(path);
+    cfg.load_workspace_defaults(path);
     ASSERT_EQ(cfg.api_base, "https://alpha.test/v1");
     ASSERT_EQ(cfg.temperature, 0.9);
 
     // No provider selected: the file supplies the endpoint.
     agent::Config bare;
-    bare.load(path);
+    bare.load_workspace_defaults(path);
     ASSERT_EQ(bare.api_base, "http://127.0.0.1:8081/v1");
     std::remove(path.c_str());
 }

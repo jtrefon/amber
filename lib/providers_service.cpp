@@ -178,8 +178,13 @@ bool ProviderService::validate(const std::string& name) {
 
 void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.provider_name = sel.provider.name;
-    if (!sel.provider.api_base.empty())
+    if (!sel.provider.api_base.empty()) {
         cfg.api_base = sel.provider.api_base;
+        // The endpoint belongs to the provider definition, not to the project:
+        // a workspace amber.conf is a base layer and must not redirect it
+        // (load_workspace_defaults).
+        cfg.api_base_from_provider = true;
+    }
     // A key from the provider file travels with the switch; a provider
     // without its own key keeps whatever the user configured (env/global).
     if (!sel.provider.api_key.empty())
