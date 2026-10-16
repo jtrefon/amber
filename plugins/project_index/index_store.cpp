@@ -75,6 +75,8 @@ bool commit(const std::string& body, const std::string& detail, std::string& err
     }
     std::error_code ec;
     fs::create_directories(fs::path(file).parent_path(), ec);
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the user's own XDG state root,
+    // absolute and traversal-checked by Workspace::state_dir().
     std::ofstream out(file, std::ios::binary | std::ios::trunc);
     if (!out) {
         error = "cannot write " + file;
@@ -120,6 +122,8 @@ std::string read_all() {
     const std::string file = ProjectIndexPlugin::file_path();
     if (file.empty())
         return {};
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — same state root, read back; not
+    // attacker-controlled input.
     std::ifstream in(file, std::ios::binary);
     if (!in)
         return {};

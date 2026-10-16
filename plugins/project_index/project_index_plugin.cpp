@@ -174,6 +174,8 @@ std::string ProjectIndexPlugin::load_once() {
     if (file.empty())
         return block_;
     bool truncated = false;
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the index file under the project's
+    // own XDG state root, the same path the writer above uses.
     const std::string body = read_capped_file(file, kMaxBytes, truncated);
     if (body.find_first_not_of(" \t\r\n") == std::string::npos)
         return block_; // an empty file says nothing, and an empty block is skipped
