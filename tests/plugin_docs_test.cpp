@@ -7,6 +7,7 @@
 
 #include "agent/plugin_capability.h"
 #include "agent/plugins_bundled.h"
+#include "plugins/project_index/index_store.h"
 #include "test_util.h"
 
 #include <algorithm>
@@ -186,7 +187,7 @@ TEST(coding_domain_resident_prose_stays_within_its_budget) {
     ASSERT(total <= 110);
 }
 
-TEST(coding_library_entries_declare_a_trigger_and_tags) {
+TEST(coding_library_entries_declare_their_provenance) {
     const std::vector<std::string> files = library_files(repo_root());
     ASSERT(files.size() >= 8);
     for (const auto& file : files) {
@@ -199,7 +200,21 @@ TEST(coding_library_entries_declare_a_trigger_and_tags) {
         ASSERT(text.find("trigger:") < header_end);
         ASSERT(text.find("tags:") != std::string::npos);
         ASSERT(text.find("tags:") < header_end);
+        // Provenance: when the knowledge was checked, and against what. An entry
+        // without these is a claim nobody has to stand behind.
+        ASSERT(text.find("verified:") != std::string::npos);
+        ASSERT(text.find("verified:") < header_end);
+        ASSERT(text.find("reference:") != std::string::npos);
+        ASSERT(text.find("reference:") < header_end);
     }
+}
+
+TEST(coding_library_entries_carry_no_credentials) {
+    // The pointer rule, enforced mechanically: an entry names the mechanism
+    // ($ADO_PAT, the file, the keychain entry) and never a value.
+    for (const auto& file : library_files(repo_root()))
+        if (agent::plugins::index_store::looks_like_secret(read_file(file)))
+            agent::test::fail("library entry contains a credential-shaped literal: " + file);
 }
 
 namespace {

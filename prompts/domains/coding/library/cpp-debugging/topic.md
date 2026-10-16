@@ -1,6 +1,6 @@
-name: cpp-debugging
 trigger: when a C++ failure needs more than reading the code — which layer to reach for first
 tags: #cpp #debugging
+verified: 2026-10
 weight: 70
 reference: none
 

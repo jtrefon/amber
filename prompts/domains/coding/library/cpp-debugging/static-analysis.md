@@ -1,6 +1,6 @@
-name: warnings are the cheapest reviewer
 trigger: when a warning appears, or a rule is being argued about instead of checked
 tags: #cpp #lint #tooling
+verified: 2026-10
 reference: none
 
 The compiler is the reviewer that never gets tired. Treat its output as findings

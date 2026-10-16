@@ -29,6 +29,13 @@ LibraryEntry parse_library_entry(const std::string& path, const std::string& tex
 // up. Sorted for display (weight, then name).
 std::vector<LibraryEntry> library_entries();
 
+// The entries inside one topic directory, sorted for display. Empty for a path
+// that is not a directory.
+std::vector<LibraryEntry> topic_entries(const std::string& dir);
+
+// An entry's full text, header included, or empty when the file is gone.
+std::string read_library_text(const std::string& path);
+
 // True when the entry carries one of `wanted`. Tags compare without their '#',
 // because the index writes them with it and an entry may write them either way.
 bool entry_matches(const LibraryEntry& entry, const std::vector<std::string>& wanted);

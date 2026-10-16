@@ -1,6 +1,6 @@
-name: name the ownership before the lock
 trigger: when code shares state across threads, or an async task outlives the call that started it
 tags: #cpp #concurrency #async
+verified: 2026-10
 reference: none
 
 Concurrency bugs are usually ownership bugs wearing a disguise. Before reaching

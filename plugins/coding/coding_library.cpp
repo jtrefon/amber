@@ -84,7 +84,7 @@ int parse_weight(const std::string& value) {
     for (char c : value) {
         if (c < '0' || c > '9')
             return kDefaultWeight;
-        weight = weight * 10 + (c - '0');
+        weight = (weight * 10) + (c - '0');
     }
     return std::min(weight, 100);
 }
@@ -104,10 +104,12 @@ std::size_t count_children(const fs::path& dir) {
     return count;
 }
 
-LibraryEntry read_entry(const std::string& path, const std::string& fallback_name) {
+// The entry's name is where it lives: the file's stem, or a topic's directory
+// name. Stable, unique, and the same string the working index renders -- a
+// header's prose name could be none of those.
+LibraryEntry read_entry(const std::string& path, const std::string& name) {
     LibraryEntry entry = parse_library_entry(path, read_text(path));
-    if (entry.name.empty())
-        entry.name = fallback_name;
+    entry.name = name;
     return entry;
 }
 
@@ -158,9 +160,12 @@ void append_line(std::string& out, const LibraryEntry& entry) {
         out += std::to_string(entry.children);
         out += " entries)";
     }
-    out += " — `";
-    out += entry.path;
-    out += "`\n";
+    // The body is fetched through the tool rather than by path: the library
+    // lives with the install, not with the project's workspace, so a path the
+    // workspace-confined read tool cannot open would be worse than no path.
+    out += " — library_lookup(\"";
+    out += entry.name;
+    out += "\")\n";
 }
 
 } // namespace
@@ -240,6 +245,18 @@ std::string library_dir() {
     return fs::is_directory(kLibraryRel, ec) ? std::string(kLibraryRel) : std::string();
 }
 
+std::vector<LibraryEntry> topic_entries(const std::string& dir) {
+    std::vector<LibraryEntry> entries;
+    if (!dir.empty())
+        collect_entries(dir, entries);
+    std::sort(entries.begin(), entries.end(), heavier_first);
+    return entries;
+}
+
+std::string read_library_text(const std::string& path) {
+    return read_text(path);
+}
+
 std::string render_working_index() {
     const std::vector<std::string> wanted = selected_tags_from(index_store::read_all());
     if (wanted.empty())
@@ -252,7 +269,8 @@ std::string render_working_index() {
         return {};
 
     std::string out = "## Library entries this project selects\n\n"
-                      "Trigger lines only: read the file when the situation matches.\n\n";
+                      "Trigger lines only: ask `library_lookup` for the entry by name when the "
+                      "situation matches.\n\n";
     const std::size_t shown = std::min(selected.size(), kMaxEntries);
     for (std::size_t i = 0; i < shown; ++i)
         append_line(out, selected[i]);

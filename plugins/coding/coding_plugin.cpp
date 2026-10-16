@@ -4,6 +4,7 @@
 #include "agent/extensions.h"
 #include "agent/prompt.h"
 #include "coding_library.h"
+#include "library_lookup_tool.h"
 
 namespace agent::plugins {
 
@@ -36,6 +37,12 @@ std::vector<std::unique_ptr<Capability>> CodingPlugin::capabilities() {
     caps.push_back(std::make_unique<PromptBlockCapability>(
         "coding_library_index", prompt_priority::kDomainLibrary,
         [] { return render_working_index(); }, PromptPlacement::Head));
+    // The library's retrieval tool travels with the domain that owns the
+    // library: switching the domain off takes the index line and the way to
+    // follow it in the same action.
+    caps.push_back(std::make_unique<ToolCapability>(
+        "coding_library_tool", [](PluginServices&) { return wrap_library_lookup(); },
+        ToolCapability::Meta{{{"library_lookup", {"reading", ToolRole::Other}}}}));
     return caps;
 }
 

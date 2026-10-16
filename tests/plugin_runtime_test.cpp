@@ -1417,7 +1417,7 @@ TEST(library_topic_is_one_line_and_hides_its_children) {
 
     const std::string head = head_blocks_text(runtime);
     ASSERT(head.find("which layer to reach for first (3 entries)") != std::string::npos);
-    ASSERT(head.find("cpp-debugging/topic.md") != std::string::npos);
+    ASSERT(head.find("library_lookup(\"cpp-debugging\")") != std::string::npos);
     // One line stands for three entries: the children cost nothing until they
     // are asked for.
     ASSERT(head.find("sanitizer") == std::string::npos);
@@ -1447,7 +1447,7 @@ TEST(coding_library_index_lists_what_the_project_selects) {
     const std::string head = head_blocks_text(runtime);
     ASSERT(head.find("Library entries this project selects") != std::string::npos);
     ASSERT(head.find("when a container is mutated") != std::string::npos);
-    ASSERT(head.find("cpp-iterator-invalidation.md") != std::string::npos);
+    ASSERT(head.find("library_lookup(\"cpp-iterator-invalidation\")") != std::string::npos);
     // None of it is in the system prefix: the selection is per-turn.
     ASSERT(system_blocks_text(runtime).find("Library entries this project selects") ==
            std::string::npos);
@@ -1486,6 +1486,73 @@ TEST(coding_library_index_leaves_with_the_domain) {
     ASSERT(head_blocks_text(runtime).find("Library entries") != std::string::npos);
     ASSERT_TRUE(runtime.set_state("coding", false));
     ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+}
+
+TEST(library_lookup_reads_an_entry_by_name) {
+    ScratchWorkspace ws("library-lookup-name");
+    ScratchState state("library-lookup-name");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult entry =
+        call_tool(f, "library_lookup", json{{"name", "cpp-iterator-invalidation"}});
+    ASSERT(entry.ok);
+    ASSERT(entry.output.find("std::vector") != std::string::npos);
+
+    // A topic reads as its own text plus the entries inside it.
+    const ToolResult topic = call_tool(f, "library_lookup", json{{"name", "cpp-debugging"}});
+    ASSERT(topic.ok);
+    ASSERT(topic.output.find("Entries in this topic") != std::string::npos);
+    ASSERT(topic.output.find("sanitizers:") != std::string::npos);
+    ASSERT(topic.output.find("debugger:") != std::string::npos);
+
+    // And a child is reachable by name: the topic's "(3 entries)" is a promise
+    // the tool keeps.
+    const ToolResult child = call_tool(f, "library_lookup", json{{"name", "sanitizers"}});
+    ASSERT(child.ok);
+    ASSERT(child.output.find("heap-use-after-free") != std::string::npos);
+}
+
+TEST(library_lookup_answers_a_query_and_reports_a_miss) {
+    ScratchWorkspace ws("library-lookup-query");
+    ScratchState state("library-lookup-query");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult hits = call_tool(f, "library_lookup", json{{"query", "sanitizer"}});
+    ASSERT(hits.ok);
+    ASSERT(hits.output.find("sanitizers:") != std::string::npos);
+    ASSERT(hits.output.find("Ask for one by name") != std::string::npos);
+
+    const ToolResult miss = call_tool(f, "library_lookup", json{{"query", "cobol"}});
+    ASSERT(miss.ok);
+    ASSERT(miss.output.find("nothing in the library matches") != std::string::npos);
+
+    const ToolResult unknown = call_tool(f, "library_lookup", json{{"name", "cobol"}});
+    ASSERT_FALSE(unknown.ok);
+    ASSERT(unknown.error.find("cobol") != std::string::npos);
+
+    // No arguments at all is usage, not a crash and not silence.
+    const ToolResult usage = call_tool(f, "library_lookup", json::object());
+    ASSERT(usage.ok);
+    ASSERT(usage.output.find("needs a `name`") != std::string::npos);
+}
+
+TEST(library_lookup_travels_with_the_domain) {
+    ScratchWorkspace ws("library-lookup-travel");
+    ScratchState state("library-lookup-travel");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(f.tools.find("library_lookup") != nullptr);
+
+    ASSERT_TRUE(runtime.set_state("coding", false));
+    ASSERT(f.tools.find("library_lookup") == nullptr);
 }
 
 TEST(mcp_plugin_verbs_answer_usage_without_a_server) {
