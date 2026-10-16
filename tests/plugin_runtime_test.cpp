@@ -1452,12 +1452,18 @@ TEST(coding_library_index_lists_what_the_project_selects) {
     // None of it is in the system prefix: the selection is per-turn.
     ASSERT(system_blocks_text(runtime).find("Library entries this project selects") ==
            std::string::npos);
-    // A handful of lines, not a chapter.
-    std::size_t lines = 0;
-    for (char c : head)
-        if (c == '\n')
-            ++lines;
-    ASSERT(lines <= 25u);
+    // A handful of lines, not a chapter: the cap counts entries, so the count is
+    // of entry lines. The block's own header is the same three lines every turn.
+    // With more entries than the cap, the heaviest survive it -- which the
+    // ranking test above pins by order.
+    std::size_t entries = 0;
+    std::istringstream rendered(head);
+    std::string line;
+    while (std::getline(rendered, line))
+        if (line.rfind("- ", 0) == 0)
+            ++entries;
+    ASSERT(entries > 0u);
+    ASSERT(entries <= 25u);
 }
 
 TEST(coding_library_index_stays_dark_without_a_selection) {
