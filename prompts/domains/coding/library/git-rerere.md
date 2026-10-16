@@ -3,27 +3,29 @@ tags: #git
 weight: 50
 verified: 2026-10
 reference: https://git-scm.com/docs/git-rerere
-sources: model knowledge 2026-10; pending review against Pro Git Ch. 7.9 Rerere
+sources: Pro Git 2ed, Ch. 7.9 Rerere (read in full, git-scm.com/book/en/v2)
 
-Rerere (reuse recorded resolution) remembers how you resolved a conflict and
-applies the same resolution the next time that conflict appears.
+Rerere — "reuse recorded resolution" — remembers how you resolved a hunk conflict
+and applies the same resolution the next time that exact conflict appears.
 
-- **Turn it on once**: `git config --global rerere.enabled true`. There is no
-  downside for a single developer and it costs nothing when it never fires.
-- **What it does**: on a conflict, it records the pre-image and your resolution
-  under `.git/rr-cache`; the next time the same pre-image appears — the same
-  rebase replayed, the same branch merged again, a long-lived branch rebased
-  daily — the resolution is applied for you.
-- **`git rerere` with no arguments applies a recorded resolution** to the current
-  conflict; `git rerere diff` shows what it would do; `git rerere status` lists
-  what is recorded for the file.
-- **`rerere.autoUpdate`** also stages the resolved files, which is convenient and
-  slightly more surprising; the default (record and apply, leave staging to you)
-  is the safer habit.
-- **It is per-clone, not shared**: the cache lives in `.git`, so a teammate does
-  not inherit your resolutions. The resolution is still a commit they will see.
-- **A rebase that conflicts the same way every time is the use case**: rerere turns
-  a ten-minute conflict resolution repeated weekly into a one-time decision.
+- **Turn it on once**: `git config --global rerere.enabled true` (or create
+  `.git/rr-cache`, which is the same thing less legibly).
+- **Git tells you what it is doing**: on a conflict, `Recorded preimage for FILE`;
+  when you resolve and commit, `Recorded resolution for FILE`; and later, instead
+  of a conflict, `Resolved FILE using previous resolution`.
+- **The interesting tactic is *backing out* the merge.** Attempt the merge into a
+  long-lived branch, resolve the conflicts, then rewind the merge — the
+  resolutions stay recorded, so the final merge is nearly free. The same trick
+  keeps a topic branch rebased without resolving the identical conflicts every
+  week.
+- **Inspect before trusting it**: `git rerere status` lists what is recorded for
+  the file, and `git rerere diff` shows what the recorded resolution will be.
+- **`git rerere` with no arguments re-applies the recorded resolution** to the
+  current conflict; `git checkout --conflict=merge FILE` puts the conflict markers
+  back, and `git checkout --conflict=diff3` shows the common ancestor too.
+- **The cache is per-clone** (`.git/rr-cache`), so resolutions are not shared with
+  teammates; and a resolution is still a commit someone will review — rerere saves
+  the typing, not the decision.
 
 ## Run it
 
@@ -34,10 +36,11 @@ git config rerere.enabled true
 printf 'base\n' > file.txt && git add . && git commit -qm "base"
 git checkout -qb left && printf 'left\n' > file.txt && git commit -qam "left"
 git checkout -q main && git checkout -qb right && printf 'right\n' > file.txt && git commit -qam "right"
-# first time: resolve the conflict by hand, which is what rerere records
+# the first conflict is resolved by hand, which is what rerere records
 git merge left > /dev/null 2>&1 || true
+git rerere status | grep -q file.txt
 printf 'left\n' > file.txt && git add file.txt && git commit -qm "merge left"
-# replay the same conflict: this time the resolution is remembered
+# back the merge out, then replay: this time the resolution is remembered
 git reset -q --hard HEAD~1
 git merge left > /dev/null 2>&1 || true
 git rerere > /dev/null 2>&1 || true
