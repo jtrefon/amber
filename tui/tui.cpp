@@ -1014,6 +1014,10 @@ void Tui::flush() {
 }
 
 void Tui::draw() {
+    // A notice produced while the welcome mural was active has been waiting for
+    // a window that shows scrollback; this is where every path ends up, so it
+    // lands on the first paint that can show it.
+    flush_workspace_notice();
     render_engine_->draw();
 }
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {

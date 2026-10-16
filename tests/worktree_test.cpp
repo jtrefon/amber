@@ -474,6 +474,104 @@ TEST(worktree_reap_leaves_a_claimed_path_alone) {
     fs::remove_all(state);
 }
 
+// The background pass, as one call: reap what nothing claims, rebuild what is
+// gone, and record where a live workspace stopped.
+TEST(workspace_pass_reaps_rebuilds_and_records) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("pass");
+    std::string err;
+
+    // An orphan whose owner is gone, plus a window's workspace whose directory
+    // has been wiped — /tmp is volatile by design, the commits are not.
+    const std::string orphan = repo.worktree_path("orphan");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), orphan, base, err));
+    agent::WorktreeEntry entry = entry_for("orphan", orphan);
+    entry.base_oid = base;
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {entry}));
+
+    const std::string rebuilt = repo.worktree_path("kept");
+    agent::WorkspacePass pass;
+    pass.project = repo.dir.string();
+    pass.state_dir = state.string();
+    pass.live_sessions.push_back("s-live");
+    pass.live_paths.push_back(rebuilt);
+    pass.rebuilds.push_back({7, "kept", base, rebuilt});
+
+    const agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
+    ASSERT_EQ(result.rebuilt.size(), 1u);
+    ASSERT_EQ(result.rebuilt[0].first, 7u);
+    ASSERT_EQ(result.rebuilt[0].second, rebuilt);
+    ASSERT_TRUE(fs::exists(rebuilt + "/f.txt")); // rebuilt at the recorded commit
+#ifdef __linux__
+    // The orphan is gone and said so; without procfs nothing is provably dead.
+    ASSERT_EQ(result.notices.size(), 2u);
+    ASSERT_FALSE(fs::exists(orphan));
+#else
+    ASSERT_EQ(result.notices.size(), 1u);
+#endif
+    bool kept_recorded = false;
+    for (const auto& e : agent::load_worktrees(state.string()))
+        kept_recorded = kept_recorded || e.name == "kept";
+    ASSERT(kept_recorded);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), rebuilt, err));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), orphan, err));
+    fs::remove_all(state);
+}
+
+// A rebuild that cannot happen is reported, not silently skipped: the window
+// stays on the project root and says why.
+TEST(workspace_pass_reports_a_rebuild_it_cannot_do) {
+    TempRepo repo;
+    const fs::path state = temp_state_dir("pass-fail");
+    agent::WorkspacePass pass;
+    pass.project = repo.dir.string();
+    pass.state_dir = state.string();
+    pass.rebuilds.push_back({3, "gone", "not-a-commit", repo.worktree_path("gone")});
+
+    const agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
+    ASSERT_EQ(result.rebuilt.size(), 0u);
+    ASSERT_EQ(result.notices.size(), 1u);
+    ASSERT(result.notices[0].find("could not be rebuilt") != std::string::npos);
+    ASSERT_FALSE(fs::exists(repo.worktree_path("gone")));
+    fs::remove_all(state);
+}
+
+// Giving a workspace back: removed when nothing can be lost, kept with the
+// reason when something can.
+TEST(workspace_release_removes_only_when_nothing_can_be_lost) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("release");
+    std::string err;
+
+    const std::string clean = repo.worktree_path("given-back");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), clean, base, err));
+    ASSERT_TRUE(agent::registry_add(state.string(),
+                                    agent::make_worktree_entry("given-back", clean, base, "s")));
+    const std::string removed =
+        agent::release_workspace(repo.dir.string(), state.string(), "given-back", clean);
+    ASSERT(removed.find("removed") != std::string::npos);
+    ASSERT_FALSE(fs::exists(clean));
+    ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
+
+    const std::string dirty = repo.worktree_path("kept");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), dirty, base, err));
+    {
+        std::ofstream out(fs::path(dirty) / "wip.txt");
+        out << "work in progress\n";
+    }
+    const std::string kept =
+        agent::release_workspace(repo.dir.string(), state.string(), "kept", dirty);
+    ASSERT(kept.find("kept") != std::string::npos);
+    ASSERT_TRUE(fs::exists(fs::path(dirty) / "wip.txt"));
+
+    fs::remove(fs::path(dirty) / "wip.txt");
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), dirty, err));
+    fs::remove_all(state);
+}
+
 TEST(worktree_reap_leaves_an_attached_session_alone) {
     TempRepo repo;
     const fs::path state = temp_state_dir("attached");

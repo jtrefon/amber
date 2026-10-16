@@ -322,6 +322,9 @@ private:
     // window claims, rebuild workspaces whose directory is gone, and record
     // where each live workspace stopped. Results are posted back.
     void start_workspace_pass();
+    // Apply what the pass found, on the UI thread.
+    void apply_workspace_result(const std::vector<std::pair<size_t, std::string>>& rebuilt,
+                                const std::vector<std::string>& notices);
     struct PendingRebuild {
         size_t window_id = 0;
         std::string name;

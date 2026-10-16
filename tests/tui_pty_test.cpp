@@ -39,6 +39,7 @@
 #include "agent/model_probe.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
+#include "agent/worktree.h"
 #include "tests/minitest.h"
 
 namespace {
@@ -1160,6 +1161,173 @@ TEST(get_config_paths_prints_the_resolved_layout) {
             "the amber-config skill is not reported as a system skill", tui);
 }
 
+// ── A window's workspace: prepared on request, skipped on request, given back ──
+//
+// The flow only exists inside a repository, so this test brings its own: its
+// own XDG roots (the shared fixture's are put back on the way out, so a test
+// running after this one still looks where it expects), its own repo with one
+// commit, and the same dead endpoint — nothing here reaches a model.
+
+struct RepoFixture {
+    std::string workspace;
+    std::string name;
+    std::string saved[4]; // AMBER_WORKSPACE, XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_CACHE_HOME
+
+    RepoFixture() {
+        const char* keys[] = {"AMBER_WORKSPACE", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+                              "XDG_CACHE_HOME"};
+        for (int i = 0; i < 4; ++i)
+            if (const char* v = getenv(keys[i]))
+                saved[i] = v;
+
+        std::error_code ec;
+        fs::path base = fs::temp_directory_path(ec) / "amber-pty-repo-XXXXXX";
+        if (ec)
+            return;
+        std::string tmpl = base.string();
+        std::vector<char> buf(tmpl.begin(), tmpl.end());
+        buf.push_back('\0');
+        if (!mkdtemp(buf.data()))
+            return;
+        workspace = buf.data();
+        name = fs::path(workspace).filename().string();
+        const std::string init = "cd '" + workspace +
+                                 "' && git init -q -b main . && echo base > f.txt && git add "
+                                 "f.txt && git -c user.email=t@t -c user.name=t commit -qm init";
+        if (std::system(init.c_str()) != 0)
+            return;
+        fs::create_directories(workspace + "/xdg", ec);
+        setenv("AMBER_WORKSPACE", workspace.c_str(), 1);
+        setenv("XDG_CONFIG_HOME", (workspace + "/xdg").c_str(), 1);
+        setenv("XDG_STATE_HOME", (workspace + "/state").c_str(), 1);
+        setenv("XDG_CACHE_HOME", (workspace + "/cache").c_str(), 1);
+        fs::create_directories(fs::path(agent::Workspace::settings_path()).parent_path(), ec);
+        write_file(agent::Workspace::settings_path(),
+                   "api_base=http://127.0.0.1:9/v1\nmodel=pty-test\n");
+    }
+
+    ~RepoFixture() {
+        const char* keys[] = {"AMBER_WORKSPACE", "XDG_CONFIG_HOME", "XDG_STATE_HOME",
+                              "XDG_CACHE_HOME"};
+        for (int i = 0; i < 4; ++i) {
+            if (saved[i].empty())
+                unsetenv(keys[i]);
+            else
+                setenv(keys[i], saved[i].c_str(), 1);
+        }
+        std::error_code ec;
+        fs::remove_all(workspace, ec);
+    }
+};
+
+// ── A window's workspace: prepared on request, kept across a restart ──
+//
+// The flow only exists inside a repository, so this test brings its own.
+// Driven by Ctrl+N rather than a typed slash line on purpose: the drawer's
+// first Enter can capture a child row (`noworkdir`) and dispatch a different
+// line than the one typed, which makes a scripted command unreliable.
+
+// The state dir the CHILD uses. Workspace::state_dir() here is cached from the
+// shared fixture's root, so asking it would name the wrong project.
+std::string child_state_dir(const std::string& workspace) {
+    const char* xdg = getenv("XDG_STATE_HOME");
+    return std::string(xdg ? xdg : "") + "/amber/projects/" +
+           agent::workspace_state_slug(workspace);
+}
+
+TEST(worktree_setting_reports_itself_and_persists) {
+    Tui tui;
+    tui.name = "worktree_setting_reports_itself_and_persists";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set worktree off");
+    tui.pump(500);
+    tui.send("\r");
+    tui.pump(500);
+    tui.send("\r");
+    if (!require(tui.wait_for("worktree: off", 8000), "the setting did not report itself", tui))
+        return;
+    tui.send("/get worktree");
+    tui.pump(500);
+    tui.send("\r");
+    tui.pump(500);
+    tui.send("\r");
+    require(tui.wait_for("worktree: off", 8000), "the setting did not read back", tui);
+}
+
+TEST(window_workspace_is_prepared) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/w1";
+    fs::remove_all(prepared); // a rerun must not adopt the last one
+
+    Tui tui;
+    tui.name = "window_workspace_is_prepared";
+    ASSERT(tui.start(fixture().binary, repo.workspace));
+    if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+        return;
+
+    // Ctrl+N (the same funnel as /window new) prepares a working copy of the
+    // repository, and the registry records it for a later run to reap against.
+    tui.send("\x0e");
+    if (!require(tui.wait_for("workspace:", 15000), "the new window prepared no workspace", tui))
+        return;
+    ASSERT(fs::exists(prepared + "/f.txt"));         // the repository's content, checked out
+    ASSERT(fs::is_regular_file(prepared + "/.git")); // a worktree, not a clone: .git is a file
+
+    const auto recorded = agent::load_worktrees(child_state_dir(repo.workspace));
+    ASSERT_EQ(recorded.size(), 1u);
+    ASSERT_EQ(recorded[0].name, "w1");
+    ASSERT_EQ(recorded[0].path, prepared);
+    ASSERT(recorded[0].pid > 0);
+    fs::remove_all(prepared);
+}
+
+TEST(window_workspace_survives_a_restart_and_is_reattached) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/w1";
+    fs::remove_all(prepared);
+    const std::string state = child_state_dir(repo.workspace);
+
+    {
+        Tui tui;
+        tui.name = "window_workspace_survives_a_restart_and_is_reattached";
+        ASSERT(tui.start(fixture().binary, repo.workspace));
+        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+            return;
+        tui.send("\x0e");
+        if (!require(tui.wait_for("workspace:", 15000), "the new window prepared no workspace",
+                     tui))
+            return;
+    } // stop(): the app quits through its own path, which is what flushes coverage
+
+    // The workspace outlives the process, and the registry still names it: the
+    // commits and the uncommitted work belong to the window, not to the run.
+    const auto after_quit = agent::load_worktrees(state);
+    ASSERT_EQ(after_quit.size(), 1u);
+    ASSERT_EQ(after_quit[0].path, prepared);
+    ASSERT(fs::exists(prepared + "/f.txt"));
+
+    {
+        // A second start restores the window, re-attaches it to the same tree
+        // from the recorded path (no git needed to find it), and hands it to the
+        // background pass, which records where the workspace stopped.
+        Tui tui;
+        tui.name = "window_workspace_survives_a_restart_and_is_reattached (second start)";
+        ASSERT(tui.start(fixture().binary, repo.workspace));
+        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted again", tui))
+            return;
+        tui.pump(1500); // the pass runs off-thread: give it a moment to post
+        const auto restored = agent::load_worktrees(state);
+        ASSERT_EQ(restored.size(), 1u);
+        ASSERT(!restored[0].head_oid.empty()); // the pass recorded where it stopped
+    }
+    fs::remove_all(prepared);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -1183,6 +1351,9 @@ int main(int argc, char** argv) {
     get_model_list_reports_why_the_catalogue_is_empty();
     get_config_paths_prints_the_resolved_layout();
     system_commands_do_not_freeze_the_ui();
+    worktree_setting_reports_itself_and_persists();
+    window_workspace_is_prepared();
+    window_workspace_survives_a_restart_and_is_reattached();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.

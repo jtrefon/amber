@@ -85,6 +85,37 @@ struct ReapReport {
     std::vector<std::pair<std::string, std::string>> kept; // name -> why it stayed
 };
 
+// The background workspace pass, as plain data: the caller says what the live
+// windows claim and what has to be rebuilt, and gets back the lines to show and
+// the rebuilds that succeeded. Everything here forks git, so it belongs on a
+// worker — the UI thread must never wait on a subprocess.
+struct WorkspacePass {
+    struct Rebuild {
+        size_t window_id = 0; // for the caller to match the result to a window
+        std::string name;
+        std::string base; // the commit to rebuild at
+        std::string path;
+    };
+    std::string project;
+    std::string state_dir;
+    std::vector<std::string> live_sessions;
+    std::vector<std::string> live_paths;
+    std::vector<Rebuild> rebuilds;
+};
+
+struct WorkspacePassResult {
+    std::vector<std::string> notices;
+    std::vector<std::pair<size_t, std::string>> rebuilt; // window id -> path
+};
+
+WorkspacePassResult run_workspace_pass(const WorkspacePass& pass);
+
+// Give a window's workspace back: remove it when nothing can be lost (git
+// refuses a dirty tree, and an unreferenced HEAD is refused by name) and drop
+// its registry entry. Returns the line to show the user either way.
+std::string release_workspace(const std::string& project, const std::string& state_dir,
+                              const std::string& name, const std::string& path);
+
 // Remove worktrees whose owner is provably gone and which nothing claims.
 // A live session id claims one; so does a path a restored window is about to
 // re-attach to — the path matters because the registry entry may predate the

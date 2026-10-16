@@ -366,4 +366,61 @@ ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
     return report;
 }
 
+WorkspacePassResult run_workspace_pass(const WorkspacePass& pass) {
+    WorkspacePassResult out;
+    if (!is_git_repo(pass.project))
+        return out;
+
+    // Reap first: an entry no window claims and whose owner is gone is exactly
+    // what the rebuild below must not resurrect.
+    const ReapReport report =
+        reap_worktrees(pass.project, pass.state_dir, pass.live_sessions, pass.live_paths);
+    for (const auto& name : report.removed)
+        out.notices.push_back("workspace cleaned up: " + name);
+    for (const auto& kept : report.kept)
+        out.notices.push_back("workspace kept: " + kept.first + " \u2014 " + kept.second);
+
+    for (const auto& rebuild : pass.rebuilds) {
+        std::string err;
+        if (!create_worktree(pass.project, rebuild.path, rebuild.base, err)) {
+            out.notices.push_back("workspace " + rebuild.name +
+                                  " could not be rebuilt \u2014 using the project root");
+            continue;
+        }
+        registry_add(pass.state_dir,
+                     make_worktree_entry(rebuild.name, rebuild.path, rebuild.base, ""));
+        out.rebuilt.emplace_back(rebuild.window_id, rebuild.path);
+        out.notices.push_back("workspace rebuilt at " + rebuild.path);
+    }
+
+    // Where each live workspace stopped, so the next rebuild lands there rather
+    // than at the commit it was created from.
+    std::vector<WorktreeEntry> entries = load_worktrees(pass.state_dir);
+    bool changed = false;
+    for (auto& entry : entries) {
+        const bool live = std::find(pass.live_paths.begin(), pass.live_paths.end(), entry.path) !=
+                          pass.live_paths.end();
+        std::error_code ec;
+        if (!live || !fs::exists(entry.path, ec))
+            continue;
+        const std::string head = git_head_oid(entry.path);
+        if (!head.empty() && head != entry.head_oid) {
+            entry.head_oid = head;
+            changed = true;
+        }
+    }
+    if (changed)
+        save_worktrees(pass.state_dir, entries);
+    return out;
+}
+
+std::string release_workspace(const std::string& project, const std::string& state_dir,
+                              const std::string& name, const std::string& path) {
+    std::string err;
+    if (!remove_worktree_safe(project, path, err))
+        return "workspace kept at " + path + " \u2014 " + err;
+    registry_remove(state_dir, name);
+    return "workspace removed: " + path;
+}
+
 } // namespace agent
