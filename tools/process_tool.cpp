@@ -5,6 +5,7 @@
 
 #include <sstream>
 #include <string>
+#include "agent/json_read.h"
 
 namespace agent {
 
@@ -92,9 +93,9 @@ public:
             return r;
         }
         std::string cmd = a["command"].get<std::string>();
-        long hard = static_cast<long>(a.value("timeout", 600));
-        long idle = static_cast<long>(a.value("idle_timeout", 30));
-        std::string cwd = a.value("cwd", std::string(""));
+        long hard = static_cast<long>(read_int(a, "timeout", 600));
+        long idle = static_cast<long>(read_int(a, "idle_timeout", 30));
+        std::string cwd = read_string(a, "cwd", "");
         std::string id = jobs_.start(cmd, cwd, hard, idle);
         if (id.empty()) {
             r.ok = false;
@@ -155,7 +156,7 @@ public:
             r.error = "no such job: " + id;
             return r;
         }
-        bool all = a.value("all", false);
+        bool all = read_bool(a, "all", false);
         // Read from the held reference (the service map entry may already be
         // gone via a concurrent stop).
         std::string body = all ? job->output() : job->read_delta();

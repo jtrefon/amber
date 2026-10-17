@@ -113,6 +113,14 @@ struct Config {
     // empty. Env: AMBER_DEBUG.
     std::string debug_log;
 
+    // Diagnostics switch, off by default. When on, the non-session logs are
+    // written: the error journal (app failures and recovered errors) and, with
+    // debug_log empty, a raw HTTP/SSE dump. When off, every diagnostic path
+    // costs one bool test — no formatting, no file, nothing on disk. The
+    // per-session transcript is deliberately NOT gated: nothing the agent saw
+    // is ever lost. Env: AMBER_DEBUG_ON.
+    bool debug = false;
+
     // Real token usage from the last LLM call (usage.prompt_tokens), set by
     // Agent after each chat_once. Used by the compression gate instead of
     // the character-based estimate when >= 0. -1 means "not yet known".
@@ -201,6 +209,12 @@ struct Config {
     // problems; an empty vector means the config is usable. UIs decide how to
     // surface these (abort with a message, warn, etc.). Kept UI-free here.
     std::vector<std::string> validate() const;
+
+    // Where the raw HTTP/SSE dump goes. An explicitly configured debug_log wins
+    // (the advanced escape hatch); otherwise diagnostics on means a derived path
+    // under the project's state dir, and diagnostics off means nothing is
+    // written at all.
+    std::string debug_dump_path() const;
 };
 
 // Path to the global config file (~/.config/amber/config). Used by the CLI

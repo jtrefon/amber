@@ -63,6 +63,8 @@ public:
     void show_policy_rule(const std::string& name);
 
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
+    void set_debug(const std::string& val);
+    void show_debug_status();
     void cmd_set_worktree(const std::string& val);
     void cmd_get_worktree();
     void cmd_set_subagent_parallel(const std::string& val);
@@ -195,6 +197,7 @@ private:
                      std::function<std::string()> getter,
                      std::function<void(const std::string&)> setter);
     void add_detection_settings();
+    void add_debug_settings();
     void add_reasoning_settings();
     void add_subagent_settings();
     void add_display_settings();

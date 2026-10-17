@@ -385,12 +385,20 @@ void Tui::agent_worker(Window& my_win, size_t window_id, RunSlot* slot, const st
             my_win.dirty = true;
         }
     } catch (const std::exception& e) {
+        // A failure that escaped run() never reached a recovery path inside the
+        // agent, so this is the only place that can record it: without it the
+        // turn dies with a transient status line and nothing on disk.
+        if (my_win.agent)
+            my_win.agent->log().event("error", {{"reason", "uncaught"}, {"error", e.what()}});
         AgentEvent ev;
         ev.type = AgentEvent::Error;
         ev.window_id = window_id;
         ev.error_msg = e.what();
         router_->push(std::move(ev));
     } catch (...) {
+        if (my_win.agent)
+            my_win.agent->log().event("error", {{"reason", "uncaught"},
+                                                {"error", "agent thread terminated unexpectedly"}});
         AgentEvent ev;
         ev.type = AgentEvent::Error;
         ev.window_id = window_id;

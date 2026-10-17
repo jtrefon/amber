@@ -3,6 +3,7 @@
 
 #include <sstream>
 
+#include "agent/json_read.h"
 #include "agent/todo.h"
 
 namespace agent {
@@ -88,12 +89,12 @@ public:
                 return ToolResult{false, "", "todowrite: each todo needs id, text, status",
                                   agent::json::object()};
             TodoStatus st;
-            if (!parse_status(e["status"].get<std::string>(), st))
+            if (!parse_status(read_string(e, "status", ""), st))
                 return ToolResult{false, "",
                                   "todowrite: invalid status (pending | "
                                   "in_progress | completed | cancelled)",
                                   agent::json::object()};
-            items.push_back({e["id"].get<std::string>(), e["text"].get<std::string>(), st});
+            items.push_back({read_string(e, "id", ""), read_string(e, "text", ""), st});
         }
         store_.update(std::move(items));
         std::ostringstream out;

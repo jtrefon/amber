@@ -25,6 +25,11 @@ struct ConfigPath {
 // Nothing is created: this is what amber WOULD use, not what exists yet.
 std::vector<ConfigPath> config_paths();
 
+// The error journal's path, beside the per-session transcripts. Resolved here
+// so the readout row and the writer cannot disagree about where it lives; the
+// file itself appears only when diagnostics are on and something went wrong.
+std::string error_log_path();
+
 } // namespace agent
 
 #endif // AGENT_CONFIG_PATHS_H

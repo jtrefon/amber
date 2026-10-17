@@ -222,10 +222,10 @@ bool fetch_and_cache(const Config& cfg, CatalogFetchReport& report) {
     const bool fetched = fetch_models(cfg, body, report) == CURLE_OK;
     report.fetched = fetched;
     if (fetched) {
-        debug_log(cfg.debug_log, "probe", body);
+        debug_log(cfg.debug_dump_path(), "probe", body);
         model_catalog_write(cfg, body);
     } else {
-        debug_log(cfg.debug_log, "probe-error", report.failure_reason());
+        debug_log(cfg.debug_dump_path(), "probe-error", report.failure_reason());
     }
     return fetched;
 }

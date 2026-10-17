@@ -17,6 +17,14 @@ class ConversationLog {
 public:
     // path may contain "{ts}", replaced with the session start timestamp.
     void open(const std::string& path);
+
+    // The error journal: what the app could not do (chat errors, aborted turns,
+    // uncaught failures) in one append-only file, rotated at kMaxErrorBytes with
+    // one previous kept. Opened only when diagnostics are on — with them off
+    // there is no journal, no buffer, and one bool test on the way.
+    void open_errors(const std::string& path);
+    bool errors_enabled() const { return errors_.is_open(); }
+
     bool enabled() const { return out_.is_open(); }
 
     // event: "session_start", "user", "assistant", "reasoning",
@@ -24,8 +32,14 @@ public:
     void event(const std::string& type, const json& fields);
 
 private:
+    void record_error(const std::string& type, const json& fields);
+    void rotate_errors();
+
     std::ofstream out_;
+    std::ofstream errors_;
     std::string session_;
+    std::string errors_path_;
+    std::size_t errors_bytes_ = 0;
 };
 
 } // namespace agent

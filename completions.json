@@ -194,6 +194,11 @@
      "help": "Show the thinking/reasoning display mode.",
      "man": "Displays the current thinking mode (on/off/auto). Thinking/reasoning tokens from the model are shown or hidden based on this setting."
     },
+    "debug": {
+     "action": "core.config.get.debug",
+     "help": "Show whether diagnostics logging is on.",
+     "man": "Displays the diagnostics switch (on/off) and where the error journal lives. Off is the default: with it off nothing is written and diagnostics cost one bool test."
+    },
     "worktree": {
      "action": "core.config.get.worktree",
      "help": "Whether new windows prepare their own git worktree.",
@@ -400,6 +405,16 @@
       "on",
       "off",
       "auto"
+     ]
+    },
+    "debug": {
+     "action": "core.config.set.debug",
+     "help": "Turn diagnostics logging on or off.",
+     "man": "Opt-in diagnostics: with it on, app failures and recovered errors are appended to the error journal under the project's state dir, and raw HTTP/SSE is dumped when debug_log is set. Off by default — the session transcript is written either way.",
+     "choices": [
+      "on",
+      "off",
+      "toggle"
      ]
     },
     "worktree": {

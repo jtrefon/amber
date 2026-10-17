@@ -9,6 +9,7 @@
 #include <functional>
 #include <stdexcept>
 #include <unistd.h>
+#include "agent/json_read.h"
 
 namespace agent {
 
@@ -55,9 +56,9 @@ std::string format_tool_envelope(const std::string& name, const json& args,
     std::string status;
     if (result.ok) {
         status = "ok";
-    } else if (meta.value("denied", false)) {
+    } else if (read_bool(meta, "denied", false)) {
         status = "denied";
-    } else if (meta.value("timeout", false)) {
+    } else if (read_bool(meta, "timeout", false)) {
         status = "timeout";
     } else {
         status = "error";
@@ -310,7 +311,7 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
         }
     }
     if (strict)
-        throw std::runtime_error("chat " + std::string(stage) + " failed: " + last_error);
+        throw RequestFailedError("chat " + std::string(stage) + " failed: " + last_error);
     if (run_cancelled(cancel_token)) {
         // Cancellation must not fabricate an assistant message: the caller
         // (Agent::run) ends the turn cleanly instead.
@@ -345,6 +346,11 @@ std::string empty_turn_reply(const std::deque<Message>& history) {
     return had_tool ? "[agent stopped: the model stopped producing usable output after "
                       "tool calls; see the ERROR messages above]"
                     : "[agent stopped: the model produced no usable response]";
+}
+
+std::string internal_failure_reply(const std::string& what) {
+    return "[error while processing the previous reply: " + what +
+           "] The turn continues; adjust your approach or retry the step.";
 }
 
 } // namespace agent

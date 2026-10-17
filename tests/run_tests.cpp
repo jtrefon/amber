@@ -30,6 +30,7 @@
 #include "agent/subagent.h"
 #include "agent/run_scope.h"
 #include "agent/plugin.h"
+#include "tests/fake_llm.h"
 #include "tests/test_util.h"
 
 #include <array>
@@ -83,6 +84,23 @@ TEST(config_global_dir_ignores_a_hostile_xdg) {
     setenv("XDG_CONFIG_HOME", "/tmp/../etc", 1);
     ASSERT_EQ(agent::global_config_dir(), expect);
     unsetenv("XDG_CONFIG_HOME");
+}
+
+// Diagnostics decide where the raw HTTP/SSE dump goes: nothing with them off,
+// a derived path under the state dir with them on, and an explicitly configured
+// path always wins (the advanced escape hatch).
+TEST(config_debug_dump_path_follows_the_switch) {
+    agent::Config c;
+    ASSERT_EQ(c.debug_dump_path(), std::string());
+
+    c.debug = true;
+    ASSERT(c.debug_dump_path().find("/logs/debug-{ts}.log") != std::string::npos);
+    ASSERT(c.debug_dump_path().find(agent::Workspace::state_dir()) == 0);
+
+    c.debug_log = "/tmp/explicit-http.log";
+    ASSERT_EQ(c.debug_dump_path(), std::string("/tmp/explicit-http.log"));
+    c.debug = false;
+    ASSERT_EQ(c.debug_dump_path(), std::string("/tmp/explicit-http.log"));
 }
 
 TEST(config_validate_accepts_defaults) {
@@ -180,6 +198,7 @@ TEST(config_load_covers_every_key) {
         f << "skills_body_budget_tokens=15\n";
         f << "log_path=/tmp/conv.jsonl\n";
         f << "debug_log=/tmp/dbg.log\n";
+        f << "debug=1\n";
     }
     agent::Config c;
     c.load(path);
@@ -231,6 +250,7 @@ TEST(config_load_covers_every_key) {
     ASSERT_EQ(c.skills_body_budget_tokens, 15);
     ASSERT_EQ(c.log_path, "/tmp/conv.jsonl");
     ASSERT_EQ(c.debug_log, "/tmp/dbg.log");
+    ASSERT_TRUE(c.debug);
     ASSERT_TRUE(c.warnings.empty());
     std::remove(path.c_str());
 }
@@ -2975,6 +2995,81 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     close(srv2);
 }
 
+TEST(parameter_400_surfaces_its_message_and_teaches_no_window) {
+    // A 400 that names a request parameter is not a window statement: nothing
+    // may be learned, and the operator must see the server's own sentence
+    // ("max_tokens is too large: 16384 ...") rather than a stub of the raw
+    // body. Without that, the rejection that causes it is unreadable, which is
+    // exactly the bare "HTTP 400 from LLM server" a /compress failure showed.
+    std::string req;
+    json body;
+    body["request_id"] = std::string(300, 'r'); // the message is not the first field
+    body["error"] = json{{"message", "max_tokens is too large: 16384. This model supports at most "
+                                     "8192 completion tokens, and you requested 16384, which is "
+                                     "8192 too many."},
+                         {"type", "invalid_request_error"},
+                         {"param", "max_tokens"},
+                         {"code", nullptr}};
+    int srv =
+        spawn_mock_http(8951, req, "HTTP/1.1 400 Bad Request", "application/json", body.dump());
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8951/v1";
+    cfg.model = "kilo-auto/free";
+    cfg.max_tokens = 16384;    // the setting that caused it
+    cfg.context_size = 262144; // the stale window it was sent to
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        agent::Message hello;
+        hello.role = "user";
+        hello.content = "hi";
+        client.chat({hello}, {}, nullptr);
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_EQ(e.status, 400L);
+        ASSERT_FALSE(e.retryable);
+        ASSERT(std::string(e.what()).find("max_tokens is too large: 16384") != std::string::npos);
+    }
+    ASSERT(threw);
+    // A parameter rejection teaches no window: shrinking one cannot fix it.
+    ASSERT_EQ(client.learned_context_size(), 0);
+    close(srv);
+}
+
+TEST(parameter_400_quoting_a_window_teaches_no_window) {
+    // The hybrid shape: an output-parameter rejection that also quotes a
+    // window. The numeric sniffer finds "maximum context length is 8192" and
+    // would record 8192 — a window the provider never said the prompt outgrew.
+    // Lowering max_tokens fixes this request; believing 8192 is a lie the
+    // compression gate and the gauge would act on.
+    std::string req;
+    const std::string body =
+        R"({"error":{"code":400,"message":"max_tokens is too large: 16384. This endpoint's )"
+        R"(maximum context length is 8192 tokens, and the completion budget counts against it.","type":)"
+        R"("invalid_request_error","param":"max_tokens"}})";
+    int srv = spawn_mock_http(8952, req, "HTTP/1.1 400 Bad Request", "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8952/v1";
+    cfg.max_tokens = 16384;
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat({}, {}, nullptr);
+    } catch (const agent::ApiError& e) {
+        threw = true;
+        ASSERT_FALSE(e.retryable);
+    }
+    ASSERT(threw);
+    ASSERT_EQ(client.learned_context_size(), 0);
+    close(srv);
+}
+
 TEST(llm_cancel_pre_requested_aborts_with_cancelled_error) {
     // A token already requested before the call must abort fast (the /stop
     // "do not start another turn" path), typed CancelledError — never
@@ -4540,6 +4635,36 @@ TEST(parse_compression_response_valid) {
     ASSERT(cr.skill_ops[0].content == "run make test");
 }
 
+// A model emitting null where a string belongs used to cost the whole
+// classification: json::value() throws type_error.302 on a present-but-null
+// key. One malformed field must cost only that field.
+TEST(parse_compression_response_null_fields_are_survivable) {
+    std::string payload = R"({
+        "summary": null,
+        "classification": [
+            {"turns": "0-5", "tag": null, "summary": null}
+        ],
+        "memories": [
+            {"name": null, "content": "kept", "tags": [null, 7, "area"], "action": null}
+        ],
+        "brief": {"intent": null, "next": "ship it", "done": [null, "one"]}
+    })";
+    auto cr = agent::parse_compression_response(payload);
+    ASSERT(cr.segments.size() == 1u);
+    ASSERT(cr.segments[0].tag == agent::Classification::context);
+    ASSERT(cr.segments[0].summary.empty());
+    ASSERT(cr.summary.empty());
+    ASSERT(cr.memory_ops.size() == 1u);
+    ASSERT(cr.memory_ops[0].name.empty());
+    ASSERT(cr.memory_ops[0].content == "kept");
+    ASSERT(cr.memory_ops[0].action == "upsert");
+    ASSERT(cr.memory_ops[0].tags.size() == 1u);
+    ASSERT(cr.memory_ops[0].tags[0] == "area");
+    ASSERT(cr.brief.has_value());
+    ASSERT(cr.brief->next == "ship it");
+    ASSERT(cr.brief->done.size() == 1u);
+}
+
 // =========================================================================
 // Applier tests
 // =========================================================================
@@ -4886,6 +5011,106 @@ TEST(compression_gate_unknown_window_never_fires) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
+}
+
+// ---------------------------------------------------------------------------
+// Compression request sizing (the /compress 400 investigation)
+// ---------------------------------------------------------------------------
+
+// The completion budget is counted against the SAME window as the prompt:
+// llama.cpp's own overflow 400 ends "... 386429 of text input, 1748 of tool
+// input, 16384 in the output". A max_tokens carried over from a bigger
+// endpoint (the project settings hold 16384 from the local-model era) therefore
+// pushes an otherwise-fitting request over a smaller provider's window.
+TEST(compress_request_max_tokens_fits_the_window_it_is_sent_to) {
+    std::string req;
+    const std::string classify = R"({"summary":"s","classification":[{"turns":"1-2","tag":"core"},)"
+                                 R"({"turns":"3-4","tag":"prune"}]})";
+    json reply;
+    reply["choices"] =
+        json::array({json{{"message", json{{"role", "assistant"}, {"content", classify}}}}});
+    int srv = spawn_mock_http(8953, req, "HTTP/1.1 200 OK", "application/json", reply.dump());
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8953/v1";
+    cfg.model = "kilo-auto/free";
+    cfg.max_tokens = 16384;  // the stale project setting
+    cfg.context_size = 4096; // what the selected provider's catalog reports
+    agent::HttpLLMClient client(cfg);
+
+    agent::Context ctx;
+    ctx.push(msg("system", std::string(4000, 's'))); // ~1000 tokens
+    for (int i = 0; i < 2; ++i) {
+        ctx.push(msg("user", std::string(1600, 'u')));
+        ctx.push(msg("assistant", std::string(1600, 'a')));
+    }
+    agent::CompressionConfig cc = agent::load_compression_config(cfg);
+    auto compressor = agent::make_compressor(cc);
+    agent::CompressionResponse cr;
+    compressor->compress(ctx, cc, client, nullptr, &cr);
+    close(srv);
+
+    const size_t sep = req.find("\r\n\r\n");
+    ASSERT(sep != std::string::npos);
+    json sent = json::parse(req.substr(sep + 4), nullptr, false);
+    ASSERT(!sent.is_discarded());
+    ASSERT_TRUE(sent.contains("max_tokens"));
+    const size_t asked = sent["max_tokens"].get<size_t>();
+    std::vector<agent::Message> on_the_wire;
+    for (const auto& m : sent["messages"]) {
+        agent::Message wire;
+        wire.role = m.value("role", "");
+        wire.content = m.value("content", "");
+        on_the_wire.push_back(std::move(wire));
+    }
+    const size_t prompt = agent::estimate_tokens(on_the_wire);
+    ASSERT(asked < cfg.max_tokens);                                  // clamped, not the stale ask
+    ASSERT(asked + prompt <= static_cast<size_t>(cfg.context_size)); // fits the window it goes to
+}
+
+// The manual /compress path must size itself against the window the CURRENT
+// provider reports, never a value a previous endpoint left in the config: the
+// local server taught amber 262144, the gateway model has its own window, and
+// the classify request is the largest request amber sends.
+TEST(compress_uses_the_providers_window_not_a_stale_configured_one) {
+    XdgGuard xdg("compress_window");
+    agent::Workspace::set_root(".");
+    agent::Config cfg;
+    cfg.stream = false;
+    cfg.context_size = 262144; // what the local endpoint taught amber
+    cfg.context_explicit = true;
+    agent::ToolRegistry reg;
+    const auto cc = agent::load_compression_config(cfg);
+    auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {
+        return std::make_unique<agent_test::FakeLLMClient>();
+    };
+    agent::Agent ag(cfg, reg, {}, agent::make_compressor(cc), agent::make_compression_gate(cc), {},
+                    {}, nullptr, factory);
+    ag.set_model("kilo-auto/free", 131072); // the selected provider's catalogue window
+
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    msgs.push_back(std::move(sys));
+    for (int i = 0; i < 6; ++i) {
+        agent::Message u;
+        u.role = "user";
+        u.content = "q" + std::to_string(i);
+        msgs.push_back(std::move(u));
+        agent::Message a;
+        a.role = "assistant";
+        a.content = "a" + std::to_string(i);
+        msgs.push_back(std::move(a));
+    }
+    ag.set_context(std::move(msgs));
+    ag.compress_now();
+
+    const auto live = ag.config_snapshot();
+    ASSERT_TRUE(live != nullptr);
+    ASSERT_EQ(live->context_size, 131072);
 }
 
 TEST(compression_gate_respects_threshold_setter) {
@@ -6512,6 +6737,81 @@ TEST(amber_config_skill_documents_the_resolved_paths) {
     ASSERT(body.find("/set model") != std::string::npos);
 }
 
+// ---------------------------------------------------------------------------
+// The error journal: what the app could not do, in one place
+// ---------------------------------------------------------------------------
+
+// Diagnostics are opt-in: with the switch off there is no journal at all, while
+// the session transcript is written either way.
+TEST(error_journal_is_absent_until_diagnostics_are_on) {
+    const std::string dir = "/tmp/amber_error_journal_off";
+    run_cmd("rm -rf " + dir);
+    std::filesystem::create_directories(dir);
+
+    agent::ConversationLog log;
+    log.open(dir + "/transcript.jsonl");
+    log.event("error", {{"reason", "internal_failure"}, {"error", "boom"}});
+
+    ASSERT(log.enabled());
+    ASSERT_FALSE(log.errors_enabled());
+    ASSERT(std::filesystem::exists(dir + "/transcript.jsonl"));
+    ASSERT(!std::filesystem::exists(dir + "/errors.jsonl"));
+    run_cmd("rm -rf " + dir);
+}
+
+// An app failure lands in the journal; a failed tool call is the model's
+// business and stays in the transcript only.
+TEST(error_journal_keeps_app_failures_and_only_those) {
+    const std::string dir = "/tmp/amber_error_journal_on";
+    run_cmd("rm -rf " + dir);
+    std::filesystem::create_directories(dir);
+
+    agent::ConversationLog log;
+    log.open(dir + "/transcript.jsonl");
+    log.open_errors(dir + "/errors.jsonl");
+    log.event("chat_error", {{"stage", "generation"}, {"error", "type_error.302"}});
+    log.event("error", {{"reason", "uncaught"}, {"error", "host callback exploded"}});
+    log.event("tool_result", {{"name", "bash"}, {"ok", false}});
+    log.event("user", {{"content", "hi"}});
+
+    ASSERT(log.errors_enabled());
+    const auto read_all = [](const std::string& path) {
+        std::ifstream in(path);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    const std::string journal = read_all(dir + "/errors.jsonl");
+    ASSERT(journal.find("type_error.302") != std::string::npos);
+    ASSERT(journal.find("host callback exploded") != std::string::npos);
+    ASSERT(journal.find("tool_result") == std::string::npos);
+    ASSERT(journal.find("\"user\"") == std::string::npos);
+    // The same failures are still in the session transcript.
+    const std::string transcript = read_all(dir + "/transcript.jsonl");
+    ASSERT(transcript.find("type_error.302") != std::string::npos);
+    ASSERT(transcript.find("tool_result") != std::string::npos);
+    run_cmd("rm -rf " + dir);
+}
+
+// The journal is a window on what just went wrong, not an archive: past the
+// budget it rotates, keeping one previous file.
+TEST(error_journal_rotates_instead_of_growing) {
+    const std::string dir = "/tmp/amber_error_journal_rotate";
+    run_cmd("rm -rf " + dir);
+    std::filesystem::create_directories(dir);
+
+    agent::ConversationLog log;
+    log.open(dir + "/transcript.jsonl");
+    log.open_errors(dir + "/errors.jsonl");
+    const std::string payload(512, 'x');
+    for (int i = 0; i < 2300; ++i)
+        log.event("error", {{"reason", "wall_clock_exceeded"}, {"error", payload}});
+
+    ASSERT(std::filesystem::exists(dir + "/errors.jsonl"));
+    ASSERT(std::filesystem::exists(dir + "/errors.jsonl.1"));
+    // Neither file is left unbounded: the live one is under the budget.
+    ASSERT(std::filesystem::file_size(dir + "/errors.jsonl") < 1024 * 1024);
+    run_cmd("rm -rf " + dir);
+}
+
 TEST(skill_install_rejects_malformed_skill) {
     std::string base = "/tmp/amber_skill_install";
     run_cmd("rm -rf " + base);
@@ -8108,5 +8408,35 @@ TEST(workspace_config_never_overrides_a_selected_provider) {
     agent::Config bare;
     bare.load_workspace_defaults(path);
     ASSERT_EQ(bare.api_base, "http://127.0.0.1:8081/v1");
+    std::remove(path.c_str());
+}
+
+// A workspace file can configure how amber behaves, never where it writes its
+// diagnostics: a cloned repository must not be able to point the transcript or
+// the HTTP dump at a file amber then appends to or truncates. The operator's
+// own path (env/global config) survives the workspace load.
+TEST(workspace_config_cannot_choose_diagnostic_output_paths) {
+    const std::string path = "/tmp/amber_workspace_sinks.conf";
+    {
+        std::ofstream f(path);
+        f << "log_path=/tmp/hijacked-transcript.jsonl\n";
+        f << "debug_log=/tmp/hijacked-http.log\n";
+        f << "temperature=0.9\n";
+    }
+
+    agent::Config cfg;
+    cfg.log_path = "/tmp/operator-transcript.jsonl";
+    cfg.debug_log = "/tmp/operator-http.log";
+    cfg.load_workspace_defaults(path);
+    ASSERT_EQ(cfg.log_path, "/tmp/operator-transcript.jsonl");
+    ASSERT_EQ(cfg.debug_log, "/tmp/operator-http.log");
+    // Everything else in the file still applies.
+    ASSERT_EQ(cfg.temperature, 0.9);
+
+    // With no operator path, the workspace still cannot install one.
+    agent::Config bare;
+    bare.load_workspace_defaults(path);
+    ASSERT_TRUE(bare.log_path.empty());
+    ASSERT_TRUE(bare.debug_log.empty());
     std::remove(path.c_str());
 }

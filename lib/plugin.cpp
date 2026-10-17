@@ -24,6 +24,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <curl/curl.h>
+#include "agent/json_read.h"
 
 namespace agent {
 
@@ -251,7 +252,7 @@ bool PluginManager::plugin_info_at(const std::string& dir, PluginInfo& out) {
         return true;
     }
     info.version = info.manifest.version;
-    if (state_.contains(id) && state_[id].value("enabled", false))
+    if (state_.contains(id) && read_bool(state_[id], "enabled", false))
         info.state = PluginState::Enabled;
     if (state_.contains(id) && state_[id].contains("settings"))
         info.settings = state_[id]["settings"];
@@ -372,6 +373,10 @@ bool PluginManager::spawn_child(PluginInfo& info, Session& s) {
     s.pid = pid;
     s.in_fd = to_child[1];
     s.out_fd = from_child[0];
+    // A plugin that exits between requests leaves its stdin closed. Without
+    // this, the very next write kills the whole host via SIGPIPE instead of
+    // failing that one call.
+    std::signal(SIGPIPE, SIG_IGN);
     return true;
 }
 
@@ -414,7 +419,7 @@ bool PluginManager::read_initialize_reply(PluginInfo& info, Session& s) {
     const std::string resp_line = s.in_buf.substr(0, nl);
     s.in_buf.erase(0, nl + 1);
     const json resp = json::parse(resp_line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result") || !resp["result"].value("ok", false))
+    if (resp.is_discarded() || !resp.contains("result") || !read_bool(resp["result"], "ok", false))
         return fail_handshake(info, s, "initialize rejected");
     return true;
 }
@@ -512,10 +517,10 @@ ToolResult PluginManager::read_call_reply(Session& s) {
         return {false, "", "malformed plugin response"};
     const json& r = resp["result"];
     ToolResult out;
-    out.ok = r.value("ok", false);
-    out.output = r.value("output", std::string());
+    out.ok = read_bool(r, "ok", false);
+    out.output = read_string(r, "output", "");
     if (!out.ok && out.output.empty())
-        out.output = r.value("error", std::string());
+        out.output = read_string(r, "error", "");
     if (r.contains("meta"))
         out.meta = r["meta"];
     return out;

@@ -228,6 +228,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_docs_test.o \
                $(BUILD_DIR)/tests/plugin_commands_test.o \
                $(BUILD_DIR)/tests/search_backends_test.o \
+               $(BUILD_DIR)/tests/json_read_test.o \
                $(BUILD_DIR)/tests/model_picker_test.o \
                $(BUILD_DIR)/tests/bracket_paste_test.o \
                $(BUILD_DIR)/tests/provider_repro_test.o \

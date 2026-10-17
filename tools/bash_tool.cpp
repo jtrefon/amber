@@ -6,6 +6,7 @@
 #include "agent/job.h"
 #include "agent/shell_classify.h" // approval classification for the gate
 #include "agent/run_scope.h"      // run_cancelled: the calling agent's token
+#include "agent/json_read.h"
 
 #include <algorithm>
 #include <array>
@@ -88,7 +89,7 @@ bool parse_bash_args(const json& a, std::string& command, int& timeout, ToolResu
         return false;
     }
     command = a["command"].get<std::string>();
-    timeout = static_cast<int>(a.value("timeout", 60));
+    timeout = static_cast<int>(read_int(a, "timeout", 60));
     timeout = std::max(1, std::min(timeout, kMaxTimeout));
     return true;
 }
@@ -135,7 +136,10 @@ void format_result(std::string output, bool timed_out, int code, int timeout, lo
         r.ok = false;
         r.error = "timed out after " + std::to_string(timeout) + "s";
         r.output = out.str();
-        r.meta["timeout"] = timeout;
+        // A flag, not the seconds: every reader of this key (the tool-result
+        // envelope, the bench recorder) treats it as a boolean. The seconds
+        // reach the model in the error and the output above.
+        r.meta["timeout"] = true;
         return;
     }
 

@@ -2,6 +2,7 @@
 #include "agent/mcp_client.h"
 
 #include <algorithm>
+#include "agent/json_read.h"
 
 namespace agent {
 
@@ -57,19 +58,19 @@ namespace {
 
 // Copy serverInfo and the capability flags out of the initialize result.
 void apply_server_info(const json& result, McpServerInfo& info, McpCapabilities& caps) {
-    const json si = result.value("serverInfo", json::object());
-    info.name = si.value("name", "");
-    info.title = si.value("title", "");
-    info.version = si.value("version", "");
+    const json si = read_object(result, "serverInfo");
+    info.name = read_string(si, "name", "");
+    info.title = read_string(si, "title", "");
+    info.version = read_string(si, "version", "");
 
-    const json c = result.value("capabilities", json::object());
+    const json c = read_object(result, "capabilities");
     caps.has_tools = c.contains("tools");
     caps.has_resources = c.contains("resources");
     caps.has_prompts = c.contains("prompts");
     caps.has_logging = c.contains("logging");
-    caps.tools_list_changed = c.value("tools", json::object()).value("listChanged", false);
-    caps.resources_list_changed = c.value("resources", json::object()).value("listChanged", false);
-    caps.prompts_list_changed = c.value("prompts", json::object()).value("listChanged", false);
+    caps.tools_list_changed = read_bool(read_object(c, "tools"), "listChanged", false);
+    caps.resources_list_changed = read_bool(read_object(c, "resources"), "listChanged", false);
+    caps.prompts_list_changed = read_bool(read_object(c, "prompts"), "listChanged", false);
 }
 
 } // namespace
@@ -94,7 +95,7 @@ std::string MCPClient::do_connect() {
         return error_;
     }
     const json result = init.message->result.value_or(json::object());
-    const std::string server_version = result.value("protocolVersion", "");
+    const std::string server_version = read_string(result, "protocolVersion", "");
     if (server_version != kProtocolVersion) {
         error_ =
             "unsupported protocol version: " + (server_version.empty() ? "(none)" : server_version);
@@ -204,8 +205,8 @@ McpResult MCPClient::call_tool(const std::string& name, const json& arguments) {
     // One small copy per response, on a path that has already paid for a round trip.
     const McpMessage msg = r.message.value_or(McpMessage{});
     const json result = msg.result.value_or(json::object());
-    out.ok = !result.value("isError", false);
-    out.text = mcp_flatten_content(result.value("content", json::array()), kToolCap);
+    out.ok = !read_bool(result, "isError", false);
+    out.text = mcp_flatten_content(read_array(result, "content"), kToolCap);
     if (!out.ok)
         out.error = out.text.empty() ? "tool returned isError" : out.text;
     return out;
@@ -230,7 +231,7 @@ McpResult MCPClient::read_resource(const std::string& uri) {
     }
     const McpMessage msg = r.message.value_or(McpMessage{});
     json result = msg.result.value_or(json::object());
-    out.text = mcp_flatten_content(result.value("contents", json::array()), kResourceCap);
+    out.text = mcp_flatten_content(read_array(result, "contents"), kResourceCap);
     return out;
 }
 
@@ -239,9 +240,9 @@ namespace {
 // Flatten a prompts/get result into "role: text" lines, capped.
 std::string flatten_prompt_messages(const json& result) {
     std::string flat;
-    for (const auto& m : result.value("messages", json::array())) {
-        const std::string role = m.value("role", "user");
-        const std::string text = m.value("content", json::object()).value("text", "");
+    for (const auto& m : read_array(result, "messages")) {
+        const std::string role = read_string(m, "role", "user");
+        const std::string text = read_string(read_object(m, "content"), "text", "");
         std::string line = role;
         line += ": ";
         line += text;
@@ -291,12 +292,12 @@ std::string MCPClient::discover_tools() {
         if (r.message->error)
             return r.message->error->to_text();
         json result = r.message->result.value_or(json::object());
-        for (const auto& t : result.value("tools", json::array())) {
+        for (const auto& t : read_array(result, "tools")) {
             McpToolDef def;
-            def.name = t.value("name", "");
-            def.title = t.value("title", "");
-            def.description = t.value("description", "");
-            def.input_schema = t.value("inputSchema", json::object());
+            def.name = read_string(t, "name", "");
+            def.title = read_string(t, "title", "");
+            def.description = read_string(t, "description", "");
+            def.input_schema = read_object(t, "inputSchema");
             if (!def.name.empty())
                 tools_.push_back(std::move(def));
         }
@@ -324,12 +325,12 @@ std::string MCPClient::discover_resources() {
         if (r.message->error)
             return r.message->error->to_text();
         json result = r.message->result.value_or(json::object());
-        for (const auto& res : result.value("resources", json::array())) {
+        for (const auto& res : read_array(result, "resources")) {
             McpResourceDef def;
-            def.uri = res.value("uri", "");
-            def.name = res.value("name", "");
-            def.description = res.value("description", "");
-            def.mime_type = res.value("mimeType", "");
+            def.uri = read_string(res, "uri", "");
+            def.name = read_string(res, "name", "");
+            def.description = read_string(res, "description", "");
+            def.mime_type = read_string(res, "mimeType", "");
             if (!def.uri.empty())
                 resources_.push_back(std::move(def));
         }
@@ -346,12 +347,12 @@ namespace {
 // of its required arguments.
 McpPromptDef prompt_def_from(const json& p) {
     McpPromptDef def;
-    def.name = p.value("name", "");
-    def.title = p.value("title", "");
-    def.description = p.value("description", "");
-    for (const auto& a : p.value("arguments", json::array()))
-        if (a.value("required", false))
-            def.required_args.push_back(a.value("name", ""));
+    def.name = read_string(p, "name", "");
+    def.title = read_string(p, "title", "");
+    def.description = read_string(p, "description", "");
+    for (const auto& a : read_array(p, "arguments"))
+        if (read_bool(a, "required", false))
+            def.required_args.push_back(read_string(a, "name", ""));
     return def;
 }
 
@@ -419,30 +420,30 @@ std::string binary_note(const std::string& kind, const std::string& mime, size_t
 }
 
 void flatten_text(const json& block, std::string& out, size_t cap) {
-    append_capped(out, block.value("text", ""), cap);
+    append_capped(out, read_string(block, "text", ""), cap);
 }
 
 void flatten_resource(const json& block, std::string& out, size_t cap) {
-    const json res = block.value("resource", json::object());
-    const std::string text = res.value("text", "");
-    const std::string uri = res.value("uri", "");
+    const json res = read_object(block, "resource");
+    const std::string text = read_string(res, "text", "");
+    const std::string uri = read_string(res, "uri", "");
     append_capped(out, uri.empty() ? "[embedded resource]\n" : "[resource: " + uri + "]\n", cap);
     if (!text.empty())
         append_capped(out, text, cap);
 }
 
 void flatten_binary(const json& block, const std::string& type, std::string& out, size_t cap) {
-    const std::string mime = block.value("mimeType", type);
-    const std::string data = block.value("data", "");
+    const std::string mime = read_string(block, "mimeType", type.c_str());
+    const std::string data = read_string(block, "data", "");
     append_capped(out, binary_note(type, mime, data.size()), cap);
 }
 
 void flatten_resource_link(const json& block, std::string& out, size_t cap) {
-    append_capped(out, "[resource link: " + block.value("uri", "") + "]\n", cap);
+    append_capped(out, "[resource link: " + read_string(block, "uri", "") + "]\n", cap);
 }
 
 void flatten_blob(const json& block, std::string& out, size_t cap) {
-    const std::string data = block.value("blob", "");
+    const std::string data = read_string(block, "blob", "");
     append_capped(out, "[binary resource, " + std::to_string(data.size()) + " bytes]\n", cap);
 }
 
@@ -476,7 +477,7 @@ std::string mcp_flatten_content(const json& content, size_t cap_bytes) {
     for (const auto& block : content) {
         if (!block.is_object())
             continue;
-        const std::string type = block.value("type", "");
+        const std::string type = read_string(block, "type", "");
         if (type.empty())
             flatten_untyped(block, out, cap_bytes);
         else

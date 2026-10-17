@@ -2,6 +2,7 @@
 #include "agent/dialect_openai.h"
 
 #include "agent/agent_helpers.h"
+#include "agent/json_read.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -181,6 +182,23 @@ std::string str_or_raw(const json& j, const char* key, const std::string& d) {
     // Non-string content: keep it as JSON text rather than throwing, so the
     // pipeline can feed it back to the model instead of crashing.
     return it->dump();
+}
+
+// An output-parameter rejection is not an overflow statement: the prompt fit,
+// the completion budget did not, and no window can be inferred from a request
+// that was refused for asking too much. A body of the hybrid shape quotes a
+// window ("... maximum context length is 8192 tokens") while rejecting
+// max_tokens; believing that number would teach the gate and the gauge a window
+// the provider never said the prompt outgrew.
+bool is_completion_budget_rejection(const std::string& body) {
+    const json parsed = json::parse(body, nullptr, false);
+    if (!parsed.is_discarded() && parsed.is_object()) {
+        const json err =
+            parsed.contains("error") && parsed["error"].is_object() ? parsed["error"] : parsed;
+        if (read_string(err, "param", "") == "max_tokens")
+            return true;
+    }
+    return body.find("max_tokens is too large") != std::string::npos;
 }
 
 // Try to extract context_size from an HTTP 400 error body.
@@ -530,6 +548,8 @@ public:
     }
 
     int context_overflow_hint(const std::string& error_body) const override {
+        if (is_completion_budget_rejection(error_body))
+            return 0;
         return parse_context_size_from_error(error_body);
     }
 

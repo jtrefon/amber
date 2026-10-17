@@ -2,6 +2,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
+#include "agent/json_read.h"
 #include <array>
 #include <fstream>
 #include <optional>
@@ -35,8 +36,8 @@ std::optional<std::string> confined_read_path(const json& a, ToolResult& r) {
 // ceiling: a single call must never pull tens of thousands of lines into the
 // conversation (binary/generated files).
 std::pair<long, long> clamped_range(const json& a) {
-    const long offset = std::max(1L, a.value("offset", 1L));
-    const long limit = std::min(2000L, std::max(1L, a.value("limit", 200L)));
+    const long offset = std::max(1L, static_cast<long>(read_int(a, "offset", 1)));
+    const long limit = std::min(2000L, std::max(1L, static_cast<long>(read_int(a, "limit", 200))));
     return {offset, limit};
 }
 

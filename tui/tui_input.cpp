@@ -933,6 +933,7 @@ void SlashDispatcher::register_set_engine_actions() {
                     [this](const std::string& v) { cmd_set_worktree(v); });
     register_action("core.config.set.detection.duplicate",
                     [this](const std::string& v) { cmd_set_detection_toggle("duplicate", v); });
+    register_action("core.config.set.debug", [this](const std::string& v) { set_debug(v); });
     register_action("core.config.set.subagent.parallel",
                     [this](const std::string& v) { cmd_set_subagent_parallel(v); });
     register_action("core.config.set.subagent.max",
@@ -1112,6 +1113,7 @@ void SlashDispatcher::register_readout_actions() {
     register_action("core.config.get.worktree", [this](const std::string&) { cmd_get_worktree(); });
     register_action("core.config.get.detection.duplicate",
                     [this](const std::string&) { cmd_get_detection("duplicate"); });
+    register_action("core.config.get.debug", [this](const std::string&) { show_debug_status(); });
     register_action("core.config.get.subagent", [this](const std::string&) { cmd_get_subagent(); });
 }
 
@@ -2823,6 +2825,7 @@ void SlashDispatcher::add_setting(const std::string& key, const std::string& hel
 void SlashDispatcher::build_settings() {
     tui_.settings_ = tui::SettingRegistry{};
     add_detection_settings();
+    add_debug_settings();
     add_reasoning_settings();
     add_subagent_settings();
     add_display_settings();
@@ -2848,6 +2851,29 @@ void SlashDispatcher::add_detection_settings() {
             tui_.cfg_.detection_duplicate = parse_toggle(v, tui_.cfg_.detection_duplicate);
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
+}
+
+// Diagnostics are opt-in: with the switch off nothing is written and every
+// diagnostic path costs one bool test. Turning it on mid-session opens the
+// journal for the running agent, so the next failure is recorded.
+void SlashDispatcher::set_debug(const std::string& val) {
+    tui_.cfg_.debug = parse_toggle(val, tui_.cfg_.debug);
+    tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+    if (tui_.cfg_.debug && tui_.win().agent)
+        tui_.win().agent->log().open_errors(agent::error_log_path());
+    show_debug_status();
+}
+
+void SlashDispatcher::show_debug_status() {
+    tui_.append_line(P_STATUS, "diagnostics: " + std::string(tui_.cfg_.debug ? "on" : "off") +
+                                   "  —  " + agent::error_log_path());
+}
+
+void SlashDispatcher::add_debug_settings() {
+    add_setting(
+        "debug", "Diagnostics log (errors, raw HTTP)", "<on|off|toggle>", Setting::Choice, 0, 0,
+        [this]() { return tui_.cfg_.debug ? "on" : "off"; },
+        [this](const std::string& v) { set_debug(v); });
 }
 
 void SlashDispatcher::add_reasoning_settings() {

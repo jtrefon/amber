@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include "agent/workspace.h"
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
@@ -202,6 +203,8 @@ void apply_logging_keys(Config& c, const std::string& key, const std::string& va
         c.log_path = val;
     else if (key == "debug_log")
         c.debug_log = val;
+    else if (key == "debug")
+        c.debug = parse_bool(val);
 }
 } // namespace
 
@@ -232,7 +235,16 @@ void Config::load_workspace_defaults(const std::string& path) {
     // selection says requests go. Snapshot it across the load.
     const bool from_provider = api_base_from_provider;
     const std::string endpoint = api_base;
+    // Diagnostic OUTPUT paths are the operator's, not a repository's: a cloned
+    // workspace's amber.conf must not be able to point the transcript or the
+    // HTTP dump at a file amber would then append to or truncate (debug_log
+    // truncates on its first write). $XDG_*/env, the global config and /set own
+    // them; only this load is restricted, so those still work.
+    const std::string operator_log_path = log_path;
+    const std::string operator_debug_log = debug_log;
     load(path);
+    log_path = operator_log_path;
+    debug_log = operator_debug_log;
     if (from_provider)
         api_base = endpoint;
 }
@@ -380,6 +392,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "git_prompt=" << git_prompt_path << "\n";
     f << "log_path=" << log_path << "\n";
     f << "debug_log=" << debug_log << "\n";
+    f << "debug=" << (debug ? 1 : 0) << "\n";
     f << "policy_approval=" << (policy_approval ? 1 : 0) << "\n";
     f << "detection_loop=" << (detection_loop ? 1 : 0) << "\n";
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
@@ -429,6 +442,7 @@ void Config::apply_environment() {
     env_string("AMBER_THINKING", thinking);
     env_string("AMBER_LOG", log_path);
     env_string("AMBER_DEBUG", debug_log);
+    debug = env_flag("AMBER_DEBUG_ON", debug);
     env_string("AMBER_REASONING", reasoning_effort);
 
     stream = env_flag("AMBER_STREAM", stream);
@@ -442,6 +456,14 @@ void Config::apply_environment() {
         context_size = std::atoi(cs);
         context_explicit = true;
     }
+}
+
+std::string Config::debug_dump_path() const {
+    if (!debug_log.empty())
+        return debug_log;
+    if (!debug)
+        return "";
+    return Workspace::state_dir() + "/logs/debug-{ts}.log";
 }
 
 std::vector<std::string> Config::validate() const {

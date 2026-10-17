@@ -1124,6 +1124,45 @@ TEST(get_model_list_reports_why_the_catalogue_is_empty) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// ── diagnostics are opt-in, and toggling them shows where they land ──
+//
+// /set debug on is not just a config write: the journal has to exist so it can
+// be tailed while reproducing a failure, /get debug has to say where it is, and
+// off has to be the default that writes nothing.
+TEST(set_debug_toggles_the_error_journal) {
+    Tui tui;
+    tui.name = "set_debug_toggles_the_error_journal";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/get debug\r");
+    if (!require(tui.wait_for("diagnostics: off", 10000), "diagnostics are not off by default",
+                 tui))
+        return;
+
+    tui.send("/set debug on\r");
+    if (!require(tui.wait_for("diagnostics: on", 10000), "/set debug on did not take effect", tui))
+        return;
+    const std::string shown = tui.text();
+    require(shown.find("errors.jsonl") != std::string::npos,
+            "the readout does not name the journal", tui);
+
+    // The journal is created where /get config paths says it lives, under the
+    // per-project state root, so it can be watched while a failure reproduces.
+    bool created = false;
+    std::error_code ec;
+    const fs::path projects = fs::path(fixture().workspace) / "state/amber/projects";
+    for (const auto& entry : fs::directory_iterator(projects, ec)) {
+        if (fs::exists(entry.path() / "logs/errors.jsonl", ec))
+            created = true;
+    }
+    require(created, "the journal was not created under the state dir", tui);
+
+    tui.send("/set debug off\r");
+    require(tui.wait_for("diagnostics: off", 10000), "/set debug off did not take effect", tui);
+}
+
 // ── amber knows where its own files are ──
 //
 // The agent had no way to answer "where does amber keep X?": nothing in the
@@ -1350,6 +1389,7 @@ int main(int argc, char** argv) {
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     get_config_paths_prints_the_resolved_layout();
+    set_debug_toggles_the_error_journal();
     system_commands_do_not_freeze_the_ui();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();

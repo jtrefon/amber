@@ -3,6 +3,7 @@
 
 #include <chrono>
 
+#include "agent/json_read.h"
 #include "agent/workspace.h"
 
 namespace bench {
@@ -94,8 +95,8 @@ void Recorder::on_tool_result(const std::string& name, const agent::ToolResult& 
     e.ok = res.ok;
     e.error = res.error;
     if (res.meta.is_object()) {
-        e.denied = res.meta.value("denied", false);
-        e.timeout = res.meta.value("timeout", false);
+        e.denied = agent::read_bool(res.meta, "denied", false);
+        e.timeout = agent::read_bool(res.meta, "timeout", false);
     }
     for (auto it = pending_.begin(); it != pending_.end(); ++it) {
         if (it->name != name)

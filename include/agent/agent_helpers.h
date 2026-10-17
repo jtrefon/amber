@@ -94,6 +94,11 @@ Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::deque<Message>& history);
 
+// Build the message the harness hands the model when folding a reply into the
+// turn failed (dispatch, a tool envelope, a host callback): the model must know
+// what broke so it can adapt, and the conversation must stay valid.
+std::string internal_failure_reply(const std::string& what);
+
 // Format a tool result into the standard immutable envelope. Every tool output
 // follows the exact same form regardless of status:
 //
