@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -2433,4 +2434,52 @@ TEST(agent_loop_cancel_reaches_in_flight_tool) {
     canceller.join();
 
     ASSERT(p->observed.load());
+}
+
+// Folding a reply into the turn is where dispatch, the tool envelope and the
+// host callbacks run. A failure there is not a chat failure, so it had no
+// recovery path: it escaped Agent::run(), the turn died with an empty reply and
+// no record. The turn must survive it — reported, seen by the model, and with
+// every tool_call still answered so the next request stays valid.
+TEST(agent_loop_internal_failure_is_recovered) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "read", {{"path", "Makefile"}});
+    push_text(*fake, "carried on");
+    push_text(*fake, "done");
+
+    bool reported = false;
+    agent::AgentHooks hooks;
+    hooks.on_status = [&](const std::string& s) {
+        if (s.find("recovered") != std::string::npos)
+            reported = true;
+    };
+    hooks.on_tool_result = [](const std::string&, const agent::ToolResult&, const agent::json&) {
+        throw std::runtime_error("host callback exploded");
+    };
+    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
+
+    ASSERT_EQ(ag.run("read the Makefile"), std::string("carried on"));
+    ASSERT(reported);
+    // The model was told what broke, and the turn continued on its next reply.
+    bool saw_notice = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.content.find("host callback exploded") != std::string::npos)
+            saw_notice = true;
+    ASSERT(saw_notice);
+    ASSERT(raw->requests.size() >= 2u);
+    // The tool call the failure swallowed is still answered: a tool_call with no
+    // tool message is an invalid request and poisons every later turn.
+    std::size_t asked = 0, answered = 0;
+    for (const auto& m : raw->requests[1]) {
+        if (m.role == "assistant" && m.tool_calls.is_array())
+            asked += m.tool_calls.size();
+        if (m.role == "tool")
+            ++answered;
+    }
+    ASSERT_EQ(asked, answered);
 }

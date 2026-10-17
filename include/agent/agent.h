@@ -128,6 +128,7 @@ public:
         int loop_count = 0;
         int text_loop_count = 0;
         int tool_recovery_attempts = 0;
+        int internal_failures = 0;
         std::string last_loop_key;
         std::string last_text;
         std::string final_reply;
@@ -152,6 +153,11 @@ public:
     // Context from previous turns is retained (the agent is stateful). Returns
     // the final assistant reply text.
     std::string run(const std::string& user_prompt);
+
+    // The turn's diagnostics sink. The host records the failures that escape
+    // run() — they never reach a recovery path inside the agent — through the
+    // same journal the agent writes.
+    ConversationLog& log() noexcept { return log_; }
 
     // Read-only access to the conversation context stack.
     // Used by UIs to persist a session.
@@ -342,6 +348,7 @@ private:
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
+
     TurnState make_turn_state() const;
     void open_turn(const std::string& user_prompt);
     bool fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before);
@@ -359,6 +366,20 @@ private:
     bool turn_budget_exceeded(TurnState& st);
     bool advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
                       Message& reply);
+
+    // advance_turn under a recovery guard: a failure raised while folding a
+    // reply into the turn (dispatch, tool envelopes, host callbacks) is
+    // reported and survived instead of escaping run() and killing the turn.
+    bool fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools, Message& reply);
+
+    // Fold a non-chat failure into the turn: log it, tell the host, hand the
+    // model a message it can act on, and answer any tool_call the failure
+    // swallowed. Returns true when the loop must stop instead.
+    bool recover_internal_failure(TurnState& st, const std::string& what);
+
+    // A tool_call with no tool response is an invalid request and poisons every
+    // later turn; a swallowed dispatch failure leaves one behind.
+    void answer_orphan_tool_calls(const std::string& what);
 
     // Hooks with the display callbacks removed, for silent internal exchanges.
     const AgentHooks& silent_hooks() const;

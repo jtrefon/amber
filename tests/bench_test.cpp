@@ -465,9 +465,16 @@ TEST(recorder_denied_and_timeout_flags) {
     hooks.on_tool_result("read",
                          agent::ToolResult{false, "", "timeout", agent::json{{"timeout", true}}},
                          agent::json::object());
-    ASSERT_EQ(rec.stream().tools.size(), 2u);
+    // The spellings a legacy or third-party tool emits: a numeric flag must be
+    // adopted, not thrown — this read is what used to kill a bench run.
+    hooks.on_tool_call("bash", {{"command", "make test"}});
+    hooks.on_tool_result(
+        "bash", agent::ToolResult{false, "", "timed out after 60s", agent::json{{"timeout", 60}}},
+        agent::json::object());
+    ASSERT_EQ(rec.stream().tools.size(), 3u);
     ASSERT(rec.stream().tools[0].denied);
     ASSERT(rec.stream().tools[1].timeout);
+    ASSERT(rec.stream().tools[2].timeout);
 }
 
 TEST(recorder_counts_workspace_cd_prefix) {

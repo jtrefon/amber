@@ -85,7 +85,7 @@ void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& pay
     curl_easy_getinfo(c.get(), CURLINFO_STARTTRANSFER_TIME, &ttfb);
     curl_easy_getinfo(c.get(), CURLINFO_TOTAL_TIME, &total);
     if (rc != CURLE_OK) {
-        debug_log(cfg.debug_log, debug_tag, std::string(curl_easy_strerror(rc)));
+        debug_log(cfg.debug_dump_path(), debug_tag, std::string(curl_easy_strerror(rc)));
         if (cfg.cancel_token.is_requested())
             throw CancelledError("request cancelled by user");
         throw std::runtime_error(std::string("curl error: ") + curl_easy_strerror(rc));

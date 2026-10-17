@@ -4,6 +4,7 @@
 #include "agent/dialect.h"
 #include "http_transport.h"
 #include "agent/model_probe.h"
+#include "agent/context.h"
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -36,6 +37,23 @@ private:
     const int before_;
     int& learned_;
 };
+
+// The completion budget is counted against the SAME window as the prompt: a
+// max_tokens carried over from a bigger endpoint pushes an otherwise-fitting
+// request over a smaller provider's limit (llama.cpp's own overflow 400 says
+// so). Fit the ask to the window the request is actually going to; with no
+// known window the configured ask stands.
+Config fit_completion_budget(const Config& cfg, const std::vector<Message>& messages) {
+    if (cfg.context_size <= 0)
+        return cfg;
+    const long room =
+        static_cast<long>(cfg.context_size) - static_cast<long>(estimate_tokens(messages));
+    if (room >= static_cast<long>(cfg.max_tokens))
+        return cfg;
+    Config fitted = cfg;
+    fitted.max_tokens = static_cast<size_t>(std::max(1L, room));
+    return fitted;
+}
 
 // Resolve the wire protocol: an explicit dialect wins, otherwise the configured
 // flavor picks one. A flavor whose provider plugin is switched off refuses here,
@@ -72,16 +90,17 @@ ServerInfo HttpLLMClient::probe_server() const {
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
                             const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
-    json body = dialect_->build_chat_body(cfg_, messages, tools, false);
+    json body =
+        dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages, tools, false);
     // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
     // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
     std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
-    debug_log(cfg_.debug_log, "request", payload);
+    debug_log(cfg_.debug_dump_path(), "request", payload);
 
     double ttfb = 0, total = 0;
     LearnedWindowCapture learned_window(cfg_, learned_);
     std::string response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
-    debug_log(cfg_.debug_log, "response", response);
+    debug_log(cfg_.debug_dump_path(), "response", response);
 
     Message out = dialect_->parse_completion(response);
     if (stats)
@@ -93,18 +112,19 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
                                    const std::vector<std::shared_ptr<Tool>>& tools,
                                    const std::function<void(const StreamChunk&)>& on_chunk,
                                    Stats* stats) {
-    json body = dialect_->build_chat_body(cfg_, messages, tools, true);
+    json body =
+        dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages, tools, true);
     std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
-    debug_log(cfg_.debug_log, "request-stream", payload);
+    debug_log(cfg_.debug_dump_path(), "request-stream", payload);
 
     Message out;
     out.role = "assistant";
-    auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_log);
+    auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_dump_path());
 
     long status = 0;
     LearnedWindowCapture learned_window(cfg_, learned_);
     stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
-    debug_log(cfg_.debug_log, "response-stream",
+    debug_log(cfg_.debug_dump_path(), "response-stream",
               "http=" + std::to_string(status) + " content=" + out.content + "\n---reasoning---\n" +
                   out.reasoning);
 
@@ -125,7 +145,7 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
             }
         }
         if (!valid) {
-            debug_log(cfg_.debug_log, "response-stream", "discarding malformed tool calls");
+            debug_log(cfg_.debug_dump_path(), "response-stream", "discarding malformed tool calls");
             out.tool_calls = json::value_t::null;
         }
     }

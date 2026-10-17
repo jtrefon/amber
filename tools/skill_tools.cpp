@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include "agent/json_read.h"
 #include "agent/run_scope.h"
 #include "agent/skill_catalog.h"
 #include "agent/tool.h"
@@ -189,8 +190,8 @@ public:
     }
 
     ToolResult execute(const json& a) const override {
-        const std::string name_filter = a.value("name", "");
-        const std::string origin_filter = a.value("origin", "");
+        const std::string name_filter = read_string(a, "name", "");
+        const std::string origin_filter = read_string(a, "origin", "");
         if (!origin_filter.empty() && !named_origin(origin_filter)) {
             ToolResult r;
             r.ok = false;
@@ -240,15 +241,15 @@ public:
     }
 
     std::string summarize(const json& a) const override {
-        return "write skill '" + a.value("name", "?") + "' to " + a.value("scope", "project") +
-               " scope";
+        return "write skill '" + read_string(a, "name", "?") + "' to " +
+               read_string(a, "scope", "project") + " scope";
     }
 
     ToolResult execute(const json& a) const override {
-        std::string name = a.value("name", "");
-        std::string description = a.value("description", "");
-        std::string body = a.value("body", "");
-        std::string scope = a.value("scope", "project");
+        std::string name = read_string(a, "name", "");
+        std::string description = read_string(a, "description", "");
+        std::string body = read_string(a, "body", "");
+        std::string scope = read_string(a, "scope", "project");
         SkillCatalog* catalog = session_catalog();
         if (!catalog) {
             ToolResult r;

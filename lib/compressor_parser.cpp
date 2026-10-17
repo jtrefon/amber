@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <sstream>
 
+#include "agent/json_read.h"
+
 namespace agent {
 
 namespace {
@@ -90,23 +92,28 @@ void parse_turn_range(const std::string& turns, ClassifiedSegment& cs) {
 
 ClassifiedSegment parse_segment(const json& seg) {
     ClassifiedSegment cs;
-    cs.tag = tag_from_string(seg.value("tag", "context"));
-    cs.summary = seg.value("summary", "");
-    parse_turn_range(seg.value("turns", "0-0"), cs);
+    if (!seg.is_object())
+        return cs;
+    cs.tag = tag_from_string(read_string(seg, "tag", "context"));
+    cs.summary = read_string(seg, "summary", "");
+    parse_turn_range(read_string(seg, "turns", "0-0"), cs);
     return cs;
 }
 
 // A memory or skill op. `is_skill` adds the trigger phrase.
 KnowledgeOp parse_knowledge_op(const json& obj, bool is_skill) {
     KnowledgeOp op;
-    op.name = obj.value("name", "");
-    op.content = obj.value("content", "");
-    op.action = obj.value("action", "upsert");
+    if (!obj.is_object())
+        return op;
+    op.name = read_string(obj, "name", "");
+    op.content = read_string(obj, "content", "");
+    op.action = read_string(obj, "action", "upsert");
     if (is_skill)
-        op.trigger_phrase = obj.value("trigger_phrase", "");
+        op.trigger_phrase = read_string(obj, "trigger_phrase", "");
     if (obj.contains("tags") && obj["tags"].is_array())
         for (const auto& t : obj["tags"])
-            op.tags.push_back(t.get<std::string>());
+            if (t.is_string())
+                op.tags.push_back(t.get<std::string>());
     return op;
 }
 
@@ -136,10 +143,10 @@ std::vector<std::string> string_list(const json& obj, const char* key) {
 // memories/skills — the store retains its last good state). Returns false when
 // every field is empty, which means there is nothing to store.
 bool parse_brief(const json& b, SessionBrief& brief) {
-    brief.intent = b.value("intent", "");
-    brief.direction = b.value("direction", "");
-    brief.earlier = b.value("earlier", "");
-    brief.next = b.value("next", "");
+    brief.intent = read_string(b, "intent", "");
+    brief.direction = read_string(b, "direction", "");
+    brief.earlier = read_string(b, "earlier", "");
+    brief.next = read_string(b, "next", "");
     brief.done = string_list(b, "done");
     brief.avoid = string_list(b, "avoid");
     return !brief.intent.empty() || !brief.direction.empty() || !brief.done.empty() ||

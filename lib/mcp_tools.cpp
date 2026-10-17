@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cctype>
 
+#include "agent/json_read.h"
+
 namespace agent {
 
 namespace {
@@ -141,13 +143,14 @@ public:
     }
 
     std::string summarize(const json& a) const override {
-        return "mcp read_resource: " + a.value("uri", "?") + " from " + a.value("server", "?");
+        return "mcp read_resource: " + read_string(a, "uri", "?") + " from " +
+               read_string(a, "server", "?");
     }
 
     ToolResult execute(const json& a) const override {
         ToolResult out;
-        std::string server = a.value("server", "");
-        std::string uri = a.value("uri", "");
+        std::string server = read_string(a, "server", "");
+        std::string uri = read_string(a, "uri", "");
         if (server.empty() || uri.empty()) {
             out.ok = false;
             out.error = "missing 'server' or 'uri'";

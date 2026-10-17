@@ -16,6 +16,10 @@ ConfigPath row(std::string what, std::string path, std::string note) {
 
 } // namespace
 
+std::string error_log_path() {
+    return Workspace::state_dir() + "/logs/errors.jsonl";
+}
+
 std::vector<ConfigPath> config_paths() {
     const std::string config = global_config_dir();
     const std::string state = Workspace::state_dir();
@@ -50,6 +54,8 @@ std::vector<ConfigPath> config_paths() {
     out.push_back(row("settings", state + "/settings",
                       "project-local non-LLM settings (temperature, prompts, compression)"));
     out.push_back(row("logs", state + "/logs", "per-session transcripts"));
+    out.push_back(row("errors", error_log_path(),
+                      "app failures and recovered errors; written only with /set debug on"));
     out.push_back(
         row("experience", state + "/experience.json", "memories and learned skills (/get learn)"));
     out.push_back(row("policy", state + "/policy.json", "remembered approval rules (/set policy)"));

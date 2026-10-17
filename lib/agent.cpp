@@ -1,6 +1,8 @@
 
 #include "agent/agent.h"
+#include "agent/config_paths.h"
 #include "agent/environment.h"
+#include "agent/json_read.h"
 #include "agent/plugin.h"
 #include "agent/prompt.h"
 #include "agent/subagent.h"
@@ -16,12 +18,20 @@
 
 #include <algorithm>
 #include <chrono>
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace agent {
 
 namespace {
+
+// How many times one turn survives a failure raised while folding a reply in
+// (dispatch, a tool envelope, a host callback). The first is recoverable; a
+// repeat means the run cannot make progress, so it stops with a clear reason
+// instead of burning the iteration budget.
+constexpr int kMaxInternalFailures = 2;
 
 // Append a Markdown section to the system prompt. Files carry a trailing
 // newline and the separator is two of them, so the section is trimmed before it
@@ -105,8 +115,15 @@ void Agent::publish_config() {
 void Agent::set_model(const std::string& model, int window) {
     cfg_.model = model;
     cfg_.model_explicit = true;
-    if (window > 0)
+    if (window > 0) {
+        // Choosing a model from the provider's catalogue IS a window choice:
+        // that model's window replaces whatever an earlier endpoint left in the
+        // config. A stale 262144 from the local server sent an otherwise-fitting
+        // request over a smaller provider's limit.
         model_windows_[model] = window;
+        cfg_.context_size = window;
+        cfg_.context_explicit = true;
+    }
     client_ = make_client(cfg_, client_factory_);
     publish_config();
 }
@@ -688,6 +705,10 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
         if (path.empty())
             path = Workspace::state_dir() + "/logs/{ts}.jsonl";
         log_.open(path);
+        // Diagnostics are opt-in: with them off there is no journal, no file,
+        // and the record path is one bool test.
+        if (cfg_.debug)
+            log_.open_errors(error_log_path());
     }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
     Message msg;
@@ -1091,6 +1112,65 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     return true;
 }
 
+bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
+                       Message& reply) {
+    try {
+        return advance_turn(st, tools, reply);
+    } catch (const CancelledError&) {
+        throw; // a deliberate stop, not a failure to recover from
+    } catch (const RequestFailedError&) {
+        throw; // the probe's escalation: the turn ends with a real error
+    } catch (const std::exception& e) {
+        return recover_internal_failure(st, e.what());
+    }
+}
+
+bool Agent::recover_internal_failure(TurnState& st, const std::string& what) {
+    ++st.internal_failures;
+    log_.event("error", {{"reason", "internal_failure"}, {"error", what}});
+    if (hooks_.on_status)
+        hooks_.on_status("internal error (recovered): " + what);
+    Message msg;
+    msg.role = "assistant";
+    msg.content = internal_failure_reply(what);
+    context_.push(std::move(msg));
+    emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
+    answer_orphan_tool_calls(what);
+    if (st.internal_failures < kMaxInternalFailures)
+        return false;
+    st.final_reply = "[stopped: repeated internal errors — " + what + "]";
+    return true;
+}
+
+void Agent::answer_orphan_tool_calls(const std::string& what) {
+    std::set<std::string> answered;
+    const json* calls = nullptr;
+    for (const auto& m : context_.get_all()) {
+        if (m.role == "tool" && !m.tool_call_id.empty())
+            answered.insert(m.tool_call_id);
+        if (m.role == "assistant" && m.tool_calls.is_array() && !m.tool_calls.empty())
+            calls = &m.tool_calls;
+    }
+    if (calls == nullptr)
+        return;
+    std::vector<std::string> missing;
+    for (const auto& call : *calls) {
+        const std::string id = read_string(call, "id", "");
+        if (!id.empty() && answered.count(id) == 0)
+            missing.push_back(id);
+    }
+    for (const auto& id : missing) {
+        Message msg;
+        msg.role = "tool";
+        msg.tool_call_id = id;
+        msg.content = "[tool call failed internally: " + what + "]";
+        context_.push(std::move(msg));
+        emit_context_event(context_events_, context_);
+        publish_message_added(context_.get_all().back());
+    }
+}
+
 // Resolve the model if the host started without one, then fire the turn's
 // opening event — before the prompt is sealed into the context, so an
 // interceptor can still rewrite what the model will see.
@@ -1152,7 +1232,7 @@ std::string Agent::run(const std::string& user_prompt) {
                 hooks_.on_status("cancelled by user");
             return finish_turn_cancelled();
         }
-        if (advance_turn(st, tools, reply))
+        if (fold_reply(st, tools, reply))
             break;
     }
     return finish_turn(std::move(st.final_reply));

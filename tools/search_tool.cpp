@@ -3,6 +3,7 @@
 #include "agent/tools.h"
 #include "agent/search_backend.h"
 #include "agent/workspace.h"
+#include "agent/json_read.h"
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -138,11 +139,11 @@ public:
         if (!path)
             return r;
 
-        const std::string req_path = a.value("path", std::string(""));
+        const std::string req_path = read_string(a, "path", "");
         const std::vector<std::string> excludes = excludes_for(req_path, *path);
-        const std::string glob = a.value("glob", std::string(""));
-        const std::string mode = a.value("mode", std::string("grep"));
-        const long max = std::max(1L, a.value("max", 200L));
+        const std::string glob = read_string(a, "glob", "");
+        const std::string mode = read_string(a, "mode", "grep");
+        const long max = std::max(1L, static_cast<long>(read_int(a, "max", 200)));
 
         // A mode that resolves to nothing fails loudly: a disabled backend
         // names the plugin and the command that re-enables it, an unknown one

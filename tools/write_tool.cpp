@@ -2,6 +2,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
+#include "agent/json_read.h"
 #include <algorithm>
 #include <fstream>
 #include <optional>
@@ -49,8 +50,8 @@ std::string read_existing(const std::string& path) {
 std::optional<size_t> apply_edits(std::string& content, const json& edits, ToolResult& r) {
     size_t applied = 0;
     for (const auto& e : edits) {
-        const std::string old_s = e.value("old", "");
-        const std::string new_s = e.value("new", "");
+        const std::string old_s = read_string(e, "old", "");
+        const std::string new_s = read_string(e, "new", "");
         if (old_s.empty()) {
             content = new_s; // full overwrite / create
             ++applied;

@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include "agent/json_read.h"
 
 namespace agent {
 namespace memory_detail {
@@ -27,7 +28,7 @@ Memory json_to_memory(const nlohmann::json& j) {
     mem.evidence_count = j.value("evidence", 0);
     mem.last_confirm_turn = j.value("last_confirm_turn", 0);
     mem.score = j.value("score", 0.0);
-    mem.promoted = j.value("promoted", false);
+    mem.promoted = read_bool(j, "promoted", false);
     return mem;
 }
 
@@ -54,7 +55,7 @@ Skill json_to_skill(const nlohmann::json& j) {
     sk.evidence_count = j.value("evidence", 0);
     sk.last_confirm_turn = j.value("last_confirm_turn", 0);
     sk.score = j.value("score", 0.0);
-    sk.promoted = j.value("promoted", false);
+    sk.promoted = read_bool(j, "promoted", false);
     return sk;
 }
 

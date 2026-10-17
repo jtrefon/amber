@@ -79,6 +79,15 @@ struct ApiError : std::runtime_error {
         : std::runtime_error(msg), status(s), retryable(r) {}
 };
 
+// Thrown by a strict internal exchange (`chat_with_retry_strict`) that has
+// exhausted its recovery: the request cannot be completed, so the turn ends
+// with a real error rather than a fabricated reply. Distinct from the failures
+// a turn RECOVERS from: a tool envelope or a host callback that throws is
+// reported and survived, this one is not.
+struct RequestFailedError : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 class LLMClient {
 public:
     virtual ~LLMClient() = default;
