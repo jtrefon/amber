@@ -72,8 +72,7 @@ timer.o: clock.hpp
 scheduler.o: clock.hpp
 MK
 make -s all
-touch clock.hpp
-[ "$(make -n all | grep -c '\.cpp')" -eq 2 ] && echo "fat header: every client rebuilds"
+[ "$(make -W clock.hpp -n all | grep -c '\.cpp')" -eq 2 ] && echo "fat header: every client rebuilds"
 
 cat > clock.hpp <<'HPP'
 #pragma once
@@ -94,6 +93,5 @@ timer.o: clock.hpp
 scheduler.o: alarms.hpp clock.hpp
 MK
 make -s all
-touch alarms.hpp
-[ "$(make -n all | grep -c '\.cpp')" -eq 1 ] && echo "split by client: only the scheduler rebuilds"
+[ "$(make -W alarms.hpp -n all | grep -c '\.cpp')" -eq 1 ] && echo "split by client: only the scheduler rebuilds"
 ```
