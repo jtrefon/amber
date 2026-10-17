@@ -8410,3 +8410,33 @@ TEST(workspace_config_never_overrides_a_selected_provider) {
     ASSERT_EQ(bare.api_base, "http://127.0.0.1:8081/v1");
     std::remove(path.c_str());
 }
+
+// A workspace file can configure how amber behaves, never where it writes its
+// diagnostics: a cloned repository must not be able to point the transcript or
+// the HTTP dump at a file amber then appends to or truncates. The operator's
+// own path (env/global config) survives the workspace load.
+TEST(workspace_config_cannot_choose_diagnostic_output_paths) {
+    const std::string path = "/tmp/amber_workspace_sinks.conf";
+    {
+        std::ofstream f(path);
+        f << "log_path=/tmp/hijacked-transcript.jsonl\n";
+        f << "debug_log=/tmp/hijacked-http.log\n";
+        f << "temperature=0.9\n";
+    }
+
+    agent::Config cfg;
+    cfg.log_path = "/tmp/operator-transcript.jsonl";
+    cfg.debug_log = "/tmp/operator-http.log";
+    cfg.load_workspace_defaults(path);
+    ASSERT_EQ(cfg.log_path, "/tmp/operator-transcript.jsonl");
+    ASSERT_EQ(cfg.debug_log, "/tmp/operator-http.log");
+    // Everything else in the file still applies.
+    ASSERT_EQ(cfg.temperature, 0.9);
+
+    // With no operator path, the workspace still cannot install one.
+    agent::Config bare;
+    bare.load_workspace_defaults(path);
+    ASSERT_TRUE(bare.log_path.empty());
+    ASSERT_TRUE(bare.debug_log.empty());
+    std::remove(path.c_str());
+}

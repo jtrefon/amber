@@ -235,7 +235,16 @@ void Config::load_workspace_defaults(const std::string& path) {
     // selection says requests go. Snapshot it across the load.
     const bool from_provider = api_base_from_provider;
     const std::string endpoint = api_base;
+    // Diagnostic OUTPUT paths are the operator's, not a repository's: a cloned
+    // workspace's amber.conf must not be able to point the transcript or the
+    // HTTP dump at a file amber would then append to or truncate (debug_log
+    // truncates on its first write). $XDG_*/env, the global config and /set own
+    // them; only this load is restricted, so those still work.
+    const std::string operator_log_path = log_path;
+    const std::string operator_debug_log = debug_log;
     load(path);
+    log_path = operator_log_path;
+    debug_log = operator_debug_log;
     if (from_provider)
         api_base = endpoint;
 }
