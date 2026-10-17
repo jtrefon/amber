@@ -65,6 +65,8 @@ public:
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
     void set_debug(const std::string& val);
     void show_debug_status();
+    void cmd_set_worktree(const std::string& val);
+    void cmd_get_worktree();
     void cmd_set_subagent_parallel(const std::string& val);
     void cmd_set_subagent_max(const std::string& val);
     void cmd_get_subagent();
@@ -124,7 +126,7 @@ public:
     void cmd_get_think();
     void cmd_get_detection(const std::string& sub);
     void cmd_get_compression();
-    void cmd_window_new();
+    void cmd_window_new(bool noworkdir, const std::string& name);
     void cmd_window_close();
     void cmd_window_list();
     void cmd_window_rename(const std::string& name);

@@ -88,7 +88,7 @@ public:
         int ins = 0;
         int del = 0;
     };
-    void request_git_refresh();
+    void request_git_refresh(const std::string& root);
     std::shared_ptr<const GitState> git_state() const;
     md::Style& md_style() noexcept { return md_style_; }
 
@@ -152,8 +152,10 @@ private:
     md::Style md_style_;
     // Worker-side: the only place that forks git. current_project_name() is a
     // getcwd (no fork), used to seed the prompt before the first refresh lands.
-    static GitState read_git_state();
-    static std::string current_project_name();
+    static GitState read_git_state(const std::string& root);
+    // The display name of a tree: its last path component, or the process's
+    // working directory when root is empty.
+    static std::string current_project_name(const std::string& root = "");
 
     struct GitPublication {
         std::shared_ptr<const GitState> state;

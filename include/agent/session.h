@@ -43,6 +43,14 @@ struct WorkspaceState {
         std::string session_id;
         std::string title;
         std::vector<std::string> prompt_history;
+        // Per-window workspace. `root` is the tree this window's tools operate
+        // in (a worktree when it has one, empty for the project root), and the
+        // oids are what rebuild it exactly when the directory is gone — the
+        // commits live in the repository, not in the worktree.
+        std::string root;
+        std::string worktree;
+        std::string base_oid;
+        std::string head_oid;
     };
     std::vector<WindowEntry> windows;
     size_t active = 0;
