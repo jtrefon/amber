@@ -52,27 +52,39 @@ pid_t spawn_shell(const std::string& command, const std::string& cwd, int& read_
 
 namespace {
 
-// Close every end of the three pipe pairs; safe on the -1 sentinels left by a
-// failed pipe().
-void close_all(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2]) {
-    close(in_pipe[0]);
-    close(in_pipe[1]);
-    close(out_pipe[0]);
-    close(out_pipe[1]);
-    close(err_pipe[0]);
-    close(err_pipe[1]);
+// Every end of the four pipe pairs one MCP server spawn needs. Grouped so the
+// spawn reads as a sequence of steps instead of a wall of fd plumbing, and so
+// each early return closes exactly one thing.
+struct SpawnPipes {
+    int in[2] = {-1, -1};     // parent writes, child reads (stdin)
+    int out[2] = {-1, -1};    // child writes, parent reads (stdout)
+    int err[2] = {-1, -1};    // child writes, parent reads (stderr)
+    int status[2] = {-1, -1}; // exec status: one byte, or EOF once exec succeeds
+};
+
+void close_pair(int (&p)[2]) {
+    close(p[0]);
+    close(p[1]);
+    p[0] = p[1] = -1;
 }
 
-// Exec status pipe: close-on-exec, so a successful exec closes the write end and
-// the parent reads EOF. Without it a missing binary is indistinguishable from a
-// server that started and exited ("closed its output"), and the operator gets
-// the wrong diagnosis for the one failure they can actually fix.
-void make_exec_status_pipe(int (&fds)[2]) {
-    if (pipe(fds) != 0) {
-        fds[0] = fds[1] = -1;
-        return;
-    }
-    fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+// Safe on the -1 sentinels left by a failed pipe().
+void close_all(SpawnPipes& p) {
+    close_pair(p.in);
+    close_pair(p.out);
+    close_pair(p.err);
+    close_pair(p.status);
+}
+
+// The exec status pipe is close-on-exec, so a successful exec closes the write
+// end and the parent reads EOF. Without it a missing binary is indistinguishable
+// from a server that started and exited ("closed its output"), and the operator
+// gets the wrong diagnosis for the one failure they can actually fix.
+bool open_spawn_pipes(SpawnPipes& p) {
+    if (pipe(p.in) != 0 || pipe(p.out) != 0 || pipe(p.err) != 0 || pipe(p.status) != 0)
+        return false;
+    fcntl(p.status[1], F_SETFD, FD_CLOEXEC);
+    return true;
 }
 
 void report_exec_failure(int status_fd, int code) {
@@ -85,11 +97,11 @@ void report_exec_failure(int status_fd, int code) {
 // Wait for the child's exec: a byte means execvp failed and carries errno, EOF
 // means the program is running. On failure the child is reaped and `err` names
 // the program and the reason.
-bool wait_for_exec(pid_t pid, int (&status_pipe)[2], const std::string& command, std::string& err) {
-    close(status_pipe[1]);
+bool wait_for_exec(pid_t pid, SpawnPipes& p, const std::string& command, std::string& err) {
+    close(p.status[1]);
     int code = 0;
-    const ssize_t n = read(status_pipe[0], &code, sizeof code);
-    close(status_pipe[0]);
+    const ssize_t n = read(p.status[0], &code, sizeof code);
+    close(p.status[0]);
     if (n != static_cast<ssize_t>(sizeof code))
         return true;
     int status = 0;
@@ -98,24 +110,45 @@ bool wait_for_exec(pid_t pid, int (&status_pipe)[2], const std::string& command,
     return false;
 }
 
-// Child side: own process group, three-way pipe wiring, chdir, direct exec.
-// Never returns.
-void run_child(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2], int (&status_pipe)[2],
-               const std::string& cwd, const std::string& command,
+// Parent side of a spawn that got past fork(): keep the ends it reads/writes,
+// drop the child's.
+void close_child_ends(SpawnPipes& p) {
+    close(p.in[0]);
+    close(p.out[1]);
+    close(p.err[1]);
+}
+
+// Parent side of a spawn whose exec failed: nothing was wired, drop what it
+// still holds.
+void close_parent_ends(SpawnPipes& p) {
+    close(p.in[1]);
+    close(p.out[0]);
+    close(p.err[0]);
+}
+
+// Hand the parent its three fds once the child is running.
+void hand_over_fds(SpawnPipes& p, int& stdin_fd, int& stdout_fd, int& stderr_fd) {
+    stdin_fd = p.in[1];
+    stdout_fd = p.out[0];
+    stderr_fd = p.err[0];
+}
+
+// Child side: own process group, pipe wiring, chdir, direct exec. Never returns.
+void run_child(SpawnPipes& p, const std::string& cwd, const std::string& command,
                const std::vector<std::string>& args) {
-    close(in_pipe[1]);
-    close(out_pipe[0]);
-    close(err_pipe[0]);
-    close(status_pipe[0]);
+    close(p.in[1]);
+    close(p.out[0]);
+    close(p.err[0]);
+    close(p.status[0]);
     setpgid(0, 0);
-    dup2(in_pipe[0], STDIN_FILENO);
-    dup2(out_pipe[1], STDOUT_FILENO);
-    dup2(err_pipe[1], STDERR_FILENO);
-    close(in_pipe[0]);
-    close(out_pipe[1]);
-    close(err_pipe[1]);
+    dup2(p.in[0], STDIN_FILENO);
+    dup2(p.out[1], STDOUT_FILENO);
+    dup2(p.err[1], STDERR_FILENO);
+    close(p.in[0]);
+    close(p.out[1]);
+    close(p.err[1]);
     if (!cwd.empty() && chdir(cwd.c_str()) != 0) {
-        report_exec_failure(status_pipe[1], errno);
+        report_exec_failure(p.status[1], errno);
         _exit(127);
     }
     std::vector<char*> argv;
@@ -125,7 +158,7 @@ void run_child(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2], int (&
         argv.push_back(const_cast<char*>(a.c_str()));
     argv.push_back(nullptr);
     execvp(command.c_str(), argv.data());
-    report_exec_failure(status_pipe[1], errno);
+    report_exec_failure(p.status[1], errno);
     _exit(127);
 }
 
@@ -134,45 +167,28 @@ void run_child(int (&in_pipe)[2], int (&out_pipe)[2], int (&err_pipe)[2], int (&
 pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string>& args,
                        const std::string& cwd, int& stdin_fd, int& stdout_fd, int& stderr_fd,
                        std::string& err) {
-    int in_pipe[2] = {-1, -1};
-    int out_pipe[2] = {-1, -1};
-    int err_pipe[2] = {-1, -1};
-    int status_pipe[2] = {-1, -1};
-    if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
+    SpawnPipes p;
+    if (!open_spawn_pipes(p)) {
         err = "pipe failed";
-        close_all(in_pipe, out_pipe, err_pipe);
-        return -1;
-    }
-    make_exec_status_pipe(status_pipe);
-    if (status_pipe[0] < 0) {
-        err = "pipe failed";
-        close_all(in_pipe, out_pipe, err_pipe);
+        close_all(p);
         return -1;
     }
     const pid_t pid = fork();
     if (pid < 0) {
         err = "fork failed";
-        close_all(in_pipe, out_pipe, err_pipe);
-        close(status_pipe[0]);
-        close(status_pipe[1]);
+        close_all(p);
         return -1;
     }
     if (pid == 0)
-        run_child(in_pipe, out_pipe, err_pipe, status_pipe, cwd, command, args);
+        run_child(p, cwd, command, args);
 
-    close(in_pipe[0]);
-    close(out_pipe[1]);
-    close(err_pipe[1]);
+    close_child_ends(p);
     setpgid(pid, pid);
-    if (!wait_for_exec(pid, status_pipe, command, err)) {
-        close(in_pipe[1]);
-        close(out_pipe[0]);
-        close(err_pipe[0]);
+    if (!wait_for_exec(pid, p, command, err)) {
+        close_parent_ends(p);
         return -1;
     }
-    stdin_fd = in_pipe[1];
-    stdout_fd = out_pipe[0];
-    stderr_fd = err_pipe[0];
+    hand_over_fds(p, stdin_fd, stdout_fd, stderr_fd);
     return pid;
 }
 
