@@ -14,7 +14,7 @@ long long now_ms() {
 
 // Rotate rather than grow without bound: the journal is for what just went
 // wrong, not an archive.
-constexpr std::size_t kMaxErrorBytes = 1024 * 1024;
+constexpr std::size_t kMaxErrorBytes = 1024UL * 1024UL;
 
 // The journal holds what the APP could not do. A failed tool call is the model's
 // business and stays in the per-session transcript only.
