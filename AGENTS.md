@@ -11,7 +11,11 @@ driven by an OpenAI-compatible LLM API.
   by hand.
 - `make` builds everything (`lib cli tui`). The binaries and archive land in the
   repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`), in-tree, not in a `build/`.
-- `make test` builds and runs the unit suite (`run_tests`). `make check` is a
+- `make test` builds and runs the unit suite (`run_tests`). The binary is
+  interrogable: `./run_tests --list` prints every test name, a positional
+  argument is a substring filter (`./run_tests agent_loop`), and each test runs
+  under a watchdog (`AMBER_TEST_TIMEOUT_MS`, default 120000) that names the
+  hung test and exits non-zero instead of hanging the run. `make check` is a
   separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
   invariants), do not confuse the two. It also runs
   `tools/obfuscation_guard.py`, which scans tracked files for the signature of

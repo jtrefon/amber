@@ -32,7 +32,7 @@ conservative fallback estimate so the compression gate always has a budget.
   `lib/llm.cpp` + the existing split TUs (`request_builder`, `sse_parser`,
   `http_transport`, `model_probe`, `debug_log`) form `HttpLLMClient`,
   `lib/agent.cpp` (client member + retry), `lib/agent_helpers.cpp`
-  (`safe_chat_once` retry policy), `lib/compressor.cpp` (n_ctx fallback)
+  (`chat_with_retry` policy), `lib/compressor.cpp` (n_ctx fallback)
 - **Test files** (target): `tests/fake_llm.h` (new), `tests/agent_loop_test.cpp`
   (new, added to `UNITTEST_OBJ` in `Makefile.in`), `tests/run_tests.cpp`
 - **Spec status**: design — implementation tracked in `docs/agent-loop-tracker.md`.
@@ -130,9 +130,10 @@ reply to drive the compression gate, and a cancellation-aware delay option.
   measured failures this ladder exists for carried none: 59 upstream 503s in
   session `1792189515823-0`, zero 429s, no `Retry-After`, no quota wording.
   Deferred until a provider demonstrates it.
-- `safe_chat_once` keeps its contract (never throws, converts to
-  `"[error during …]"`); the retry decision moves to the typed error.
-  `error-handling.md` invariant 3 is updated accordingly.
+- The retry loop is the only thing that sees a failure (the old
+  `safe_chat_once` wrapper is gone): a request that cannot be answered ends as a
+  `[harness]` notice naming the attempt count, never as a fabricated reply in
+  the model's voice. `error-handling.md` invariant 3 is updated accordingly.
 
 ---
 

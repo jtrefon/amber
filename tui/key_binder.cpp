@@ -73,6 +73,8 @@ KeyAction KeyBinder::dispatch_esc(const KeyRead& key, const InputState& state) c
             return {KeyAction::SwitchWindow, f - '1'};
         if (f == 'b' || f == 'B')
             return {KeyAction::DeleteWord, -1};
+        if (f == 'm' || f == 'M')
+            return {KeyAction::ToggleMouse, -1};
     }
     if (state.busy)
         return {KeyAction::CancelOrQuit, -1};
@@ -97,6 +99,8 @@ KeyAction KeyBinder::lookup_simple(const std::string& key_name) const {
         return {KeyAction::DeleteWord, -1};
     if (action == "open_panels")
         return {KeyAction::OpenPanels, -1};
+    if (action == "toggle_mouse")
+        return {KeyAction::ToggleMouse, -1};
     return {};
 }
 

@@ -192,34 +192,13 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn, json& a
     }
 }
 
-Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
-                       const std::function<Message()>& chat, const char* stage) {
-    try {
-        Message m = chat();
-        m.content = utf8_sanitize(m.content);
-        m.reasoning = utf8_sanitize(m.reasoning);
-        return m;
-    } catch (const std::exception& e) {
-        log.event("chat_error", {{"stage", stage}, {"error", e.what()}});
-        if (hooks.on_status)
-            hooks.on_status(std::string("chat error (recovered): ") + e.what());
-        if (hooks.on_debug)
-            hooks.on_debug("chat error: " + std::string(e.what()));
-        Message err;
-        err.role = "assistant";
-        err.content = "[error during " + std::string(stage) + ": " + e.what() +
-                      "] Please retry or adjust your approach.";
-        return err;
-    }
-}
-
 long retry_backoff_ms(int attempt, const std::string& seed) {
     static const int kBase[] = {1000, 2000, 4000, 8000};
     const int step = attempt < 1 ? 1 : attempt;
     const int base = kBase[(step - 1) < 3 ? (step - 1) : 3];
     const int spread = base / 4; // ±25%
     const std::size_t h = std::hash<std::string>{}(seed + "#" + std::to_string(step));
-    return base - spread + static_cast<long>(h % static_cast<std::size_t>(2 * spread + 1));
+    return base - spread + static_cast<long>(h % static_cast<std::size_t>((2 * spread) + 1));
 }
 
 namespace {
@@ -320,11 +299,13 @@ Message chat_error_reply(const char* stage, const std::string& last_error, int a
     return err;
 }
 
-// What the escalation reports: the error text and whether retrying had any
-// prospect, which decides if a caller may keep the work it already has.
+// What the escalation reports: the error text, whether retrying had any
+// prospect (which decides if a caller may keep the work it already has), and the
+// attempt that produced it — the count the notice names.
 struct LastFailure {
     std::string error;
     bool retryable = false;
+    int attempt = 0;
 };
 
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
@@ -333,13 +314,11 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              const ChatAdapter& adapt) {
     LastFailure last;
     bool adapted = false;
-    int attempts_made = 0;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
-        attempts_made = attempt;
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
-            last = {e.what(), retryable_error(e)};
+            last = {e.what(), retryable_error(e), attempt};
             log.event("chat_error",
                       {{"stage", stage}, {"error", last.error}, {"attempt", attempt}});
             if (hooks.on_debug)
@@ -359,7 +338,7 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    return chat_error_reply(stage, last.error, attempts_made);
+    return chat_error_reply(stage, last.error, last.attempt);
 }
 
 } // namespace

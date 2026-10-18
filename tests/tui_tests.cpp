@@ -1526,6 +1526,7 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
         {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
         {"alt+b", tui::KeyAction::DeleteWord, 27, static_cast<int>('b'), false, false},
         {"alt+0", tui::KeyAction::OpenPanels, 0xB0, std::nullopt, false, false},
+        {"alt+m", tui::KeyAction::ToggleMouse, 27, static_cast<int>('m'), false, false},
     };
 
     std::string unreachable;
@@ -1547,7 +1548,7 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
 // test case must fail here. Without a sentinel there is no way to count the enum, so
 // KeyAction::Count exists solely to make the table above exhaustive-checkable.
 TEST(keyaction_no_variant_is_left_unaccounted_for) {
-    static_assert(static_cast<int>(tui::KeyAction::OpenPanels) + 1 ==
+    static_assert(static_cast<int>(tui::KeyAction::ToggleMouse) + 1 ==
                       static_cast<int>(tui::KeyAction::Count),
                   "a KeyAction variant was added; add a reachability case for it above, "
                   "and a binding, or it is dead code");

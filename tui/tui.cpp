@@ -134,6 +134,18 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     }
 }
 
+void Tui::toggle_mouse() {
+    mouse_on_ = !mouse_on_;
+    // xterm mouse reporting is what replaces the terminal's own click-drag
+    // selection. Turning it off is the plain way to select and copy (Cmd/Ctrl+C
+    // as usual, no Shift chord); the wheel then scrolls the terminal instead of
+    // the chat log, which is the trade-off being made consciously.
+    mousemask(mouse_on_ ? (BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
+    append_line(P_STATUS,
+                mouse_on_ ? "mouse: on — wheel scrolls, Alt+M gives selection back"
+                          : "mouse: off — drag selects and copies; Alt+M turns the wheel back on");
+}
+
 void Tui::init_terminal() {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
@@ -748,6 +760,10 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
         // only opens them. Alt+0 reaches here as an intent rather than as a branch in
         // run(), so the next panel entry point is additive.
         open_panels("");
+        render_engine_->draw();
+        break;
+    case KeyAction::ToggleMouse:
+        toggle_mouse();
         render_engine_->draw();
         break;
     case KeyAction::None:

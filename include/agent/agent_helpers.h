@@ -45,19 +45,6 @@ std::string strip_think(std::string s);
 // clear, recoverable error instead of a silent `{}`.
 void parse_tool_call(const json& call, std::string& id, std::string& fn, json& args, bool& ok);
 
-// Extract XML-embedded tool calls from reply content or reasoning
-// (Jinja-style chat templates that emit XML instead of JSON tool_calls).
-// When `content` is empty, falls back to `stored.reasoning` — some models
-// (Qwen/Jinja) emit <tool_call> XML in their thinking block and leave
-// content blank. On success it rewrites `tool_calls`, clears the source
-// field (`content` or `stored.reasoning`), clears `content`, and returns
-// true.
-// One model round-trip that never aborts the turn: calls `chat`, sanitizes the
-// reply text, and on any failure returns a recovered assistant error message so
-// the loop can retry on the next iteration instead of crashing.
-Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
-                       const std::function<Message()>& chat, const char* stage);
-
 // Classify a non-retryable HTTP 4xx: is the failure in OUR request, and can
 // the request be repaired by adaptation?
 enum class RequestFailure : std::uint8_t {
