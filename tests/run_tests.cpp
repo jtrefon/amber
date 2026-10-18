@@ -2228,6 +2228,12 @@ std::string drain_request(int c) {
 // Serve one canned HTTP response (any status/content-type/payload), then
 // close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
 // streaming paths without any external dependency.
+//
+// One-shot on purpose: the thread detaches and exits after serving, so nothing
+// outlives the fd the test closes. A loop here (or a poll that keeps watching
+// the fd number) would answer a later test's connection once the fd is reused,
+// and a permanently parked accept() would hold the port after close(). A hang
+// in a test is caught by the harness watchdog, which names the test.
 int spawn_mock_http(int port, std::string& body_out, const std::string& status,
                     const std::string& content_type, const std::string& payload) {
     int fd = bind_listener(port);
@@ -3130,6 +3136,31 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
     close(srv);
 }
 
+// Inactivity hands the decision back to the agent: the process keeps running,
+// nothing is killed on a timer, and the agent chooses to wait again or stop it.
+TEST(bash_inactivity_returns_and_leaves_the_process_alive) {
+    agent::JobService jobs;
+    agent::CancellationToken token;
+    auto tool = agent::make_bash_tool(&jobs, token);
+
+    agent::json a = {{"command", "echo hello-from-bash; sleep 30"}, {"timeout", 1}};
+    agent::ToolResult r = tool->execute(a);
+
+    ASSERT(r.ok);
+    ASSERT_EQ(r.meta.value("stop", std::string("none")), "inactive");
+    ASSERT(r.output.find("still running") != std::string::npos);
+    ASSERT(r.output.find("hello-from-bash") != std::string::npos);
+
+    const std::string id = r.meta.value("job", std::string(""));
+    ASSERT(!id.empty());
+    std::shared_ptr<agent::Job> j = jobs.get(id);
+    ASSERT(j != nullptr);
+    ASSERT(!j->is_done()); // alive: silence returned control, it did not kill
+
+    jobs.stop(id);
+    ASSERT(jobs.get(id) == nullptr); // killed, reaped, erased
+}
+
 // ---------------------------------------------------------------------------
 // Session persistence
 // ---------------------------------------------------------------------------
@@ -3285,10 +3316,16 @@ TEST(bash_tool_tracked_by_job_service) {
     ASSERT(bad.output.find("[exit 7]") != std::string::npos);
     ASSERT(jobs.list().empty());
 
+    // Silence is not a kill on this path: control returns to the agent, the
+    // process stays registered, and ending it is the agent's call.
     auto to = tool->execute({{"command", "sleep 5"}, {"timeout", 1}});
-    ASSERT_FALSE(to.ok);
-    ASSERT(to.error.find("timed out") != std::string::npos);
-    ASSERT(jobs.list().empty());
+    ASSERT_TRUE(to.ok);
+    ASSERT_EQ(to.meta.value("stop", std::string("none")), "inactive");
+    const std::string id = to.meta.value("job", std::string(""));
+    ASSERT(!id.empty());
+    ASSERT_EQ(jobs.list().size(), 1u); // still running, visible in /job
+    jobs.stop(id);
+    ASSERT(jobs.list().empty()); // stopped and reaped on request
 }
 
 // A requested cancellation token must stop the command AND stay requested:
@@ -5895,8 +5932,8 @@ TEST(context_event_integration_with_agent) {
 
 // ---------------------------------------------------------------------------
 
-int main() {
-    return agent::test::run_all();
+int main(int argc, char** argv) {
+    return agent::test::run_all(argc, argv);
 }
 
 // ---------------------------------------------------------------------------

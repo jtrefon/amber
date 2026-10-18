@@ -698,6 +698,10 @@ std::string Agent::confirm_turn(const std::string& candidate,
 }
 
 void Agent::log_and_push_user_prompt(const std::string& prompt) {
+    // Diagnostics are opt-in and the sink is lazy: every prompt re-asserts it,
+    // so a resumed session (transcript already open) still gets its journal.
+    if (cfg_.debug)
+        log_.open_errors(error_log_path());
     if (!log_.enabled()) {
         // Default-on transcript: nothing the agent saw is ever lost, even
         // when the user never configured log_path. Per-session file under the
@@ -706,10 +710,6 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
         if (path.empty())
             path = Workspace::state_dir() + "/logs/{ts}.jsonl";
         log_.open(path);
-        // Diagnostics are opt-in: with them off there is no journal, no file,
-        // and the record path is one bool test.
-        if (cfg_.debug)
-            log_.open_errors(error_log_path());
     }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
     Message msg;
