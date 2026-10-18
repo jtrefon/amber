@@ -844,6 +844,34 @@ TEST(agent_loop_retries_exhausted) {
     ASSERT(saw_user);
 }
 
+// A probe that cannot reach the endpoint must not end the turn: the answer is
+// already earned, so it stands and the transcript records why the check did not
+// run. Before this, the 503 escaped run() and the session looked dead.
+TEST(agent_loop_probe_outage_keeps_the_answer) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "answer");
+    for (int i = 0; i < 3; ++i) {
+        agent_test::FakeReply f;
+        f.error = "HTTP 503 from LLM server: {\"error_type\":\"upstream_error\"}";
+        f.retryable = true;
+        fake->script.push_back(std::move(f));
+    }
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    const std::string reply = ag.run("hi"); // must not throw
+    ASSERT_EQ(reply, "answer");
+    ASSERT_EQ(raw->chat_calls, 4); // generation + 3 probe attempts
+    bool noted = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.content.find("confirmation unavailable") != std::string::npos)
+            noted = true;
+    ASSERT(noted);
+}
+
 // [AL-10] Cancellation during the backoff aborts the wait.
 TEST(agent_loop_cancel_during_backoff) {
     agent::Workspace::set_root(cwd());

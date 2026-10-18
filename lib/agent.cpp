@@ -663,6 +663,16 @@ bool Agent::probe_was_denied() const {
     return false;
 }
 
+// The reply that stands in for a confirmation exchange the endpoint could not
+// answer: the transcript says why the check did not run, so the turn's record
+// is complete even though the probe never happened.
+Message probe_unavailable_note(const std::string& why) {
+    Message note;
+    note.role = "assistant";
+    note.content = "[confirmation unavailable: " + why + "]";
+    return note;
+}
+
 std::string Agent::confirm_turn(const std::string& candidate,
                                 const std::vector<std::shared_ptr<Tool>>& tools) {
     Message done_msg;
@@ -672,8 +682,25 @@ std::string Agent::confirm_turn(const std::string& candidate,
     context_.push(std::move(done_msg));
     emit_context_event(context_events_, context_);
 
-    Message check = chat_with_recovery(tools, "probe", /*display=*/false,
-                                       /*strict=*/true);
+    Message check;
+    try {
+        check = chat_with_recovery(tools, "probe", /*display=*/false,
+                                   /*strict=*/true);
+    } catch (const RequestFailedError& e) {
+        // A transient outage is not the turn's fault and the answer is already
+        // earned, so keep it and record why the check did not run — this is the
+        // path a 503 storm used to take out of run(), leaving the session
+        // looking dead with the prompt abandoned. A request the endpoint
+        // rejected on its shape (retryable == false) still surfaces as an
+        // error: nothing about the turn can be salvaged by keeping it.
+        if (!e.retryable)
+            throw;
+        context_.push(probe_unavailable_note(e.what()));
+        emit_context_event(context_events_, context_);
+        if (hooks_.on_status)
+            hooks_.on_status("confirmation unavailable - keeping the answer");
+        return candidate;
+    }
     // Template-style tool calls arrive embedded in the content (e.g. ornith's
     // <tool_call><function=...><parameter=...>) — extract them so the probe
     // dispatches them like the main loop does.

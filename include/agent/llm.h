@@ -86,6 +86,11 @@ struct ApiError : std::runtime_error {
 // reported and survived, this one is not.
 struct RequestFailedError : std::runtime_error {
     using std::runtime_error::runtime_error;
+    // True when the last failure was transient (a 5xx/429, a transport drop):
+    // the request itself is sound, so the caller may keep the work it has.
+    // False when the request shape is wrong (a rejected template, a missing
+    // model) — nothing about the turn can be salvaged by trying again.
+    bool retryable = false;
 };
 
 class LLMClient {

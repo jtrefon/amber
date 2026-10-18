@@ -284,40 +284,56 @@ Message chat_error_reply(const char* stage, const std::string& last_error) {
     return err;
 }
 
+// The escalation a strict caller gets: the request could not be answered, and
+// the callers up the stack are told whether that was transient (a 5xx, a
+// dropped transport) or a request the endpoint rejected on its shape.
+[[noreturn]] void throw_request_failure(const char* stage, const std::string& error,
+                                        bool retryable) {
+    RequestFailedError failure("chat " + std::string(stage) + " failed: " + error);
+    failure.retryable = retryable;
+    throw failure;
+}
+
+// What the escalation reports: the error text and whether retrying had any
+// prospect, which decides if a caller may keep the work it already has.
+struct LastFailure {
+    std::string error;
+    bool retryable = false;
+};
+
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              std::function<Message()> chat, const char* stage,
                              const CancellationToken& cancel_token, int max_attempts,
                              const ChatAdapter& adapt, bool strict) {
-    std::string last_error;
+    LastFailure last;
     bool adapted = false;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
-            last_error = e.what();
+            last = {e.what(), retryable_error(e)};
             log.event("chat_error",
-                      {{"stage", stage}, {"error", last_error}, {"attempt", attempt}});
+                      {{"stage", stage}, {"error", last.error}, {"attempt", attempt}});
             if (hooks.on_debug)
-                hooks.on_debug("chat error (attempt " + std::to_string(attempt) +
-                               "): " + last_error);
-            if (!adapted && !retryable_error(e) &&
-                try_repair(hooks, log, stage, last_error, adapt, chat)) {
+                hooks.on_debug("chat error " + std::to_string(attempt) + ": " + last.error);
+            if (!adapted && !last.retryable &&
+                try_repair(hooks, log, stage, last.error, adapt, chat)) {
                 adapted = true;
                 continue;
             }
-            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, retryable_error(e),
-                                last_error))
+            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, last.retryable,
+                                last.error))
                 break;
         }
     }
     if (strict)
-        throw RequestFailedError("chat " + std::string(stage) + " failed: " + last_error);
+        throw_request_failure(stage, last.error, last.retryable);
     if (run_cancelled(cancel_token)) {
         // Cancellation must not fabricate an assistant message: the caller
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    return chat_error_reply(stage, last_error);
+    return chat_error_reply(stage, last.error);
 }
 
 } // namespace
