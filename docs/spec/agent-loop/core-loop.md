@@ -125,6 +125,13 @@ stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 - **Expected**: `finish_turn("")` calls `empty_turn_reply()`. If history has tool calls: `"[agent stopped: the model stopped producing usable output after tool calls; see the ERROR messages above]"`. If no tool calls: `"[agent stopped: the model produced no usable response]"`. The reply is announced to the host (`on_assistant`) and recorded (`assistant` + `turn_end` in the transcript), and — because a bound ended the turn — the reason also goes into the conversation as a `[harness]` notice.
 - **Invariant**: `run()` never returns empty string, and a stop the user cannot see is a bug.
 
+#### [CL-19] Loop state is announced, not enforced
+
+- **Given**: A long turn (many iterations) or a repeated identical call
+- **Input**: `run(...)` on a task that keeps stepping
+- **Expected**: `note_loop_state()` pushes **one** `[harness]` notice at each state change: the 80 % crossing of `max_tool_iterations`, the 80 % crossing of `max_wall_ms` (when set), and a call repeated 3× in a row on canonical arguments (timing arguments stripped). Nothing intervenes; the model decides.
+- **On failure**: A silent cap, or a harness that decides for the model.
+
 #### [CL-12] System prompt is idempotent
 
 - **Given**: Multiple calls to `ensure_system_prompt()`

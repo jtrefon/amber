@@ -41,6 +41,11 @@ constexpr int kMaxNoAnswer = 2;
 // fails every attempt is not the model going quiet, so it gets its own bound:
 // the endpoint is down, and three in a row end the turn with the record of why.
 constexpr int kMaxHarnessNotices = 3;
+// When the loop's own state is announced: the share of a budget that counts as
+// "nearly spent", and how many repeats make a call worth reporting (2 means the
+// third identical call).
+constexpr int kBudgetNotePct = 80;
+constexpr int kRepeatNoteAt = 2;
 
 // Append a Markdown section to the system prompt. Files carry a trailing
 // newline and the separator is two of them, so the section is trimmed before it
@@ -1004,6 +1009,7 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
 Agent::TurnState Agent::make_turn_state() const {
     TurnState st;
     const auto loop_t0 = std::chrono::steady_clock::now();
+    st.start = loop_t0;
     st.deadline = cfg_.max_wall_ms > 0 ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
                                        : std::chrono::steady_clock::time_point::max();
     return st;
@@ -1019,6 +1025,47 @@ bool Agent::turn_budget_exceeded(TurnState& st) {
     log_.event("error", {{"reason", "wall_clock_exceeded"}});
     st.final_reply = "[stopped: wall-clock budget exceeded; simplify the task or retry]";
     return true;
+}
+
+// One reply that carries tool calls: report repeated narration (opt-in guard),
+// track the canonical call for the repeat note, dispatch. Returns true when the
+// loop must stop.
+bool Agent::fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content) {
+    st.no_answer = 0;
+    st.notices = 0;
+    if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
+        return true;
+    // The repeat counter is the reporting one (canonical arguments, timing
+    // stripped); it never intervenes, it just feeds the loop-state note.
+    const std::string key = canonical_call_key(tool_calls);
+    if (!key.empty() && key == st.last_call_key) {
+        ++st.repeat_count;
+    } else {
+        st.repeat_count = 0;
+        st.last_call_key = key;
+    }
+    dispatch_with_loop_detection(tool_calls, content, st.fail_streak, st.loop_count,
+                                 st.last_loop_key, st.tool_recovery_attempts, st.final_reply);
+    return !st.final_reply.empty();
+}
+
+// A report from the environment is not the model going quiet: the model has the
+// next word. Three in a row mean the endpoint is down.
+bool Agent::fold_harness_notice(TurnState& st) {
+    st.no_answer = 0;
+    return ++st.notices >= kMaxHarnessNotices;
+}
+
+// A silent empty reply. The model may have lost the thread, so it gets one more
+// round with a note; after that the turn stops.
+bool Agent::fold_silent_reply(TurnState& st) {
+    st.notices = 0;
+    if (++st.no_answer >= kMaxNoAnswer)
+        return true;
+    inject_harness_note("[harness] the previous reply carried no tool call and no content. If work "
+                        "remains, continue with a tool or state what blocks it; otherwise close "
+                        "with the result.");
+    return false;
 }
 
 // Fold one iteration's reply into the turn. Returns true when the loop should
@@ -1042,42 +1089,18 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     const bool notice = reply.harness;
     push_reply(std::move(reply));
 
-    if (!tc.is_null() && !tc.empty()) {
-        st.no_answer = 0;
-        st.notices = 0;
-        // Repeated narration while the model keeps calling tools is what the
-        // opt-in text-loop guard watches for.
-        if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
-            return true;
-        dispatch_with_loop_detection(tc, content, st.fail_streak, st.loop_count, st.last_loop_key,
-                                     st.tool_recovery_attempts, st.final_reply);
-        return !st.final_reply.empty();
-    }
+    if (!tc.is_null() && !tc.empty())
+        return fold_tool_calls(st, tc, content);
+    if (notice)
+        return fold_harness_notice(st);
+    if (content.empty())
+        return fold_silent_reply(st);
 
-    if (notice) {
-        // A report from the environment is not the model going quiet: the model
-        // has the next word. Three in a row mean the endpoint is down.
-        st.no_answer = 0;
-        return ++st.notices >= kMaxHarnessNotices;
-    }
-
-    if (!content.empty()) {
-        st.no_answer = 0;
-        st.notices = 0;
-        st.model_closed = true; // the model's own reply is the turn's close
-        st.final_reply = content;
-        return true;
-    }
-
-    // A silent empty reply after tools. The model may have lost the thread, so
-    // it gets one more round with a note; after that the turn stops.
+    st.no_answer = 0;
     st.notices = 0;
-    if (++st.no_answer >= kMaxNoAnswer)
-        return true;
-    inject_harness_note("[harness] the previous reply carried no tool call and no content. If work "
-                        "remains, continue with a tool or state what blocks it; otherwise close "
-                        "with the result.");
-    return false;
+    st.model_closed = true; // the model's own reply is the turn's close
+    st.final_reply = content;
+    return true;
 }
 
 bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
@@ -1088,6 +1111,35 @@ bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& 
         throw; // a deliberate stop, not a failure to recover from
     } catch (const std::exception& e) {
         return recover_internal_failure(st, e.what());
+    }
+}
+
+// The loop's own state, said once at the moment it changes: how much of the
+// iteration and wall-clock budget is spent, and whether the same call keeps
+// coming back. Nothing here intervenes — a bound that arrives without warning is
+// a trap, so the model is told and decides.
+void Agent::note_loop_state(TurnState& st, int iter) {
+    const long wall_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - st.start)
+                                               .count());
+    if (!st.budget_noted && cfg_.max_tool_iterations > 0 &&
+        (iter + 1) * 100 >= cfg_.max_tool_iterations * kBudgetNotePct) {
+        st.budget_noted = true;
+        inject_harness_note("[harness] step " + std::to_string(iter + 1) + "/" +
+                            std::to_string(cfg_.max_tool_iterations) +
+                            " of this turn's iteration budget is used.");
+    }
+    if (!st.wall_noted && cfg_.max_wall_ms > 0 &&
+        wall_ms * 100 >= cfg_.max_wall_ms * kBudgetNotePct) {
+        st.wall_noted = true;
+        inject_harness_note("[harness] " + std::to_string(wall_ms / 60000) +
+                            "m of this turn's wall-clock budget is used.");
+    }
+    if (st.repeat_count >= kRepeatNoteAt && st.noted_repeats != st.repeat_count) {
+        st.noted_repeats = st.repeat_count;
+        inject_harness_note("[harness] the same tool call has been issued " +
+                            std::to_string(st.repeat_count + 1) +
+                            " times in a row; arguments that only change the timing do not count.");
     }
 }
 
@@ -1196,6 +1248,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
+        note_loop_state(st, iter);
 
         Message reply;
         try {

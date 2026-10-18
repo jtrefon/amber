@@ -21,6 +21,12 @@ namespace agent {
 // Returns "name1|args1|name2|args2|..." or empty string for null/empty input.
 std::string fingerprint_tool_calls(const json& calls);
 
+// The same fingerprint with timing arguments dropped ("timeout", "timeout_s",
+// "seconds", "wait", "wait_s"): raising the timeout is an escalation of an
+// identical call, not a new one, and counting it as new is what made a 30-retry
+// loop look like 30 different calls to the old guard.
+std::string canonical_call_key(const json& calls);
+
 // Replace invalid UTF-8 sequences with U+FFFD so model/tool text can never
 // carry bytes that make nlohmann throw on json::dump (type_error.316). Tool
 // output (grep/semantic search) and some servers' assistant content can

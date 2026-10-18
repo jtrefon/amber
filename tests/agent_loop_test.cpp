@@ -950,6 +950,82 @@ TEST(agent_loop_repeated_failures_stop_the_turn) {
     ASSERT_EQ(stops, 1);    // the stop itself is part of the record
 }
 
+// [AL-18] The loop's own state reaches the model before a bound bites: a ceiling
+// that arrives without warning is a trap, so the crossing is announced once.
+TEST(agent_loop_budget_note_precedes_the_cap) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.max_tool_iterations = 5;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    const char* paths[] = {"Makefile", "Makefile.in", "lib/llm.cpp", "lib/agent.cpp", "README.md"};
+    for (const char* path : paths)
+        push_tool_call(*fake, "read", {{"path", path}});
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.run("read everything");
+    // The notice rides the request the model actually sees, and it arrives
+    // before the cap does not: nothing about step 1-3 mentioned the budget.
+    ASSERT(raw->requests.size() == 5u);
+    for (size_t i = 0; i < 3; ++i)
+        for (const auto& m : raw->requests[i])
+            ASSERT(m.content.find("step 4/5") == std::string::npos);
+    bool announced = false;
+    for (const auto& m : raw->requests[3])
+        if (m.harness && m.content.find("step 4/5") != std::string::npos)
+            announced = true;
+    ASSERT(announced);
+}
+
+// [AL-19] A repeated call is reported, never acted on: the harness bounds and
+// says so, the model decides. The escalation argument (bash `timeout`) is not a
+// change, which is what made the old guard blind to 30 retries.
+TEST(agent_loop_repeat_is_reported_not_reenforced) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 3; ++i)
+        push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c" + std::to_string(i));
+    push_text(*fake, "I read the same file three times; closing.");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    const std::string reply = ag.run("read the Makefile");
+    ASSERT_EQ(reply, "I read the same file three times; closing.");
+    ASSERT_EQ(raw->chat_calls, 4); // three tool turns, then the close — nothing stopped it
+    bool noted = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("has been issued") != std::string::npos)
+            noted = true;
+    ASSERT(noted);
+}
+
+// The canonical call key ignores the bash escalation argument, so "the same
+// command with a longer timeout" is the same command.
+TEST(canonical_call_key_ignores_timing_arguments) {
+    const json slow = json::array(
+        {{{"id", "c1"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make test","timeout":30})"}}}}});
+    const json slower = json::array(
+        {{{"id", "c2"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make test","timeout":600})"}}}}});
+    const json other = json::array(
+        {{{"id", "c3"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make lint","timeout":30})"}}}}});
+    ASSERT_EQ(agent::canonical_call_key(slow), agent::canonical_call_key(slower));
+    ASSERT(agent::canonical_call_key(slow) != agent::canonical_call_key(other));
+}
+
 // A closing marker is just text now: the whole reply is the answer, and the
 // harness generates nothing after it. Every miss used to re-inject
 // "Are you finished?" and buy another generation, which is how a finished

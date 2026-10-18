@@ -139,9 +139,17 @@ public:
         // calls and text in it). False means a bound ended it, and the stop
         // reason becomes part of the record.
         bool model_closed = false;
+        // The loop's own state, announced once when it changes: the budget
+        // crossing and a call that keeps repeating. Reported, never acted on.
+        bool budget_noted = false;
+        bool wall_noted = false;
+        int repeat_count = 0;
+        int noted_repeats = 0;
+        std::string last_call_key;
         std::string last_loop_key;
         std::string last_text;
         std::string final_reply;
+        std::chrono::steady_clock::time_point start;
         std::chrono::steady_clock::time_point deadline;
     };
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
@@ -397,6 +405,17 @@ private:
     // Message::harness set: they reach the model in place, and the loop knows
     // they are not the model's own reply.
     void inject_harness_note(const std::string& text);
+
+    // The loop's own state, said once at the moment it changes: how much of the
+    // iteration and wall-clock budget is spent, and whether the same call keeps
+    // coming back. Nothing here intervenes — the model is told and decides.
+    void note_loop_state(TurnState& st, int iter);
+
+    // The four ways one reply can fold into the turn. Each returns true when the
+    // loop must stop.
+    bool fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content);
+    bool fold_harness_notice(TurnState& st);
+    bool fold_silent_reply(TurnState& st);
 
     // A tool_call with no tool response is an invalid request and poisons every
     // later turn; a swallowed dispatch failure leaves one behind.

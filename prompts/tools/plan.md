@@ -15,3 +15,7 @@ gives the user a window into where the work stands. A fresh list of 3–5
 actionable items, marked `in_progress` while active and `completed` when
 done, is the natural shape for this tool. When the task is a single quick
 step, the list stays quiet — tracking adds nothing there.
+
+The list is also the honest answer to "is this finished?": items still open
+are a reason to keep working, and nothing outstanding is the moment to close
+with the result.

@@ -282,6 +282,20 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Expected**: Three `[harness]` failure notices, then the bound stops the turn with the fallback and one stop notice — the endpoint, not the model, is the problem.
 - **On failure**: Unbounded retry storm, or the model blamed for an outage.
 
+#### [AL-18] The loop's state reaches the model before the bound does
+
+- **Given**: `max_tool_iterations = 5`, the model calls tools each round
+- **Input**: one turn
+- **Expected**: No request before step 4 mentions the budget; the step-4 request carries one `[harness]` notice naming `step 4/5`. Announced once — a ceiling that arrives without warning is a trap.
+- **On failure**: A silent truncation the model cannot react to.
+
+#### [AL-19] A repeat is reported, never reinforced
+
+- **Given**: the model issues the same call three times (detection off)
+- **Input**: one turn, then a closing reply
+- **Expected**: One `[harness]` note naming the repetition; the turn ends with the model's own reply — nothing intervenes. `canonical_call_key` treats a bash call with a different `timeout` as the same call.
+- **On failure**: The old trap: 30 escalations counted as 30 fresh calls.
+
 #### [AL-12] Context hash chain survives a full session
 
 - **Given**: multi-turn run with tool calls + compression

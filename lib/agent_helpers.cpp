@@ -31,6 +31,28 @@ std::string fingerprint_tool_calls(const json& calls) {
     return key;
 }
 
+std::string canonical_call_key(const json& calls) {
+    if (calls.is_null() || !calls.is_array() || calls.empty())
+        return {};
+    static const char* const kTimingArgs[] = {"timeout", "timeout_s", "seconds", "wait", "wait_s"};
+    std::string key;
+    for (const auto& tc : calls) {
+        std::string id, fn;
+        json args;
+        bool ok = true;
+        parse_tool_call(tc, id, fn, args, ok);
+        if (args.is_object())
+            for (const char* arg : kTimingArgs)
+                args.erase(arg);
+        if (!key.empty())
+            key += '|';
+        key += fn;
+        key += '|';
+        key += args.dump();
+    }
+    return key;
+}
+
 namespace {
 
 // A field the model reads: enough to act on, and a marker when it was cut, so
