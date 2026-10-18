@@ -29,6 +29,7 @@
 #include "tui/toggle_value.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
+#include <unistd.h>
 #include "tui/event_router.h"
 #include "tui/path_confine.h"
 #include "tui/key_read.h"
@@ -58,6 +59,34 @@
 // @-reference expansion must route user/model-supplied paths through
 // confine_path, which rejects absolute escapes and ../ traversal.
 // ---------------------------------------------------------------------------
+
+// A process that dies without endwin() must still undo what curses turned on.
+// The guard writes the mode-off sequences itself (write(2) is the only thing
+// available to a signal handler or a terminate handler), and this is the exact
+// behaviour that keeps drag-to-select working after a crash.
+TEST(terminal_guard_restore_undoes_the_modes_curses_leaves_behind) {
+    int pipe_fd[2] = {-1, -1};
+    ASSERT_EQ(pipe(pipe_fd), 0);
+    const int saved_stdout = dup(STDOUT_FILENO);
+    ASSERT(saved_stdout >= 0);
+
+    tui::TerminalGuard guard;
+    guard.arm();
+    dup2(pipe_fd[1], STDOUT_FILENO);
+    guard.restore();
+    dup2(saved_stdout, STDOUT_FILENO);
+    close(saved_stdout);
+    close(pipe_fd[1]);
+
+    char buf[256] = {};
+    const ssize_t n = read(pipe_fd[0], buf, sizeof(buf) - 1);
+    close(pipe_fd[0]);
+    ASSERT(n > 0);
+    const std::string out(buf, static_cast<size_t>(n));
+    ASSERT(out.find("\033[?1000l") != std::string::npos); // mouse reporting off
+    ASSERT(out.find("\033[?1006l") != std::string::npos);
+    ASSERT(out.find("\033[?1049l") != std::string::npos); // leave alternate screen
+}
 
 TEST(sec04_confine_path_rejects_absolute) {
     agent::Workspace::set_root("/tmp/amber_tui_confine");

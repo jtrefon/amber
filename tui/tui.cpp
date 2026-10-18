@@ -87,6 +87,15 @@ static void signal_handler(int sig) {
     alarm(2);
 }
 
+// Fatal signals have no loop to defer to: undo the terminal modes and leave.
+// Uncaught exceptions (any thread, including a detached worker) reach
+// std::terminate -> SIGABRT, which is the case that used to leave mouse
+// reporting on and drag-to-select dead.
+static void fatal_signal_handler(int sig) {
+    g_terminal_guard.restore();
+    _exit(128 + sig);
+}
+
 // The signal handler restores the terminal and defers the workspace save to the
 // main loop (a save from inside a signal handler is async-signal-unsafe).
 // SIGALRM is left at its default: the handler's alarm(2) is the fallback death
@@ -94,6 +103,13 @@ static void signal_handler(int sig) {
 void install_signal_handlers() {
     std::signal(SIGHUP, signal_handler);
     std::signal(SIGTERM, signal_handler);
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGABRT, fatal_signal_handler);
+    std::signal(SIGSEGV, fatal_signal_handler);
+    std::set_terminate([]() {
+        g_terminal_guard.restore();
+        _exit(128 + SIGABRT);
+    });
 }
 
 Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
@@ -102,11 +118,20 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     : cfg_(std::move(cfg)), providers_(agent::make_default_provider_service(cfg_)), reg_(reg),
       jobs_(jobs), subagents_(subagents), plugins_(plugins), plugin_runtime_(plugin_runtime) {
     init_terminal();
-    install_signal_handlers();
-    wire_plugin_runtime();
-    build_managers();
-    load_key_bindings();
-    restore_workspace();
+    // ~Tui does not run when a constructor body throws, so setup that fails
+    // after initscr() has to undo the terminal itself — otherwise the user is
+    // left in a raw, mouse-reporting, alternate-screen shell.
+    try {
+        install_signal_handlers();
+        wire_plugin_runtime();
+        build_managers();
+        load_key_bindings();
+        restore_workspace();
+    } catch (...) {
+        endwin();
+        g_terminal_guard.restore();
+        throw;
+    }
 }
 
 void Tui::init_terminal() {
@@ -127,6 +152,9 @@ void Tui::init_terminal() {
     // navigation instead of the xterm alt-scroll aliasing.
     mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
     mouseinterval(0);
+    // From here the terminal has modes that outlive the process: anything that
+    // exits without endwin() must undo them itself.
+    g_terminal_guard.arm();
     set_modal_flag(&modal_open_);
     use_default_colors();
     use_legacy_coding(1);
