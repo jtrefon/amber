@@ -119,12 +119,51 @@ pid_t spawn_command(const std::string& command, const std::string& cwd, int& rea
 // How a supervised command stopped.
 enum class StopKind { Finished, Inactive, TimedOut, Cancelled };
 
+// What the tool knows when it stops watching: the outcome, the exit status (a
+// finished command), the silence that ended the wait, and the job to hand back.
+struct Stop {
+    StopKind kind = StopKind::Finished;
+    int code = 0;
+    long idle_s = 0;
+    long elapsed_ms = 0;
+    std::size_t bytes = 0;
+    std::string job_id;
+};
+
+// An inactive command is handed back, not killed: name the job, the silence and
+// the three ways forward, so the decision stays the agent's.
+void format_inactive(std::ostringstream& out, const Stop& s, ToolResult& r) {
+    out << "[inactive " << s.idle_s << "s] still running"
+        << (s.job_id.empty() ? "" : " — job " + s.job_id) << ", " << s.elapsed_ms / 1000
+        << "s elapsed, " << s.bytes << " bytes of output so far. Nothing was killed.\n"
+        << "Decide: process_read wait=" << s.idle_s
+        << " (same budget again), process_read with another wait, or process_stop to end it.";
+    r.ok = true;
+    r.output = out.str();
+    r.meta = {{"stop", "inactive"}, {"idle_s", s.idle_s}, {"duration_ms", s.elapsed_ms}};
+    if (!s.job_id.empty())
+        r.meta["job"] = s.job_id;
+}
+
+// A command that was ended rather than handed back: say how, and after how long
+// it had been inactive, so the next decision is informed.
+void format_kill_notice(std::ostringstream& out, const Stop& s, ToolResult& r) {
+    if (s.kind == StopKind::TimedOut)
+        out << "[command timed out after " << s.idle_s << "s of no output and was killed]";
+    else
+        out << "[command cancelled and killed after " << s.elapsed_ms / 1000 << "s]";
+    r.ok = false;
+    r.error = s.kind == StopKind::TimedOut ? "timed out after " + std::to_string(s.idle_s) + "s"
+                                           : "cancelled";
+    r.output = out.str();
+    r.meta["timeout"] = true;
+}
+
 // Assemble the combined output (with truncation notice), then report the
 // outcome: a finished command by its exit code, an inactive one by handing the
-// decision back to the agent (nothing is killed), a cancelled one as killed.
-void format_result(std::string output, StopKind kind, int code, long idle_s, long elapsed_ms,
-                   const std::string& job_id, ToolResult& r) {
-    bool truncated = output.size() >= kMaxOutput;
+// decision back to the agent, an ended one by the notice above.
+void format_result(std::string output, const Stop& s, ToolResult& r) {
+    const bool truncated = output.size() >= kMaxOutput;
     if (truncated)
         output.resize(kMaxOutput);
 
@@ -135,41 +174,19 @@ void format_result(std::string output, StopKind kind, int code, long idle_s, lon
     if (truncated)
         out << "[output truncated at " << kMaxOutput << " bytes]\n";
 
-    if (kind == StopKind::Inactive) {
-        out << "[inactive " << idle_s << "s] still running" << (job_id.empty() ? "" : " — job " + job_id)
-            << ", " << elapsed_ms / 1000 << "s elapsed, " << output.size()
-            << " bytes of output so far. Nothing was killed.\n"
-            << "Decide: process_read wait=" << idle_s
-            << " (same budget again), process_read with another wait, or process_stop to end it.";
-        r.ok = true;
-        r.output = out.str();
-        r.meta = {{"stop", "inactive"}, {"idle_s", idle_s}, {"duration_ms", elapsed_ms}};
-        if (!job_id.empty())
-            r.meta["job"] = job_id;
-        return;
-    }
+    if (s.kind == StopKind::Inactive)
+        return format_inactive(out, s, r);
 
-    r.meta = {{"exit", code}, {"truncated", truncated}, {"duration_ms", elapsed_ms}};
+    r.meta = {{"exit", s.code}, {"truncated", truncated}, {"duration_ms", s.elapsed_ms}};
 
-    if (kind == StopKind::TimedOut || kind == StopKind::Cancelled) {
-        out << (kind == StopKind::TimedOut
-                    ? "[command timed out after " + std::to_string(idle_s) +
-                          "s of no output and was killed]"
-                    : "[command cancelled and killed after " + std::to_string(elapsed_ms / 1000) +
-                          "s]");
-        r.ok = false;
-        r.error = kind == StopKind::TimedOut ? "timed out after " + std::to_string(idle_s) + "s"
-                                            : "cancelled";
-        r.output = out.str();
-        r.meta["timeout"] = true;
-        return;
-    }
+    if (s.kind != StopKind::Finished)
+        return format_kill_notice(out, s, r);
 
-    out << "[exit " << code << "]";
+    out << "[exit " << s.code << "]";
     r.output = out.str();
-    r.ok = (code == 0);
+    r.ok = (s.code == 0);
     if (!r.ok)
-        r.error = "command exited with status " + std::to_string(code);
+        r.error = "command exited with status " + std::to_string(s.code);
 }
 
 // Wait until the job finishes, is cancelled, or has been silent for `idle_s`.
@@ -214,8 +231,15 @@ void run_via_jobs(JobService* jobs, const CancellationToken& cancel_token,
         jobs->stop(id); // erase: bash returns output inline, not via /job
     // Inactive: the job stays registered — /job lists it, the status bar shows
     // it, and process_read / process_stop act on it.
-    format_result(std::move(output), kind, code, idle_s, elapsed_ms(t0), kind == StopKind::Inactive ? id : "",
-                  r);
+    Stop stop;
+    stop.kind = kind;
+    stop.code = code;
+    stop.idle_s = idle_s;
+    stop.elapsed_ms = elapsed_ms(t0);
+    stop.bytes = output.size();
+    if (kind == StopKind::Inactive)
+        stop.job_id = id;
+    format_result(std::move(output), stop, r);
 }
 
 // Exit code for a waitpid status, or -1 when the child neither exited nor was
@@ -247,8 +271,13 @@ void run_direct(const std::string& command, int timeout,
     }
     close(read_fd);
 
-    format_result(std::move(output), timed_out ? StopKind::TimedOut : StopKind::Finished,
-                  wait_status_code(status), timeout, elapsed_ms(t0), "", r);
+    Stop stop;
+    stop.kind = timed_out ? StopKind::TimedOut : StopKind::Finished;
+    stop.code = wait_status_code(status);
+    stop.idle_s = timeout;
+    stop.elapsed_ms = elapsed_ms(t0);
+    stop.bytes = output.size();
+    format_result(std::move(output), stop, r);
 }
 
 } // namespace
