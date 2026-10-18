@@ -184,7 +184,8 @@ TEST(agent_loop_mixed_reply_dispatches_tools) {
     ASSERT(raw->chat_calls == 2);
 }
 
-// [AL-04] The loop stops at max_tool_iterations.
+// [AL-04] The loop stops at max_tool_iterations, and the stop is part of the
+// record: the reason is pushed as a [harness] notice and announced to the host.
 TEST(agent_loop_max_tool_iterations) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -196,12 +197,54 @@ TEST(agent_loop_max_tool_iterations) {
     push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
     push_tool_call(*fake, "read", {{"path", "Makefile.in"}}, "c2");
     push_tool_call(*fake, "read", {{"path", "lib/llm.cpp"}}, "c3");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string announced;
+    agent::AgentHooks hooks;
+    hooks.on_assistant = [&announced](const std::string& text) { announced = text; };
+    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("read many files");
     ASSERT_FALSE(reply.empty()); // graceful fallback, not a crash
     ASSERT_EQ(raw->chat_calls, 3);
     ASSERT(raw->requests.size() == 3u);
+    // The host is told: a stop the user never sees is a dead session.
+    ASSERT_EQ(announced, reply);
+    // And the model is told, in a notice, so the next turn opens knowing.
+    bool noticed = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("ended without a closing reply") != std::string::npos)
+            noticed = true;
+    ASSERT(noticed);
+}
+
+// [AL-16] A model that goes silent after tool calls gets the nudge, and when it
+// stays silent the stop is reported like any other bound.
+TEST(agent_loop_empty_after_tools_is_reported) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
+    for (int i = 0; i < 2; ++i)
+        fake->script.push_back(agent_test::FakeReply{}); // silent, no tool calls
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("read the Makefile");
+    ASSERT(reply.find("agent stopped") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 3); // the tool turn + two silent replies
+    int nudges = 0;
+    bool stopped = false;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("no tool call and no content") != std::string::npos)
+            ++nudges;
+        if (m.content.find("ended without a closing reply") != std::string::npos)
+            stopped = true;
+    }
+    ASSERT_EQ(nudges, 1); // the silence is named once, then the turn stops
+    ASSERT(stopped);
 }
 
 // [AL-05] Repeated narration while the model keeps calling tools triggers the
@@ -872,6 +915,39 @@ TEST(agent_loop_retries_exhausted) {
         if (m.harness && m.content.find("3 attempts") != std::string::npos)
             notice_counts = true;
     ASSERT(notice_counts);
+}
+
+// [AL-17] Three failed requests in a row stop the turn: the endpoint, not the
+// model, is the problem, and the record says so.
+TEST(agent_loop_repeated_failures_stop_the_turn) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 9; ++i) {
+        agent_test::FakeReply f;
+        f.error = "HTTP 503 from LLM server: upstream_error";
+        f.retryable = true;
+        fake->script.push_back(std::move(f));
+    }
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("hi");
+    ASSERT(reply.find("agent stopped") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 9); // three requests, three attempts each
+    int failures = 0;
+    int stops = 0;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("request failed") != std::string::npos)
+            ++failures;
+        if (m.content.find("ended without a closing reply") != std::string::npos)
+            ++stops;
+    }
+    ASSERT_EQ(failures, 3); // one per exhausted request, then the bound
+    ASSERT_EQ(stops, 1);    // the stop itself is part of the record
 }
 
 // A closing marker is just text now: the whole reply is the answer, and the

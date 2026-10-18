@@ -129,10 +129,16 @@ public:
         int text_loop_count = 0;
         int tool_recovery_attempts = 0;
         int internal_failures = 0;
-        // Consecutive replies that carried neither tool calls nor text (or
-        // carried a harness notice the model has not answered). Bounds the
-        // loop's patience; the model still decides when the turn ends.
+        // Consecutive silent replies (no tool calls, no text). Bounds the loop's
+        // patience with a model that has stopped answering.
         int no_answer = 0;
+        // Consecutive harness notices with no model reply in between: a failing
+        // endpoint has its own bound (it is not the model going quiet).
+        int notices = 0;
+        // True when the model's own reply closed the turn (a reply with no tool
+        // calls and text in it). False means a bound ended it, and the stop
+        // reason becomes part of the record.
+        bool model_closed = false;
         std::string last_loop_key;
         std::string last_text;
         std::string final_reply;
@@ -429,8 +435,10 @@ private:
     // execute like structured ones.
     bool extract_embedded_tool_calls(Message& reply) const;
 
-    // Finalize a turn: fallback on empty, log, update state.
-    std::string finish_turn(std::string final_reply);
+    // Finalize a turn: fallback on empty, report the stop, log, update state.
+    // `model_closed` false means a bound ended the turn (iteration cap, wall
+    // clock, loop guard, silence) — its reason is recorded as a harness notice.
+    std::string finish_turn(std::string final_reply, bool model_closed = false);
     std::string finish_turn_cancelled();
 
     // Apply memory/skill ops from a compression response to the store.

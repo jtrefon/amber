@@ -16,10 +16,16 @@
 
 namespace tui {
 
-// Render one restored session message as scrollback lines. Assistant
-// tool_calls queue RestoredCall entries; tool messages emit a single
-// timestamped result line (describe + summary, no exit status).
+// Render one restored session message as scrollback lines. A harness notice is
+// the environment speaking, not the user typing, so it is shown as a status
+// line rather than behind a prompt caret. Assistant tool_calls queue
+// RestoredCall entries; tool messages emit a single timestamped result line
+// (describe + summary, no exit status).
 void SessionController::restore_user_line(const agent::Message& m) {
+    if (m.harness) {
+        tui_.append_line(P_STATUS, m.content);
+        return;
+    }
     tui_.append_line(P_USER, "> " + m.content);
 }
 

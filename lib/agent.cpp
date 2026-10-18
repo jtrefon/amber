@@ -32,11 +32,15 @@ namespace {
 // repeat means the run cannot make progress, so it stops with a clear reason
 // instead of burning the iteration budget.
 constexpr int kMaxInternalFailures = 2;
-// Consecutive replies with nothing the model can act on (an empty reply, or a
-// harness notice it has not answered yet) that the loop tolerates before the
-// turn stops. The bound is a safety net, not a demand: the harness asks for
-// nothing, it just stops spending once the model has stopped answering.
-constexpr int kMaxNoAnswer = 3;
+// Consecutive silent replies (no tool calls, no text) the loop tolerates before
+// the turn stops: one round with a nudge, then the bound. It is a safety net,
+// not a demand — the harness asks for nothing, it just stops spending once the
+// model has stopped answering.
+constexpr int kMaxNoAnswer = 2;
+// Consecutive harness notices with no model reply in between. A request that
+// fails every attempt is not the model going quiet, so it gets its own bound:
+// the endpoint is down, and three in a row end the turn with the record of why.
+constexpr int kMaxHarnessNotices = 3;
 
 // Append a Markdown section to the system prompt. Files carry a trailing
 // newline and the separator is two of them, so the section is trimmed before it
@@ -861,13 +865,25 @@ std::string Agent::finish_turn_cancelled() {
     return "";
 }
 
-std::string Agent::finish_turn(std::string final_reply) {
+std::string Agent::finish_turn(std::string final_reply, bool model_closed) {
     if (final_reply.empty()) {
         final_reply = empty_turn_reply(context_.get_all());
         log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
                                             ? "empty_after_tools"
                                             : "empty_reply"}});
     }
+    if (!model_closed) {
+        // A bound ended this turn, not the model. The reason goes into the
+        // conversation so the next turn opens knowing why it stopped, and into
+        // the host's hands so the stop is never silent on screen.
+        inject_harness_note("[harness] the turn ended without a closing reply: " + final_reply);
+    }
+    // The closing text is announced and recorded here — the single exit of every
+    // non-cancelled turn. A streamed reply is already on screen (the host skips
+    // a duplicate), a stop reason is not.
+    if (hooks_.on_assistant)
+        hooks_.on_assistant(final_reply);
+    log_.event("assistant", {{"content", final_reply}});
     log_.event("turn_end", {{"content", final_reply}});
     if (hooks_.on_state)
         hooks_.on_state(RunState::Idle);
@@ -1028,6 +1044,7 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
 
     if (!tc.is_null() && !tc.empty()) {
         st.no_answer = 0;
+        st.notices = 0;
         // Repeated narration while the model keeps calling tools is what the
         // opt-in text-loop guard watches for.
         if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
@@ -1037,17 +1054,24 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
         return !st.final_reply.empty();
     }
 
-    if (notice)
-        return ++st.no_answer >= kMaxNoAnswer;
+    if (notice) {
+        // A report from the environment is not the model going quiet: the model
+        // has the next word. Three in a row mean the endpoint is down.
+        st.no_answer = 0;
+        return ++st.notices >= kMaxHarnessNotices;
+    }
 
     if (!content.empty()) {
         st.no_answer = 0;
+        st.notices = 0;
+        st.model_closed = true; // the model's own reply is the turn's close
         st.final_reply = content;
         return true;
     }
 
     // A silent empty reply after tools. The model may have lost the thread, so
     // it gets one more round with a note; after that the turn stops.
+    st.notices = 0;
     if (++st.no_answer >= kMaxNoAnswer)
         return true;
     inject_harness_note("[harness] the previous reply carried no tool call and no content. If work "
@@ -1184,7 +1208,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (fold_reply(st, tools, reply))
             break;
     }
-    return finish_turn(std::move(st.final_reply));
+    return finish_turn(std::move(st.final_reply), st.model_closed);
 }
 
 // Upserts vs deprecations in one op list.

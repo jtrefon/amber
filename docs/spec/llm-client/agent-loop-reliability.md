@@ -193,8 +193,8 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 - **Given**: model calls tools forever
 - **Input**: `run(...)`
-- **Expected**: Loop stops at `max_tool_iterations` with a bounded reply.
-- **On failure**: Unbounded loop.
+- **Expected**: Loop stops at `max_tool_iterations` with a bounded reply; the reply is announced to the host and the stop reason is pushed as a `[harness]` notice (a bound-ended turn is part of the record).
+- **On failure**: Unbounded loop, or a stop nobody sees.
 
 #### [AL-05] Text loop detection
 
@@ -267,6 +267,20 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Input**: multi-turn `run(...)`
 - **Expected**: Compression still fires (fallback estimate).
 - **On failure**: Unbounded growth (today's behavior).
+
+#### [AL-16] Silence after tool calls
+
+- **Given**: the model answers a tool result with an empty reply (no text, no calls)
+- **Input**: one turn
+- **Expected**: One `[harness]` nudge; if silence repeats, the turn stops with the fallback and the stop notice. `chat_calls` shows exactly the rounds spent (no spin to the iteration cap).
+- **On failure**: A silent death, or a loop that burns the budget on empty replies.
+
+#### [AL-17] A failing endpoint has its own bound
+
+- **Given**: every request fails every attempt (3 requests × 3 attempts)
+- **Input**: `run("hi")`
+- **Expected**: Three `[harness]` failure notices, then the bound stops the turn with the fallback and one stop notice — the endpoint, not the model, is the problem.
+- **On failure**: Unbounded retry storm, or the model blamed for an outage.
 
 #### [AL-12] Context hash chain survives a full session
 

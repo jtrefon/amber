@@ -122,8 +122,8 @@ stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 
 - **Given**: Loop exits with empty `final_reply` (max iterations, hard stop with no final text)
 - **Input**: Any scenario that exhausts loop without producing usable output
-- **Expected**: `finish_turn("")` calls `empty_turn_reply()`. If history has tool calls: `"[agent stopped: the model stopped producing usable output after tool calls; see the ERROR messages above]"`. If no tool calls: `"[agent stopped: the model produced no usable response]"`.
-- **Invariant**: `run()` never returns empty string.
+- **Expected**: `finish_turn("")` calls `empty_turn_reply()`. If history has tool calls: `"[agent stopped: the model stopped producing usable output after tool calls; see the ERROR messages above]"`. If no tool calls: `"[agent stopped: the model produced no usable response]"`. The reply is announced to the host (`on_assistant`) and recorded (`assistant` + `turn_end` in the transcript), and — because a bound ended the turn — the reason also goes into the conversation as a `[harness]` notice.
+- **Invariant**: `run()` never returns empty string, and a stop the user cannot see is a bug.
 
 #### [CL-12] System prompt is idempotent
 
