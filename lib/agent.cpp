@@ -32,6 +32,11 @@ namespace {
 // repeat means the run cannot make progress, so it stops with a clear reason
 // instead of burning the iteration budget.
 constexpr int kMaxInternalFailures = 2;
+// Consecutive replies with nothing the model can act on (an empty reply, or a
+// harness notice it has not answered yet) that the loop tolerates before the
+// turn stops. The bound is a safety net, not a demand: the harness asks for
+// nothing, it just stops spending once the model has stopped answering.
+constexpr int kMaxNoAnswer = 3;
 
 // Append a Markdown section to the system prompt. Files carry a trailing
 // newline and the separator is two of them, so the section is trimmed before it
@@ -403,11 +408,9 @@ void Agent::record_stats(const Stats& stats) {
         cfg_.prompt_tokens_used = stats.prompt_tokens;
 }
 
-// Hidden exchanges (the confirmation probe) stay hidden from subscribers too:
-// publishing them would double-count turns in any plugin observer.
-void Agent::publish_llm_response(const Stats& stats, bool display) {
-    if (!display)
-        return;
+// Every completed exchange is visible to subscribers: the loop has no hidden
+// round-trips any more, so nothing has to be filtered out of the event stream.
+void Agent::publish_llm_response(const Stats& stats) {
     LlmResponseEvent response;
     response.status = 200;
     if (stats.valid) {
@@ -417,7 +420,7 @@ void Agent::publish_llm_response(const Stats& stats, bool display) {
     publish_event(response);
 }
 
-Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
+Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     Message reply;
     Stats stats;
     if (hooks_.on_debug)
@@ -442,28 +445,18 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     // memories. There is now no "before the gate" to inject into by accident.
     inject_prompt_blocks(prompt_copy);
 
-    const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(
-            prompt_copy, tools, [this, &h](const StreamChunk& ch) { on_stream_chunk(h, ch); },
+            prompt_copy, tools, [this](const StreamChunk& ch) { on_stream_chunk(hooks_, ch); },
             &stats);
     } else {
         reply = client_->chat(prompt_copy, tools, &stats);
     }
     record_stats(stats);
-    publish_llm_response(stats, display);
+    publish_llm_response(stats);
 
     ++turn_counter_;
     return reply;
-}
-
-const AgentHooks& Agent::silent_hooks() const {
-    static const AgentHooks silent = [] {
-        AgentHooks h;
-        h.on_state = [](RunState) {};
-        return h;
-    }();
-    return silent;
 }
 
 void Agent::push_reply(Message reply) {
@@ -639,116 +632,6 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     return true;
 }
 
-// The closing marker, however the model wrapped it: "done.", "**done.**",
-// "`DONE`", or as the last word of a summary ("... the analysis is complete.
-// done."). A reply that is not one of these means the model wants the turn to
-// keep going — and matching too narrowly is what turned a finished answer into
-// an unbounded re-verification loop, because every miss re-injects the
-// "Are you finished?" prompt and pays for another generation and probe.
-bool is_confirmation_reply(const std::string& s) {
-    static const char* const kDone[] = {"done",  "yes",    "ok",      "finished",
-                                        "looksgood", "complete", "alldone"};
-    const auto is_done_word = [](const std::string& w) {
-        for (const char* candidate : kDone)
-            if (w == candidate)
-                return true;
-        return false;
-    };
-    std::string letters;
-    for (char c : s) {
-        const auto uc = static_cast<unsigned char>(c);
-        if (std::isalnum(uc))
-            letters += static_cast<char>(std::tolower(uc));
-    }
-    if (is_done_word(letters))
-        return true;
-    // Trailing word only: "...analysis is complete. done." closes the turn.
-    std::string last;
-    for (auto it = s.rbegin(); it != s.rend(); ++it) {
-        const auto uc = static_cast<unsigned char>(*it);
-        if (std::isalpha(uc)) {
-            last.insert(last.begin(), static_cast<char>(std::tolower(uc)));
-            continue;
-        }
-        if (!last.empty())
-            break; // the word ended: markup and punctuation do not matter
-    }
-    return is_done_word(last);
-}
-
-// True when the last tool result in the context was denied — the loop is broken
-// and the candidate answer stands.
-bool Agent::probe_was_denied() const {
-    const auto& all = context_.get_all();
-    for (auto it = all.rbegin(); it != all.rend(); ++it) {
-        if (it->role != "tool")
-            continue;
-        return it->content.find("status=denied") != std::string::npos;
-    }
-    return false;
-}
-
-// The reply that stands in for a confirmation exchange the endpoint could not
-// answer: the transcript says why the check did not run, so the turn's record
-// is complete even though the probe never happened.
-Message probe_unavailable_note(const std::string& why) {
-    Message note;
-    note.role = "assistant";
-    note.content = "[confirmation unavailable: " + why + "]";
-    return note;
-}
-
-std::string Agent::confirm_turn(const std::string& candidate,
-                                const std::vector<std::shared_ptr<Tool>>& tools) {
-    Message done_msg;
-    done_msg.role = "user";
-    done_msg.content = "Are you finished? If you need more information or analysis, "
-                       "use tools now. Otherwise reply with \"done.\"";
-    context_.push(std::move(done_msg));
-    emit_context_event(context_events_, context_);
-
-    Message check;
-    try {
-        check = chat_with_recovery(tools, "probe", /*display=*/false,
-                                   /*strict=*/true);
-    } catch (const RequestFailedError& e) {
-        // A transient outage is not the turn's fault and the answer is already
-        // earned, so keep it and record why the check did not run — this is the
-        // path a 503 storm used to take out of run(), leaving the session
-        // looking dead with the prompt abandoned. A request the endpoint
-        // rejected on its shape (retryable == false) still surfaces as an
-        // error: nothing about the turn can be salvaged by keeping it.
-        if (!e.retryable)
-            throw;
-        context_.push(probe_unavailable_note(e.what()));
-        emit_context_event(context_events_, context_);
-        if (hooks_.on_status)
-            hooks_.on_status("confirmation unavailable - keeping the answer");
-        return candidate;
-    }
-    // Template-style tool calls arrive embedded in the content (e.g. ornith's
-    // <tool_call><function=...><parameter=...>) — extract them so the probe
-    // dispatches them like the main loop does.
-    extract_embedded_tool_calls(check);
-    json check_tool_calls = check.tool_calls;
-    std::string check_content = check.content;
-    context_.push(std::move(check));
-    emit_context_event(context_events_, context_);
-
-    if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
-        const bool any_ran =
-            dispatch_tool_calls(check_tool_calls, cfg_, registry_, hooks_, log_, session_approved_,
-                                &policy_, event_bus_, &context_);
-        // A denied tool breaks the loop: the candidate answer stands.
-        if (!any_ran && probe_was_denied())
-            return candidate;
-        return "";
-    }
-    if (is_confirmation_reply(check_content) || check_content.empty())
-        return candidate;
-    return check_content;
-}
-
 void Agent::log_and_push_user_prompt(const std::string& prompt) {
     // Diagnostics are opt-in and the sink is lazy: every prompt re-asserts it,
     // so a resumed session (transcript already open) still gets its journal.
@@ -854,9 +737,10 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
         if (text_loop_count == 2) {
             Message steer;
             steer.role = "user";
-            steer.content = "You are repeating the same response. "
-                            "If you are done, say \"done.\" If you need more "
-                            "information, use a tool. Do not repeat yourself.";
+            steer.harness = true;
+            steer.content = "[harness] the same reply has arrived twice in a row. Either close the "
+                            "turn with the result, or take a different step — repeating the same "
+                            "words again changes nothing.";
             context_.push(std::move(steer));
             emit_context_event(context_events_, context_);
             if (hooks_.on_status)
@@ -879,17 +763,6 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
     return false;
 }
 
-std::string Agent::try_confirm(const std::string& candidate,
-                               const std::vector<std::shared_ptr<Tool>>& tools) {
-    std::string accepted = confirm_turn(candidate, tools);
-    if (accepted.empty())
-        return {};
-    if (hooks_.on_assistant)
-        hooks_.on_assistant(accepted);
-    log_.event("assistant", {{"content", accepted}});
-    return accepted;
-}
-
 std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
     // Keep the snapshot's ownership leases: raw pointers into a temporary
     // snapshot would dangle the moment the registry mutates.
@@ -900,8 +773,6 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 // the retry loop can REPAIR the request once (drop tools when the server
 // cannot parse the tool grammar for the loaded template; swap to a
 // server-known model id when the configured one is rejected) and retry.
-// `display` controls whether the exchange paints into the scrollback;
-// `strict` makes internal exchanges rethrow instead of faking a reply.
 // The recovery ladder for a failed request: template-parser (retry without
 // tools), model-name (retry with the first advertised model), and auth (ask the
 // host for a key, rebuild the client, retry). Returns an empty adapter entry when
@@ -926,14 +797,13 @@ std::string request_new_api_key(const AgentHooks& hooks, const Config& cfg, cons
 } // namespace
 
 ChatAdapter Agent::build_chat_adapter(const char* stage,
-                                      const std::vector<std::shared_ptr<Tool>>& tools,
-                                      bool display) {
-    return [this, stage, &tools, display](const std::string& err) -> std::function<Message()> {
+                                      const std::vector<std::shared_ptr<Tool>>& tools) {
+    return [this, stage, &tools](const std::string& err) -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
             publish_error("template_parser", err);
             if (!tools.empty())
-                return [this, display]() { return chat_once({}, display); };
+                return [this]() { return chat_once({}); };
             break;
         case RequestFailure::ModelName: {
             publish_error("model_name", err);
@@ -943,7 +813,7 @@ ChatAdapter Agent::build_chat_adapter(const char* stage,
                 if (hooks_.on_status)
                     hooks_.on_status("server rejected model \"" + cfg_.model +
                                      "\" - retrying with \"" + models[0] + "\"");
-                return [this, &tools, display]() { return chat_once(tools, display); };
+                return [this, &tools]() { return chat_once(tools); };
             }
             break;
         }
@@ -957,7 +827,7 @@ ChatAdapter Agent::build_chat_adapter(const char* stage,
             if (key.empty())
                 break;
             set_connection(cfg_.api_base, key, cfg_.model);
-            return [this, &tools, display]() { return chat_once(tools, display); };
+            return [this, &tools]() { return chat_once(tools); };
         }
         default:
             break;
@@ -967,12 +837,10 @@ ChatAdapter Agent::build_chat_adapter(const char* stage,
 }
 
 Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
-                                  const char* stage, bool display, bool strict) {
-    const ChatAdapter adapt = build_chat_adapter(stage, tools, display);
-    auto chat = [this, &tools, display]() { return chat_once(tools, display); };
+                                  const char* stage) {
+    const ChatAdapter adapt = build_chat_adapter(stage, tools);
+    auto chat = [this, &tools]() { return chat_once(tools); };
     try {
-        if (strict)
-            return chat_with_retry_strict(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
         return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
     } catch (const std::exception& e) {
         const auto* api = dynamic_cast<const ApiError*>(&e);
@@ -1139,30 +1007,53 @@ bool Agent::turn_budget_exceeded(TurnState& st) {
 
 // Fold one iteration's reply into the turn. Returns true when the loop should
 // stop; the reply is pushed either way.
+//
+// The turn contract: the MODEL decides when the turn ends. Tool calls mean
+// "mid-process, keep going"; a reply with no tool calls is the answer, and the
+// loop stops there. The harness never asks for another round and never invents
+// a turn of its own; its own reports ([harness] notices) hand the model the
+// next word instead of closing the turn.
 bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
                          Message& reply) {
+    (void)tools;
     // Extract tool_calls and content before push_reply (which moves reply).
     // Template-style tool calls arrive embedded in the content (e.g. ornith's
     // <tool_call><function=...><parameter=...>) — extract them BEFORE the
     // dispatch snapshot so they actually execute.
     extract_embedded_tool_calls(reply);
     const json tc = reply.tool_calls;
-    std::string content = reply.content;
+    const std::string content = reply.content;
+    const bool notice = reply.harness;
     push_reply(std::move(reply));
 
-    if (!tc.is_null() && !tc.empty() &&
+    if (!tc.is_null() && !tc.empty()) {
+        st.no_answer = 0;
+        // Repeated narration while the model keeps calling tools is what the
+        // opt-in text-loop guard watches for.
+        if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
+            return true;
         dispatch_with_loop_detection(tc, content, st.fail_streak, st.loop_count, st.last_loop_key,
-                                     st.tool_recovery_attempts, st.final_reply))
+                                     st.tool_recovery_attempts, st.final_reply);
         return !st.final_reply.empty();
+    }
 
-    if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
+    if (notice)
+        return ++st.no_answer >= kMaxNoAnswer;
+
+    if (!content.empty()) {
+        st.no_answer = 0;
+        st.final_reply = content;
         return true;
+    }
 
-    std::string accepted = try_confirm(content, tools);
-    if (accepted.empty())
-        return false;
-    st.final_reply = std::move(accepted);
-    return true;
+    // A silent empty reply after tools. The model may have lost the thread, so
+    // it gets one more round with a note; after that the turn stops.
+    if (++st.no_answer >= kMaxNoAnswer)
+        return true;
+    inject_harness_note("[harness] the previous reply carried no tool call and no content. If work "
+                        "remains, continue with a tool or state what blocks it; otherwise close "
+                        "with the result.");
+    return false;
 }
 
 bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
@@ -1171,11 +1062,22 @@ bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& 
         return advance_turn(st, tools, reply);
     } catch (const CancelledError&) {
         throw; // a deliberate stop, not a failure to recover from
-    } catch (const RequestFailedError&) {
-        throw; // the probe's escalation: the turn ends with a real error
     } catch (const std::exception& e) {
         return recover_internal_failure(st, e.what());
     }
+}
+
+// Push a harness notice into the conversation. It rides the user channel with
+// the harness flag set: the model sees it in place, the loop never mistakes it
+// for an answer, and a UI can render it as the environment speaking.
+void Agent::inject_harness_note(const std::string& text) {
+    Message note;
+    note.role = "user";
+    note.harness = true;
+    note.content = text;
+    context_.push(std::move(note));
+    emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
 }
 
 bool Agent::recover_internal_failure(TurnState& st, const std::string& what) {
@@ -1183,12 +1085,7 @@ bool Agent::recover_internal_failure(TurnState& st, const std::string& what) {
     log_.event("error", {{"reason", "internal_failure"}, {"error", what}});
     if (hooks_.on_status)
         hooks_.on_status("internal error (recovered): " + what);
-    Message msg;
-    msg.role = "assistant";
-    msg.content = internal_failure_reply(what);
-    context_.push(std::move(msg));
-    emit_context_event(context_events_, context_);
-    publish_message_added(context_.get_all().back());
+    inject_harness_note(internal_failure_reply(what));
     answer_orphan_tool_calls(what);
     if (st.internal_failures < kMaxInternalFailures)
         return false;
@@ -1278,9 +1175,7 @@ std::string Agent::run(const std::string& user_prompt) {
 
         Message reply;
         try {
-            reply = chat_with_recovery(tools, "generation",
-                                       /*display=*/true,
-                                       /*strict=*/false);
+            reply = chat_with_recovery(tools, "generation");
         } catch (const CancelledError&) {
             if (hooks_.on_status)
                 hooks_.on_status("cancelled by user");

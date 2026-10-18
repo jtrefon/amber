@@ -15,9 +15,9 @@
         "param": 8
       },
       "bench::run_agent_in_workspace": {
-        "ccn": 4,
-        "nloc": 23,
-        "param": 10
+        "ccn": 2,
+        "nloc": 20,
+        "param": 9
       }
     },
     "bench/template.cpp": {
@@ -29,9 +29,9 @@
     },
     "lib/agent.cpp": {
       "agent::Agent::Agent": {
-        "ccn": 5,
-        "nloc": 27,
-        "param": 11
+        "ccn": 4,
+        "nloc": 25,
+        "param": 10
       },
       "agent::Agent::dispatch_with_loop_detection": {
         "ccn": 5,
@@ -51,13 +51,8 @@
         "param": 7
       },
       "agent::chat_with_retry_impl": {
-        "ccn": 10,
-        "nloc": 33,
-        "param": 8
-      },
-      "agent::chat_with_retry_strict": {
-        "ccn": 1,
-        "nloc": 6,
+        "ccn": 9,
+        "nloc": 32,
         "param": 7
       }
     },
@@ -68,8 +63,8 @@
         "param": 9
       },
       "agent::prepare_call": {
-        "ccn": 10,
-        "nloc": 31,
+        "ccn": 9,
+        "nloc": 29,
         "param": 9
       }
     },
@@ -96,8 +91,8 @@
     },
     "lib/process.cpp": {
       "agent::spawn_mcp_server": {
-        "ccn": 6,
-        "nloc": 28,
+        "ccn": 5,
+        "nloc": 26,
         "param": 7
       }
     },

@@ -865,9 +865,10 @@ behavior change: prove it with a before/after benchmark run (see
   encapsulate a background-process request as an object with a uniform `execute()`.
 - **Protection Proxy**: `Workspace::confine()` guards filesystem access behind
   path-confinement checks, proxying the real filesystem.
-- **Null Object**: `Agent::silent_hooks()` returns a no-op `AgentHooks` so
-  internal confirmation exchanges never reach the scrollback, without null-checking
-  at every call site.
+- **Marker/Tag**: `Message::harness` tags the notices the harness itself authors
+  (`[harness]` retry summaries, repair reports, budget and stop reasons) so the
+  loop never mistakes one for the model's own reply and a UI can render it as
+  the environment speaking.
 - **Memento**: `run_compression()` (gate path) and `compress_now()` leave the
   live `context_` untouched when the pipeline fails (spec invariant 7); the
   rebuild via `clear()` + `push()` only happens on success, capturing and
@@ -896,7 +897,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | File | Lines | Issue |
 |------|------:|-------|
 | `tests/run_tests.cpp` | 8508 | Test file; exempt from class-size rule but a candidate for per-area headers. |
-| `lib/session.cpp` | 339 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
+| `lib/session.cpp` | 343 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 3025 | Method implementations (not a class); exempt from class-size rule. |
 
@@ -906,9 +907,12 @@ claim 0-debt conformance. Line counts below are enforced by
   `debug_log` (+ `llm.cpp` keeps the class). Provider wire protocols now live in
   `lib/dialect_*.cpp` behind the `Dialect` port, see
   `docs/spec/llm-client/dialect.md`.
-- `lib/agent.cpp` (473 → 200, now 773): `run` decomposed into `confirm_turn`,
-  `dispatch_tool_calls`, `agent_helpers`, `tool_recovery`; `compress_now` now
-  delegates to `CompressionPipeline::compress()` via `compression_->compress()`.
+- `lib/agent.cpp` (473 → 200, now ~1000): `run` decomposed into `advance_turn`,
+  `fold_reply`, `recover_internal_failure`, `dispatch_tool_calls`,
+  `agent_helpers`, `tool_recovery`; `compress_now` delegates to
+  `CompressionPipeline::compress()` via `compression_->compress()`. The old
+  `confirm_turn` probe was retired on 2026-10-18 (the turn contract: a reply
+  with no tool calls ends the turn).
 - `tui/tui.cpp` (1245 → 171, now 1044): god-class `Tui` split into `tui.h` (declaration,
   +420 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
   `tui_main.cpp`. No file defines a class >200 lines.

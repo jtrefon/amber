@@ -150,11 +150,11 @@ public:
         props["all"] = json::object(
             {{"type", "boolean"},
              {"description", "Return full output instead of the delta (default false)."}});
-        props["wait"] = json::object(
-            {{"type", "integer"},
-             {"description", "Seconds of silence to wait for before answering "
-                             "(default 0: answer now). Returns early when the job "
-                             "speaks. Nothing is killed."}});
+        props["wait"] =
+            json::object({{"type", "integer"},
+                          {"description", "Seconds of silence to wait for before answering "
+                                          "(default 0: answer now). Returns early when the job "
+                                          "speaks. Nothing is killed."}});
         p["properties"] = props;
         p["required"] = json::array({"id"});
         return p;
@@ -181,7 +181,8 @@ public:
         }
         bool all = read_bool(a, "all", false);
         const auto wait_raw = read_int(a, "wait", 0);
-        const int wait_s = static_cast<int>(wait_raw > 86400 ? 86400 : (wait_raw > 0 ? wait_raw : 0));
+        const int wait_s =
+            static_cast<int>(wait_raw > 86400 ? 86400 : (wait_raw > 0 ? wait_raw : 0));
         if (wait_s > 0)
             wait_for_output(job, wait_s);
         // Read from the held reference (the service map entry may already be

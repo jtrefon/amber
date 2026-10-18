@@ -192,8 +192,8 @@ void format_result(std::string output, const Stop& s, ToolResult& r) {
 // Wait until the job finishes, is cancelled, or has been silent for `idle_s`.
 // Silence is not a kill: it returns control to the agent, which decides what
 // happens next (see format_result's StopKind::Inactive).
-StopKind wait_for_job(JobService* jobs, const CancellationToken& cancel_token, const std::string& id,
-                      int idle_s) {
+StopKind wait_for_job(JobService* jobs, const CancellationToken& cancel_token,
+                      const std::string& id, int idle_s) {
     while (true) {
         if (run_cancelled(cancel_token))
             return StopKind::Cancelled;

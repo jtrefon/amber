@@ -81,7 +81,7 @@ into history or hard-stops with a descriptive fallback.
 
 - **Given**: `detection_loop = true`, tool returns `ok=false` 3 turns in a row
 - **Input**: 3 consecutive failed tool batches
-- **Expected**: `fail_streak.update()` reaches 3 → `inject_tool_recovery_steer()` called. Steer message: `"I notice the tool calls are failing. Check that paths exist, arguments are valid, and the command is correct before retrying."`.
+- **Expected**: `fail_streak.update()` reaches 3 → `inject_tool_recovery_steer()` called. Steer message (a `[harness]` notice): `"[harness] the same tool calls keep failing (see the ERROR messages above). Corrected arguments, a different tool, or a different step are the ways forward."`.
 - **On failure**: No steer injected, model keeps failing indefinitely.
 
 #### [ER-08] FailStreak — 6 consecutive failures (2 attempts) → hard stop

@@ -275,23 +275,20 @@ bool wait_for_retry(const AgentHooks& hooks, const CancellationToken& cancel_tok
     return true;
 }
 
-// What a non-strict caller gets instead of an exception.
-Message chat_error_reply(const char* stage, const std::string& last_error) {
+// What a non-strict caller gets instead of an exception: a [harness] notice the
+// model can act on. It rides the user channel (a system message would be hoisted
+// to the head of the request by the OpenAI dialect) and carries `harness = true`
+// so the loop never mistakes it for the model's own closing reply.
+Message chat_error_reply(const char* stage, const std::string& last_error, int attempts) {
     Message err;
-    err.role = "assistant";
-    err.content = "[error during " + std::string(stage) + ": " + last_error +
-                  "] Please retry or adjust your approach.";
+    err.role = "user";
+    err.harness = true;
+    err.content = "[harness] the " + std::string(stage) + " request failed after " +
+                  std::to_string(attempts) + " attempt" + (attempts == 1 ? "" : "s") + ": " +
+                  last_error +
+                  ". Decide the next move: adjust the request, try another approach, or tell the "
+                  "user what is blocked.";
     return err;
-}
-
-// The escalation a strict caller gets: the request could not be answered, and
-// the callers up the stack are told whether that was transient (a 5xx, a
-// dropped transport) or a request the endpoint rejected on its shape.
-[[noreturn]] void throw_request_failure(const char* stage, const std::string& error,
-                                        bool retryable) {
-    RequestFailedError failure("chat " + std::string(stage) + " failed: " + error);
-    failure.retryable = retryable;
-    throw failure;
 }
 
 // What the escalation reports: the error text and whether retrying had any
@@ -304,10 +301,12 @@ struct LastFailure {
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              std::function<Message()> chat, const char* stage,
                              const CancellationToken& cancel_token, int max_attempts,
-                             const ChatAdapter& adapt, bool strict) {
+                             const ChatAdapter& adapt) {
     LastFailure last;
     bool adapted = false;
+    int attempts_made = 0;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
+        attempts_made = attempt;
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
@@ -326,14 +325,12 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                 break;
         }
     }
-    if (strict)
-        throw_request_failure(stage, last.error, last.retryable);
     if (run_cancelled(cancel_token)) {
         // Cancellation must not fabricate an assistant message: the caller
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    return chat_error_reply(stage, last.error);
+    return chat_error_reply(stage, last.error, attempts_made);
 }
 
 } // namespace
@@ -342,14 +339,7 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
                         const std::function<Message()>& chat, const char* stage,
                         const CancellationToken& cancel_token, int max_attempts,
                         const ChatAdapter& adapt) {
-    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt, false);
-}
-
-Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
-                               const std::function<Message()>& chat, const char* stage,
-                               const CancellationToken& cancel_token, int max_attempts,
-                               const ChatAdapter& adapt) {
-    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt, true);
+    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt);
 }
 
 std::string empty_turn_reply(const std::deque<Message>& history) {
@@ -365,8 +355,8 @@ std::string empty_turn_reply(const std::deque<Message>& history) {
 }
 
 std::string internal_failure_reply(const std::string& what) {
-    return "[error while processing the previous reply: " + what +
-           "] The turn continues; adjust your approach or retry the step.";
+    return "[harness] a failure while processing the previous reply: " + what +
+           ". The turn continues; adjust your approach or retry the step.";
 }
 
 } // namespace agent

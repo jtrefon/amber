@@ -132,14 +132,13 @@ TEST(agent_publishes_turn_and_message_events) {
     ASSERT_EQ(added_roles[1], std::string("user"));
 }
 
-TEST(agent_hidden_exchange_is_not_published) {
+TEST(agent_every_model_round_trip_is_published) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = event_cfg();
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "answer one");
-    push_text(*fake, "done");
 
     agent::EventBus bus;
     agent::Events events(bus);
@@ -155,9 +154,9 @@ TEST(agent_hidden_exchange_is_not_published) {
     ag.set_events(bus);
     ag.run("go");
 
-    // Two model round-trips happened (reply + confirmation probe) but only the
-    // visible one is published: a plugin observer must not double-count turns.
-    ASSERT_EQ(raw->chat_calls, 2);
+    // One model round-trip, one published response: the loop keeps no hidden
+    // exchanges (the confirmation probe that used to be one is gone).
+    ASSERT_EQ(raw->chat_calls, 1);
     ASSERT_EQ(responses, 1);
     ASSERT_EQ(assistant_messages, 1);
 }
@@ -317,9 +316,7 @@ TEST(agent_prompt_blocks_are_stable_across_turns) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "one");
-    push_text(*fake, "done");
     push_text(*fake, "two");
-    push_text(*fake, "done");
 
     agent::PromptRegistry prompts;
     int renders = 0;
@@ -333,15 +330,14 @@ TEST(agent_prompt_blocks_are_stable_across_turns) {
     ag.run("first");
     ag.run("second");
 
-    // Rendered once per model round trip (the confirmation probe builds a
-    // prompt too) - what matters is that the same inputs render identically,
-    // so the server's prefix cache survives the turn.
-    ASSERT_EQ(renders, 4);
+    // Rendered once per model round trip — what matters is that the same
+    // inputs render identically, so the server's prefix cache survives the turn.
+    ASSERT_EQ(renders, 2);
     std::string first_prefix, second_prefix;
     for (const auto& m : raw->requests[0])
         if (m.role == "system")
             first_prefix += m.content + "\n";
-    for (const auto& m : raw->requests[2])
+    for (const auto& m : raw->requests[1])
         if (m.role == "system")
             second_prefix += m.content + "\n";
     ASSERT(first_prefix.find("STABLE BLOCK") != std::string::npos);

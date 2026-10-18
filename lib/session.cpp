@@ -32,6 +32,8 @@ json msg_to_json(const Message& m) {
         j["name"] = m.name;
     if (!m.tool_calls.is_null())
         j["tool_calls"] = m.tool_calls;
+    if (m.harness)
+        j["harness"] = true;
     return j;
 }
 
@@ -49,6 +51,8 @@ Message msg_from_json(const json& j) {
         m.name = j["name"].get<std::string>();
     if (j.contains("tool_calls"))
         m.tool_calls = j["tool_calls"];
+    if (j.contains("harness") && j["harness"].is_boolean())
+        m.harness = j["harness"].get<bool>();
     return m;
 }
 

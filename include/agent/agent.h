@@ -129,6 +129,10 @@ public:
         int text_loop_count = 0;
         int tool_recovery_attempts = 0;
         int internal_failures = 0;
+        // Consecutive replies that carried neither tool calls nor text (or
+        // carried a harness notice the model has not answered). Bounds the
+        // loop's patience; the model still decides when the turn ends.
+        int no_answer = 0;
         std::string last_loop_key;
         std::string last_text;
         std::string final_reply;
@@ -341,19 +345,15 @@ private:
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
 
-    // One model round-trip (stream or buffered). When `display` is false the
-    // token/reasoning/assistant hooks are suppressed so the exchange (e.g. the
-    // internal confirmation check) never paints into the scrollback.
-    Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display = true);
+    // One model round-trip (stream or buffered).
+    Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools);
     bool maybe_compress(std::vector<Message>& prompt_copy);
     void on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const;
     void record_stats(const Stats& stats);
-    void publish_llm_response(const Stats& stats, bool display);
-    bool probe_was_denied() const;
+    void publish_llm_response(const Stats& stats);
     void decay_and_persist();
     std::function<std::function<Message()>(const std::string&)>
-    build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools,
-                       bool display);
+    build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools);
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
@@ -386,18 +386,15 @@ private:
     // swallowed. Returns true when the loop must stop instead.
     bool recover_internal_failure(TurnState& st, const std::string& what);
 
+    // Push a [harness] notice (retry summary, repair report, loop state, stop
+    // reason) into the conversation. Harness notices ride the user channel with
+    // Message::harness set: they reach the model in place, and the loop knows
+    // they are not the model's own reply.
+    void inject_harness_note(const std::string& text);
+
     // A tool_call with no tool response is an invalid request and poisons every
     // later turn; a swallowed dispatch failure leaves one behind.
     void answer_orphan_tool_calls(const std::string& what);
-
-    // Hooks with the display callbacks removed, for silent internal exchanges.
-    const AgentHooks& silent_hooks() const;
-
-    // Ask the model to confirm/finish; dispatch any further tool calls it
-    // requests, or return the accepted final text. Empty return means "keep
-    // iterating the main loop".
-    std::string confirm_turn(const std::string& candidate,
-                             const std::vector<std::shared_ptr<Tool>>& tools);
 
     // Log the user event and push the user message to history.
     void log_and_push_user_prompt(const std::string& prompt);
@@ -415,27 +412,21 @@ private:
     bool detect_text_loop(const std::string& content, int& text_loop_count, std::string& last_text,
                           std::string& final_reply);
 
-    // Run confirm_turn and either break with the final reply or continue.
-    std::string try_confirm(const std::string& candidate,
-                            const std::vector<std::shared_ptr<Tool>>& tools);
-
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<std::shared_ptr<Tool>> resolve_tools();
 
     // One LLM round-trip with graceful recovery for request-side 4xx: the
     // retry loop repairs the request once (drop tools on template-parser
-    // rejection, swap to a server-known model on name rejection). `strict`
-    // makes internal exchanges rethrow instead of faking a reply.
-    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools, const char* stage,
-                               bool display, bool strict);
+    // rejection, swap to a server-known model on name rejection).
+    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools, const char* stage);
 
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
 
     // Extract text-embedded XML tool calls (attribute or name/arguments
     // style) from a reply's content into the structured tool_calls field.
-    // Clears content when calls were found. Used by push_reply and the
-    // confirmation probe so both paths execute template-style tool calls.
+    // Clears content when calls were found, so template-style tool calls
+    // execute like structured ones.
     bool extract_embedded_tool_calls(Message& reply) const;
 
     // Finalize a turn: fallback on empty, log, update state.

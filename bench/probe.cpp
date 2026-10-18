@@ -453,13 +453,12 @@ bool loop_probe_done_flag(ProbeResult& r) {
     s.name = "probe-loop-done";
     s.prompt = "Do one thing and finish.";
     s.max_steps = 6;
-    // One tool call, then a plain "done" content reply. try_confirm makes a
-    // confirmation probe call, so the script carries a second "done".
+    // One tool call, then a plain "done" reply: a reply with no tool calls ends
+    // the turn, so nothing is generated after it.
     s.fake_replies = agent::json::parse(R"([
         {"tool_calls": [{"id": "c1", "type": "function",
                          "function": {"name": "bash",
                                       "arguments": "{\"command\":\"echo hi\"}"}}]},
-        {"content": "done"},
         {"content": "done"}
     ])");
     ScenarioReport rep;

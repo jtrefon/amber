@@ -22,6 +22,12 @@ struct Message {
     std::string tool_call_id; // for role == "tool"
     std::string name;         // tool name for tool messages
     json tool_calls;          // assistant messages may carry calls
+    // True for a notice the harness itself authored ([harness] prefix): a
+    // retry summary, a repair report, a budget note. It rides the user channel
+    // because the OpenAI dialect hoists every system message to the head of the
+    // request, which would lose a notice's place in the conversation. The flag
+    // is what keeps the text from being mistaken for the model's own close.
+    bool harness = false;
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
@@ -77,20 +83,6 @@ struct ApiError : std::runtime_error {
     bool retryable = true;
     ApiError(long s, bool r, const std::string& msg)
         : std::runtime_error(msg), status(s), retryable(r) {}
-};
-
-// Thrown by a strict internal exchange (`chat_with_retry_strict`) that has
-// exhausted its recovery: the request cannot be completed, so the turn ends
-// with a real error rather than a fabricated reply. Distinct from the failures
-// a turn RECOVERS from: a tool envelope or a host callback that throws is
-// reported and survived, this one is not.
-struct RequestFailedError : std::runtime_error {
-    using std::runtime_error::runtime_error;
-    // True when the last failure was transient (a 5xx/429, a transport drop):
-    // the request itself is sound, so the caller may keep the work it has.
-    // False when the request shape is wrong (a rejected template, a missing
-    // model) — nothing about the turn can be salvaged by trying again.
-    bool retryable = false;
 };
 
 class LLMClient {

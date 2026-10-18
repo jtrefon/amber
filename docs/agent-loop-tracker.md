@@ -87,7 +87,10 @@
 ### Problem
 
 The P1 loop has no hermetic coverage (the `confirm_turn` use-after-move
-shipped because no test could drive the path).
+shipped because no test could drive the path). Closed: the confirmation
+handoff itself is retired (2026-10-18, the turn contract — a reply with no tool
+calls ends the turn) and `tests/agent_loop_test.cpp` now drives every loop path
+with the scripted `FakeLLMClient`.
 
 ### Target Architecture
 

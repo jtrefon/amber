@@ -75,21 +75,13 @@ using ChatAdapter = std::function<std::function<Message()>(const std::string&)>;
 // ApiError{retryable=true} (429/5xx/timeouts) or plain transport exceptions;
 // non-retryable ApiErrors (auth/misconfig 4xx) fail fast after one attempt —
 // unless `adapt` repairs the REQUEST (see ChatAdapter): then one adapted
-// attempt runs with full retry semantics. On exhaustion returns the standard
-// "[error during ...]" message so the loop degrades gracefully and the
-// conversation stays intact.
+// attempt runs with full retry semantics. On exhaustion returns a [harness]
+// notice naming the attempts so the model knows the request failed and can
+// choose the next move; the conversation stays intact.
 Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
                         const std::function<Message()>& chat, const char* stage,
                         const CancellationToken& cancel_token, int max_attempts = 3,
                         const ChatAdapter& adapt = {});
-
-// Strict variant used by internal exchanges (the confirmation probe): same
-// retry/adaptation behavior, but rethrows the last error on exhaustion
-// instead of returning a fake reply that would pollute the context.
-Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
-                               const std::function<Message()>& chat, const char* stage,
-                               const CancellationToken& cancel_token, int max_attempts = 3,
-                               const ChatAdapter& adapt = {});
 
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::deque<Message>& history);

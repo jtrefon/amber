@@ -172,22 +172,21 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 - **Given**: fake scripts one text reply
 - **Input**: `run("hi")`
-- **Expected**: Returns the text; context holds system + user + assistant; `get_all()` chain intact.
+- **Expected**: Returns the text in ONE generation — a reply with no tool calls is the turn's end, and nothing is injected behind it (context: system + user + assistant); `get_all()` chain intact.
 - **On failure**: Loop misbehaves without a server to hide it.
 
 #### [AL-02] Tool round trip
 
 - **Given**: fake scripts tool_calls → final text; registry has a real tool
 - **Input**: `run(...)`
-- **Expected**: Tool executed, result fed back as a `tool` message, final text returned.
+- **Expected**: Tool executed, result fed back as a `tool` message, final text returned; two generations, no third.
 - **On failure**: Dispatch broken silently.
 
-#### [AL-03] Confirmation probe dispatches tool calls (the regression)
+#### [AL-03] A reply carrying content AND tool calls dispatches the calls
 
-- **Given**: model's confirmation-probe reply carries `tool_calls`
-- **Input**: the confirmation exchange (as in `confirm_turn`)
-- **Expected**: `dispatch_tool_calls` runs; the conversation continues. This
-  is the exact scenario the use-after-move broke.
+- **Given**: a reply with both `content` and `tool_calls`
+- **Input**: one turn
+- **Expected**: `dispatch_tool_calls` runs and the loop continues (the use-after-move regression: moved-from state used to swallow the calls).
 - **On failure**: Moved-from state swallows the tool calls.
 
 #### [AL-04] Max tool iterations cap
@@ -199,9 +198,9 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 #### [AL-05] Text loop detection
 
-- **Given**: model repeats an identical text reply
+- **Given**: model repeats an identical narration while calling different tools (the opt-in guard)
 - **Input**: `run(...)`
-- **Expected**: Hard stop after the detection threshold.
+- **Expected**: `[harness]` steer at repeat 2; hard stop after the detection threshold.
 - **On failure**: Infinite echo.
 
 #### [AL-06] Compression triggers on scripted tokens
@@ -216,24 +215,43 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 - **Given**: fake throws retryable twice, then succeeds
 - **Input**: one turn
-- **Expected**: 3 attempts observed; final reply ok; `on_status` reported the
-  retries; context has exactly one user turn.
+- **Expected**: 3 attempts observed; final reply ok; the failures stay silent (a recovered hiccup is not the model's business); context has exactly one user turn.
 - **On failure**: Double-pushed turns or no retry.
 
-#### [AL-08] Non-retryable error fails fast
+#### [AL-08] Non-retryable error fails fast, then reports
 
-- **Given**: fake throws non-retryable (401-style)
+- **Given**: fake throws non-retryable (401-style), then scripts a text reply
 - **Input**: one turn
-- **Expected**: One attempt only; error surfaced immediately.
-- **On failure**: Backoff burned on auth errors.
+- **Expected**: One attempt only; a `role="user"`, `harness`-flagged notice naming the failure and the attempt count is pushed; the model's next reply ends the turn.
+- **On failure**: Backoff burned on auth errors, or the turn dies with the model untold.
 
 #### [AL-09] Retries exhausted
 
 - **Given**: fake throws retryable 3×
 - **Input**: one turn
-- **Expected**: Error surfaced via the existing degradation path; conversation
-  intact for the user to retry.
-- **On failure**: Exception escapes `run()`.
+- **Expected**: One `[harness]` notice naming "3 attempts"; the model's own reply follows; no harness text ever carries `role="assistant"`; the prompt is intact for a manual retry.
+- **On failure**: Exception escapes `run()`, or the model is left in the dark.
+
+#### [AL-13] A transient self-healed outage is silent
+
+- **Given**: fake throws retryable twice, then answers
+- **Input**: one turn
+- **Expected**: No `harness` message at all — nothing happened that the model could act on.
+- **On failure**: Notice spam for hiccups the retry already handled.
+
+#### [AL-14] A closing marker is part of the answer
+
+- **Given**: the reply ends with `**done.**`
+- **Input**: one turn
+- **Expected**: The whole reply (marker included) is returned, in one generation; the harness neither strips it nor asks anything after it.
+- **On failure**: The old re-injection loop (a finished coverage review became 98 bash calls).
+
+#### [AL-15] An unrecoverable request reports instead of throwing
+
+- **Given**: the adapted retry also fails (template-parser 400 twice per request, two requests)
+- **Input**: `run("hi")`
+- **Expected**: No exception; two notices (one per exhausted request); the model's reply closes the turn.
+- **On failure**: A dead session with no record of why.
 
 #### [AL-10] Cancellation during backoff
 
@@ -252,7 +270,7 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 #### [AL-12] Context hash chain survives a full session
 
-- **Given**: multi-turn run with tool calls + confirmation + compression
+- **Given**: multi-turn run with tool calls + compression
 - **Input**: the whole scenario set above
 - **Expected**: `get_all()` asserts at every step; zero mutation APIs added.
 - **On failure**: Any context regression fails red here.
@@ -264,7 +282,8 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Depends on**: `llm-client/error-handling.md` (retry contract updated),
   `compression/compression-pipeline.md` (gate budget), `context.h` (immutability)
 - **Depended on by**: `docs/spec/INDEX.md`, `docs/agent-loop-tracker.md`
-- **Test coverage**: `tests/agent_loop_test.cpp` (AL-01..12),
+- **Test coverage**: `tests/agent_loop_test.cpp` (AL-01..12 plus the
+  turn-contract and notice scenarios AL-13..15),
   `tests/run_tests.cpp`
 
 ---
@@ -274,3 +293,4 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 | Date | Reason |
 |------|--------|
 | 2026-07-31 | Initial spec (port + fake + hermetic loop tests; typed retry policy; n_ctx fallback; context-immutability constraint) |
+| 2026-10-18 | Turn contract: a reply with no tool calls ends the turn (the `confirm_turn` probe is gone); failures reach the model as `[harness]` notices (AL-08, AL-09, AL-13, AL-15); AL-03 re-scoped to the mixed reply |

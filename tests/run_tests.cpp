@@ -2249,9 +2249,9 @@ int spawn_mock_http(int port, std::string& body_out, const std::string& status,
             std::string request = drain_request(c);
             if (i == 0)
                 body_out = std::move(request); // the first request is the pinned one
-            std::string http =
-                status + "\r\nContent-Type: " + content_type +
-                "\r\nContent-Length: " + std::to_string(payload.size()) + "\r\n\r\n" + payload;
+            std::string http = status + "\r\nContent-Type: " + content_type +
+                               "\r\nContent-Length: " + std::to_string(payload.size()) +
+                               "\r\n\r\n" + payload;
             send(c, http.c_str(), http.size(), 0);
             // give client time to read
             usleep(200000);
@@ -4280,8 +4280,8 @@ TEST(process_read_wait_is_inactivity_and_kills_nothing) {
                             .count();
 
     ASSERT(read.ok);
-    ASSERT(waited >= 900);            // it honoured the silence it was given
-    ASSERT(waited < 5000);            // and nothing kept it there longer
+    ASSERT(waited >= 900);              // it honoured the silence it was given
+    ASSERT(waited < 5000);              // and nothing kept it there longer
     ASSERT_EQ(jobs.running_count(), 1); // nothing was killed
     tools[2]->execute({{"id", id}});
     ASSERT_EQ(jobs.running_count(), 0); // stop is the agent's call, and it works
