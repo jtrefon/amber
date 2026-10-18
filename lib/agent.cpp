@@ -639,16 +639,41 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     return true;
 }
 
-// The model's "I am finished" vocabulary, with punctuation and case folded away.
+// The closing marker, however the model wrapped it: "done.", "**done.**",
+// "`DONE`", or as the last word of a summary ("... the analysis is complete.
+// done."). A reply that is not one of these means the model wants the turn to
+// keep going — and matching too narrowly is what turned a finished answer into
+// an unbounded re-verification loop, because every miss re-injects the
+// "Are you finished?" prompt and pays for another generation and probe.
 bool is_confirmation_reply(const std::string& s) {
-    std::string flat;
+    static const char* const kDone[] = {"done",  "yes",    "ok",      "finished",
+                                        "looksgood", "complete", "alldone"};
+    const auto is_done_word = [](const std::string& w) {
+        for (const char* candidate : kDone)
+            if (w == candidate)
+                return true;
+        return false;
+    };
+    std::string letters;
     for (char c : s) {
-        const char lc = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
-            flat += lc;
+        const auto uc = static_cast<unsigned char>(c);
+        if (std::isalnum(uc))
+            letters += static_cast<char>(std::tolower(uc));
     }
-    return flat == "done" || flat == "yes" || flat == "ok" || flat == "finished" ||
-           flat == "looksgood" || flat == "complete" || flat == "alldone";
+    if (is_done_word(letters))
+        return true;
+    // Trailing word only: "...analysis is complete. done." closes the turn.
+    std::string last;
+    for (auto it = s.rbegin(); it != s.rend(); ++it) {
+        const auto uc = static_cast<unsigned char>(*it);
+        if (std::isalpha(uc)) {
+            last.insert(last.begin(), static_cast<char>(std::tolower(uc)));
+            continue;
+        }
+        if (!last.empty())
+            break; // the word ended: markup and punctuation do not matter
+    }
+    return is_done_word(last);
 }
 
 // True when the last tool result in the context was denied — the loop is broken

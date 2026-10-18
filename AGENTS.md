@@ -20,6 +20,18 @@ driven by an OpenAI-compatible LLM API.
   reads file contents, which is how an obfuscated dropper sat in `website/`
   for months with a green build. The CI job has no `if:` — it runs on every
   PR, including docs- and website-only ones.
+- **Measuring coverage (there is no `make coverage`):** rebuild instrumented,
+  `CXXFLAGS="-O0 -g --coverage" make`, then
+  `gcovr --root . --xml-pretty -o coverage.xml` (the recipe the `coverage` job
+  in `.github/workflows/ci.yml` runs). `tools/coverage_gate.py --report
+  <path> --diff-base <ref>` reads that report and **fails closed** without it,
+  so a coverage question asked without this build can only ever be answered
+  "not measured" — say that, rather than re-checking the gate's own tests.
+- **`w/` and `.wt/*` are separate git worktrees inside this tree**, not the
+  project. They carry their own `run_tests`, `tools/`, and stale test results
+  (e.g. `w/`'s `1105 passed, 9 failed`). The repo root is the only source of
+  truth: build and test here, and never read a sibling worktree's artefacts as
+  this project's state.
 - `make lint` runs **clang-tidy** over every project source (third_party
   excluded) using the `.clang-tidy` config in the repo root. It is fast enough
   to gate changes on. `make analyze` runs **cppcheck** as an independent,

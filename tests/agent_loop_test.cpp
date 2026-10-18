@@ -844,6 +844,33 @@ TEST(agent_loop_retries_exhausted) {
     ASSERT(saw_user);
 }
 
+// The model closes with the marker wrapped in markdown ("**done.**") or
+// appended to its answer. Every miss used to re-inject "Are you finished?" and
+// buy another generation + probe, which is how a finished coverage review
+// became 98 consecutive bash calls.
+TEST(agent_loop_markdown_done_marker_ends_the_turn) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "the answer");
+    push_text(*fake, "**done.**");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    const std::string reply = ag.run("hi");
+    ASSERT_EQ(reply, "the answer"); // the marker is not the turn's answer
+    ASSERT_EQ(raw->chat_calls, 2);  // generation + probe; no re-injection
+
+    auto fake2 = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw2 = fake2.get();
+    push_text(*fake2, "summary of findings");
+    push_text(*fake2, "Everything checks out. done.");
+    agent::Agent ag2(cfg, reg, {}, {}, {}, {}, {}, std::move(fake2));
+    ASSERT_EQ(ag2.run("hi"), "summary of findings");
+    ASSERT_EQ(raw2->chat_calls, 2);
+}
+
 // A probe that cannot reach the endpoint must not end the turn: the answer is
 // already earned, so it stands and the transcript records why the check did not
 // run. Before this, the 503 escaped run() and the session looked dead.
