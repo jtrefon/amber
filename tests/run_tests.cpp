@@ -4266,6 +4266,52 @@ TEST(job_service_start_read_stop) {
     ASSERT_FALSE(jobs.stop(id)); // already gone
 }
 
+// A stop asks before it kills: SIGTERM gives the child the chance to flush what
+// it holds (a half-written file, a lock, a report line), and SIGKILL is only for
+// the ones that will not go. Before this, every stop was a SIGKILL — the child
+// never got to say what it was doing.
+TEST(job_service_stop_asks_before_it_kills) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
+    agent::JobService jobs;
+    std::string id = jobs.start("trap 'echo got-term; exit 0' TERM; echo waiting; sleep 300",
+                                "/tmp/amber_job_ws");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto job = jobs.get(id);
+    ASSERT(job != nullptr);
+
+    ASSERT(jobs.stop(id));
+    ASSERT(job->output().find("got-term") != std::string::npos); // it heard the SIGTERM
+    ASSERT_EQ(job->exit_code(), 0);                              // and closed on its own terms
+}
+
+// A child that ignores SIGTERM is escalated after the grace, and the stop still
+// returns: a group holding its pipe open would otherwise hang the reader join
+// forever.
+TEST(job_service_stop_escalates_a_sigterm_ignoring_child) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
+    agent::JobService jobs;
+    std::string id = jobs.start("trap '' TERM; echo ignoring; sleep 300", "/tmp/amber_job_ws");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto job = jobs.get(id);
+    ASSERT(job != nullptr);
+    const int pid = job->info().pid;
+    ASSERT(pid > 0);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    ASSERT(jobs.stop(id)); // SIGTERM, 2s grace, SIGKILL — and it returns
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+            .count();
+    ASSERT(ms < 5000);
+    ASSERT_EQ(jobs.running_count(), 0);
+    // The group is gone, not merely forgotten.
+    ASSERT(kill(pid, 0) != 0 && errno == ESRCH);
+}
+
 TEST(job_service_idle_timeout_kills) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
@@ -7629,9 +7675,11 @@ TEST(job_eof_daemon_is_terminated) {
     agent::JobInfo info = j->info();
     // The daemon was terminated and reaped — either the reader forced it
     // (Killed) or the reap landed before the transition (Done). Never an
-    // unreaped-child Done with a bogus exit code.
+    // unreaped-child Done with a bogus exit code. The stop asks first now, so
+    // an ordinary daemon dies of SIGTERM (143); SIGKILL (137) is the escalation
+    // for a group that ignores the ask.
     ASSERT(info.state != agent::JobState::Running);
-    ASSERT_EQ(info.exit_code, 128 + SIGKILL);
+    ASSERT(info.exit_code == 128 + SIGTERM || info.exit_code == 128 + SIGKILL);
     jobs.stop(id);
 }
 

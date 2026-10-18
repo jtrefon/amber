@@ -28,7 +28,7 @@ confinement, and approval gating for side-effect operations.
 4. Background processes (`process_start`, `process_stop`) require approval.
 5. Fail-safe: no `on_approval` handler → tool denied.
 6. Fail-safe: non-TTY CLI with no `--yes` → tool denied.
-7. All child processes run in a separate process group — `kill_process_group()` can kill the entire subtree.
+7. All child processes run in a separate process group — `kill_process_group()` stops the entire subtree (SIGTERM, a 2s grace, then SIGKILL for a group that ignores the ask).
 8. Child process stdin is redirected to `/dev/null` — prevents terminal stealing.
 
 ---
@@ -88,7 +88,7 @@ confinement, and approval gating for side-effect operations.
 
 - **Given**: Bash command spawns child processes
 - **Input**: `spawn_shell()` via direct path
-- **Expected**: Child `setpgid(0,0)` creates new process group. Parent `setpgid(pid, pid)` confirms (race-safe). `kill_process_group()` sends `SIGKILL` to `-pid` — kills all children.
+- **Expected**: Child `setpgid(0,0)` creates new process group. Parent `setpgid(pid, pid)` confirms (race-safe). `kill_process_group()` sends `SIGTERM` to `-pid` first (the child closes on its own terms), waits a 2s grace, then `SIGKILL` — the whole subtree, and never reaps (the job's reader owns the `waitpid`).
 - **On failure**: Zombie child processes survive timeout.
 
 #### [SM-07] Bash read-only commands skip approval
