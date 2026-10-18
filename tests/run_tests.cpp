@@ -4264,6 +4264,29 @@ TEST(process_stop_returns_captured_output) {
     ASSERT_EQ(jobs.running_count(), 0);
 }
 
+// The wait budget is silence, not a deadline: it returns after the silence it
+// asked for, kills nothing, and leaves the job for the agent to read or stop.
+TEST(process_read_wait_is_inactivity_and_kills_nothing) {
+    agent::JobService jobs;
+    auto tools = agent::make_process_tools(jobs);
+    std::string id = tools[0]->execute({{"command", "echo hi; sleep 30"}}).output;
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    const auto began = std::chrono::steady_clock::now();
+    auto read = tools[1]->execute({{"id", id}, {"wait", 1}});
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - began)
+                            .count();
+
+    ASSERT(read.ok);
+    ASSERT(waited >= 900);               // it honoured the silence it was given
+    ASSERT(waited < 5000);               // and nothing kept it there longer
+    ASSERT_EQ(jobs.running_count(), 1u); // nothing was killed
+    tools[2]->execute({{"id", id}});
+    ASSERT_EQ(jobs.running_count(), 0u); // stop is the agent's call, and it works
+}
+
 TEST(job_service_stop_finished_returns_true) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
