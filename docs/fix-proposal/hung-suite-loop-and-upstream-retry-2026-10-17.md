@@ -1,5 +1,11 @@
 # Hung test suite, the loop it caused, and the upstream 503s behind it
 
+> **Superseded in part (2026-10-18):** the loop-guard design in Sequence step 4 is
+> replaced by `agent-loop-contract-and-context-transparency-2026-10-18.md` — the
+> harness no longer enforces loops (no forced continuation, no repeat-triggered
+> intervention); it bounds and reports state instead. Everything else here still
+> stands, and steps 1–3, 5–7 are landed.
+
 Session `1792189515823-0` ("please review test coverage of our project"), continued
 2026-10-17 17:20–18:09 on `kilo-auto/free`. The 302 type errors are gone (PR #271) —
 this is what is left.
