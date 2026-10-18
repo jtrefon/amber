@@ -504,6 +504,98 @@ TEST(tool_source_is_re_installable) {
     ASSERT_TRUE((bool)f.tools.find("discovered_one"));
 }
 
+// The plugin lifecycle is observable. PluginLoaded/PluginUnloaded were declared
+// event types with no fire site — a vocabulary nobody could rely on — and a
+// "refresh the list" consumer had to poll instead.
+TEST(plugin_lifecycle_events_fire) {
+    ScratchConfig scratch("lifecycle-events");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<NamedToolPlugin>("probe", "probe_tool"));
+    std::vector<std::string> loaded;
+    std::vector<std::string> unloaded;
+    Events events(runtime.events());
+    auto l = events.subscribe<PluginLoadedEvent>(
+        [&loaded](const PluginLoadedEvent& e) { loaded.push_back(e.plugin_id); });
+    auto u = events.subscribe<PluginUnloadedEvent>(
+        [&unloaded](const PluginUnloadedEvent& e) { unloaded.push_back(e.plugin_id); });
+
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_EQ(loaded.size(), 1u);
+    ASSERT_EQ(loaded[0], std::string("probe"));
+
+    ASSERT_TRUE(runtime.set_state("probe", false));
+    ASSERT_EQ(unloaded.size(), 1u);
+    ASSERT_EQ(unloaded[0], std::string("probe"));
+
+    // Off again is not a second unload: nothing was active to unload.
+    ASSERT_TRUE(runtime.set_state("probe", false));
+    ASSERT_EQ(unloaded.size(), 1u);
+
+    ASSERT_TRUE(runtime.set_state("probe", true));
+    ASSERT_EQ(loaded.size(), 2u);
+}
+
+// A worker that kept the port past deactivation (a source ignoring the
+// contract) must find it closed: the add is a no-op, not a registration that
+// the ledger can no longer unwind.
+TEST(tool_port_add_after_close_is_ignored) {
+    ScratchConfig scratch("tool-source-closed");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto source = std::make_shared<ToolSourcePlugin>();
+    runtime.add(source);
+    runtime.start(/*use_persisted_state=*/false);
+    ToolPort* port = source->port_;
+    ASSERT(port != nullptr);
+
+    ASSERT_TRUE(runtime.set_state("source", false));
+    port->add(std::make_unique<StubTool>("late_arrival"));
+    ASSERT_FALSE((bool)f.tools.find("late_arrival"));
+}
+
+// The bare-host path installs the tool set from the tool plugins' own factories,
+// but the list of those factories is hand-written in register_default_tools: a
+// new tool plugin missing from it would leave bare hosts (and every test on
+// them) without the tool while the runtime has it. This pins the two sets
+// together — the drift the shared factories cannot prevent by themselves.
+TEST(bare_host_tools_match_the_tool_plugins) {
+    ScratchConfig scratch("bare-tool-set");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    CancellationToken cancel;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(HostServices{&jobs, &todos, &subagents, &cancel});
+    for (auto& plugin : make_bundled_plugins()) {
+        const std::string id = plugin->id();
+        if (id.rfind("tool_", 0) == 0 || id.rfind("search_", 0) == 0)
+            runtime.add(plugin); // the tool plugins and the search backends they use
+    }
+    runtime.start(/*use_persisted_state=*/false);
+    std::vector<std::string> via_runtime;
+    for (const auto& tool : f.tools.snapshot_tools())
+        via_runtime.push_back(tool->name());
+
+    ToolRegistry bare;
+    register_default_tools(bare, jobs, todos, cancel);
+    std::vector<std::string> via_bare;
+    for (const auto& tool : bare.snapshot_tools())
+        via_bare.push_back(tool->name());
+
+    const auto joined = [](std::vector<std::string> names) {
+        std::sort(names.begin(), names.end());
+        std::string out;
+        for (const auto& name : names) {
+            out += out.empty() ? "" : ",";
+            out += name;
+        }
+        return out;
+    };
+    ASSERT_EQ(joined(via_runtime), joined(via_bare));
+}
+
 // The generation is how a host learns the set moved on without being told — it
 // can change from a plugin's worker, where no refresh call site exists.
 TEST(registry_generation_moves_on_every_change) {

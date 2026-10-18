@@ -555,10 +555,17 @@ bool PluginRuntime::activate(const std::string& id) {
         deactivate(id);
         return false;
     }
+    // Observable lifecycle: the event types existed with no fire site, which is
+    // a vocabulary nobody could rely on. Published after the install pass, so a
+    // subscriber sees a plugin that is fully active.
+    PluginLoadedEvent loaded;
+    loaded.plugin_id = id;
+    Events(bus_).publish(loaded);
     return true;
 }
 
 void PluginRuntime::deactivate(const std::string& id) {
+    const bool was_active = registry_.state(id) == PluginRegistry::State::Active;
     registry_.deactivate(id);
     ledger_.unwind(id);
     // The plugin's own teardown (a source's stop) has run by now, so a worker
@@ -566,6 +573,14 @@ void PluginRuntime::deactivate(const std::string& id) {
     // set, owner-checked, and a late add afterwards is a no-op.
     if (auto it = plugins_.find(id); it != plugins_.end() && it->second.tool_port)
         it->second.tool_port->close();
+    // Only a real deactivation is a lifecycle event: set_state(off) on an
+    // already-off plugin, or the rollback of an activation that failed to
+    // install, never loaded anything.
+    if (was_active) {
+        PluginUnloadedEvent unloaded;
+        unloaded.plugin_id = id;
+        Events(bus_).publish(unloaded);
+    }
 }
 
 bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
