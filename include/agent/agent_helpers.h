@@ -89,6 +89,13 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
                         const CancellationToken& cancel_token, int max_attempts = 3,
                         const ChatAdapter& adapt = {});
 
+// The retry ladder: 1s, 2s, 4s, 8s (capped), each with ±25% jitter derived from
+// the failure text and the attempt. A metronome is the worst shape of traffic
+// for an endpoint that is recovering (or throttling): the jitter spreads retries
+// out, while deriving it from the failure keeps a given failure's retries
+// reproducible.
+long retry_backoff_ms(int attempt, const std::string& seed);
+
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::deque<Message>& history);
 

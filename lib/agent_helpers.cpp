@@ -213,16 +213,23 @@ Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
     }
 }
 
+long retry_backoff_ms(int attempt, const std::string& seed) {
+    static const int kBase[] = {1000, 2000, 4000, 8000};
+    const int step = attempt < 1 ? 1 : attempt;
+    const int base = kBase[(step - 1) < 3 ? (step - 1) : 3];
+    const int spread = base / 4; // ±25%
+    const std::size_t h = std::hash<std::string>{}(seed + "#" + std::to_string(step));
+    return base - spread + static_cast<long>(h % static_cast<std::size_t>(2 * spread + 1));
+}
+
 namespace {
+
 bool retryable_error(const std::exception& e) {
     // Cancellation is never a retryable failure: the user asked to stop.
     if (dynamic_cast<const CancelledError*>(&e))
         return false;
     const auto* api = dynamic_cast<const ApiError*>(&e);
     return api == nullptr || api->retryable;
-}
-int backoff_ms(int attempt) {
-    return attempt <= 1 ? 1000 : 2000;
 }
 bool wait_cancellable(const CancellationToken& token, int ms) {
     for (int waited = 0; waited < ms; waited += 100) {
@@ -286,11 +293,11 @@ bool wait_for_retry(const AgentHooks& hooks, const CancellationToken& cancel_tok
                     int max_attempts, bool retryable, std::string& last_error) {
     if (attempt >= max_attempts || !retryable)
         return false;
+    const long wait_ms = retry_backoff_ms(attempt, last_error);
     if (hooks.on_status)
         hooks.on_status("LLM error - retrying (" + std::to_string(attempt) + "/" +
-                        std::to_string(max_attempts) + ") in " +
-                        std::to_string(backoff_ms(attempt) / 1000) + "s");
-    if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
+                        std::to_string(max_attempts) + ") in " + std::to_string(wait_ms) + "ms");
+    if (wait_cancellable(cancel_token, static_cast<int>(wait_ms))) {
         last_error = "cancelled by user";
         return false;
     }

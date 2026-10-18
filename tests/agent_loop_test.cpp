@@ -950,6 +950,24 @@ TEST(agent_loop_repeated_failures_stop_the_turn) {
     ASSERT_EQ(stops, 1);    // the stop itself is part of the record
 }
 
+// The retry ladder grows with the attempt and is jittered per failure: an
+// endpoint that is recovering (or throttling) is not met with a metronome, and
+// a given failure still retries the same way every time.
+TEST(retry_backoff_grows_with_attempts_and_spreads_by_failure) {
+    const std::string seed = "HTTP 503 from LLM server: upstream_error";
+    const long a1 = agent::retry_backoff_ms(1, seed);
+    const long a3 = agent::retry_backoff_ms(3, seed);
+    const long a9 = agent::retry_backoff_ms(9, seed);
+    ASSERT(a1 >= 750 && a1 <= 1250);
+    ASSERT(a3 >= 3000 && a3 <= 5000);
+    ASSERT(a9 >= 6000 && a9 <= 10000); // capped at 8s
+    ASSERT_EQ(agent::retry_backoff_ms(3, seed), a3);
+    // Distinct failures do not line up on the same instant.
+    const long b1 = agent::retry_backoff_ms(1, "HTTP 500 from LLM server: boom");
+    const long c1 = agent::retry_backoff_ms(1, "connection reset by peer");
+    ASSERT(a1 != b1 || b1 != c1);
+}
+
 // [AL-20] What the client had to do to a request reaches the model: a window
 // the server clamped, a call it had to drop. Hidden state about the model's own
 // request is how it ends up re-issuing work that never had a chance.

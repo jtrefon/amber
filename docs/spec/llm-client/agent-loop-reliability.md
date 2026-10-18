@@ -116,12 +116,20 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - `ApiError : std::runtime_error { long status; bool retryable; }` thrown by
   the HTTP layer for non-2xx; curl failures remain `std::runtime_error`
   (retryable).
-- `chat_with_retry(...)`: up to **3 attempts**, exponential backoff **1s →
-  2s** (+ jitter), sleeps sliced at 100 ms **polling the CancellationToken**
-  (Esc aborts between attempts), `on_status` per attempt, and the existing
-  "continuing with error" degradation after exhaustion. The retried request
-  is the identical `prompt_copy` snapshot — no context change, no prefix
-  invalidation.
+- `chat_with_retry(...)`: up to **3 attempts**, a growing ladder **1s → 2s → 4s
+  → 8s (capped)** with **±25 % jitter** derived from the failure text and the
+  attempt (`retry_backoff_ms`) — a metronome is the worst shape of traffic for
+  an endpoint that is recovering or throttling, and deriving the jitter from the
+  failure keeps a given failure's retries reproducible. Sleeps are sliced at
+  100 ms **polling the CancellationToken** (Esc aborts between attempts),
+  `on_status` per attempt (naming the real wait), and the exhaustion produces a
+  `[harness]` notice naming the attempt count. The retried request is the
+  identical `prompt_copy` snapshot — no context change, no prefix invalidation.
+- **`Retry-After` is not honoured yet.** The transport has no response-header
+  seam (adding one widens an already eleven-parameter `curl_exec`), and the
+  measured failures this ladder exists for carried none: 59 upstream 503s in
+  session `1792189515823-0`, zero 429s, no `Retry-After`, no quota wording.
+  Deferred until a provider demonstrates it.
 - `safe_chat_once` keeps its contract (never throws, converts to
   `"[error during …]"`); the retry decision moves to the typed error.
   `error-handling.md` invariant 3 is updated accordingly.
