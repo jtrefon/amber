@@ -55,10 +55,10 @@ opens the journal — `log_.open_errors()` sits inside the `!log_.enabled()` bra
 - **The harness becomes interrogable**: `run_tests --list` prints test names one per
   line, a positional argument is a substring filter, and both are documented where the
   agent will read them (`prompts/tools.md`), so isolating a test is one call.
-- **Retries become visible**: a killed command's result names the wall that was hit and
-  says a longer timeout does not fix a hang; the loop guard counts successive *timeouts of
-  the same command* (ignoring the timeout value) as repeats, intervenes after two, and
-  stops the turn with the same actionable message rule as internal failures.
+- **A repeat is a decision, not a guess**: the result names how long the process has been
+  inactive and the three ways forward, so the guard can count successive *inactivity returns
+  on the same command* (the timeout argument stripped) as repeats, intervene after two, and
+  stop the turn with the same actionable message rule as internal failures.
 - **No ceiling exists, by construction.** The inactivity counter is the only mechanism, and
   the service watches and reports rather than kills. When it fires the tool returns and the
   process keeps running as a registered job; the agent decides — `process_read wait=60` (same

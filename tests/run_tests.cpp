@@ -2225,33 +2225,38 @@ std::string drain_request(int c) {
     return req;
 }
 
-// Serve one canned HTTP response (any status/content-type/payload), then
-// close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
+// Serve `connections` canned HTTP responses (any status/content-type/payload),
+// then close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
 // streaming paths without any external dependency.
 //
-// One-shot on purpose: the thread detaches and exits after serving, so nothing
-// outlives the fd the test closes. A loop here (or a poll that keeps watching
-// the fd number) would answer a later test's connection once the fd is reused,
-// and a permanently parked accept() would hold the port after close(). A hang
-// in a test is caught by the harness watchdog, which names the test.
+// Bounded on purpose: the thread exits after the agreed number of accepts, so
+// nothing outlives the fd the test closes. An unbounded loop (or a poll that
+// keeps watching the fd number) would answer a later test's connection once the
+// fd is reused. A code path that makes more requests than the mock serves would
+// block in read() — the harness watchdog names that test instead of hanging.
 int spawn_mock_http(int port, std::string& body_out, const std::string& status,
-                    const std::string& content_type, const std::string& payload) {
+                    const std::string& content_type, const std::string& payload,
+                    int connections = 1) {
     int fd = bind_listener(port);
     if (fd < 0)
         return -1;
     body_out.clear();
-    std::thread t([fd, status, content_type, payload, &body_out]() {
-        int c = accept(fd, nullptr, nullptr);
-        if (c < 0)
-            return;
-        body_out = drain_request(c);
-        std::string http = status + "\r\nContent-Type: " + content_type +
-                           "\r\nContent-Length: " + std::to_string(payload.size()) + "\r\n\r\n" +
-                           payload;
-        send(c, http.c_str(), http.size(), 0);
-        // give client time to read
-        usleep(200000);
-        close(c);
+    std::thread t([fd, status, content_type, payload, &body_out, connections]() {
+        for (int i = 0; i < connections; ++i) {
+            int c = accept(fd, nullptr, nullptr);
+            if (c < 0)
+                return;
+            std::string request = drain_request(c);
+            if (i == 0)
+                body_out = std::move(request); // the first request is the pinned one
+            std::string http =
+                status + "\r\nContent-Type: " + content_type +
+                "\r\nContent-Length: " + std::to_string(payload.size()) + "\r\n\r\n" + payload;
+            send(c, http.c_str(), http.size(), 0);
+            // give client time to read
+            usleep(200000);
+            close(c);
+        }
     });
     t.detach();
     return fd;
@@ -5066,7 +5071,8 @@ TEST(compress_request_max_tokens_fits_the_window_it_is_sent_to) {
     json reply;
     reply["choices"] =
         json::array({json{{"message", json{{"role", "assistant"}, {"content", classify}}}}});
-    int srv = spawn_mock_http(8953, req, "HTTP/1.1 200 OK", "application/json", reply.dump());
+    int srv = spawn_mock_http(8953, req, "HTTP/1.1 200 OK", "application/json", reply.dump(),
+                              /*connections=*/2); // classify, then the extract replay
     ASSERT(srv >= 0);
     usleep(100000);
 
