@@ -50,13 +50,20 @@ struct Registrar {
     Registrar(const std::string& name, void (*fn)()) { registry().push_back({name, fn}); }
 };
 
+// Async-signal-safe write: one syscall, result deliberately ignored (the
+// watchdog cannot do anything about a failed write before it exits).
+inline void safewrite(const char* what, size_t n) noexcept {
+    const ssize_t ignored = ::write(STDOUT_FILENO, what, n);
+    (void)ignored;
+}
+
 // Async-signal-safe: one write and _exit, so it works while the test is blocked
 // inside a read() on a pipe nobody will ever write to.
 inline void alarm_handler(int) {
     const char* name = g_current ? g_current : "?";
-    ::write(STDOUT_FILENO, "[ TIMEOUT ] ", 12);
-    ::write(STDOUT_FILENO, name, std::strlen(name));
-    ::write(STDOUT_FILENO, "\n", 1);
+    safewrite("[ TIMEOUT ] ", 12);
+    safewrite(name, std::strlen(name));
+    safewrite("\n", 1);
     ::_exit(1);
 }
 

@@ -4280,11 +4280,11 @@ TEST(process_read_wait_is_inactivity_and_kills_nothing) {
                             .count();
 
     ASSERT(read.ok);
-    ASSERT(waited >= 900);               // it honoured the silence it was given
-    ASSERT(waited < 5000);               // and nothing kept it there longer
-    ASSERT_EQ(jobs.running_count(), 1u); // nothing was killed
+    ASSERT(waited >= 900);            // it honoured the silence it was given
+    ASSERT(waited < 5000);            // and nothing kept it there longer
+    ASSERT_EQ(jobs.running_count(), 1); // nothing was killed
     tools[2]->execute({{"id", id}});
-    ASSERT_EQ(jobs.running_count(), 0u); // stop is the agent's call, and it works
+    ASSERT_EQ(jobs.running_count(), 0); // stop is the agent's call, and it works
 }
 
 TEST(job_service_stop_finished_returns_true) {
