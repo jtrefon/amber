@@ -149,9 +149,10 @@ stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 #### [CL-14] Harness notices are typed, not borrowed voices
 
 - **Given**: Any notice the harness must deliver (retry summary, repair report, stop reason)
-- **Input**: A failed request, a loop bound firing, a repair applied mid-request
+- **Input**: A failed request, a loop bound firing, a repair applied mid-request, a window the client had to clamp, a dropped malformed tool call, a failed compression
 - **Expected**: The notice is a `role="user"` message with `Message::harness = true` and the `[harness]` prefix. It reaches the model in place (the OpenAI dialect hoists system messages to the head of the request, which would lose that place) and the loop never mistakes it for the model's own reply.
 - **Invariant**: No harness text is ever pushed as `role="assistant"`.
+- **Sources**: `Agent::inject_harness_note` (repairs in `build_chat_adapter`, loop-state notes, stops, the silence nudge) and `LLMClient::take_notices` (transport facts: the learned window, dropped tool calls), drained by `chat_once`.
 
 #### [CL-15] Cancellation during streaming
 

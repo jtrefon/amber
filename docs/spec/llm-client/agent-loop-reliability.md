@@ -296,6 +296,13 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Expected**: One `[harness]` note naming the repetition; the turn ends with the model's own reply — nothing intervenes. `canonical_call_key` treats a bash call with a different `timeout` as the same call.
 - **On failure**: The old trap: 30 escalations counted as 30 fresh calls.
 
+#### [AL-20] Client notices reach the model
+
+- **Given**: an `LLMClient` that accumulated a fact about the request (a window the server clamped, tool calls it had to drop)
+- **Input**: one turn, then a second
+- **Expected**: The fact lands in the conversation as a `[harness]` notice and rides the next request. `take_notices()` drains: nothing is reported twice.
+- **On failure**: The model works against state it cannot see — the hidden clamp that made a long session unexplainable.
+
 #### [AL-12] Context hash chain survives a full session
 
 - **Given**: multi-turn run with tool calls + compression

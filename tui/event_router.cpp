@@ -66,6 +66,17 @@ std::function<void(const std::string&)> EventRouter::emit_text(const PushFn& pus
     };
 }
 
+std::function<void(const std::string&)> EventRouter::debug_sink(const PushFn& push) {
+    return [this, push](const std::string& text) {
+        if (!tui_.cfg_.debug)
+            return;
+        AgentEvent ev;
+        ev.type = AgentEvent::Status;
+        ev.text = "debug: " + text;
+        push(std::move(ev));
+    };
+}
+
 void EventRouter::wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push) {
     hooks.on_reasoning = emit_text(push, AgentEvent::Reasoning);
     hooks.on_token = emit_text(push, AgentEvent::Token);
@@ -99,6 +110,10 @@ void EventRouter::wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push
         ev.tool_result = r;
         push(std::move(ev));
     };
+    // The agent's diagnostics sink, wired here so `/set debug on` shows what the
+    // loop is doing while it happens (iteration counts, gate decisions, repairs)
+    // instead of leaving it to the transcript on disk.
+    hooks.on_debug = debug_sink(push);
 }
 
 namespace {

@@ -3006,6 +3006,62 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     close(srv2);
 }
 
+// The window a 400 overflow rejection teaches is a fact about the request, so
+// the client records a notice: the agent drains it into a [harness] message and
+// the model learns why its room to move shrank (rather than being clamped
+// behind its back).
+TEST(overflow_400_records_a_notice_for_the_model) {
+    std::string req;
+    int srv = spawn_mock_http(8960, req, "HTTP/1.1 400 Bad Request", "text/plain",
+                              "maximum context length is 16384 tokens");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8960/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat({}, {}, nullptr);
+    } catch (const agent::ApiError&) {
+        threw = true;
+    }
+    ASSERT(threw);
+
+    auto notices = client.take_notices();
+    ASSERT_EQ(notices.size(), 1u);
+    ASSERT(notices[0].find("16384") != std::string::npos);
+    ASSERT(client.take_notices().empty()); // draining empties the list
+    close(srv);
+}
+
+// A tool call with unparseable arguments is dropped (malformed calls poison
+// later requests), and the drop is reported — silently discarding a call the
+// model believes it made is exactly the kind of hidden state that produced the
+// endless re-issuing loop.
+TEST(malformed_tool_calls_are_reported_and_dropped) {
+    std::string dummy;
+    const std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\","
+        "\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{not "
+        "json\"}}]}}]}\n\n"
+        "data: [DONE]\n\n";
+    int srv = spawn_mock_sse(8961, dummy, sse);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8961/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT(m.tool_calls.is_null() || m.tool_calls.empty());
+
+    auto notices = client.take_notices();
+    ASSERT_EQ(notices.size(), 1u);
+    ASSERT(notices[0].find("invalid arguments") != std::string::npos);
+    close(srv);
+}
+
 TEST(parameter_400_surfaces_its_message_and_teaches_no_window) {
     // A 400 that names a request parameter is not a window statement: nothing
     // may be learned, and the operator must see the server's own sentence

@@ -6,6 +6,7 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include "agent/config.h"
 #include "agent/tool.h"
 
@@ -115,6 +116,12 @@ public:
     // The learned limit is the runtime truth: it clamps any configured or
     // probed window so the gate and gauge never overshoot.
     virtual int learned_context_size() const { return 0; }
+
+    // Facts the client accumulated while working that the model has a right to
+    // know — a window the server clamped, tool calls it had to drop. The agent
+    // drains these into [harness] notices, so nothing about a request changes
+    // behind the model's back. Draining empties the list.
+    virtual std::vector<std::string> take_notices() { return {}; }
 };
 
 // Real libcurl implementation. The wire protocol (URLs, auth, request body,
@@ -139,11 +146,16 @@ public:
                         const std::function<void(const StreamChunk&)>& on_chunk,
                         Stats* stats = nullptr) override;
     int learned_context_size() const override { return learned_; }
+    std::vector<std::string> take_notices() override;
 
 private:
+    void add_notice(std::string text);
+
     Config cfg_;
     std::unique_ptr<Dialect> dialect_;
     int learned_ = 0; // window taught by a 400 overflow rejection
+    std::mutex notices_mtx_;
+    std::vector<std::string> notices_;
 };
 
 // Merge probed server info into a Config, filling ONLY values the user did not

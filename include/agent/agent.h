@@ -368,6 +368,18 @@ private:
     void decay_and_persist();
     std::function<std::function<Message()>(const std::string&)>
     build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools);
+
+    // The three request repairs, each announced as a [harness] notice before it
+    // retries: without tools (the tool grammar would not parse), with a
+    // server-known model (the configured one was rejected), with a new key (the
+    // old one was rejected). Empty return means no repair applies.
+    std::function<Message()> repair_without_tools(const std::string& err);
+    std::function<Message()>
+    repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
+                             const std::string& err);
+    std::function<Message()> repair_with_new_key(const char* stage,
+                                                 const std::vector<std::shared_ptr<Tool>>& tools,
+                                                 const std::string& err);
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;

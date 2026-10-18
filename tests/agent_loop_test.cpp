@@ -950,6 +950,44 @@ TEST(agent_loop_repeated_failures_stop_the_turn) {
     ASSERT_EQ(stops, 1);    // the stop itself is part of the record
 }
 
+// [AL-20] What the client had to do to a request reaches the model: a window
+// the server clamped, a call it had to drop. Hidden state about the model's own
+// request is how it ends up re-issuing work that never had a chance.
+TEST(agent_loop_client_notices_reach_the_model) {
+    class NoticingFake : public agent_test::FakeLLMClient {
+    public:
+        std::vector<std::string> take_notices() override {
+            std::vector<std::string> out = std::move(notices_);
+            notices_.clear();
+            return out;
+        }
+        std::vector<std::string> notices_{"the endpoint clamped the window to 8192 tokens"};
+    };
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<NoticingFake>();
+    NoticingFake* raw = fake.get();
+    push_text(*fake, "noted");
+    push_text(*fake, "second turn");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ASSERT_EQ(ag.run("first"), "noted");
+    bool in_context = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("clamped the window") != std::string::npos)
+            in_context = true;
+    ASSERT(in_context);
+    // The next request carries it, in place, as the environment speaking.
+    ASSERT_EQ(ag.run("second"), "second turn");
+    ASSERT(raw->requests.size() >= 2u);
+    bool in_request = false;
+    for (const auto& m : raw->requests[1])
+        if (m.harness && m.content.find("clamped the window") != std::string::npos)
+            in_request = true;
+    ASSERT(in_request);
+}
+
 // [AL-18] The loop's own state reaches the model before a bound bites: a ceiling
 // that arrives without warning is a trap, so the crossing is announced once.
 TEST(agent_loop_budget_note_precedes_the_cap) {
@@ -1202,13 +1240,20 @@ TEST(agent_unrecoverable_request_reports_instead_of_throwing) {
     const std::string reply = ag.run("hi"); // must not throw
     ASSERT_EQ(reply, "the template cannot parse tool calls here.");
     ASSERT_EQ(raw->chat_calls, 5); // two exhausted requests, then the answer
-    int notices = 0;
-    for (const auto& m : ag.context().get_all())
-        if (m.harness) {
-            ++notices;
-            ASSERT(m.content.find("Unable to generate parser") != std::string::npos);
-        }
-    ASSERT_EQ(notices, 2); // one per exhausted request
+    int repairs = 0;
+    int failures = 0;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("retried without tools") != std::string::npos)
+            ++repairs;
+        if (m.content.find("Unable to generate parser") != std::string::npos)
+            ++failures;
+    }
+    // Each request: the repair is announced, and when the repaired attempt also
+    // fails the exhaustion is announced with the error and the attempt count.
+    ASSERT_EQ(repairs, 2);
+    ASSERT_EQ(failures, 2);
 }
 
 // [TC] Ornith attribute-style XML tool calls inside the reply content are

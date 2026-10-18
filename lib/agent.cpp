@@ -464,6 +464,11 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     record_stats(stats);
     publish_llm_response(stats);
 
+    // Whatever the client had to do to the request (a window the server
+    // clamped, calls it had to drop) reaches the model before its next word.
+    for (const auto& note : client_->take_notices())
+        inject_harness_note("[harness] " + note);
+
     ++turn_counter_;
     return reply;
 }
@@ -529,6 +534,11 @@ bool Agent::fail_compression_after(CompressionResult& r, const std::string& erro
     r.tokens_before = tokens_before;
     r.error = error;
     reporter.on_error(error);
+    // The history stands (spec invariant 7), but the model is told the attempt
+    // happened: a compression that failed changes how much room is left, and
+    // that is the model's business too.
+    inject_harness_note("[harness] context compression failed (" + error +
+                        "); the conversation is unchanged and the window is unchanged.");
     publish_compression_done(false, static_cast<long>(tokens_before));
     publish_error("compression", error);
     if (out)
@@ -805,39 +815,62 @@ std::string request_new_api_key(const AgentHooks& hooks, const Config& cfg, cons
 
 } // namespace
 
+// Each repair is announced as a [harness] notice before it retries: the request
+// the model asked for is about to change shape, and that is its business. Each
+// returns the retry callable, or {} when no repair applies.
+
+std::function<Message()> Agent::repair_without_tools(const std::string& err) {
+    publish_error("template_parser", err);
+    inject_harness_note("[harness] the server could not parse the tool grammar for this model; the "
+                        "request is being retried without tools.");
+    return [this]() { return chat_once({}); };
+}
+
+std::function<Message()>
+Agent::repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
+                                const std::string& err) {
+    publish_error("model_name", err);
+    auto models = list_models(cfg_);
+    if (models.empty() || models[0] == cfg_.model)
+        return {};
+    set_model(models[0]);
+    if (hooks_.on_status)
+        hooks_.on_status("server rejected model - retrying with \"" + models[0] + "\"");
+    inject_harness_note("[harness] the server rejected the configured model; this request is being "
+                        "retried with \"" +
+                        cfg_.model + "\".");
+    return [this, &tools]() { return chat_once(tools); };
+}
+
+// One-shot: ask the host for an API key, rebuild the client, and retry. The host
+// persists the key to the provider config; when no key is provided (hook unset or
+// user cancelled) no repair applies and the turn degrades as before.
+std::function<Message()> Agent::repair_with_new_key(const char* stage,
+                                                    const std::vector<std::shared_ptr<Tool>>& tools,
+                                                    const std::string& err) {
+    publish_error("auth", err);
+    const std::string key = request_new_api_key(hooks_, cfg_, stage);
+    if (key.empty())
+        return {};
+    set_connection(cfg_.api_base, key, cfg_.model);
+    inject_harness_note("[harness] the API key was rejected and has been replaced; this request is "
+                        "being retried with the new key.");
+    return [this, &tools]() { return chat_once(tools); };
+}
+
 ChatAdapter Agent::build_chat_adapter(const char* stage,
                                       const std::vector<std::shared_ptr<Tool>>& tools) {
     return [this, stage, &tools](const std::string& err) -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
-            publish_error("template_parser", err);
             if (!tools.empty())
-                return [this]() { return chat_once({}); };
+                return repair_without_tools(err);
+            publish_error("template_parser", err);
             break;
-        case RequestFailure::ModelName: {
-            publish_error("model_name", err);
-            auto models = list_models(cfg_);
-            if (!models.empty() && models[0] != cfg_.model) {
-                set_model(models[0]);
-                if (hooks_.on_status)
-                    hooks_.on_status("server rejected model \"" + cfg_.model +
-                                     "\" - retrying with \"" + models[0] + "\"");
-                return [this, &tools]() { return chat_once(tools); };
-            }
-            break;
-        }
-        case RequestFailure::Auth: {
-            publish_error("auth", err);
-            // One-shot: ask the host for an API key, rebuild the client, and
-            // retry. The host persists the key to the provider config; when
-            // no key is provided (hook unset or user cancelled) no repair
-            // applies and the turn degrades as before.
-            const std::string key = request_new_api_key(hooks_, cfg_, stage);
-            if (key.empty())
-                break;
-            set_connection(cfg_.api_base, key, cfg_.model);
-            return [this, &tools]() { return chat_once(tools); };
-        }
+        case RequestFailure::ModelName:
+            return repair_with_server_model(tools, err);
+        case RequestFailure::Auth:
+            return repair_with_new_key(stage, tools, err);
         default:
             break;
         }
