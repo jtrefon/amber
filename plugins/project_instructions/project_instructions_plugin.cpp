@@ -101,7 +101,10 @@ std::vector<std::string> nested_files_walk(const fs::path& root) {
     if (ec)
         return found;
     for (const auto& entry : it) {
-        if (entry.is_directory(ec)) {
+        // stat, not entry.is_directory(): a filesystem may report DT_UNKNOWN,
+        // and a directory misread as a file would be descended into without the
+        // boundary check below.
+        if (fs::is_directory(entry.path(), ec)) {
             // Depth by component count, from one computed relative path: two
             // temporaries would compare iterators from different objects.
             const fs::path rel = entry.path().lexically_relative(root);
@@ -113,7 +116,10 @@ std::vector<std::string> nested_files_walk(const fs::path& root) {
         }
         if (entry.path().filename() != "AGENTS.md" || entry.path() == root / "AGENTS.md")
             continue;
-        found.emplace_back(entry.path().lexically_relative(root).string());
+        const fs::path rel = entry.path().lexically_relative(root);
+        if (under_nested_repository(root, rel))
+            continue;
+        found.push_back(rel.string());
         if (static_cast<int>(found.size()) >= kMaxNested) {
             it.disable_recursion_pending();
             break;
