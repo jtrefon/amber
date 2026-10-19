@@ -41,6 +41,12 @@ std::string git_head_oid(const std::string& dir);
 // worktree already on a branch, and for a non-repository.
 std::string worktree_session_note(const std::string& root);
 
+// Repository-relative paths matching `glob`, from tracked files plus untracked
+// files that are not ignored. Empty when `dir` is not a repository. Git does not
+// descend into a nested repository or linked worktree, which is what keeps a
+// sibling checkout out of a scan; the caller still filters what it wants.
+std::vector<std::string> git_files_matching(const std::string& dir, const std::string& glob);
+
 // Create a DETACHED worktree at `base_oid`. Branch policy belongs to the
 // workflow (fix/, feat/, bug/, ...), so amber creates no branch: the agent
 // does, before its first commit. Fails when the path exists and is not empty.

@@ -167,6 +167,14 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `workspace/path-confinement.md` | Confine algorithm, `../` prevention, symlink handling, root resolution |
 | `workspace/security-model.md` | Mode gating, tool-level restrictions, approval flow |
 
+## Domains
+
+| File | Covers |
+|------|--------|
+| `domains/coding-library.md` | The coding library's residency rule, layers, entry rules and budgets |
+| `domains/project-index.md` | Amber's project index: what it records, how it is derived, staleness |
+| `domains/project-instructions.md` | `AGENTS.md` injection: the 8 KB cap, git-aware nested discovery (ignore rules, worktrees), precedence |
+
 ## Git Integration
 
 | File | Covers |

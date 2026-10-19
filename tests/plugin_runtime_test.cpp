@@ -995,6 +995,50 @@ TEST(project_instructions_absent_leaves_no_block) {
     ASSERT(instructions_block(runtime).empty());
 }
 
+// In a repository the scan asks git: tracked plus untracked-not-ignored, and git
+// does not descend into a nested repository or linked worktree. That is what
+// keeps a gitignored tree and a developer's sibling checkout out of the prompt.
+TEST(project_instructions_git_scan_skips_ignored_and_nested_repositories) {
+    ScratchWorkspace ws("instructions-git");
+    ASSERT_EQ(std::system(("git -C '" + ws.root().string() + "' init -q").c_str()), 0);
+    write_text(ws.root() / "AGENTS.md", "# Project\n\nrules\n");
+    write_text(ws.root() / "pkg" / "AGENTS.md", "# Pkg\n\nrules\n");
+    write_text(ws.root() / ".gitignore", "ignored/\n");
+    write_text(ws.root() / "ignored" / "AGENTS.md", "# Ignored\n\nrules\n");
+    // A linked worktree root is a directory with a `.git` FILE.
+    write_text(ws.root() / "sibling" / ".git", "gitdir: /tmp/elsewhere\n");
+    write_text(ws.root() / "sibling" / "AGENTS.md", "# Sibling\n\nrules\n");
+
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = instructions_block(runtime);
+    ASSERT(block.find("pkg/AGENTS.md") != std::string::npos);
+    ASSERT(block.find("ignored/AGENTS.md") == std::string::npos);
+    ASSERT(block.find("sibling/AGENTS.md") == std::string::npos);
+}
+
+// Without git the fallback walk still refuses to enter a nested repository: a
+// directory carrying `.git` is a different tree, whatever its ignore rules are.
+TEST(project_instructions_walk_skips_nested_repositories) {
+    ScratchWorkspace ws("instructions-walk");
+    write_text(ws.root() / "AGENTS.md", "# Project\n\nrules\n");
+    write_text(ws.root() / "pkg" / "AGENTS.md", "# Pkg\n\nrules\n");
+    write_text(ws.root() / "sibling" / ".git", "gitdir: /tmp/elsewhere\n");
+    write_text(ws.root() / "sibling" / "AGENTS.md", "# Sibling\n\nrules\n");
+
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = instructions_block(runtime);
+    ASSERT(block.find("pkg/AGENTS.md") != std::string::npos);
+    ASSERT(block.find("sibling/AGENTS.md") == std::string::npos);
+}
+
 TEST(project_instructions_report_names_the_file_and_nested) {
     ScratchWorkspace ws("instructions-report");
     write_text(ws.root() / "AGENTS.md", "# Project\n\nrules\n");

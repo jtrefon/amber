@@ -177,6 +177,34 @@ TEST(worktree_session_note_warns_only_for_a_detached_worktree) {
     ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
 }
 
+TEST(worktree_git_files_matching_respects_ignore_and_nested_repos) {
+    TempRepo repo;
+    run_in_dir(repo.dir, "mkdir -p pkg ignored");
+    run_in_dir(repo.dir, "printf '# Pkg\\n' > pkg/AGENTS.md");
+    run_in_dir(repo.dir, "printf 'ignored/\\n' > .gitignore");
+    run_in_dir(repo.dir, "printf '# Ignored\\n' > ignored/AGENTS.md");
+    run_in_dir(repo.dir, "git add .gitignore pkg/AGENTS.md && "
+                         "git -c user.email=t@t -c user.name=t commit -qm rules");
+    // A linked worktree inside the checkout, the way a sibling copy sits in a
+    // developer's tree.
+    run_in_dir(repo.dir, "git worktree add -q --detach sibling HEAD");
+    run_in_dir(repo.dir / "sibling", "printf '# Sibling\\n' > AGENTS.md");
+
+    const auto found = agent::git_files_matching(repo.dir.string(), ":(glob)**/AGENTS.md");
+    bool pkg = false, ignored = false, sibling = false;
+    for (const auto& rel : found) {
+        if (rel == "pkg/AGENTS.md")
+            pkg = true;
+        if (rel.rfind("ignored/", 0) == 0)
+            ignored = true;
+        if (rel.rfind("sibling/", 0) == 0)
+            sibling = true;
+    }
+    ASSERT(pkg);
+    ASSERT_FALSE(ignored);
+    ASSERT_FALSE(sibling);
+}
+
 TEST(worktree_remove_refuses_a_dirty_tree) {
     TempRepo repo;
     const std::string path = repo.worktree_path("dirty");
