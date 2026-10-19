@@ -523,11 +523,20 @@ PluginRuntime::PluginStatus PluginRuntime::status(const std::string& id) const {
 }
 
 bool PluginRuntime::set_state(const std::string& id, bool on) {
-    if (!has(id))
+    auto it = plugins_.find(id);
+    if (it == plugins_.end())
         return false;
+    const bool previous = read_enabled(id, it->second.bundled);
     if (!write_enabled(id, on))
         return false;
-    return apply_state(id, on);
+    if (apply_state(id, on))
+        return true;
+    // The explicit toggle did not take. Record what is actually true, not what
+    // was attempted, so the next start does not silently retry a choice the
+    // user was already told failed. (A plugin persisted on before this session
+    // is different: start() retries it, which is the point of saving it.)
+    write_enabled(id, previous);
+    return false;
 }
 
 bool PluginRuntime::apply_state(const std::string& id, bool on) {
@@ -542,17 +551,29 @@ bool PluginRuntime::activate(const std::string& id) {
         return false;
     if (registry_.state(id) == PluginRegistry::State::Active)
         return true;
-    if (!registry_.activate(id))
+    if (!registry_.activate(id)) {
+        PluginFailedEvent failed;
+        failed.plugin_id = id;
+        failed.reason = "initialize failed";
+        Events(bus_).publish(failed);
         return false;
+    }
     // Open the source port before the install pass: a tool source may register
     // its discovered set from inside install, and from a worker after it.
     if (it->second.tool_port)
         it->second.tool_port->open();
-    if (!install_capabilities(id, *it->second.plugin)) {
+    std::string install_error;
+    if (!install_capabilities(id, *it->second.plugin, &install_error)) {
         // A plugin that cannot install its capabilities is not active: leaving
         // it half-installed would be the very state the ledger exists to
-        // prevent.
-        deactivate(id);
+        // prevent. Published after the rollback, so the observer sees a
+        // consistent harness alongside the reason. The rollback itself is not
+        // announced as an unload: nothing was ever announced as loaded.
+        unwind(id, /*announce=*/false);
+        PluginFailedEvent failed;
+        failed.plugin_id = id;
+        failed.reason = install_error.empty() ? "capability install failed" : install_error;
+        Events(bus_).publish(failed);
         return false;
     }
     // Observable lifecycle: the event types existed with no fire site, which is
@@ -565,6 +586,10 @@ bool PluginRuntime::activate(const std::string& id) {
 }
 
 void PluginRuntime::deactivate(const std::string& id) {
+    unwind(id, /*announce=*/true);
+}
+
+void PluginRuntime::unwind(const std::string& id, bool announce) {
     const bool was_active = registry_.state(id) == PluginRegistry::State::Active;
     registry_.deactivate(id);
     ledger_.unwind(id);
@@ -576,14 +601,14 @@ void PluginRuntime::deactivate(const std::string& id) {
     // Only a real deactivation is a lifecycle event: set_state(off) on an
     // already-off plugin, or the rollback of an activation that failed to
     // install, never loaded anything.
-    if (was_active) {
+    if (announce && was_active) {
         PluginUnloadedEvent unloaded;
         unloaded.plugin_id = id;
         Events(bus_).publish(unloaded);
     }
 }
 
-bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
+bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&, std::string* error) {
     auto it = plugins_.find(id);
     if (it == plugins_.end())
         return false;
@@ -598,6 +623,9 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&) {
         if (result.declined)
             continue; // nothing to install is not a reason to fail the plugin
         if (!result.ok) {
+            if (error)
+                *error = result.error.empty() ? capability->name() + " failed to install"
+                                              : capability->name() + ": " + result.error;
             services_->set_tool_port(nullptr);
             return false;
         }

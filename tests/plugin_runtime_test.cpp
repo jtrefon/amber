@@ -504,6 +504,41 @@ TEST(tool_source_is_re_installable) {
     ASSERT_TRUE((bool)f.tools.find("discovered_one"));
 }
 
+// A capability whose install fails: the plugin is registered and activatable,
+// but the harness refuses the contribution. This is the shape a broken plugin
+// takes, and it must leave neither a persisted "on" nor a silent rollback.
+class FailingInstallCapability : public Capability {
+public:
+    std::string name() const override { return "broken"; }
+    CapabilityKind kind() const override { return CapabilityKind::Tool; }
+    InstallResult install(PluginServices&) override {
+        InstallResult r;
+        r.error = "synthetic install failure";
+        return r;
+    }
+};
+
+class FailingPlugin : public IPlugin {
+public:
+    std::string id() const override { return "failing"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Failing probe"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<FailingInstallCapability>());
+        return caps;
+    }
+};
+
+std::string read_whole_file(const std::string& path) {
+    std::ifstream in(path);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
 // The plugin lifecycle is observable. PluginLoaded/PluginUnloaded were declared
 // event types with no fire site — a vocabulary nobody could rely on — and a
 // "refresh the list" consumer had to poll instead.
@@ -534,6 +569,53 @@ TEST(plugin_lifecycle_events_fire) {
 
     ASSERT_TRUE(runtime.set_state("probe", true));
     ASSERT_EQ(loaded.size(), 2u);
+}
+
+// Failure is part of the lifecycle too, and it carries a reason: a plugin that
+// cannot install is rolled back, and the observer learns which one and why.
+TEST(plugin_failed_event_carries_the_plugin_and_reason) {
+    ScratchConfig scratch("plugin-failed-event");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>());
+    std::vector<PluginFailedEvent> failed;
+    Events events(runtime.events());
+    auto sub = events.subscribe<PluginFailedEvent>(
+        [&failed](const PluginFailedEvent& e) { failed.push_back(e); });
+
+    ASSERT_FALSE(runtime.set_state("failing", true));
+    ASSERT_EQ(failed.size(), 1u);
+    ASSERT_EQ(failed[0].plugin_id, std::string("failing"));
+    ASSERT(failed[0].reason.find("synthetic install failure") != std::string::npos);
+}
+
+// An explicit toggle that fails is not persisted as on: the file describes what
+// is true, not what was attempted. (A plugin persisted on BEFORE the session is
+// a different case -- see the retry test. This one is external, whose default is
+// off, so the restored value is unambiguous.)
+TEST(failed_toggle_is_not_recorded_as_on) {
+    ScratchConfig scratch("failed-toggle");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>(), /*bundled=*/false);
+    ASSERT_FALSE(runtime.set_state("failing", true));
+    const std::string text = read_whole_file(scratch.root() + "/amber/plugins/failing/plugin.conf");
+    ASSERT(text.find("enabled=0") != std::string::npos);
+}
+
+TEST(failed_activation_of_a_persisted_plugin_keeps_it_on) {
+    ScratchConfig scratch("failed-retry");
+    const std::string dir = scratch.root() + "/amber/plugins/failing";
+    fs::create_directories(dir);
+    std::ofstream(dir + "/plugin.conf") << "enabled=1\n";
+
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>());
+    runtime.start(/*use_persisted_state=*/true);
+    // A failed activation at startup is retried next time; it does not silently
+    // turn the user's saved choice off.
+    ASSERT(read_whole_file(dir + "/plugin.conf").find("enabled=1") != std::string::npos);
 }
 
 // A worker that kept the port past deactivation (a source ignoring the

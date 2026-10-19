@@ -566,8 +566,8 @@ sub_ = agent::Events(ctx.event_bus).intercept<agent::ToolRequestedEvent>(
     [](agent::ToolRequestedEvent& e) { return e.name != "danger"; });
 ```
 
-Catalogue. **Fire sites are in `lib/agent.cpp` (loop) and `lib/dispatch.cpp`
-(tools)** unless noted:
+Catalogue. **Fire sites are in `lib/agent.cpp` (loop), `lib/dispatch.cpp`
+(tools) and `lib/plugin_runtime.cpp` (plugin lifecycle)** unless noted:
 
 | Event | Fires? | Notes |
 |---|---|---|
@@ -580,8 +580,9 @@ Catalogue. **Fire sites are in `lib/agent.cpp` (loop) and `lib/dispatch.cpp`
 | `CompressionEvent` | ✅ | compression triggered |
 | `CompressionCompletedEvent` | ✅ | compression finished |
 | `ErrorRaisedEvent` | ✅ | observation only; classification stays in the dialect |
-| `PluginLoadedEvent` | ❌ | declared, never published |
-| `PluginUnloadedEvent` | ❌ | declared, never published |
+| `PluginLoadedEvent` | ✅ | after a successful install pass, so the plugin is fully active |
+| `PluginUnloadedEvent` | ✅ | only on a real deactivation — not an off-again toggle, not a failed install's rollback |
+| `PluginFailedEvent` | ✅ | after the failed activation's rollback; carries the plugin id and the reason |
 
 What you can rely on:
 
