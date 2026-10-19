@@ -1338,6 +1338,10 @@ TEST(subagent_hooks_do_not_leak) {
     cfg.max_tool_iterations = 100;
     cfg.system_prompt_path = "prompts/system.md";
     cfg.tools_prompt_path = "prompts/tools.md";
+    // The transcript is written whenever log_path is empty (default: the
+    // project state dir). This test runs an Agent directly, so it must name a
+    // throwaway destination rather than write into the developer's state.
+    cfg.log_path = tmp_dir("subagent-hooks") + "/transcript.jsonl";
 
     ToolRegistry reg;
     JobService jobs;
@@ -2475,6 +2479,40 @@ TEST(runner_writes_debug_logs) {
     ASSERT_EQ(err, "");
     ASSERT(fs::is_directory(opts.debug_dir));
     ASSERT(fs::is_regular_file(opts.debug_dir + "/debug-run.jsonl"));
+}
+
+// A hermetic run is a measurement, not a session: without an explicit debug
+// dir it must not leave a transcript anywhere in the state tree. The default
+// transcript location is the project's state dir, and during a scenario that
+// project is a temp workspace whose state nobody asked for -- every `make test`
+// used to leave a `tmp-amber-bench-ws-*` project behind.
+TEST(runner_hermetic_run_leaves_no_state_behind) {
+    const std::filesystem::path projects =
+        std::filesystem::path(agent::Workspace::state_dir()).parent_path();
+    const auto listing = [&] {
+        std::vector<std::string> names;
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(projects, ec))
+            names.push_back(e.path().filename().string());
+        std::sort(names.begin(), names.end());
+        return names;
+    };
+    const auto before = listing();
+
+    Scenario s;
+    s.name = "no-transcript";
+    s.prompt = "say hi";
+    s.fake_replies = agent::json::parse(R"([{"content": "hi"}])");
+    s.checks.must_contain = {"hi"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    std::string err;
+    bench::ScenarioReport rep = bench::run_one_scenario(s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+    ASSERT(listing() == before);
 }
 
 // Tool args longer than the report's 160-char budget are elided, so a stored
