@@ -101,7 +101,9 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
       client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
       retriever_(std::move(retriever)) {
-    client_ = client ? std::move(client) : make_client(cfg_, client_factory_);
+    client_ = std::move(client);
+    if (!client_)
+        client_ = make_client(cfg_, client_factory_);
     // A window's workspace may be a detached worktree; the prompt says so before
     // the agent can commit to an unreachable HEAD. The main checkout has no
     // worktree note (the check is a file test, not a git call, in that case).

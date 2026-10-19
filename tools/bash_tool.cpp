@@ -174,13 +174,17 @@ void format_result(std::string output, const Stop& s, ToolResult& r) {
     if (truncated)
         out << "[output truncated at " << kMaxOutput << " bytes]\n";
 
-    if (s.kind == StopKind::Inactive)
-        return format_inactive(out, s, r);
+    if (s.kind == StopKind::Inactive) {
+        format_inactive(out, s, r);
+        return;
+    }
 
     r.meta = {{"exit", s.code}, {"truncated", truncated}, {"duration_ms", s.elapsed_ms}};
 
-    if (s.kind != StopKind::Finished)
-        return format_kill_notice(out, s, r);
+    if (s.kind != StopKind::Finished) {
+        format_kill_notice(out, s, r);
+        return;
+    }
 
     out << "[exit " << s.code << "]";
     r.output = out.str();

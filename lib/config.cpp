@@ -460,10 +460,9 @@ void Config::apply_environment() {
 }
 
 std::string Config::debug_dump_path() const {
-    const std::string path =
-        !debug_log.empty()
-            ? debug_log
-            : (debug ? Workspace::state_dir() + "/logs/debug-{ts}.log" : std::string());
+    std::string path = !debug_log.empty() ? debug_log
+                                          : (debug ? Workspace::state_dir() + "/logs/debug-{ts}.log"
+                                                   : std::string());
     if (path.empty())
         return path;
     const std::string token = "{ts}";

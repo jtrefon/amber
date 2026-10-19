@@ -51,7 +51,7 @@ std::string count(long n) {
     if (n < 1000)
         return std::to_string(n);
     static const char* kUnits[] = {"k", "m", "g", "t"};
-    double v = static_cast<double>(n);
+    auto v = static_cast<double>(n);
     int unit = -1;
     rescale(v, unit, 3, 1000.0, 1000.0);
     return two_significant(v) + kUnits[unit];
@@ -91,7 +91,7 @@ std::string bytes(long b) {
     if (b < 1000)
         return std::to_string(b) + "B";
     static const char* kUnits[] = {"KB", "MB", "GB", "TB"};
-    double v = static_cast<double>(b);
+    auto v = static_cast<double>(b);
     int unit = -1;
     rescale(v, unit, 3, 1000.0, 1024.0);
     return two_significant(v) + kUnits[unit];
