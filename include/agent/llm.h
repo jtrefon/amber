@@ -29,6 +29,11 @@ struct Message {
     // request, which would lose a notice's place in the conversation. The flag
     // is what keeps the text from being mistaken for the model's own close.
     bool harness = false;
+    // When the harness authored this notice because a request failed, the raw
+    // failure it reports (transport error, HTTP status). Empty for ordinary
+    // guidance, and deliberately not serialized: it describes the turn, not the
+    // conversation.
+    std::string failure_detail;
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.

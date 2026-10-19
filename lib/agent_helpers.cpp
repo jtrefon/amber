@@ -291,6 +291,7 @@ Message chat_error_reply(const char* stage, const std::string& last_error, int a
     Message err;
     err.role = "user";
     err.harness = true;
+    err.failure_detail = last_error;
     err.content = "[harness] the " + std::string(stage) + " request failed after " +
                   std::to_string(attempts) + " attempt" + (attempts == 1 ? "" : "s") + ": " +
                   last_error +
@@ -350,16 +351,22 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
     return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt);
 }
 
-std::string empty_turn_reply(const std::deque<Message>& history) {
-    bool had_tool = false;
-    for (const auto& m : history)
-        if (m.role == "tool") {
-            had_tool = true;
-            break;
-        }
-    return had_tool ? "[agent stopped: the model stopped producing usable output after "
-                      "tool calls; see the ERROR messages above]"
-                    : "[agent stopped: the model produced no usable response]";
+// The turn's own facts, not the retained history's: after a compaction the
+// context still holds tool messages from earlier turns, and scanning those made
+// every empty reply claim it happened "after tool calls". A failure the harness
+// reported in this turn is named, so a provider outage is not reported as a
+// silent model.
+std::string empty_turn_reply(bool had_tool_calls, const std::string& last_failure) {
+    std::string what = had_tool_calls ? "the model produced no usable reply after tool calls"
+                                      : "the model produced no usable reply";
+    if (!last_failure.empty()) {
+        std::string detail = last_failure;
+        constexpr std::size_t kMaxDetail = 240;
+        if (detail.size() > kMaxDetail)
+            detail = detail.substr(0, kMaxDetail - 3) + "...";
+        what += "; the last request failed: " + detail;
+    }
+    return "[agent stopped: " + what + "]";
 }
 
 std::string internal_failure_reply(const std::string& what) {

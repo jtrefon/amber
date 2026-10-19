@@ -942,10 +942,14 @@ TEST(agent_loop_repeated_failures_stop_the_turn) {
     for (const auto& m : ag.context().get_all()) {
         if (!m.harness)
             continue;
+        // The stop note names the last failure too; it is the stop, not a fourth
+        // request-failed notice.
+        if (m.content.find("ended without a closing reply") != std::string::npos) {
+            ++stops;
+            continue;
+        }
         if (m.content.find("request failed") != std::string::npos)
             ++failures;
-        if (m.content.find("ended without a closing reply") != std::string::npos)
-            ++stops;
     }
     ASSERT_EQ(failures, 3); // one per exhausted request, then the bound
     ASSERT_EQ(stops, 1);    // the stop itself is part of the record
@@ -2757,9 +2761,62 @@ TEST(agent_loop_internal_failure_is_recovered) {
     ASSERT_EQ(asked, answered);
 }
 
-// A window workspace is a detached worktree. The agent must know before it can
-// commit to an unreachable HEAD; the note is computed when the root is set, so
-// the per-turn prompt costs no git call.
+// An empty reply is judged by THIS turn, not by the retained history: after a
+// compaction the context still holds tool messages from earlier turns, and
+// scanning them made every empty reply claim it happened "after tool calls".
+TEST(agent_empty_reply_is_judged_by_this_turn_not_history) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.log_path = "/dev/null";
+    cfg.experience_store_path = "/dev/null";
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
+    push_text(*fake, "done reading");
+    push_text(*fake, ""); // turn 2: a silent reply gets one nudge
+    push_text(*fake, ""); // ... then the silence bound ends the turn
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ASSERT_EQ(ag.run("read it"), "done reading");
+    const std::string stopped = ag.run("what else?");
+    ASSERT(stopped.find("after tool calls") == std::string::npos);
+    ASSERT(stopped.find("produced no usable reply") != std::string::npos);
+}
+
+// A provider outage is named in the stop reason and shown on the host's status
+// channel: the observed failure was a 502 with "see the ERROR messages above"
+// appearing in a transcript that contained no error line at all.
+TEST(agent_failed_request_is_named_in_the_stop_and_shown) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.log_path = "/dev/null";
+    cfg.experience_store_path = "/dev/null";
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    for (int i = 0; i < 3; ++i) {
+        agent_test::FakeReply err;
+        err.error = "HTTP 502 from LLM server: provider returned error";
+        err.retryable = true;
+        fake->script.push_back(std::move(err));
+    }
+    push_text(*fake, "");
+    push_text(*fake, "");
+
+    std::vector<std::string> status;
+    agent::AgentHooks hooks;
+    hooks.on_status = [&status](const std::string& line) { status.push_back(line); };
+    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
+
+    const std::string stopped = ag.run("suggest features");
+    ASSERT(stopped.find("the last request failed") != std::string::npos);
+    ASSERT(stopped.find("HTTP 502") != std::string::npos);
+    bool visible = false;
+    for (const auto& line : status)
+        if (line.rfind("error: transport:", 0) == 0)
+            visible = true;
+    ASSERT(visible);
+}
 TEST(agent_prompt_names_a_detached_worktree) {
     namespace fs = std::filesystem;
     const std::string repo =

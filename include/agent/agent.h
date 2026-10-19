@@ -145,6 +145,14 @@ public:
         bool wall_noted = false;
         int repeat_count = 0;
         int noted_repeats = 0;
+        // Whether THIS turn executed a tool call. The retained history is not a
+        // proxy: after compaction it still holds tool results from earlier
+        // turns, which made every empty reply read as "after tool calls".
+        bool had_tool_calls = false;
+        // The last request failure the harness reported in this turn. The stop
+        // reason names it, so a provider outage is not reported as a silent
+        // model.
+        std::string last_failure;
         std::string last_call_key;
         std::string last_loop_key;
         std::string last_text;
@@ -471,9 +479,9 @@ private:
     bool extract_embedded_tool_calls(Message& reply) const;
 
     // Finalize a turn: fallback on empty, report the stop, log, update state.
-    // `model_closed` false means a bound ended the turn (iteration cap, wall
+    // `st.model_closed` false means a bound ended the turn (iteration cap, wall
     // clock, loop guard, silence) — its reason is recorded as a harness notice.
-    std::string finish_turn(std::string final_reply, bool model_closed = false);
+    std::string finish_turn(TurnState& st);
     std::string finish_turn_cancelled();
 
     // Apply memory/skill ops from a compression response to the store.
