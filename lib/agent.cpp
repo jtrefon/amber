@@ -98,10 +98,9 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
              std::shared_ptr<SkillCatalog> skills)
     : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
-      client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
+      client_(std::move(client)), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
       retriever_(std::move(retriever)) {
-    client_ = std::move(client);
     if (!client_)
         client_ = make_client(cfg_, client_factory_);
     // A window's workspace may be a detached worktree; the prompt says so before
