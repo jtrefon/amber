@@ -650,6 +650,10 @@ known mess, even in adjacent code.
 
 ## Development workflow
 
+A commit is a snapshot of one completed step, and its subject is the index you
+scan later: `<area>: <imperative summary>`, one area per commit. The
+`git-timeline` skill carries the depth; the rule belongs in the history.
+
 ### Branching strategy
 
 - **`main`** is the stable, release-ready branch. Always green. No direct pushes.
