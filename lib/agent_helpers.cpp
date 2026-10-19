@@ -362,8 +362,10 @@ std::string empty_turn_reply(bool had_tool_calls, const std::string& last_failur
     if (!last_failure.empty()) {
         std::string detail = last_failure;
         constexpr std::size_t kMaxDetail = 240;
-        if (detail.size() > kMaxDetail)
-            detail = detail.substr(0, kMaxDetail - 3) + "...";
+        if (detail.size() > kMaxDetail) {
+            detail.resize(kMaxDetail - 3);
+            detail += "...";
+        }
         what += "; the last request failed: " + detail;
     }
     return "[agent stopped: " + what + "]";
