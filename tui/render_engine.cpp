@@ -253,12 +253,9 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.mode = acfg ? acfg->mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
     // How far above the live edge the viewport is: -1 when everything fits, 0
-    // at the edge, 1..100 up from it.
-    const int max_top = chat_canvas_.max_top();
-    snapshot.scroll_pct =
-        max_top <= 0
-            ? -1
-            : static_cast<int>(std::lround(100.0 * std::min(w.scroll_top, max_top) / max_top));
+    // at the edge, 1..100 up from it. scroll_top counts from the top of the
+    // buffer, so the live edge is max_top (see scroll_pct).
+    snapshot.scroll_pct = status_bar_layout::scroll_pct(w.scroll_top, chat_canvas_.max_top());
     snapshot.latency_ms = static_cast<long>(w.stats.latency_ms);
     snapshot.tps = w.stats.tps;
     snapshot.usage = w.usage;

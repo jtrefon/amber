@@ -152,16 +152,16 @@ deltas are not tracked at all: no live text and no summary line.
 
 #### [EL-16] Status bar — activity wave
 
-- **Given**: Agent busy, `tick_clock()` called
+- **Given**: Agent busy, `idle_tick()` repainting (a busy window redraws via `draw()`, an idle one via `tick_clock()`)
 - **Input**: `anim_phase_` increments every 150ms
-- **Expected**: Wave pattern (`│ ▏▎▍▌▋▊▉█▉▊▋▌▍▎▏│`) renders in status bar. Right-justified clock updates.
+- **Expected**: Wave pattern (`│ ▏▎▍▌▋▊▉█▉▊▋▌▍▎▏│`) renders in the columns the layout reserves for it (`status_bar_layout::activity_x`, the same column as the left zone's budget, so the left flow cannot crowd it out). Right-justified clock updates.
 - **On failure**: `anim_phase_` grows without bound (modulo handles display, but value grows forever).
 
 #### [EL-17] Context gauge in status bar
 
 - **Given**: `stats_.prompt_tokens` = 4000, context window = 8192
 - **Input**: `draw_status_bar()` called
-- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% [4000/8192]`. Proportional to utilisation.
+- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% 4k/8.2k`. Proportional to utilisation; counts and percentages come from `agent::compact` (at most two significant digits, so the readout cannot widen with magnitude).
 - **On failure**: Division by zero if `context_size == 0`, or negative percentage.
 
 #### [EL-18] Signal handler — save and exit

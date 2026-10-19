@@ -1,5 +1,7 @@
 #include "tui/status_bar_layout.h"
 
+#include <cmath>
+
 #include "tui/textutil.h"
 
 namespace tui::status_bar_layout {
@@ -30,6 +32,16 @@ int activity_x(int width, int right_cols) {
 int budget_for(int width, int right_cols) {
     const int x = activity_x(width, right_cols);
     return x < 0 ? 0 : x;
+}
+
+int scroll_pct(int scroll_top, int max_top) {
+    if (max_top <= 0)
+        return -1;
+    if (scroll_top < 0)
+        scroll_top = 0;
+    if (scroll_top > max_top)
+        scroll_top = max_top;
+    return static_cast<int>(std::lround(100.0 * (max_top - scroll_top) / max_top));
 }
 
 // One drop rule for both zones: the highest drop priority goes first when the bar

@@ -2006,6 +2006,19 @@ TEST(status_bar_layout_activity_slot_is_negative_when_it_cannot_fit) {
     ASSERT_EQ(tui::status_bar_layout::activity_x(20, 8), -1);
 }
 
+// scroll_top counts from the TOP of the buffer, so the live edge is max_top.
+// The badge is distance UP from that edge: 0 at the live edge (nothing shown),
+// 100 at the top of the buffer.
+TEST(status_bar_layout_scroll_pct_is_distance_from_the_live_edge) {
+    using tui::status_bar_layout::scroll_pct;
+    ASSERT_EQ(scroll_pct(0, 0), -1);    // everything fits: no badge
+    ASSERT_EQ(scroll_pct(0, 100), 100); // top of the buffer
+    ASSERT_EQ(scroll_pct(100, 100), 0); // live edge
+    ASSERT_EQ(scroll_pct(50, 100), 50);
+    ASSERT_EQ(scroll_pct(120, 100), 0); // clamped to the edge
+    ASSERT_EQ(scroll_pct(-5, 100), 100);
+}
+
 TEST(status_bar_layout_drops_highest_priority_first) {
     // Two 10-column left segments (21 columns with the separator) in a budget
     // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
