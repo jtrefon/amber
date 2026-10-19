@@ -472,6 +472,9 @@ struct CliHost {
     agent::PluginRuntime plugin_runtime;
     agent::HostServices host_services;
     CliUiServices cli_ui;
+    // True once a token reached stdout this run: the reply was already shown as
+    // it arrived, so printing it again at the end would double the answer.
+    bool streamed = false;
     agent::CompressionConfig comp_cfg;
     std::unique_ptr<agent::CompressionGate> gate;
     std::unique_ptr<agent::CompressionStrategy> compressor;
@@ -576,7 +579,10 @@ agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool a
     agent::AgentHooks hooks;
     hooks.on_status = hook_status;
     host.subagents.set_hooks(hooks);
-    hooks.on_token = hook_token;
+    hooks.on_token = [&host](const std::string& t) {
+        host.streamed = true;
+        hook_token(t);
+    };
     hooks.on_reasoning = hook_reasoning;
     hooks.on_tool_call = hook_tool_call;
     hooks.on_tool_result = hook_tool_result;
@@ -596,7 +602,15 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.policy().init(agent::Workspace::policy_path());
         agent.set_events(host.plugin_runtime.events());
         agent.set_prompt_registry(host.plugin_runtime.prompts());
-        std::cout << "\n" << agent.run(prompt) << "\n";
+        const std::string reply = agent.run(prompt);
+        // Streamed tokens reached stdout as they arrived; repeating the reply
+        // here doubled the answer on every streamed run. A buffered run prints
+        // it once — and so does a stop the model did not write (the harness's
+        // own reason for ending the turn), which the stream never carried.
+        if (host.streamed)
+            std::cout << "\n";
+        else
+            std::cout << "\n" << reply << "\n";
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;

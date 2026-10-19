@@ -192,9 +192,27 @@ pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string
     return pid;
 }
 
+// The grace a stopped group gets before the hammer: long enough for a shell to
+// run its trap and flush what it holds, short enough that an unresponsive job
+// does not stall the host. Sliced so the wait ends as soon as the group is gone.
+constexpr int kTermGraceSlices = 20;
+constexpr int kTermGraceSliceMs = 100;
+
 void kill_process_group(pid_t pid) {
-    if (pid > 0)
-        kill(-pid, SIGKILL);
+    if (pid <= 0)
+        return;
+    // Ask first: SIGTERM lets the child close on its own terms. The probe is
+    // kill(pid, 0), never waitpid — the JOB's reader thread owns the reap (it is
+    // what records the exit code), and stealing it here would turn a graceful
+    // exit into "killed, no code".
+    if (kill(-pid, SIGTERM) != 0 && errno == ESRCH)
+        return;
+    for (int i = 0; i < kTermGraceSlices; ++i) {
+        if (kill(pid, 0) != 0 && errno == ESRCH)
+            return; // the group is gone; nothing to escalate
+        usleep(kTermGraceSliceMs * 1000);
+    }
+    kill(-pid, SIGKILL);
 }
 
 } // namespace agent

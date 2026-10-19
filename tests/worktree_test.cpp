@@ -150,6 +150,33 @@ TEST(worktree_create_checks_out_the_base_commit_detached) {
     ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
 }
 
+TEST(worktree_session_note_warns_only_for_a_detached_worktree) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const std::string path = repo.worktree_path("note");
+
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+    ASSERT_TRUE(err.empty());
+
+    const std::string note = agent::worktree_session_note(path);
+    ASSERT(note.find("detached git worktree") != std::string::npos);
+    ASSERT(note.find(base.substr(0, 7)) != std::string::npos);
+    ASSERT(note.find("git switch -c") != std::string::npos);
+
+    // The main checkout is on a branch: nothing to warn about.
+    ASSERT_EQ(agent::worktree_session_note(repo.dir.string()), std::string());
+    // Not a repository at all.
+    ASSERT_EQ(agent::worktree_session_note("/tmp"), std::string());
+
+    // Once the worktree is on a branch the commits are reachable, and the
+    // warning goes away.
+    run_in_dir(path, "git switch -q -c fix/note");
+    ASSERT_EQ(agent::worktree_session_note(path), std::string());
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+}
+
 TEST(worktree_remove_refuses_a_dirty_tree) {
     TempRepo repo;
     const std::string path = repo.worktree_path("dirty");

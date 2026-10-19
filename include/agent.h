@@ -14,6 +14,7 @@
 #include "agent/prompt.h"
 #include "agent/providers.h"
 #include "agent/statusbar.h"
+#include "agent/compact.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
 #include "agent/agent_helpers.h"

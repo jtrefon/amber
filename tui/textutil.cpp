@@ -116,6 +116,21 @@ const char* glyph::bottom_tee() {
     return utf8() ? "\u2534" : "+";
 }
 
+std::string git_branch_label(const std::string& symbolic_ref, const std::string& short_oid) {
+    const auto trim = [](std::string text) {
+        while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' '))
+            text.pop_back();
+        return text;
+    };
+    const std::string ref = trim(symbolic_ref);
+    if (!ref.empty()) {
+        const std::string prefix = "refs/heads/";
+        return ref.rfind(prefix, 0) == 0 ? ref.substr(prefix.size()) : ref;
+    }
+    const std::string oid = trim(short_oid);
+    return oid.empty() ? std::string() : "@" + oid;
+}
+
 std::string git_prompt(const std::string& project, const std::string& branch, int ins, int del) {
     bool u = glyph::utf8();
     std::string p;

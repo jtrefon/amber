@@ -29,6 +29,7 @@
 #include "tui/toggle_value.h"
 #include "tui/approval_model.h"
 #include "tui/signal_guard.h"
+#include <unistd.h>
 #include "tui/event_router.h"
 #include "tui/path_confine.h"
 #include "tui/key_read.h"
@@ -58,6 +59,34 @@
 // @-reference expansion must route user/model-supplied paths through
 // confine_path, which rejects absolute escapes and ../ traversal.
 // ---------------------------------------------------------------------------
+
+// A process that dies without endwin() must still undo what curses turned on.
+// The guard writes the mode-off sequences itself (write(2) is the only thing
+// available to a signal handler or a terminate handler), and this is the exact
+// behaviour that keeps drag-to-select working after a crash.
+TEST(terminal_guard_restore_undoes_the_modes_curses_leaves_behind) {
+    int pipe_fd[2] = {-1, -1};
+    ASSERT_EQ(pipe(pipe_fd), 0);
+    const int saved_stdout = dup(STDOUT_FILENO);
+    ASSERT(saved_stdout >= 0);
+
+    tui::TerminalGuard guard;
+    guard.arm();
+    dup2(pipe_fd[1], STDOUT_FILENO);
+    guard.restore();
+    dup2(saved_stdout, STDOUT_FILENO);
+    close(saved_stdout);
+    close(pipe_fd[1]);
+
+    char buf[256] = {};
+    const ssize_t n = read(pipe_fd[0], buf, sizeof(buf) - 1);
+    close(pipe_fd[0]);
+    ASSERT(n > 0);
+    const std::string out(buf, static_cast<size_t>(n));
+    ASSERT(out.find("\033[?1000l") != std::string::npos); // mouse reporting off
+    ASSERT(out.find("\033[?1006l") != std::string::npos);
+    ASSERT(out.find("\033[?1049l") != std::string::npos); // leave alternate screen
+}
 
 TEST(sec04_confine_path_rejects_absolute) {
     agent::Workspace::set_root("/tmp/amber_tui_confine");
@@ -660,6 +689,14 @@ TEST(palette_usage_and_common_prefix) {
     ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
 
+TEST(git_prompt_branch_label_handles_a_detached_head) {
+    // Every window worktree starts detached: show the commit it sits at rather
+    // than dropping the branch readout (and with it the diff counts).
+    ASSERT_EQ(tui::text::git_branch_label("refs/heads/main\n", ""), "main");
+    ASSERT_EQ(tui::text::git_branch_label("", "abc1234\n"), "@abc1234");
+    ASSERT_EQ(tui::text::git_branch_label("", ""), "");
+}
+
 TEST(git_prompt_no_diff) {
     std::string r = tui::text::git_prompt("myproject", "main", 0, 0);
     ASSERT(r.find("myproject") != std::string::npos);
@@ -941,10 +978,12 @@ TEST(tool_display_close_keeps_timestamp) {
 }
 
 TEST(tool_display_elapsed_label_formatting) {
+    // One formatter for every number the UI shows (agent::compact): the label
+    // never grows into "1m 05s" / "1h 02m".
     ASSERT_EQ(tui::tool_display::elapsed_label(0), "0s");
     ASSERT_EQ(tui::tool_display::elapsed_label(12), "12s");
-    ASSERT_EQ(tui::tool_display::elapsed_label(65), "1m 05s");
-    ASSERT_EQ(tui::tool_display::elapsed_label(3725), "1h 02m");
+    ASSERT_EQ(tui::tool_display::elapsed_label(65), "1.1m");
+    ASSERT_EQ(tui::tool_display::elapsed_label(3725), "1h");
 }
 
 TEST(tool_display_working_label) {
@@ -1497,6 +1536,7 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
         {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
         {"alt+b", tui::KeyAction::DeleteWord, 27, static_cast<int>('b'), false, false},
         {"alt+0", tui::KeyAction::OpenPanels, 0xB0, std::nullopt, false, false},
+        {"alt+m", tui::KeyAction::ToggleMouse, 27, static_cast<int>('m'), false, false},
     };
 
     std::string unreachable;
@@ -1518,7 +1558,7 @@ TEST(keyaction_every_variant_is_reachable_from_a_key) {
 // test case must fail here. Without a sentinel there is no way to count the enum, so
 // KeyAction::Count exists solely to make the table above exhaustive-checkable.
 TEST(keyaction_no_variant_is_left_unaccounted_for) {
-    static_assert(static_cast<int>(tui::KeyAction::OpenPanels) + 1 ==
+    static_assert(static_cast<int>(tui::KeyAction::ToggleMouse) + 1 ==
                       static_cast<int>(tui::KeyAction::Count),
                   "a KeyAction variant was added; add a reachability case for it above, "
                   "and a binding, or it is dead code");
@@ -1941,6 +1981,52 @@ TEST(status_bar_layout_no_right_zone_reserves_only_activity) {
     ASSERT_EQ(p.budget, 40 - 13);
 }
 
+// The wave sits in the first column the left zone may not use, so the painter
+// can always draw it. The bug this pins: the painter used to drop the wave
+// whenever the left flow reached its budget (the ctx gauge routinely did), which
+// read as the activity indicator vanishing exactly while the agent worked.
+TEST(status_bar_layout_activity_slot_is_the_left_budget) {
+    for (int w : {20, 40, 80, 120, 200}) {
+        for (int right : {0, 3, 10}) {
+            std::vector<BarSeg> segs;
+            if (right > 0)
+                segs.push_back({std::string(static_cast<size_t>(right), 'r'), 0, 0,
+                                agent::StatusAlign::Right});
+            const auto p = tui::status_bar_layout::plan(segs, w, false, 0);
+            const int x = tui::status_bar_layout::activity_x(w, p.right_cols);
+            if (x < 0) {
+                ASSERT_EQ(p.budget, 0); // nothing fits: the bar has no left budget either
+                continue;
+            }
+            ASSERT_EQ(x, p.budget);
+            ASSERT(x >= 0);
+            ASSERT(x + 12 <= w); // the wave's own columns fit
+            if (right > 0)
+                ASSERT(x + 12 <= w - right - 1); // and the clock keeps its gap
+        }
+    }
+}
+
+TEST(status_bar_layout_activity_slot_is_negative_when_it_cannot_fit) {
+    ASSERT_EQ(tui::status_bar_layout::activity_x(10, 0), -1);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(12, 0), -1);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(13, 0), 0);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(20, 8), -1);
+}
+
+// scroll_top counts from the TOP of the buffer, so the live edge is max_top.
+// The badge is distance UP from that edge: 0 at the live edge (nothing shown),
+// 100 at the top of the buffer.
+TEST(status_bar_layout_scroll_pct_is_distance_from_the_live_edge) {
+    using tui::status_bar_layout::scroll_pct;
+    ASSERT_EQ(scroll_pct(0, 0), -1);    // everything fits: no badge
+    ASSERT_EQ(scroll_pct(0, 100), 100); // top of the buffer
+    ASSERT_EQ(scroll_pct(100, 100), 0); // live edge
+    ASSERT_EQ(scroll_pct(50, 100), 50);
+    ASSERT_EQ(scroll_pct(120, 100), 0); // clamped to the edge
+    ASSERT_EQ(scroll_pct(-5, 100), 100);
+}
+
 TEST(status_bar_layout_drops_highest_priority_first) {
     // Two 10-column left segments (21 columns with the separator) in a budget
     // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
@@ -2357,7 +2443,7 @@ TEST(session_row_file_size_units) {
     ASSERT_EQ(SR::file_size(0), ""); // the caller draws nothing
     ASSERT_EQ(SR::file_size(512), "512B");
     ASSERT_EQ(SR::file_size(2048), "2KB");
-    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3.0MB");
+    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3MB");
 }
 
 // --- InputLineLayout (L1): prompt decor, scroll, UTF-8 slicing ---

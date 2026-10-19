@@ -1,9 +1,10 @@
 #include "agent/core_segments.h"
 
+#include "agent/compact.h"
 #include "agent/extensions.h"
 #include "agent/statusbar.h"
 
-#include <cstdio>
+#include <cmath>
 #include <string>
 #include <utility>
 
@@ -18,6 +19,7 @@ enum Priority {
     kModel = 200,
     kMode = 300,
     kScroll = 400,
+    kPosition = 450,
     kLag = 500,
     kTps = 600,
     kTokens = 700,
@@ -27,15 +29,21 @@ enum Priority {
 // Drop priority is what goes first when the terminal is too narrow: the
 // least-important segment has the highest number. Scroll mode never drops (0
 // means "keep"), because the user asked for it explicitly.
+//
+// The transients go before the cost readout. Lag and tps describe ONE completed
+// exchange and are stale until the next one; the token meter is the session's
+// spend, and it used to drop first (drop 7, ahead of everything), which on a
+// ~100-column terminal made it look broken rather than crowded.
 enum Drop {
     kScrollDrop = 0,
     kActivityDrop = 1,
     kModeDrop = 2,
     kWindowDrop = 3,
-    kTpsDrop = 4,
-    kModelDrop = 6,
-    kLagDrop = 6,
-    kTokensDrop = 7,
+    kModelDrop = 4,
+    kTokensDrop = 5,
+    kPositionDrop = 6,
+    kTpsDrop = 7,
+    kLagDrop = 8,
 };
 
 std::string dashed(const char* glyph) {
@@ -49,7 +57,7 @@ std::unique_ptr<Capability> segment(const char* id, int priority, int drop_prior
 }
 
 StatusText render_window(const StatusSnapshot& s) {
-    return StatusText{"[" + std::to_string(s.window_index) + "/" + std::to_string(s.window_count) +
+    return StatusText{"[" + compact::count(s.window_index) + "/" + compact::count(s.window_count) +
                           "]",
                       StatusTone::Banner};
 }
@@ -92,31 +100,42 @@ StatusText render_scroll(const StatusSnapshot& s) {
     return StatusText{" S ", StatusTone::Good};
 }
 
+// How far the viewport is above the live edge. Nothing at the edge -- the
+// default state needs no badge -- then one chevron plus the percentage, and the
+// chevron alone at the very top (100 is the one three-digit percentage, and the
+// arrow already says it). Tone is Banner, not a green/yellow/red ramp: on this
+// bar colour means health, and position is not a health state.
+StatusText render_position(const StatusSnapshot& s) {
+    if (s.scroll_pct <= 0)
+        return StatusText{};
+    if (s.scroll_pct >= 100)
+        return StatusText{"  " + dashed(bar::chevron_up()), StatusTone::Banner};
+    return StatusText{"  " + dashed(bar::chevron_up()) + compact::percent(s.scroll_pct) + "%",
+                      StatusTone::Banner};
+}
+
 StatusText render_lag(const StatusSnapshot& s) {
     if (s.latency_ms < 0)
         return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "  lag %.0fms", static_cast<double>(s.latency_ms));
     StatusTone tone = StatusTone::Dim;
     if (s.latency_ms > 5000)
         tone = StatusTone::Crit;
     else if (s.latency_ms > 1000)
         tone = StatusTone::Warn;
-    return StatusText{buf, tone};
+    return StatusText{"  lag " + compact::duration_ms(s.latency_ms), tone};
 }
 
 StatusText render_tps(const StatusSnapshot& s) {
     if (s.tps <= 0.0)
         return StatusText{"  " + dashed(bar::emdash()) + " t/s", StatusTone::Dim};
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "  %.0f t/s", s.tps);
-    return StatusText{buf, StatusTone::Dim};
+    return StatusText{"  " + compact::count(std::lround(s.tps)) + " t/s", StatusTone::Dim};
 }
 
 StatusText render_tokens(const StatusSnapshot& s) {
-    const std::string up = s.prompt_tokens >= 0 ? bar::kfmt(s.prompt_tokens) : bar::emdash();
+    const std::string up =
+        s.usage.measured ? compact::count(s.usage.prompt_tokens) : dashed(bar::emdash());
     const std::string down =
-        s.completion_tokens >= 0 ? bar::kfmt(s.completion_tokens) : bar::emdash();
+        s.usage.measured ? compact::count(s.usage.completion_tokens) : dashed(bar::emdash());
     return StatusText{"  " + dashed(bar::up()) + up + " " + dashed(bar::down()) + down,
                       StatusTone::Dim};
 }
@@ -124,9 +143,9 @@ StatusText render_tokens(const StatusSnapshot& s) {
 StatusText render_activity(const StatusSnapshot& s) {
     if (s.running_jobs > 0) {
         std::string text =
-            "  " + std::to_string(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
+            "  " + compact::count(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
         if (s.job_seconds_left >= 0)
-            text += " " + std::to_string(s.job_seconds_left) + "s";
+            text += " " + compact::duration_ms(static_cast<long>(s.job_seconds_left) * 1000);
         return StatusText{std::move(text), StatusTone::Warn};
     }
     if (!s.running_tool.empty())
@@ -142,6 +161,7 @@ std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     caps.push_back(segment("model", kModel, kModelDrop, render_model));
     caps.push_back(segment("mode", kMode, kModeDrop, render_mode));
     caps.push_back(segment("scroll", kScroll, kScrollDrop, render_scroll));
+    caps.push_back(segment("position", kPosition, kPositionDrop, render_position));
     caps.push_back(segment("lag", kLag, kLagDrop, render_lag));
     caps.push_back(segment("tps", kTps, kTpsDrop, render_tps));
     caps.push_back(segment("tokens", kTokens, kTokensDrop, render_tokens));

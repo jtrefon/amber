@@ -15,6 +15,7 @@
 #include "plugins/commandcode/commandcode_plugin.h"
 #include "plugins/coding/coding_library.h"
 #include "plugins/deepseek/deepseek_plugin.h"
+#include "plugins/git_timeline/git_timeline_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
@@ -502,6 +503,215 @@ TEST(tool_source_is_re_installable) {
     ASSERT_TRUE(runtime.set_state("source", true));
     ASSERT_EQ(source->starts_, 2);
     ASSERT_TRUE((bool)f.tools.find("discovered_one"));
+}
+
+// The timeline playbook ships compiled in and travels with its plugin: a fresh
+// project has it from the first turn, and disabling the plugin takes it away.
+TEST(git_timeline_skill_installs_and_unwinds) {
+    ScratchConfig scratch("git-timeline-skill");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<plugins::GitTimelinePlugin>());
+    const auto has_skill = [] {
+        for (const auto& s : agent::system_skills())
+            if (s.name == "git-timeline")
+                return true;
+        return false;
+    };
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(has_skill());
+    ASSERT_TRUE(runtime.set_state("git-timeline", false));
+    ASSERT_FALSE(has_skill());
+}
+
+// The grammar the resident prose points at: one area per subject, a compact
+// key, and the history moves that make a snapshot findable and undoable.
+TEST(git_timeline_skill_teaches_the_index_grammar) {
+    const std::string body = agent::plugins::render_git_timeline_skill();
+    ASSERT(body.find("<area>: <imperative summary>") != std::string::npos);
+    ASSERT(body.find("One area per commit") != std::string::npos);
+    ASSERT(body.find("git log --oneline") != std::string::npos);
+    ASSERT(body.find("git bisect run") != std::string::npos);
+    ASSERT(body.find("git revert <sha>") != std::string::npos);
+    ASSERT(body.find("git reset --soft") != std::string::npos);
+    ASSERT(body.find("git reflog") != std::string::npos);
+    ASSERT(body.find("detached worktree") != std::string::npos);
+    // The activation budget is 5000 tokens; ~4 chars per token leaves room.
+    ASSERT(body.size() < 16000);
+}
+
+// A capability whose install fails: the plugin is registered and activatable,
+// but the harness refuses the contribution. This is the shape a broken plugin
+// takes, and it must leave neither a persisted "on" nor a silent rollback.
+class FailingInstallCapability : public Capability {
+public:
+    std::string name() const override { return "broken"; }
+    CapabilityKind kind() const override { return CapabilityKind::Tool; }
+    InstallResult install(PluginServices&) override {
+        InstallResult r;
+        r.error = "synthetic install failure";
+        return r;
+    }
+};
+
+class FailingPlugin : public IPlugin {
+public:
+    std::string id() const override { return "failing"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Failing probe"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<FailingInstallCapability>());
+        return caps;
+    }
+};
+
+std::string read_whole_file(const std::string& path) {
+    std::ifstream in(path);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+// The plugin lifecycle is observable. PluginLoaded/PluginUnloaded were declared
+// event types with no fire site — a vocabulary nobody could rely on — and a
+// "refresh the list" consumer had to poll instead.
+TEST(plugin_lifecycle_events_fire) {
+    ScratchConfig scratch("lifecycle-events");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<NamedToolPlugin>("probe", "probe_tool"));
+    std::vector<std::string> loaded;
+    std::vector<std::string> unloaded;
+    Events events(runtime.events());
+    auto l = events.subscribe<PluginLoadedEvent>(
+        [&loaded](const PluginLoadedEvent& e) { loaded.push_back(e.plugin_id); });
+    auto u = events.subscribe<PluginUnloadedEvent>(
+        [&unloaded](const PluginUnloadedEvent& e) { unloaded.push_back(e.plugin_id); });
+
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_EQ(loaded.size(), 1u);
+    ASSERT_EQ(loaded[0], std::string("probe"));
+
+    ASSERT_TRUE(runtime.set_state("probe", false));
+    ASSERT_EQ(unloaded.size(), 1u);
+    ASSERT_EQ(unloaded[0], std::string("probe"));
+
+    // Off again is not a second unload: nothing was active to unload.
+    ASSERT_TRUE(runtime.set_state("probe", false));
+    ASSERT_EQ(unloaded.size(), 1u);
+
+    ASSERT_TRUE(runtime.set_state("probe", true));
+    ASSERT_EQ(loaded.size(), 2u);
+}
+
+// Failure is part of the lifecycle too, and it carries a reason: a plugin that
+// cannot install is rolled back, and the observer learns which one and why.
+TEST(plugin_failed_event_carries_the_plugin_and_reason) {
+    ScratchConfig scratch("plugin-failed-event");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>());
+    std::vector<PluginFailedEvent> failed;
+    Events events(runtime.events());
+    auto sub = events.subscribe<PluginFailedEvent>(
+        [&failed](const PluginFailedEvent& e) { failed.push_back(e); });
+
+    ASSERT_FALSE(runtime.set_state("failing", true));
+    ASSERT_EQ(failed.size(), 1u);
+    ASSERT_EQ(failed[0].plugin_id, std::string("failing"));
+    ASSERT(failed[0].reason.find("synthetic install failure") != std::string::npos);
+}
+
+// An explicit toggle that fails is not persisted as on: the file describes what
+// is true, not what was attempted. (A plugin persisted on BEFORE the session is
+// a different case -- see the retry test. This one is external, whose default is
+// off, so the restored value is unambiguous.)
+TEST(failed_toggle_is_not_recorded_as_on) {
+    ScratchConfig scratch("failed-toggle");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>(), /*bundled=*/false);
+    ASSERT_FALSE(runtime.set_state("failing", true));
+    const std::string text = read_whole_file(scratch.root() + "/amber/plugins/failing/plugin.conf");
+    ASSERT(text.find("enabled=0") != std::string::npos);
+}
+
+TEST(failed_activation_of_a_persisted_plugin_keeps_it_on) {
+    ScratchConfig scratch("failed-retry");
+    const std::string dir = scratch.root() + "/amber/plugins/failing";
+    fs::create_directories(dir);
+    std::ofstream(dir + "/plugin.conf") << "enabled=1\n";
+
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<FailingPlugin>());
+    runtime.start(/*use_persisted_state=*/true);
+    // A failed activation at startup is retried next time; it does not silently
+    // turn the user's saved choice off.
+    ASSERT(read_whole_file(dir + "/plugin.conf").find("enabled=1") != std::string::npos);
+}
+
+// A worker that kept the port past deactivation (a source ignoring the
+// contract) must find it closed: the add is a no-op, not a registration that
+// the ledger can no longer unwind.
+TEST(tool_port_add_after_close_is_ignored) {
+    ScratchConfig scratch("tool-source-closed");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    auto source = std::make_shared<ToolSourcePlugin>();
+    runtime.add(source);
+    runtime.start(/*use_persisted_state=*/false);
+    ToolPort* port = source->port_;
+    ASSERT(port != nullptr);
+
+    ASSERT_TRUE(runtime.set_state("source", false));
+    port->add(std::make_unique<StubTool>("late_arrival"));
+    ASSERT_FALSE((bool)f.tools.find("late_arrival"));
+}
+
+// The bare-host path installs the tool set from the tool plugins' own factories,
+// but the list of those factories is hand-written in register_default_tools: a
+// new tool plugin missing from it would leave bare hosts (and every test on
+// them) without the tool while the runtime has it. This pins the two sets
+// together — the drift the shared factories cannot prevent by themselves.
+TEST(bare_host_tools_match_the_tool_plugins) {
+    ScratchConfig scratch("bare-tool-set");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    CancellationToken cancel;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(HostServices{&jobs, &todos, &subagents, &cancel});
+    for (auto& plugin : make_bundled_plugins()) {
+        const std::string id = plugin->id();
+        if (id.rfind("tool_", 0) == 0 || id.rfind("search_", 0) == 0)
+            runtime.add(plugin); // the tool plugins and the search backends they use
+    }
+    runtime.start(/*use_persisted_state=*/false);
+    std::vector<std::string> via_runtime;
+    for (const auto& tool : f.tools.snapshot_tools())
+        via_runtime.push_back(tool->name());
+
+    ToolRegistry bare;
+    register_default_tools(bare, jobs, todos, cancel);
+    std::vector<std::string> via_bare;
+    for (const auto& tool : bare.snapshot_tools())
+        via_bare.push_back(tool->name());
+
+    const auto joined = [](std::vector<std::string> names) {
+        std::sort(names.begin(), names.end());
+        std::string out;
+        for (const auto& name : names) {
+            out += out.empty() ? "" : ",";
+            out += name;
+        }
+        return out;
+    };
+    ASSERT_EQ(joined(via_runtime), joined(via_bare));
 }
 
 // The generation is how a host learns the set moved on without being told — it

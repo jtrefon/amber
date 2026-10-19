@@ -129,9 +129,27 @@ public:
         int text_loop_count = 0;
         int tool_recovery_attempts = 0;
         int internal_failures = 0;
+        // Consecutive silent replies (no tool calls, no text). Bounds the loop's
+        // patience with a model that has stopped answering.
+        int no_answer = 0;
+        // Consecutive harness notices with no model reply in between: a failing
+        // endpoint has its own bound (it is not the model going quiet).
+        int notices = 0;
+        // True when the model's own reply closed the turn (a reply with no tool
+        // calls and text in it). False means a bound ended it, and the stop
+        // reason becomes part of the record.
+        bool model_closed = false;
+        // The loop's own state, announced once when it changes: the budget
+        // crossing and a call that keeps repeating. Reported, never acted on.
+        bool budget_noted = false;
+        bool wall_noted = false;
+        int repeat_count = 0;
+        int noted_repeats = 0;
+        std::string last_call_key;
         std::string last_loop_key;
         std::string last_text;
         std::string final_reply;
+        std::chrono::steady_clock::time_point start;
         std::chrono::steady_clock::time_point deadline;
     };
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
@@ -193,7 +211,7 @@ public:
     // Confine this agent's tools to `root` (a window's worktree). Empty means
     // the process's project root. Installed into every run scope, so tools
     // running on dispatch workers confine to the same tree as the agent.
-    void set_workspace_root(std::string root) { workspace_root_ = std::move(root); }
+    void set_workspace_root(std::string root);
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
@@ -323,6 +341,10 @@ private:
     // root: a window working in its own worktree sets it at creation, and every
     // run installs it into the run scope so dispatch workers inherit it.
     std::string workspace_root_;
+    // Environment note for the prompt when that root is a detached worktree
+    // (see worktree_session_note). Computed when the root is set, never per
+    // turn: rendering the system prompt must not shell out.
+    std::string workspace_note_;
     // Publish the display-relevant config for other threads. Copy-on-write:
     // `cfg_` stays the worker's private working copy, readers get an immutable
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.
@@ -341,19 +363,27 @@ private:
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
 
-    // One model round-trip (stream or buffered). When `display` is false the
-    // token/reasoning/assistant hooks are suppressed so the exchange (e.g. the
-    // internal confirmation check) never paints into the scrollback.
-    Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display = true);
+    // One model round-trip (stream or buffered).
+    Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools);
     bool maybe_compress(std::vector<Message>& prompt_copy);
     void on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const;
     void record_stats(const Stats& stats);
-    void publish_llm_response(const Stats& stats, bool display);
-    bool probe_was_denied() const;
+    void publish_llm_response(const Stats& stats);
     void decay_and_persist();
     std::function<std::function<Message()>(const std::string&)>
-    build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools,
-                       bool display);
+    build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools);
+
+    // The three request repairs, each announced as a [harness] notice before it
+    // retries: without tools (the tool grammar would not parse), with a
+    // server-known model (the configured one was rejected), with a new key (the
+    // old one was rejected). Empty return means no repair applies.
+    std::function<Message()> repair_without_tools(const std::string& err);
+    std::function<Message()>
+    repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
+                             const std::string& err);
+    std::function<Message()> repair_with_new_key(const char* stage,
+                                                 const std::vector<std::shared_ptr<Tool>>& tools,
+                                                 const std::string& err);
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
@@ -386,18 +416,26 @@ private:
     // swallowed. Returns true when the loop must stop instead.
     bool recover_internal_failure(TurnState& st, const std::string& what);
 
+    // Push a [harness] notice (retry summary, repair report, loop state, stop
+    // reason) into the conversation. Harness notices ride the user channel with
+    // Message::harness set: they reach the model in place, and the loop knows
+    // they are not the model's own reply.
+    void inject_harness_note(const std::string& text);
+
+    // The loop's own state, said once at the moment it changes: how much of the
+    // iteration and wall-clock budget is spent, and whether the same call keeps
+    // coming back. Nothing here intervenes — the model is told and decides.
+    void note_loop_state(TurnState& st, int iter);
+
+    // The four ways one reply can fold into the turn. Each returns true when the
+    // loop must stop.
+    bool fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content);
+    bool fold_harness_notice(TurnState& st);
+    bool fold_silent_reply(TurnState& st);
+
     // A tool_call with no tool response is an invalid request and poisons every
     // later turn; a swallowed dispatch failure leaves one behind.
     void answer_orphan_tool_calls(const std::string& what);
-
-    // Hooks with the display callbacks removed, for silent internal exchanges.
-    const AgentHooks& silent_hooks() const;
-
-    // Ask the model to confirm/finish; dispatch any further tool calls it
-    // requests, or return the accepted final text. Empty return means "keep
-    // iterating the main loop".
-    std::string confirm_turn(const std::string& candidate,
-                             const std::vector<std::shared_ptr<Tool>>& tools);
 
     // Log the user event and push the user message to history.
     void log_and_push_user_prompt(const std::string& prompt);
@@ -415,31 +453,27 @@ private:
     bool detect_text_loop(const std::string& content, int& text_loop_count, std::string& last_text,
                           std::string& final_reply);
 
-    // Run confirm_turn and either break with the final reply or continue.
-    std::string try_confirm(const std::string& candidate,
-                            const std::vector<std::shared_ptr<Tool>>& tools);
-
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<std::shared_ptr<Tool>> resolve_tools();
 
     // One LLM round-trip with graceful recovery for request-side 4xx: the
     // retry loop repairs the request once (drop tools on template-parser
-    // rejection, swap to a server-known model on name rejection). `strict`
-    // makes internal exchanges rethrow instead of faking a reply.
-    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools, const char* stage,
-                               bool display, bool strict);
+    // rejection, swap to a server-known model on name rejection).
+    Message chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools, const char* stage);
 
     // Push a generated reply into context, log, and fire context event.
     void push_reply(Message reply);
 
     // Extract text-embedded XML tool calls (attribute or name/arguments
     // style) from a reply's content into the structured tool_calls field.
-    // Clears content when calls were found. Used by push_reply and the
-    // confirmation probe so both paths execute template-style tool calls.
+    // Clears content when calls were found, so template-style tool calls
+    // execute like structured ones.
     bool extract_embedded_tool_calls(Message& reply) const;
 
-    // Finalize a turn: fallback on empty, log, update state.
-    std::string finish_turn(std::string final_reply);
+    // Finalize a turn: fallback on empty, report the stop, log, update state.
+    // `model_closed` false means a bound ended the turn (iteration cap, wall
+    // clock, loop guard, silence) — its reason is recorded as a harness notice.
+    std::string finish_turn(std::string final_reply, bool model_closed = false);
     std::string finish_turn_cancelled();
 
     // Apply memory/skill ops from a compression response to the store.

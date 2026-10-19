@@ -13,6 +13,7 @@
   "ctrl+c": {"action": "cancel_or_quit"},
   "ctrl+w": {"action": "delete_word"},
   "alt+b": {"action": "delete_word"},
+  "alt+m": {"action": "toggle_mouse"},
   "esc+digit": {"action": "switch_window_by_digit"},
   "esc+b": {"action": "delete_word"}
 }

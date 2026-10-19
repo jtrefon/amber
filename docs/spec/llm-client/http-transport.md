@@ -60,7 +60,7 @@ mechanics that carry whatever the dialect produces.
 - **Given**: Wrong API key or malformed request
 - **Input**: Server returns HTTP 401 or 400
 - **Expected**: Buffered: `post_completion()` throws with `"HTTP 401 from LLM server: <first 200 bytes>"`. Streaming: `stream_completion()` throws with `"HTTP 400 from LLM server: <first 400 bytes>"`.
-- **Recovery**: Error caught by `safe_chat_once()`, returned as error message to agent. No retry at transport layer.
+- **Recovery**: Error caught by `chat_with_retry()` in `agent_helpers`, reported to the model as a `[harness]` notice. No retry at transport layer.
 
 #### [HT-04] HTTP 5xx error (server error)
 

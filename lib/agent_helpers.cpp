@@ -31,6 +31,28 @@ std::string fingerprint_tool_calls(const json& calls) {
     return key;
 }
 
+std::string canonical_call_key(const json& calls) {
+    if (calls.is_null() || !calls.is_array() || calls.empty())
+        return {};
+    static const char* const kTimingArgs[] = {"timeout", "timeout_s", "seconds", "wait", "wait_s"};
+    std::string key;
+    for (const auto& tc : calls) {
+        std::string id, fn;
+        json args;
+        bool ok = true;
+        parse_tool_call(tc, id, fn, args, ok);
+        if (args.is_object())
+            for (const char* arg : kTimingArgs)
+                args.erase(arg);
+        if (!key.empty())
+            key += '|';
+        key += fn;
+        key += '|';
+        key += args.dump();
+    }
+    return key;
+}
+
 namespace {
 
 // A field the model reads: enough to act on, and a marker when it was cut, so
@@ -170,37 +192,23 @@ void parse_tool_call(const json& call, std::string& id, std::string& fn, json& a
     }
 }
 
-Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
-                       const std::function<Message()>& chat, const char* stage) {
-    try {
-        Message m = chat();
-        m.content = utf8_sanitize(m.content);
-        m.reasoning = utf8_sanitize(m.reasoning);
-        return m;
-    } catch (const std::exception& e) {
-        log.event("chat_error", {{"stage", stage}, {"error", e.what()}});
-        if (hooks.on_status)
-            hooks.on_status(std::string("chat error (recovered): ") + e.what());
-        if (hooks.on_debug)
-            hooks.on_debug("chat error: " + std::string(e.what()));
-        Message err;
-        err.role = "assistant";
-        err.content = "[error during " + std::string(stage) + ": " + e.what() +
-                      "] Please retry or adjust your approach.";
-        return err;
-    }
+long retry_backoff_ms(int attempt, const std::string& seed) {
+    static const int kBase[] = {1000, 2000, 4000, 8000};
+    const int step = attempt < 1 ? 1 : attempt;
+    const int base = kBase[(step - 1) < 3 ? (step - 1) : 3];
+    const int spread = base / 4; // ±25%
+    const std::size_t h = std::hash<std::string>{}(seed + "#" + std::to_string(step));
+    return base - spread + static_cast<long>(h % static_cast<std::size_t>((2 * spread) + 1));
 }
 
 namespace {
+
 bool retryable_error(const std::exception& e) {
     // Cancellation is never a retryable failure: the user asked to stop.
     if (dynamic_cast<const CancelledError*>(&e))
         return false;
     const auto* api = dynamic_cast<const ApiError*>(&e);
     return api == nullptr || api->retryable;
-}
-int backoff_ms(int attempt) {
-    return attempt <= 1 ? 1000 : 2000;
 }
 bool wait_cancellable(const CancellationToken& token, int ms) {
     for (int waited = 0; waited < ms; waited += 100) {
@@ -264,60 +272,73 @@ bool wait_for_retry(const AgentHooks& hooks, const CancellationToken& cancel_tok
                     int max_attempts, bool retryable, std::string& last_error) {
     if (attempt >= max_attempts || !retryable)
         return false;
+    const long wait_ms = retry_backoff_ms(attempt, last_error);
     if (hooks.on_status)
         hooks.on_status("LLM error - retrying (" + std::to_string(attempt) + "/" +
-                        std::to_string(max_attempts) + ") in " +
-                        std::to_string(backoff_ms(attempt) / 1000) + "s");
-    if (wait_cancellable(cancel_token, backoff_ms(attempt))) {
+                        std::to_string(max_attempts) + ") in " + std::to_string(wait_ms) + "ms");
+    if (wait_cancellable(cancel_token, static_cast<int>(wait_ms))) {
         last_error = "cancelled by user";
         return false;
     }
     return true;
 }
 
-// What a non-strict caller gets instead of an exception.
-Message chat_error_reply(const char* stage, const std::string& last_error) {
+// What a non-strict caller gets instead of an exception: a [harness] notice the
+// model can act on. It rides the user channel (a system message would be hoisted
+// to the head of the request by the OpenAI dialect) and carries `harness = true`
+// so the loop never mistakes it for the model's own closing reply.
+Message chat_error_reply(const char* stage, const std::string& last_error, int attempts) {
     Message err;
-    err.role = "assistant";
-    err.content = "[error during " + std::string(stage) + ": " + last_error +
-                  "] Please retry or adjust your approach.";
+    err.role = "user";
+    err.harness = true;
+    err.content = "[harness] the " + std::string(stage) + " request failed after " +
+                  std::to_string(attempts) + " attempt" + (attempts == 1 ? "" : "s") + ": " +
+                  last_error +
+                  ". Decide the next move: adjust the request, try another approach, or tell the "
+                  "user what is blocked.";
     return err;
 }
+
+// What the escalation reports: the error text, whether retrying had any
+// prospect (which decides if a caller may keep the work it already has), and the
+// attempt that produced it — the count the notice names.
+struct LastFailure {
+    std::string error;
+    bool retryable = false;
+    int attempt = 0;
+};
 
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              std::function<Message()> chat, const char* stage,
                              const CancellationToken& cancel_token, int max_attempts,
-                             const ChatAdapter& adapt, bool strict) {
-    std::string last_error;
+                             const ChatAdapter& adapt) {
+    LastFailure last;
     bool adapted = false;
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
-            last_error = e.what();
+            last = {e.what(), retryable_error(e), attempt};
             log.event("chat_error",
-                      {{"stage", stage}, {"error", last_error}, {"attempt", attempt}});
+                      {{"stage", stage}, {"error", last.error}, {"attempt", attempt}});
             if (hooks.on_debug)
-                hooks.on_debug("chat error (attempt " + std::to_string(attempt) +
-                               "): " + last_error);
-            if (!adapted && !retryable_error(e) &&
-                try_repair(hooks, log, stage, last_error, adapt, chat)) {
+                hooks.on_debug("chat error " + std::to_string(attempt) + ": " + last.error);
+            if (!adapted && !last.retryable &&
+                try_repair(hooks, log, stage, last.error, adapt, chat)) {
                 adapted = true;
                 continue;
             }
-            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, retryable_error(e),
-                                last_error))
+            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, last.retryable,
+                                last.error))
                 break;
         }
     }
-    if (strict)
-        throw RequestFailedError("chat " + std::string(stage) + " failed: " + last_error);
     if (run_cancelled(cancel_token)) {
         // Cancellation must not fabricate an assistant message: the caller
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    return chat_error_reply(stage, last_error);
+    return chat_error_reply(stage, last.error, last.attempt);
 }
 
 } // namespace
@@ -326,14 +347,7 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
                         const std::function<Message()>& chat, const char* stage,
                         const CancellationToken& cancel_token, int max_attempts,
                         const ChatAdapter& adapt) {
-    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt, false);
-}
-
-Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
-                               const std::function<Message()>& chat, const char* stage,
-                               const CancellationToken& cancel_token, int max_attempts,
-                               const ChatAdapter& adapt) {
-    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt, true);
+    return chat_with_retry_impl(hooks, log, chat, stage, cancel_token, max_attempts, adapt);
 }
 
 std::string empty_turn_reply(const std::deque<Message>& history) {
@@ -349,8 +363,8 @@ std::string empty_turn_reply(const std::deque<Message>& history) {
 }
 
 std::string internal_failure_reply(const std::string& what) {
-    return "[error while processing the previous reply: " + what +
-           "] The turn continues; adjust your approach or retry the step.";
+    return "[harness] a failure while processing the previous reply: " + what +
+           ". The turn continues; adjust your approach or retry the step.";
 }
 
 } // namespace agent

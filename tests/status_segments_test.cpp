@@ -28,8 +28,7 @@ StatusSnapshot base_snapshot() {
     s.mode = AgentMode::Write;
     s.latency_ms = 240;
     s.tps = 47.4;
-    s.prompt_tokens = 12500;
-    s.completion_tokens = 340;
+    s.usage = {12500, 340, true};
     return s;
 }
 
@@ -146,10 +145,58 @@ TEST(core_segments_render_the_expected_bar) {
     ASSERT_EQ(text_of(out, "mode"), std::string(" write "));
     ASSERT_EQ(text_of(out, "lag"), std::string("  lag 240ms"));
     ASSERT_EQ(text_of(out, "tps"), std::string("  47 t/s"));
-    // 12500 -> "12k"; 340 stays literal.
+    // 12500 -> two significant digits -> "13k"; 340 stays exact.
     const std::string tokens = text_of(out, "tokens");
-    ASSERT(tokens.find("12k") != std::string::npos);
+    ASSERT(tokens.find("13k") != std::string::npos);
     ASSERT(tokens.find("340") != std::string::npos);
+}
+
+// The lag readout is TTFB of the last exchange, and a slow first token on a
+// cold model is thousands of milliseconds: raw "lag 12400ms" is eleven columns
+// of a bar that has to hold five other readouts. Seconds above one second.
+TEST(core_segments_compact_a_long_latency) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.latency_ms = 12345;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 12s"));
+
+    s.latency_ms = 1500;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 1.5s"));
+
+    s.latency_ms = 2000;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 2s"));
+
+    s.latency_ms = 999;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 999ms"));
+}
+
+int drop_of(const std::vector<StatusSegment>& segments, const std::string& id) {
+    for (const auto& s : segments)
+        if (s.id == id)
+            return s.drop_priority;
+    ASSERT(false && "segment did not render");
+    return 0;
+}
+
+// The transients go first (lag is one exchange old, tps likewise), then the
+// scroll position, then the session's cost readout; identity and mode stay
+// longest. Tokens dropping before lag is what made the meter look broken on a
+// 100-column terminal.
+TEST(core_segments_drop_the_transients_before_the_token_meter) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.scroll_mode = true;
+    s.scroll_pct = 42;
+    s.running_jobs = 1;
+    auto out = registry.render(s);
+    ASSERT(drop_of(out, "lag") > drop_of(out, "tps"));
+    ASSERT(drop_of(out, "tps") > drop_of(out, "position"));
+    ASSERT(drop_of(out, "position") > drop_of(out, "tokens"));
+    ASSERT(drop_of(out, "tokens") > drop_of(out, "model"));
+    ASSERT(drop_of(out, "model") > drop_of(out, "window"));
+    ASSERT(drop_of(out, "window") > drop_of(out, "mode"));
+    ASSERT(drop_of(out, "mode") > drop_of(out, "activity"));
+    ASSERT(drop_of(out, "activity") > drop_of(out, "scroll"));
 }
 
 // The bar uses no backgrounds: a cell that names the provider must be a plain
@@ -212,6 +259,35 @@ TEST(core_segments_mode_words_and_tones) {
             ASSERT_TRUE(s.tone == StatusTone::Accent);
 }
 
+// The scroll position is one chevron plus the percentage, and nothing at the
+// live edge: the default state needs no badge. Colour is Banner, not a
+// green/yellow/red ramp, because on this bar colour means health.
+TEST(core_segments_show_the_scroll_position_only_when_scrolled) {
+    auto registry = core_registry();
+
+    StatusSnapshot fits = base_snapshot();
+    fits.scroll_pct = -1;
+    ASSERT_TRUE(text_of(registry.render(fits), "position").empty());
+
+    StatusSnapshot live = base_snapshot();
+    live.scroll_pct = 0;
+    ASSERT_TRUE(text_of(registry.render(live), "position").empty());
+
+    StatusSnapshot up = base_snapshot();
+    up.scroll_pct = 42;
+    auto out = registry.render(up);
+    ASSERT_EQ(text_of(out, "position"), std::string("  \u25b2"
+                                                    "42%"));
+    for (const auto& s : out)
+        if (s.id == "position")
+            ASSERT_TRUE(s.tone == StatusTone::Banner);
+
+    // 100 is the one three-digit percentage; the arrow alone says it.
+    StatusSnapshot top = base_snapshot();
+    top.scroll_pct = 100;
+    ASSERT_EQ(text_of(registry.render(top), "position"), std::string("  \u25b2"));
+}
+
 TEST(core_segments_omit_what_is_not_known) {
     auto registry = core_registry();
     StatusSnapshot unknown;
@@ -227,6 +303,7 @@ TEST(core_segments_omit_what_is_not_known) {
     ASSERT_FALSE(text_of(out, "tps").empty());
     // ...while the segments with nothing to say are absent entirely.
     ASSERT_TRUE(text_of(out, "scroll").empty());
+    ASSERT_TRUE(text_of(out, "position").empty());
     ASSERT_TRUE(text_of(out, "balance").empty());
     ASSERT_TRUE(text_of(out, "activity").empty());
     ASSERT_TRUE(text_of(out, "mcp").empty());

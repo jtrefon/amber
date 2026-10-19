@@ -127,4 +127,13 @@ std::vector<std::string> data_file_candidates(const std::string& path, const cha
     return out;
 }
 
+std::string resolve_data_dir(const std::string& path, const char* argv0) {
+    for (const auto& candidate : data_file_candidates(path, argv0)) {
+        struct stat st;
+        if (stat(candidate.c_str(), &st) == 0 && S_ISDIR(st.st_mode))
+            return candidate;
+    }
+    return "";
+}
+
 } // namespace agent

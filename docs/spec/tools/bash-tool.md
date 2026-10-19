@@ -26,7 +26,7 @@ two execution paths: direct fork/exec (no JobService) and managed via `JobServic
 ### Invariants
 
 1. The command runs in `Workspace::root()` as working directory.
-2. The command and all its descendants are in a separate process group — `kill_process_group()` sends `SIGKILL` to the entire tree.
+2. The command and all its descendants are in a separate process group — `kill_process_group()` asks with `SIGTERM`, gives the group a 2s grace, and escalates to `SIGKILL` when the ask is ignored.
 3. Idle timeout resets on every byte of output — a chatty command never times out.
 4. Output is capped at 64 KiB (`kMaxOutput = 65536`). Excess is discarded (not added to output).
 5. Read-only commands (cat, ls, grep, etc.) skip approval gate. Writes require approval.

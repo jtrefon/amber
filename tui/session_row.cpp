@@ -1,7 +1,8 @@
 #include "tui/session_row.h"
 
+#include "agent/compact.h"
+
 #include <algorithm>
-#include <cstdio>
 
 #include "tui/textutil.h"
 
@@ -33,22 +34,13 @@ std::string model(const std::string& m) {
 }
 
 std::string message_count(int n) {
-    char buf[24];
-    std::snprintf(buf, sizeof(buf), "%d msgs", n);
-    return buf;
+    return agent::compact::count(n) + " msgs";
 }
 
 std::string file_size(std::size_t bytes) {
     if (bytes == 0)
         return "";
-    char buf[16];
-    if (bytes > static_cast<std::size_t>(1024) * 1024)
-        std::snprintf(buf, sizeof(buf), "%.1fMB", bytes / (1024.0 * 1024.0));
-    else if (bytes > 1024)
-        std::snprintf(buf, sizeof(buf), "%.0fKB", bytes / 1024.0);
-    else
-        std::snprintf(buf, sizeof(buf), "%zuB", bytes);
-    return buf;
+    return agent::compact::bytes(static_cast<long>(bytes));
 }
 
 } // namespace tui::session_row

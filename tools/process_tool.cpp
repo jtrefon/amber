@@ -6,14 +6,30 @@
 #include <sstream>
 #include <string>
 #include "agent/json_read.h"
+#include <unistd.h>
 
 namespace agent {
 
 namespace {
 
+// Wait for the job to speak: return as soon as output arrives, or after
+// `idle_s` seconds of silence, or when the job ends. Nothing is killed — the
+// budget is inactivity, and whether to wait again stays the agent's call.
+void wait_for_output(const std::shared_ptr<Job>& job, int idle_s) {
+    long prev = job->info().seconds_since_output;
+    long silent_ms = 0;
+    while (!job->is_done() && silent_ms < idle_s * 1000L) {
+        usleep(50 * 1000);
+        silent_ms += 50;
+        const long now = job->info().seconds_since_output;
+        if (prev > 0 && now == 0)
+            return; // it spoke: the counter reset
+        prev = now;
+    }
+}
+
 // Shared helper: render a one-line status prefix for a job snapshot so the
-// model always knows whether a process is still alive and how much time
-// remains before the harness reaps it.
+// model always knows whether a process is still alive.
 std::string status_line(const JobInfo& i) {
     std::ostringstream s;
     s << "[job " << i.id << " ";
@@ -122,7 +138,9 @@ public:
                "process_start. Returns only the output produced since the "
                "previous call (delta), plus a status line. Poll this in a loop "
                "to follow a running process. Arguments: id (required), all "
-               "(optional bool: return the full output instead of the delta).";
+               "(optional bool: return the full output instead of the delta), "
+               "wait (optional int: seconds of silence to wait for before "
+               "answering; returns early when the job speaks, kills nothing).";
     }
     json parameters_schema() const override {
         json p = json::object();
@@ -132,6 +150,11 @@ public:
         props["all"] = json::object(
             {{"type", "boolean"},
              {"description", "Return full output instead of the delta (default false)."}});
+        props["wait"] =
+            json::object({{"type", "integer"},
+                          {"description", "Seconds of silence to wait for before answering "
+                                          "(default 0: answer now). Returns early when the job "
+                                          "speaks. Nothing is killed."}});
         p["properties"] = props;
         p["required"] = json::array({"id"});
         return p;
@@ -157,6 +180,11 @@ public:
             return r;
         }
         bool all = read_bool(a, "all", false);
+        const auto wait_raw = read_int(a, "wait", 0);
+        const int wait_s =
+            static_cast<int>(wait_raw > 86400 ? 86400 : (wait_raw > 0 ? wait_raw : 0));
+        if (wait_s > 0)
+            wait_for_output(job, wait_s);
         // Read from the held reference (the service map entry may already be
         // gone via a concurrent stop).
         std::string body = all ? job->output() : job->read_delta();

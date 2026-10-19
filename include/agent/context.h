@@ -119,10 +119,10 @@ private:
 
     // input = prev_hash (8 bytes LE) || role || \0 || content || \0
     //         || reasoning || \0 || tool_call_id || \0 || name
-    //         [|| \0 || tool_calls.dump()]
+    //         [|| \0 || tool_calls.dump()] || \0 || harness
     static uint64_t chain_hash(uint64_t prev, const Message& msg) noexcept {
         auto cap = 8 + msg.role.size() + 1 + msg.content.size() + 1 + msg.reasoning.size() + 1 +
-                   msg.tool_call_id.size() + 1 + msg.name.size() + 1;
+                   msg.tool_call_id.size() + 1 + msg.name.size() + 1 + 1;
         if (!msg.tool_calls.is_null())
             cap += msg.tool_calls.dump().size() + 1;
         std::string buf;
@@ -140,6 +140,7 @@ private:
         append(msg.name);
         if (!msg.tool_calls.is_null())
             append(msg.tool_calls.dump());
+        append(msg.harness ? "1" : "0");
         return fnv1a(buf);
     }
 

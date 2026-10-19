@@ -220,9 +220,12 @@ public:
 
 private:
     // Install one plugin's declared capabilities, recording each in the ledger.
-    bool install_capabilities(const std::string& id, IPlugin& plugin);
+    bool install_capabilities(const std::string& id, IPlugin& plugin, std::string* error);
     bool activate(const std::string& id);
     void deactivate(const std::string& id);
+    // Shared teardown. A failed activation's rollback is not announced as an
+    // unload: nothing was ever announced as loaded.
+    void unwind(const std::string& id, bool announce);
 
     // Schedule a wallet refresh when one is due: stale, not already running,
     // and past the floor since the last one.

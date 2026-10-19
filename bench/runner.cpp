@@ -253,10 +253,24 @@ void apply_run_budgets(const Scenario& s, const RunOptions& opts, agent::Config&
     // Same for the wall-clock budget: the engine must stop at the deadline.
     if (s.max_wall_ms > 0)
         cfg.max_wall_ms = s.max_wall_ms;
+    if (!opts.live) {
+        // Learned memory is the developer's, not the code's: an empty store
+        // path seeds the legacy ~/.amber store into every fresh scenario
+        // project, so a run would both inherit 15 KB of the user's experience
+        // in its prompt and leave one state directory per scenario behind.
+        // This is not a log destination, so a debug dir does not change it.
+        cfg.experience_store_path = "/dev/null";
+    }
     if (!opts.debug_dir.empty()) {
         fs::create_directories(opts.debug_dir);
         cfg.debug_log = (fs::path(opts.debug_dir) / (s.name + ".wire.log")).string();
         cfg.log_path = (fs::path(opts.debug_dir) / (s.name + ".jsonl")).string();
+    } else if (!opts.live) {
+        // A hermetic run is a measurement, not a session. The transcript's
+        // default location is the project's state dir -- under the scenario
+        // workspace that is a temp slug, and nothing writes it on purpose.
+        // /dev/null keeps the log call explicit while leaving no artefact.
+        cfg.log_path = "/dev/null";
     }
 }
 

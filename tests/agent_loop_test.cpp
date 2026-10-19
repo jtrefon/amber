@@ -23,6 +23,7 @@
 #include "agent/todo.h"
 #include "agent/session_brief.h"
 #include "agent/run_scope.h"
+#include "agent/worktree.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -97,7 +98,9 @@ void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, cons
 
 } // namespace
 
-// [AL-01] A plain text reply is returned; the confirmation probe follows.
+// [AL-01] A reply with no tool calls is the turn's answer: one generation, and
+// the harness injects nothing behind it. The old contract asked "Are you
+// finished?" and paid a second generation (and a probe) for every reply.
 TEST(agent_loop_plain_reply) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -105,22 +108,21 @@ TEST(agent_loop_plain_reply) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "hello there");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "hello there");
-    ASSERT_EQ(raw->chat_calls, 2); // generation + confirmation probe
-    // Context: system, user, assistant, probe prompt, probe ack.
+    ASSERT_EQ(raw->chat_calls, 1); // one generation; the turn is over
+    // Context: system, user, assistant — nothing else.
     const auto& ctx = ag.context().get_all();
-    ASSERT_EQ(ctx.size(), 5u);
+    ASSERT_EQ(ctx.size(), 3u);
     // [I-9] The environment card rides in the system message.
     ASSERT(ctx[0].content.find("## Environment") != std::string::npos);
-    bool saw_user = false;
-    for (const auto& m : ctx)
-        if (m.role == "user" && m.content == "hi")
-            saw_user = true;
-    ASSERT(saw_user);
+    ASSERT_EQ(ctx[1].role, "user");
+    ASSERT_EQ(ctx[1].content, "hi");
+    ASSERT_EQ(ctx[2].role, "assistant");
+    ASSERT(!ctx[2].harness);
+    ASSERT(!ctx[2].content.empty());
 }
 
 // [AL-02] A tool call round trip: model -> real tool -> result -> final text.
@@ -133,11 +135,11 @@ TEST(agent_loop_tool_roundtrip) {
     agent_test::FakeLLMClient* raw = fake.get();
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("read the Makefile");
     ASSERT_EQ(reply, "done reading");
+    ASSERT_EQ(raw->chat_calls, 2); // tool call, then the closing reply
     // The tool result must be in the conversation (fed back to the model).
     const auto& ctx = ag.context().get_all();
     bool saw_tool_result = false;
@@ -154,34 +156,37 @@ TEST(agent_loop_tool_roundtrip) {
     ASSERT(fed_back);
 }
 
-// [AL-03] Confirmation probe dispatches tool calls (the use-after-move
-// regression: moved-from tool_calls used to silently kill this path).
-TEST(agent_loop_confirmation_dispatches_tools) {
+// [AL-03] A reply carrying BOTH content and tool calls dispatches the calls
+// and keeps the loop going (the use-after-move regression: moved-from
+// tool_calls used to silently kill this path).
+TEST(agent_loop_mixed_reply_dispatches_tools) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_read_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
-    push_text(*fake, "let me check");
-    push_tool_call(*fake, "read", {{"path", "Makefile"}}, "probe_1");
+    agent_test::FakeReply mixed;
+    mixed.content = "let me check";
+    mixed.tool_calls = agent_test::tool_call_msg("read", {{"path", "Makefile"}}, "c1").tool_calls;
+    fake->script.push_back(std::move(mixed));
     push_text(*fake, "verified");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("check the build file");
     ASSERT_EQ(reply, "verified");
-    // The probe's tool call was dispatched: a tool result is in context.
+    // The tool call was dispatched: a tool result is in context.
     const auto& ctx = ag.context().get_all();
     bool saw_tool_result = false;
     for (const auto& m : ctx)
         if (m.role == "tool" && m.content.find("Makefile") != std::string::npos)
             saw_tool_result = true;
     ASSERT(saw_tool_result);
-    ASSERT(raw->chat_calls == 4);
+    ASSERT(raw->chat_calls == 2);
 }
 
-// [AL-04] The loop stops at max_tool_iterations.
+// [AL-04] The loop stops at max_tool_iterations, and the stop is part of the
+// record: the reason is pushed as a [harness] notice and announced to the host.
 TEST(agent_loop_max_tool_iterations) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -193,15 +198,58 @@ TEST(agent_loop_max_tool_iterations) {
     push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
     push_tool_call(*fake, "read", {{"path", "Makefile.in"}}, "c2");
     push_tool_call(*fake, "read", {{"path", "lib/llm.cpp"}}, "c3");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    std::string announced;
+    agent::AgentHooks hooks;
+    hooks.on_assistant = [&announced](const std::string& text) { announced = text; };
+    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("read many files");
     ASSERT_FALSE(reply.empty()); // graceful fallback, not a crash
     ASSERT_EQ(raw->chat_calls, 3);
     ASSERT(raw->requests.size() == 3u);
+    // The host is told: a stop the user never sees is a dead session.
+    ASSERT_EQ(announced, reply);
+    // And the model is told, in a notice, so the next turn opens knowing.
+    bool noticed = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("ended without a closing reply") != std::string::npos)
+            noticed = true;
+    ASSERT(noticed);
 }
 
-// [AL-05] Repeated identical text triggers the steer, then the hard stop.
+// [AL-16] A model that goes silent after tool calls gets the nudge, and when it
+// stays silent the stop is reported like any other bound.
+TEST(agent_loop_empty_after_tools_is_reported) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
+    for (int i = 0; i < 2; ++i)
+        fake->script.push_back(agent_test::FakeReply{}); // silent, no tool calls
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("read the Makefile");
+    ASSERT(reply.find("agent stopped") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 3); // the tool turn + two silent replies
+    int nudges = 0;
+    bool stopped = false;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("no tool call and no content") != std::string::npos)
+            ++nudges;
+        if (m.content.find("ended without a closing reply") != std::string::npos)
+            stopped = true;
+    }
+    ASSERT_EQ(nudges, 1); // the silence is named once, then the turn stops
+    ASSERT(stopped);
+}
+
+// [AL-05] Repeated narration while the model keeps calling tools triggers the
+// opt-in steer, then the hard stop.
 TEST(agent_loop_text_loop_detection) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -216,21 +264,25 @@ TEST(agent_loop_text_loop_detection) {
         if (s.find("text loop") != std::string::npos)
             steered = true;
     };
-    // Six repeats of "foo", each followed by a probe that dispatches a tool
-    // (so the confirmation never accepts). The steer fires at repeat 2; the
-    // hard stop at repeat 6 (the steer no longer resets the counter).
+    // Six iterations that narrate "foo" and call a DIFFERENT tool each time, so
+    // the tool-loop detector stays quiet and the text guard is what fires: the
+    // steer at repeat 2, the hard stop at repeat 6.
     const char* paths[] = {"Makefile",      "Makefile.in",         "lib/llm.cpp",
                            "lib/agent.cpp", "tests/run_tests.cpp", "include/agent/agent.h"};
     for (int i = 0; i < 6; ++i) {
-        push_text(*fake, "foo");
-        push_tool_call(*fake, "read", {{"path", paths[i]}}, "probe_" + std::to_string(i));
+        agent_test::FakeReply r;
+        r.content = "foo";
+        r.tool_calls =
+            agent_test::tool_call_msg("read", {{"path", paths[i]}}, "c" + std::to_string(i))
+                .tool_calls;
+        fake->script.push_back(std::move(r));
     }
     agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("do the thing");
     ASSERT(steered);
     ASSERT(reply.find("loop detected") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 11); // 6th repeat hard-stops before its probe
+    ASSERT_EQ(raw->chat_calls, 6); // 6th repeat hard-stops the turn
 }
 
 // [AL-06] The compression gate fires once the cooldown window passes; the
@@ -240,7 +292,9 @@ TEST(agent_loop_compression_trigger) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 2000;
     cfg.compression_threshold = 0.5;
+    cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
+    cfg.compression_min_turns_explicit = true;
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
@@ -248,11 +302,9 @@ TEST(agent_loop_compression_trigger) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     // Warm-up turns (cooldown default is 20 turns before the gate opens).
-    for (int i = 0; i < 21; ++i) {
+    for (int i = 0; i < 21; ++i)
         push_text(*fake, "warm");
-        push_text(*fake, "done");
-    }
-    // The compression turn: 1) classify, 2) extract, 3) generation, 4) probe.
+    // The compression turn: 1) classify, 2) extract, 3) generation.
     {
         agent_test::FakeReply r;
         r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
@@ -261,7 +313,6 @@ TEST(agent_loop_compression_trigger) {
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "hello after compression");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
@@ -292,25 +343,26 @@ TEST(agent_loop_learned_window_clamps_gate) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144; // configured from model metadata (trained)
     cfg.compression_threshold = 0.7;
+    cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
+    cfg.compression_min_turns_explicit = true;
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
     auto compressor = agent::make_compressor(comp_cfg);
     auto fake = std::make_unique<LearnedFake>();
     agent_test::FakeLLMClient* raw = fake.get();
-    for (int i = 0; i < 21; ++i) {
-        push_text(*fake, "warm");
-        push_text(*fake, "done");
-    }
-    // One warm reply reports 95k prompt tokens: 72% of the LEARNED 131072
-    // window (fire) but only 36% of the configured 262144 (no fire without
-    // the clamp).
+    // The first warm reply reports 95k prompt tokens: 72% of the LEARNED
+    // 131072 window (fires on the next turn) but only 36% of the configured
+    // 262144 (no fire without the clamp).
     {
         agent_test::FakeReply r;
+        r.content = "warm reply";
         r.prompt_tokens = 95000;
         fake->script.push_back(std::move(r));
     }
+    for (int i = 0; i < 20; ++i)
+        push_text(*fake, "warm");
     {
         agent_test::FakeReply r;
         r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
@@ -319,7 +371,6 @@ TEST(agent_loop_learned_window_clamps_gate) {
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "compressed after learned clamp");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
@@ -758,14 +809,14 @@ TEST(agent_loop_hash_chain_intact) {
     agent_test::FakeLLMClient* raw = fake.get();
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
-    push_text(*fake, "done");
+    push_text(*fake, "second turn");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     ag.run("read the Makefile");
     // Multiple reads over the live stack; each get_all() verifies the chain.
     (void)ag.context().get_all();
     ag.run("and again");
     (void)ag.context().get_all();
-    ASSERT(raw->chat_calls >= 4);
+    ASSERT(raw->chat_calls >= 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -789,15 +840,15 @@ TEST(agent_loop_retry_then_success) {
     f2.retryable = true;
     fake->script.push_back(std::move(f2));
     push_text(*fake, "ok after retries");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "ok after retries");
-    ASSERT_EQ(raw->chat_calls, 4); // 3 attempts + confirmation probe
+    ASSERT_EQ(raw->chat_calls, 3); // 2 failed attempts + the successful one
 }
 
-// [AL-08] A non-retryable error fails fast (single attempt).
+// [AL-08] A non-retryable error fails fast (single attempt) and reaches the
+// model as a [harness] notice, so the next reply can react to it.
 TEST(agent_loop_non_retryable_fails_fast) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -808,15 +859,26 @@ TEST(agent_loop_non_retryable_fails_fast) {
     bad.error = "invalid api key";
     bad.retryable = false;
     fake->script.push_back(std::move(bad));
-    push_text(*fake, "done");
+    push_text(*fake, "I cannot reach the server with the current key.");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("hi");
-    ASSERT(reply.find("error during") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 2); // 1 attempt + probe; no retries
+    ASSERT_EQ(reply, "I cannot reach the server with the current key.");
+    ASSERT_EQ(raw->chat_calls, 2); // 1 attempt + the model's answer to the notice
+    bool noticed = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness) {
+            ASSERT_EQ(m.role, "user");
+            ASSERT(m.content.find("invalid api key") != std::string::npos);
+            ASSERT(m.content.find("1 attempt") != std::string::npos);
+            noticed = true;
+        }
+    ASSERT(noticed);
 }
 
-// [AL-09] Retries exhausted -> graceful error reply, conversation intact.
+// [AL-09] Retries exhausted -> one [harness] notice naming the attempts, then
+// the model's own reply; the conversation stays intact and the prompt is kept
+// for a manual retry.
 TEST(agent_loop_retries_exhausted) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -829,19 +891,238 @@ TEST(agent_loop_retries_exhausted) {
         f.retryable = true;
         fake->script.push_back(std::move(f));
     }
-    push_text(*fake, "done");
+    push_text(*fake, "the server is down; nothing ran.");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("hi");
-    ASSERT(reply.find("error during") != std::string::npos);
-    ASSERT_EQ(raw->chat_calls, 4); // 3 attempts + probe
-    // The user prompt is preserved for a manual retry.
+    ASSERT_EQ(reply, "the server is down; nothing ran.");
+    ASSERT_EQ(raw->chat_calls, 4); // 3 attempts + the model's answer
     const auto& ctx = ag.context().get_all();
     bool saw_user = false;
-    for (const auto& m : ctx)
+    bool saw_notice = false;
+    for (const auto& m : ctx) {
         if (m.role == "user" && m.content == "hi")
             saw_user = true;
+        if (m.harness)
+            saw_notice = true;
+        // No fabricated text in the model's voice.
+        if (m.role == "assistant")
+            ASSERT(m.content.find("[harness]") == std::string::npos);
+    }
     ASSERT(saw_user);
+    ASSERT(saw_notice);
+    bool notice_counts = false;
+    for (const auto& m : ctx)
+        if (m.harness && m.content.find("3 attempts") != std::string::npos)
+            notice_counts = true;
+    ASSERT(notice_counts);
+}
+
+// [AL-17] Three failed requests in a row stop the turn: the endpoint, not the
+// model, is the problem, and the record says so.
+TEST(agent_loop_repeated_failures_stop_the_turn) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 9; ++i) {
+        agent_test::FakeReply f;
+        f.error = "HTTP 503 from LLM server: upstream_error";
+        f.retryable = true;
+        fake->script.push_back(std::move(f));
+    }
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    std::string reply = ag.run("hi");
+    ASSERT(reply.find("agent stopped") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 9); // three requests, three attempts each
+    int failures = 0;
+    int stops = 0;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("request failed") != std::string::npos)
+            ++failures;
+        if (m.content.find("ended without a closing reply") != std::string::npos)
+            ++stops;
+    }
+    ASSERT_EQ(failures, 3); // one per exhausted request, then the bound
+    ASSERT_EQ(stops, 1);    // the stop itself is part of the record
+}
+
+// The retry ladder grows with the attempt and is jittered per failure: an
+// endpoint that is recovering (or throttling) is not met with a metronome, and
+// a given failure still retries the same way every time.
+TEST(retry_backoff_grows_with_attempts_and_spreads_by_failure) {
+    const std::string seed = "HTTP 503 from LLM server: upstream_error";
+    const long a1 = agent::retry_backoff_ms(1, seed);
+    const long a3 = agent::retry_backoff_ms(3, seed);
+    const long a9 = agent::retry_backoff_ms(9, seed);
+    ASSERT(a1 >= 750 && a1 <= 1250);
+    ASSERT(a3 >= 3000 && a3 <= 5000);
+    ASSERT(a9 >= 6000 && a9 <= 10000); // capped at 8s
+    ASSERT_EQ(agent::retry_backoff_ms(3, seed), a3);
+    // Distinct failures do not line up on the same instant.
+    const long b1 = agent::retry_backoff_ms(1, "HTTP 500 from LLM server: boom");
+    const long c1 = agent::retry_backoff_ms(1, "connection reset by peer");
+    ASSERT(a1 != b1 || b1 != c1);
+}
+
+// [AL-20] What the client had to do to a request reaches the model: a window
+// the server clamped, a call it had to drop. Hidden state about the model's own
+// request is how it ends up re-issuing work that never had a chance.
+TEST(agent_loop_client_notices_reach_the_model) {
+    class NoticingFake : public agent_test::FakeLLMClient {
+    public:
+        std::vector<std::string> take_notices() override {
+            std::vector<std::string> out = std::move(notices_);
+            notices_.clear();
+            return out;
+        }
+        std::vector<std::string> notices_{"the endpoint clamped the window to 8192 tokens"};
+    };
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<NoticingFake>();
+    NoticingFake* raw = fake.get();
+    push_text(*fake, "noted");
+    push_text(*fake, "second turn");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ASSERT_EQ(ag.run("first"), "noted");
+    bool in_context = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("clamped the window") != std::string::npos)
+            in_context = true;
+    ASSERT(in_context);
+    // The next request carries it, in place, as the environment speaking.
+    ASSERT_EQ(ag.run("second"), "second turn");
+    ASSERT(raw->requests.size() >= 2u);
+    bool in_request = false;
+    for (const auto& m : raw->requests[1])
+        if (m.harness && m.content.find("clamped the window") != std::string::npos)
+            in_request = true;
+    ASSERT(in_request);
+}
+
+// [AL-18] The loop's own state reaches the model before a bound bites: a ceiling
+// that arrives without warning is a trap, so the crossing is announced once.
+TEST(agent_loop_budget_note_precedes_the_cap) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.max_tool_iterations = 5;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    const char* paths[] = {"Makefile", "Makefile.in", "lib/llm.cpp", "lib/agent.cpp", "README.md"};
+    for (const char* path : paths)
+        push_tool_call(*fake, "read", {{"path", path}});
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.run("read everything");
+    // The notice rides the request the model actually sees, and it arrives
+    // before the cap does not: nothing about step 1-3 mentioned the budget.
+    ASSERT(raw->requests.size() == 5u);
+    for (size_t i = 0; i < 3; ++i)
+        for (const auto& m : raw->requests[i])
+            ASSERT(m.content.find("step 4/5") == std::string::npos);
+    bool announced = false;
+    for (const auto& m : raw->requests[3])
+        if (m.harness && m.content.find("step 4/5") != std::string::npos)
+            announced = true;
+    ASSERT(announced);
+}
+
+// [AL-19] A repeated call is reported, never acted on: the harness bounds and
+// says so, the model decides. The escalation argument (bash `timeout`) is not a
+// change, which is what made the old guard blind to 30 retries.
+TEST(agent_loop_repeat_is_reported_not_reenforced) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 3; ++i)
+        push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c" + std::to_string(i));
+    push_text(*fake, "I read the same file three times; closing.");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    const std::string reply = ag.run("read the Makefile");
+    ASSERT_EQ(reply, "I read the same file three times; closing.");
+    ASSERT_EQ(raw->chat_calls, 4); // three tool turns, then the close — nothing stopped it
+    bool noted = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("has been issued") != std::string::npos)
+            noted = true;
+    ASSERT(noted);
+}
+
+// The canonical call key ignores the bash escalation argument, so "the same
+// command with a longer timeout" is the same command.
+TEST(canonical_call_key_ignores_timing_arguments) {
+    const json slow = json::array(
+        {{{"id", "c1"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make test","timeout":30})"}}}}});
+    const json slower = json::array(
+        {{{"id", "c2"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make test","timeout":600})"}}}}});
+    const json other = json::array(
+        {{{"id", "c3"},
+          {"type", "function"},
+          {"function",
+           {{"name", "bash"}, {"arguments", R"({"command":"make lint","timeout":30})"}}}}});
+    ASSERT_EQ(agent::canonical_call_key(slow), agent::canonical_call_key(slower));
+    ASSERT(agent::canonical_call_key(slow) != agent::canonical_call_key(other));
+}
+
+// A closing marker is just text now: the whole reply is the answer, and the
+// harness generates nothing after it. Every miss used to re-inject
+// "Are you finished?" and buy another generation, which is how a finished
+// coverage review became 98 consecutive bash calls.
+TEST(agent_loop_done_marker_is_part_of_the_answer) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "summary of findings. **done.**");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ASSERT_EQ(ag.run("hi"), "summary of findings. **done.**");
+    ASSERT_EQ(raw->chat_calls, 1);
+}
+
+// A transient outage that the retry loop survives is invisible per attempt —
+// the model is told nothing it cannot act on. What it must never miss is the
+// exhausted case: covered by [AL-09].
+TEST(agent_loop_recovered_outage_is_silent) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    for (int i = 0; i < 2; ++i) {
+        agent_test::FakeReply f;
+        f.error = "HTTP 503 from LLM server: {\"error_type\":\"upstream_error\"}";
+        f.retryable = true;
+        fake->script.push_back(std::move(f));
+    }
+    push_text(*fake, "answer after the hiccup");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    const std::string reply = ag.run("hi"); // must not throw
+    ASSERT_EQ(reply, "answer after the hiccup");
+    ASSERT_EQ(raw->chat_calls, 3); // 2 failed attempts + the successful one
+    for (const auto& m : ag.context().get_all())
+        ASSERT(!m.harness); // nothing to report: the turn never noticed
 }
 
 // [AL-10] Cancellation during the backoff aborts the wait.
@@ -855,7 +1136,6 @@ TEST(agent_loop_cancel_during_backoff) {
     f.error = "server down";
     f.retryable = true;
     fake->script.push_back(std::move(f));
-    push_text(*fake, "done");
 
     std::thread canceller([&cfg]() {
         usleep(150 * 1000);
@@ -867,8 +1147,8 @@ TEST(agent_loop_cancel_during_backoff) {
     canceller.join();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0);
-    // Cancellation now stops the turn cleanly: no fabricated message, no
-    // probe round-trip — one aborted generation attempt, empty reply.
+    // Cancellation stops the turn cleanly: no fabricated message, one aborted
+    // generation attempt, empty reply.
     ASSERT(reply.empty());
     ASSERT_EQ(raw->chat_calls, 1);
     ASSERT(elapsed.count() < 900);
@@ -894,7 +1174,6 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
     agent_test::FakeLLMClient* raw = fake.get();
     for (int i = 0; i < 5; ++i) {
         push_text(*fake, "warm");
-        push_text(*fake, "done");
     }
     push_text(*fake, "direct reply");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
@@ -950,26 +1229,24 @@ TEST(agent_template_parser_400_recovers_without_tools) {
     fail.retryable = false;
     fake->script.push_back(std::move(fail));
     push_text(*fake, "hello there");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "hello there");
-    // Generation attempt 1 carried tools; the adapted retry did not; the
-    // confirmation probe sent tools again.
-    ASSERT_EQ(raw->tool_counts.size(), 3u);
+    // Generation attempt 1 carried tools; the adapted retry dropped them.
+    ASSERT_EQ(raw->tool_counts.size(), 2u);
     ASSERT(raw->tool_counts[0] > 0u);   // first attempt carried tools
     ASSERT_EQ(raw->tool_counts[1], 0u); // adapted retry dropped them
-    ASSERT(raw->tool_counts[2] > 0u);   // probe carried tools again
 }
 
-// [GR] When even the adapted retry fails, the internal probe rethrows so the
-// turn ends with a real error instead of faking a reply into the context.
-TEST(agent_probe_failure_throws_after_recovery) {
+// [GR] When even the adapted retry fails, the failure reaches the model as a
+// [harness] notice with the attempt count rather than killing the turn.
+TEST(agent_unrecoverable_request_reports_instead_of_throwing) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     agent::ToolRegistry reg;
     reg.register_tool(agent::make_read_tool());
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
     for (int i = 0; i < 4; ++i) {
         agent_test::FakeReply fail;
         fail.error = "HTTP 400 from LLM server: Unable to generate parser "
@@ -977,14 +1254,25 @@ TEST(agent_probe_failure_throws_after_recovery) {
         fail.retryable = false;
         fake->script.push_back(std::move(fail));
     }
+    push_text(*fake, "the template cannot parse tool calls here.");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
-    bool threw = false;
-    try {
-        ag.run("hi");
-    } catch (const std::exception&) {
-        threw = true;
+    const std::string reply = ag.run("hi"); // must not throw
+    ASSERT_EQ(reply, "the template cannot parse tool calls here.");
+    ASSERT_EQ(raw->chat_calls, 5); // two exhausted requests, then the answer
+    int repairs = 0;
+    int failures = 0;
+    for (const auto& m : ag.context().get_all()) {
+        if (!m.harness)
+            continue;
+        if (m.content.find("retried without tools") != std::string::npos)
+            ++repairs;
+        if (m.content.find("Unable to generate parser") != std::string::npos)
+            ++failures;
     }
-    ASSERT(threw);
+    // Each request: the repair is announced, and when the repaired attempt also
+    // fails the exhaustion is announced with the error and the attempt count.
+    ASSERT_EQ(repairs, 2);
+    ASSERT_EQ(failures, 2);
 }
 
 // [TC] Ornith attribute-style XML tool calls inside the reply content are
@@ -1003,7 +1291,6 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
                 "</parameter>\n</function>\n</tool_call>";
     fake->script.push_back(std::move(r));
     push_text(*fake, "done reading");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     std::string reply = ag.run("read the Makefile");
     ASSERT_EQ(reply, "done reading");
@@ -1030,7 +1317,6 @@ TEST(agent_xml_tool_call_fires_hook_once) {
                 "</parameter>\n</function>\n</tool_call>";
     fake->script.push_back(std::move(r));
     push_text(*fake, "done reading");
-    push_text(*fake, "done");
     int tool_call_hook_count = 0;
     agent::AgentHooks hooks;
     hooks.on_tool_call = [&](const std::string&, const agent::json&) { ++tool_call_hook_count; };
@@ -1059,7 +1345,6 @@ TEST(agent_loop_todowrite_state_persists) {
                      {{{"id", "p1"}, {"text", "fix parsing"}, {"status", "completed"}},
                       {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}}}}});
     push_text(*fake, "done");
-    push_text(*fake, "yes");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     std::string reply = ag.run("track the work");
@@ -1084,7 +1369,6 @@ TEST(agent_loop_tool_envelope_lean) {
         {{{"old", ""}, {"new", std::string(300, 'L')}}}); // > 120 chars -> args must not echo
     push_tool_call(*fake, "write", {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
     push_text(*fake, "done writing");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
 
     ag.run("create bench_envelope_test.txt");
@@ -1112,7 +1396,6 @@ TEST(agent_loop_tool_envelope_small_args_echoed) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
     ag.run("read the Makefile");
@@ -1211,7 +1494,6 @@ TEST(agent_loop_auth_401_recovers_with_new_key) {
     auth_err.retryable = false;
     script->push_back(std::move(auth_err));
     push_text(script, "recovered after key");
-    push_text(script, "done");
 
     std::vector<std::string> seen_keys;
     auto factory = [&](const agent::Config& c) {
@@ -1233,7 +1515,8 @@ TEST(agent_loop_auth_401_recovers_with_new_key) {
 }
 
 // An HTTP 401 with the user declining the key prompt (hook returns ""): the
-// turn degrades exactly like any other non-retryable failure — no retry.
+// turn degrades exactly like any other non-retryable failure — one attempt,
+// then a [harness] notice the model can act on. No retry.
 TEST(agent_loop_auth_401_declined_key_degrades) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -1243,7 +1526,7 @@ TEST(agent_loop_auth_401_declined_key_degrades) {
     auth_err.error = "HTTP 401 from LLM server: invalid api key";
     auth_err.retryable = false;
     script->push_back(std::move(auth_err));
-    push_text(script, "done");
+    push_text(script, "the key was rejected; a new one is needed.");
     bool prompted = false;
 
     auto factory = [&](const agent::Config&) {
@@ -1260,7 +1543,12 @@ TEST(agent_loop_auth_401_declined_key_degrades) {
 
     std::string reply = ag.run("hi");
     ASSERT(prompted);
-    ASSERT(reply.find("error during") != std::string::npos);
+    ASSERT_EQ(reply, "the key was rejected; a new one is needed.");
+    bool notice = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("1 attempt") != std::string::npos)
+            notice = true;
+    ASSERT(notice);
 }
 
 // The parent delegates one task; the sub-agent completes it with its own
@@ -1328,16 +1616,14 @@ TEST(agent_loop_subagent_focused_task) {
     agent::SubAgentExecutor executor;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
     auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
-    // Parent turn 1: delegate. Then the sub-agent's turns: read, report,
-    // probe-confirm; the parent then chats "done" and probe-confirms "yes".
+    // Parent turn 1: delegate. Then the sub-agent's turn: read, report. The
+    // parent then closes with "done".
     push_tool_call(script, "task", {{"prompt", "read a.txt and report"}});
     push_tool_call(script, "read", {{"path", "Makefile"}});
     agent_test::FakeReply sub_done;
     sub_done.content = "sub-agent report: done reading";
     script->push_back(std::move(sub_done));
     push_text(script, "done");
-    push_text(script, "done");
-    push_text(script, "yes");
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
@@ -1375,8 +1661,6 @@ TEST(agent_loop_subagent_iteration_cap) {
     push_tool_call(script, "task", {{"prompt", "never stop"}});
     for (int i = 0; i < 200; ++i)
         push_tool_call(script, "read", {{"path", "Makefile"}});
-    push_text(script, "done");
-    push_text(script, "yes");
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
@@ -1423,11 +1707,8 @@ TEST(agent_loop_subagent_serial_mode) {
                       {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
     script->push_back(std::move(two_calls));
     push_text(script, "report one");
-    push_text(script, "done");
     push_text(script, "report two");
     push_text(script, "done");
-    push_text(script, "done");
-    push_text(script, "yes");
 
     auto track = std::make_shared<FakeTrack>();
     auto parent = std::make_unique<SharedScriptFake>();
@@ -1478,7 +1759,6 @@ TEST(agent_loop_subagent_parallel_mode) {
                       {"function", {{"name", "task"}, {"arguments", R"({"prompt":"second"})"}}}}});
     parent_script->push_back(std::move(two_calls));
     push_text(parent_script, "done");
-    push_text(parent_script, "yes");
 
     // Each sub-agent gets its own one-round script.
     auto scripts =
@@ -1486,7 +1766,6 @@ TEST(agent_loop_subagent_parallel_mode) {
     for (int i = 0; i < 2; ++i) {
         auto sub_script = std::make_shared<std::deque<agent_test::FakeReply>>();
         push_text(sub_script, "sub report " + std::to_string(i + 1));
-        push_text(sub_script, "done");
         scripts->push_back(sub_script);
     }
     auto counter = std::make_shared<std::atomic<int>>(0);
@@ -1525,8 +1804,6 @@ TEST(agent_loop_subagent_nesting_guard) {
     push_tool_call(script, "task", {{"prompt", "nested"}});
     push_text(script, "report");
     push_text(script, "done");
-    push_text(script, "done");
-    push_text(script, "yes");
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
@@ -1562,8 +1839,6 @@ TEST(agent_loop_subagent_does_not_touch_shared_registry) {
     push_tool_call(script, "task", {{"prompt", "reply ok"}});
     push_text(script, "ok");   // the sub-agent's reply
     push_text(script, "done"); // the parent's reply
-    push_text(script, "done"); // parent probe
-    push_text(script, "yes");  // probe confirmation
 
     auto parent = std::make_unique<SharedScriptFake>();
     parent->script = script;
@@ -1639,8 +1914,6 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     push_tool_call(script, "task", {{"prompt", "reply ok"}});
     push_text(script, "ok");   // the sub-agent's reply
     push_text(script, "done"); // the parent's reply
-    push_text(script, "done"); // parent probe
-    push_text(script, "yes");  // probe confirmation
 
     // Systems are collected through a shared, mutex-guarded sink: workers run
     // on their own threads and their clients die with them.
@@ -1685,9 +1958,8 @@ TEST(agent_loop_task_tool_delegates_a_worker_prompt) {
     ASSERT(seen->with_directive() < seen->total());
 }
 
-// [item-5] Cancellation must stop the run cleanly: no fabricated
-// "[error during generation: cancelled by user]" message may be pushed into
-// the session context.
+// [item-5] Cancellation must stop the run cleanly: no error text may be pushed
+// into the session context — the stop is deliberate, not a failure.
 TEST(agent_loop_cancel_does_not_fabricate_message) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -1697,7 +1969,6 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
     f.error = "server down";
     f.retryable = true;
     fake->script.push_back(std::move(f));
-    push_text(*fake, "done");
 
     std::thread canceller([&cfg]() {
         usleep(150 * 1000);
@@ -1707,8 +1978,10 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
     std::string reply = ag.run("hi");
     canceller.join();
 
-    for (const auto& m : ag.context().get_all())
+    for (const auto& m : ag.context().get_all()) {
         ASSERT(m.content.find("[error during generation") == std::string::npos);
+        ASSERT(!m.harness); // nothing to report: the stop was deliberate
+    }
     (void)reply;
 }
 
@@ -1729,7 +2002,9 @@ TEST(session_brief_extracted_on_compression) {
     // by the compression call, not by warm-up chat calls.
     cfg.context_size = 8000;
     cfg.compression_threshold = 0.5;
+    cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
+    cfg.compression_min_turns_explicit = true;
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
@@ -1738,9 +2013,8 @@ TEST(session_brief_extracted_on_compression) {
     // Warm-up turns (cooldown default is 20 turns before the gate opens).
     for (int i = 0; i < 21; ++i) {
         push_text(*fake, "warm");
-        push_text(*fake, "done");
     }
-    // The compression turn: 1) classify, 2) extract (with brief), 3) gen, 4) probe.
+    // The compression turn: 1) classify, 2) extract (with brief), 3) generation.
     {
         agent_test::FakeReply r;
         r.content = R"({"classification":[{"turns":"0-0","tag":"core","summary":""}],)"
@@ -1755,7 +2029,6 @@ TEST(session_brief_extracted_on_compression) {
                      R"("done":["found bug"],"next":"write test",)"
                      R"("avoid":["rewrite parser"]}})");
     push_text(*fake, "hello after compression");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
@@ -1783,7 +2056,9 @@ TEST(session_brief_survives_compression) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 8000;
     cfg.compression_threshold = 0.5;
+    cfg.compression_threshold_explicit = true;
     cfg.compression_min_turns = 2;
+    cfg.compression_min_turns_explicit = true;
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
@@ -1791,7 +2066,6 @@ TEST(session_brief_survives_compression) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     for (int i = 0; i < 21; ++i) {
         push_text(*fake, "warm");
-        push_text(*fake, "done");
     }
     // Compression turn: classify + extract return a brief that refines the
     // seeded one.
@@ -1809,7 +2083,6 @@ TEST(session_brief_survives_compression) {
                      R"("done":["step1"],"next":"refined next",)"
                      R"("avoid":["dead end A"]}})");
     push_text(*fake, "after");
-    push_text(*fake, "done");
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
 
     // Seed the brief store before compression fires.
@@ -2482,4 +2755,47 @@ TEST(agent_loop_internal_failure_is_recovered) {
             ++answered;
     }
     ASSERT_EQ(asked, answered);
+}
+
+// A window workspace is a detached worktree. The agent must know before it can
+// commit to an unreachable HEAD; the note is computed when the root is set, so
+// the per-turn prompt costs no git call.
+TEST(agent_prompt_names_a_detached_worktree) {
+    namespace fs = std::filesystem;
+    const std::string repo =
+        (fs::temp_directory_path() / ("amber_agent_wt_repo_" + std::to_string(::getpid())))
+            .string();
+    fs::remove_all(repo);
+    fs::create_directories(repo);
+    const std::string init = "cd '" + repo +
+                             "' && git init -q -b main . && echo base > f.txt && git add f.txt && "
+                             "git -c user.email=t@t -c user.name=t commit -qm init";
+    ASSERT_EQ(std::system(init.c_str()), 0);
+
+    const std::string tree =
+        (fs::temp_directory_path() / ("amber_agent_wt_tree_" + std::to_string(::getpid())))
+            .string();
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo, tree, agent::git_head_oid(repo), err));
+    ASSERT_TRUE(err.empty());
+
+    const std::string saved = agent::Workspace::project_root();
+    agent::Workspace::set_root(tree);
+    agent::Config cfg = loop_cfg();
+    // This test constructs a real Agent in a temp project: keep its transcript
+    // and learned memory out of the developer's state.
+    cfg.log_path = "/dev/null";
+    cfg.experience_store_path = "/dev/null";
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "ok");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.run("hi");
+
+    ASSERT(ag.context().get_all()[0].content.find("detached git worktree") != std::string::npos);
+
+    agent::Workspace::set_root(saved);
+    std::string cleanup_err;
+    ASSERT_TRUE(agent::remove_worktree_safe(repo, tree, cleanup_err));
+    fs::remove_all(repo);
 }

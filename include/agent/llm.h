@@ -6,6 +6,7 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include "agent/config.h"
 #include "agent/tool.h"
 
@@ -22,6 +23,12 @@ struct Message {
     std::string tool_call_id; // for role == "tool"
     std::string name;         // tool name for tool messages
     json tool_calls;          // assistant messages may carry calls
+    // True for a notice the harness itself authored ([harness] prefix): a
+    // retry summary, a repair report, a budget note. It rides the user channel
+    // because the OpenAI dialect hoists every system message to the head of the
+    // request, which would lose a notice's place in the conversation. The flag
+    // is what keeps the text from being mistaken for the model's own close.
+    bool harness = false;
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
@@ -79,15 +86,6 @@ struct ApiError : std::runtime_error {
         : std::runtime_error(msg), status(s), retryable(r) {}
 };
 
-// Thrown by a strict internal exchange (`chat_with_retry_strict`) that has
-// exhausted its recovery: the request cannot be completed, so the turn ends
-// with a real error rather than a fabricated reply. Distinct from the failures
-// a turn RECOVERS from: a tool envelope or a host callback that throws is
-// reported and survived, this one is not.
-struct RequestFailedError : std::runtime_error {
-    using std::runtime_error::runtime_error;
-};
-
 class LLMClient {
 public:
     virtual ~LLMClient() = default;
@@ -118,6 +116,12 @@ public:
     // The learned limit is the runtime truth: it clamps any configured or
     // probed window so the gate and gauge never overshoot.
     virtual int learned_context_size() const { return 0; }
+
+    // Facts the client accumulated while working that the model has a right to
+    // know — a window the server clamped, tool calls it had to drop. The agent
+    // drains these into [harness] notices, so nothing about a request changes
+    // behind the model's back. Draining empties the list.
+    virtual std::vector<std::string> take_notices() { return {}; }
 };
 
 // Real libcurl implementation. The wire protocol (URLs, auth, request body,
@@ -142,11 +146,16 @@ public:
                         const std::function<void(const StreamChunk&)>& on_chunk,
                         Stats* stats = nullptr) override;
     int learned_context_size() const override { return learned_; }
+    std::vector<std::string> take_notices() override;
 
 private:
+    void add_notice(std::string text);
+
     Config cfg_;
     std::unique_ptr<Dialect> dialect_;
     int learned_ = 0; // window taught by a 400 overflow rejection
+    std::mutex notices_mtx_;
+    std::vector<std::string> notices_;
 };
 
 // Merge probed server info into a Config, filling ONLY values the user did not

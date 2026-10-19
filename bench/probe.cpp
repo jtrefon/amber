@@ -453,13 +453,12 @@ bool loop_probe_done_flag(ProbeResult& r) {
     s.name = "probe-loop-done";
     s.prompt = "Do one thing and finish.";
     s.max_steps = 6;
-    // One tool call, then a plain "done" content reply. try_confirm makes a
-    // confirmation probe call, so the script carries a second "done".
+    // One tool call, then a plain "done" reply: a reply with no tool calls ends
+    // the turn, so nothing is generated after it.
     s.fake_replies = agent::json::parse(R"([
         {"tool_calls": [{"id": "c1", "type": "function",
                          "function": {"name": "bash",
                                       "arguments": "{\"command\":\"echo hi\"}"}}]},
-        {"content": "done"},
         {"content": "done"}
     ])");
     ScenarioReport rep;
@@ -556,23 +555,24 @@ bool loop_probe_infinite_breakout(ProbeResult& r) {
     return true;
 }
 
-// P-loop-text-repeat: identical plain text repeated must get a steer at 2x
-// and a hard stop at 5x.
+// P-loop-text-repeat: identical narration while the model keeps working must
+// get a steer at 2x and stay contained. The repetition rides tool calls: a
+// text-only reply ends the turn by contract (the model's own close), so a
+// repeated text-only reply never reaches the guard — it does not need to.
 bool loop_probe_text_repeat(ProbeResult& r) {
-    r.expected = "same text twice steers; loop stays contained";
+    r.expected = "repeated narration steers; loop stays contained";
     Scenario s;
     s.name = "probe-loop-text";
-    s.prompt = "Repeat the same sentence.";
+    s.prompt = "Repeat the same sentence while you work.";
     s.max_steps = 12;
     s.detection_loop = true;
-    // A no-tool reply triggers the confirmation exchange; the probe call
-    // must return tool calls (so confirm does not accept and end the turn),
-    // letting the main text repeat until the loop detector steers (2x).
     s.fake_replies = agent::json::array();
-    for (int i = 0; i < 6; ++i) {
-        s.fake_replies.push_back(agent::json::object({{"content", "hello?"}}));
-        s.fake_replies.push_back(scripted_bash("c1", "echo x"));
+    for (int i = 0; i < 4; ++i) {
+        auto call = scripted_bash("c1", "echo x");
+        call["content"] = "hello?";
+        s.fake_replies.push_back(std::move(call));
     }
+    s.fake_replies.push_back(agent::json::object({{"content", "stopping here"}}));
     ScenarioReport rep;
     std::string err;
     if (!run_loop_scenario(s, rep, err, r))

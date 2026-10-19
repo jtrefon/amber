@@ -21,11 +21,15 @@ namespace {
 // throws. Without this the host's clamp (Agent::resolve_window) never fires.
 class LearnedWindowCapture {
 public:
-    LearnedWindowCapture(const Config& cfg, int& learned)
-        : cfg_(cfg), before_(cfg.context_size), learned_(learned) {}
+    LearnedWindowCapture(const Config& cfg, int& learned, std::function<void(int)> on_learned = {})
+        : cfg_(cfg), before_(cfg.context_size), learned_(learned),
+          on_learned_(std::move(on_learned)) {}
     ~LearnedWindowCapture() {
-        if (cfg_.context_size != before_)
-            learned_ = cfg_.context_size;
+        if (cfg_.context_size == before_)
+            return;
+        learned_ = cfg_.context_size;
+        if (on_learned_)
+            on_learned_(learned_);
     }
     LearnedWindowCapture(const LearnedWindowCapture&) = delete;
     LearnedWindowCapture& operator=(const LearnedWindowCapture&) = delete;
@@ -36,6 +40,7 @@ private:
     const Config& cfg_;
     const int before_;
     int& learned_;
+    std::function<void(int)> on_learned_;
 };
 
 // The completion budget is counted against the SAME window as the prompt: a
@@ -84,6 +89,16 @@ HttpLLMClient::HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect)
 
 HttpLLMClient::~HttpLLMClient() = default;
 
+void HttpLLMClient::add_notice(std::string text) {
+    std::scoped_lock lk(notices_mtx_);
+    notices_.push_back(std::move(text));
+}
+
+std::vector<std::string> HttpLLMClient::take_notices() {
+    std::scoped_lock lk(notices_mtx_);
+    return std::exchange(notices_, {});
+}
+
 ServerInfo HttpLLMClient::probe_server() const {
     return agent::probe_server(cfg_, *dialect_);
 }
@@ -98,7 +113,10 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     debug_log(cfg_.debug_dump_path(), "request", payload);
 
     double ttfb = 0, total = 0;
-    LearnedWindowCapture learned_window(cfg_, learned_);
+    LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
+        add_notice("the server rejected the prompt size; the context window is now " +
+                   std::to_string(window) + " tokens");
+    });
     std::string response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
     debug_log(cfg_.debug_dump_path(), "response", response);
 
@@ -106,6 +124,27 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     if (stats)
         fill_buffered_stats(*stats, *dialect_, response, ttfb, total);
     return out;
+}
+
+// Drop tool calls whose arguments are not JSON. Malformed calls in history
+// poison every later request (the server rejects them), so the whole batch goes
+// and the text stands — and the drop is reported, because a call the model
+// believes it made silently vanishing is how it re-issues the same work.
+bool drop_malformed_tool_calls(Message& out) {
+    if (out.tool_calls.is_null() || !out.tool_calls.is_array())
+        return false;
+    for (const auto& tc : out.tool_calls) {
+        auto fn = tc.value("function", json::object());
+        std::string raw = fn.value("arguments", "");
+        if (raw.empty())
+            continue;
+        auto parsed = json::parse(raw, nullptr, false);
+        if (parsed.is_discarded()) {
+            out.tool_calls = json::value_t::null;
+            return true;
+        }
+    }
+    return false;
 }
 
 Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
@@ -122,32 +161,19 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
     auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_dump_path());
 
     long status = 0;
-    LearnedWindowCapture learned_window(cfg_, learned_);
+    LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
+        add_notice("the server rejected the prompt size; the context window is now " +
+                   std::to_string(window) + " tokens");
+    });
     stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
     debug_log(cfg_.debug_dump_path(), "response-stream",
               "http=" + std::to_string(status) + " content=" + out.content + "\n---reasoning---\n" +
                   out.reasoning);
 
-    // Validate tool call arguments: if any tool call has non-JSON arguments,
-    // discard ALL tool calls and keep only text.  Malformed tool calls in
-    // history poison subsequent requests (the server rejects them).
-    if (!out.tool_calls.is_null() && out.tool_calls.is_array()) {
-        bool valid = true;
-        for (const auto& tc : out.tool_calls) {
-            auto fn = tc.value("function", json::object());
-            std::string raw = fn.value("arguments", "");
-            if (!raw.empty()) {
-                auto parsed = json::parse(raw, nullptr, false);
-                if (parsed.is_discarded()) {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-        if (!valid) {
-            debug_log(cfg_.debug_dump_path(), "response-stream", "discarding malformed tool calls");
-            out.tool_calls = json::value_t::null;
-        }
+    if (drop_malformed_tool_calls(out)) {
+        debug_log(cfg_.debug_dump_path(), "response-stream", "discarding malformed tool calls");
+        add_notice("a tool call arrived with invalid arguments and was dropped for this request; "
+                   "the reply's text is what stands");
     }
 
     return out;

@@ -134,6 +134,30 @@ std::string git_head_oid(const std::string& dir) {
     return r.status == 0 ? trimmed(r.output) : std::string();
 }
 
+std::string worktree_session_note(const std::string& root) {
+    if (root.empty())
+        return {};
+    std::error_code ec;
+    if (!fs::is_directory(root, ec))
+        return {};
+    // A linked worktree has a `.git` FILE pointing into the main repository;
+    // the main checkout has a directory there. A submodule also has a file, so
+    // the detached check below is what decides: a normal checkout is on a
+    // branch and needs no warning.
+    if (!fs::is_regular_file(fs::path(root) / ".git", ec))
+        return {};
+    const GitResult ref = run_git(root, {"symbolic-ref", "-q", "HEAD"});
+    if (ref.status == 0)
+        return {};
+    const GitResult oid = run_git(root, {"rev-parse", "--short", "HEAD"});
+    const std::string short_oid = oid.status == 0 ? trimmed(oid.output) : std::string();
+    if (short_oid.empty())
+        return {};
+    return "Workspace: this window works in a detached git worktree at " + short_oid +
+           ". Create a branch (`git switch -c fix/<topic>`) before the first commit: the "
+           "window will not discard commits that no branch reaches.";
+}
+
 bool create_worktree(const std::string& repo, const std::string& path, const std::string& base_oid,
                      std::string& error) {
     std::error_code ec;

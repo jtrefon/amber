@@ -316,7 +316,7 @@ may be mutated or the event cancelled):
 | `MessageAdded` | every `Context::push` site in the agent loop and dispatch | no | Tool-result pushes are included (a gap in the old `ContextEventSource`) |
 | `ToolRequested` | `dispatch.cpp:191` before the approval gate | yes (args, cancel) | Fires before approval: "the model asked", not "this will run" |
 | `ToolCompleted` | `dispatch.cpp:266-284` | no | |
-| `LlmResponseReceived` | `chat_once` after `chat`/`chat_stream` returns | no | Hidden `confirm_turn` exchanges are **not** published (they use `silent_hooks`; same gate applies) |
+| `LlmResponseReceived` | `chat_once` after `chat`/`chat_stream` returns | no | Every round-trip is published — the loop keeps no hidden exchanges (the old `confirm_turn` probe is gone) |
 | `CompressionTriggered` / `CompressionCompleted` | gate decision `agent.cpp:266-278`; rebuild `:458-461` | no | Structured replacement for the current `on_status` prose |
 | `ErrorRaised` | retry/classification paths `agent_helpers.cpp:134-249`, auth repair `agent.cpp:699-719` | no | Observation only: **error classification stays in the dialect** (`is_retryable`, `context_overflow_hint`) |
 | `PluginLoaded` / `PluginUnloaded` | - | no | Declared in `events.h`, **never published** (no fire site). Kept for a future consumer; do not subscribe expecting them. |

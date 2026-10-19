@@ -21,6 +21,18 @@ struct Segment {
 // The activity indicator's reserved width (the [ wave ] block).
 inline constexpr int kActivityWidth = 13;
 
+// Where the activity wave starts: the first column the left zone may not use,
+// with the right zone's separator and its own width already subtracted. Negative
+// when the terminal cannot hold the wave. The painter draws from here without a
+// further guard, which is what keeps the left zone (clipped at the same column)
+// from ever crowding the wave out.
+int activity_x(int width, int right_cols);
+
+// The scroll badge's value: percent UP from the live edge, because scroll_top
+// counts from the top of the buffer (the live edge is max_top). 0 at the live
+// edge, 100 at the top of the buffer, -1 when everything fits.
+int scroll_pct(int scroll_top, int max_top);
+
 struct Plan {
     std::vector<Segment> left;  // surviving left-aligned segments, in order
     std::vector<Segment> right; // surviving right-aligned segments, in order

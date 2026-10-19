@@ -44,7 +44,9 @@ pid_t spawn_mcp_server(const std::string& command, const std::vector<std::string
                        const std::string& cwd, int& stdin_fd, int& stdout_fd, int& stderr_fd,
                        std::string& err);
 
-// Kill an entire process group spawned by spawn_shell (SIGKILL).
+// Stop an entire process group spawned by spawn_shell: SIGTERM, a two-second
+// grace for the child to close on its own terms, then SIGKILL for the ones that
+// ignore the ask. Never reaps — the job's reader thread owns the waitpid.
 void kill_process_group(pid_t pid);
 
 } // namespace agent

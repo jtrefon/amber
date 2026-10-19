@@ -95,6 +95,11 @@ const char* bottom_tee();   // bottom T (┴ or +)
 // Returns e.g. "┌ project branch +3/-1 ❯ " or ASCII fallback.
 std::string git_prompt(const std::string& project, const std::string& branch, int ins, int del);
 
+// Branch name for the git prompt: the ref's short name, or "@<short oid>" when
+// HEAD is detached (every window worktree starts that way). Empty when neither
+// is known, so a non-repository draws no branch at all.
+std::string git_branch_label(const std::string& symbolic_ref, const std::string& short_oid);
+
 // Convert a display-column offset to a byte offset in a UTF-8 string.
 // Returns the byte position (npos if col exceeds the string's display width).
 size_t col_to_byte(const std::string& s, int col);

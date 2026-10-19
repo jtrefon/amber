@@ -171,7 +171,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
-| `git-integration/git-workflow.md` | Three-layer architecture (shell prompt, agent prompt, bash execution), commit/rollback workflow, invariants, tool-deferral reasoning |
+| `git-integration/git-workflow.md` | Snapshots as commits, the indexed subject (`area: summary`, one area per commit), history scanning/pickaxe/bisect, the rollback ladder, the detached-window-worktree rule, and why there is no git tool |
 
 ## Benchmark / KPIs
 

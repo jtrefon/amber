@@ -21,11 +21,9 @@ enum class EventType : std::uint8_t {
     CompressionTriggered,
     LLMRequestBefore,
     LLMResponseAfter,
-    TUIRender,
-    TUIKeyPress,
-    TUIInputChanged,
     PluginLoaded,
     PluginUnloaded,
+    PluginFailed,
     CompressionCompleted,
     ErrorRaised,
     Count, // sentinel: number of event types

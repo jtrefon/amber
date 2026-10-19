@@ -21,7 +21,7 @@ events (`content_block_delta`, …).
 |-----------|--------|
 | **Input** | `Message` history + tool schemas + per-chunk callback `std::function<void(StreamChunk)>` |
 | **Output** | Accumulated `Message` with `content`, `reasoning`, `tool_calls`. Hooks fire per-chunk: `on_token`, `on_reasoning`, `on_state`. |
-| **Error states** | Connection drop → exception caught by `safe_chat_once()`. HTTP 4xx/5xx → throw with body excerpt. Malformed SSE → silently dropped. |
+| **Error states** | Connection drop → exception caught by `chat_with_retry()`. HTTP 4xx/5xx → throw with body excerpt. Malformed SSE → dropped, and reported as a `[harness]` notice. |
 | **Invariants** | See below (the OpenAI dialect's behaviour; see `llm-client/dialect.md` for the protocol-level contract). |
 | **Thread safety** | SSE write callback fires on libcurl thread. `on_chunk` callback is user-provided; the caller (`chat_once`) must handle thread safety. |
 
@@ -129,7 +129,7 @@ events (`content_block_delta`, …).
 
 - **Given**: Server closes connection mid-response
 - **Input**: Partial SSE stream, then `CURLE_RECV_ERROR`
-- **Expected**: `curl_exec()` throws. `safe_chat_once()` catches, returns error message. Agent retries once. The partial `out` message (with whatever was received) is lost — no partial push to history.
+- **Expected**: `curl_exec()` throws. `chat_with_retry()` catches it, retries with the growing backoff, and on exhaustion hands the model a `[harness]` notice naming the attempts. The partial `out` message (with whatever was received) is lost — no partial push to history.
 - **On failure**: Partial content pushed to history, corrupting conversation.
 
 #### [ST-14] Cancellation during streaming

@@ -160,6 +160,9 @@ private:
     // The port itself, handed to the runtime so plugins can ask the user.
     std::unique_ptr<TuiUiServices> ui_services_;
     bool modal_open_ = false;
+    // Mouse reporting is on by default (wheel scrolls the chat log). Off lets
+    // the terminal select and copy with a plain drag.
+    bool mouse_on_ = true;
 
     // Per-window run slots: each window's agent has its own worker thread,
     // busy/cancel flags, and pending-prompt queue (see run_registry.h).
@@ -260,6 +263,10 @@ private:
     // Open the contributed-panel view (Alt+0 or /panel). Empty id = the first
     // registered panel, which is always the registry console.
     void open_panels(const std::string& id);
+    // Mouse reporting off/on (Alt+M). Off returns the terminal's own click-drag
+    // selection — copy without Shift — at the cost of wheel scrolling, which is
+    // the trade-off the mouse was turned on for in the first place.
+    void toggle_mouse();
     void job_kill(const std::string& id);
     void job_read(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);

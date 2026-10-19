@@ -94,8 +94,12 @@ TEST(config_debug_dump_path_follows_the_switch) {
     ASSERT_EQ(c.debug_dump_path(), std::string());
 
     c.debug = true;
-    ASSERT(c.debug_dump_path().find("/logs/debug-{ts}.log") != std::string::npos);
-    ASSERT(c.debug_dump_path().find(agent::Workspace::state_dir()) == 0);
+    const std::string dump = c.debug_dump_path();
+    ASSERT(dump.find("/logs/debug-") != std::string::npos);
+    // The placeholder is expanded (one dump per process), never left literal.
+    ASSERT(dump.find('{') == std::string::npos);
+    ASSERT(dump.size() > 4 && dump.substr(dump.size() - 4) == ".log");
+    ASSERT(dump.find(agent::Workspace::state_dir()) == 0);
 
     c.debug_log = "/tmp/explicit-http.log";
     ASSERT_EQ(c.debug_dump_path(), std::string("/tmp/explicit-http.log"));
@@ -2124,19 +2128,69 @@ TEST(autodetect_noop_when_server_down) {
 // Status-bar rendering math (pure, no ncurses / no network)
 // ---------------------------------------------------------------------------
 
-TEST(statusbar_kfmt) {
-    ASSERT_EQ(agent::bar::kfmt(-1), "?");
-    ASSERT_EQ(agent::bar::kfmt(0), "0");
-    ASSERT_EQ(agent::bar::kfmt(512), "512");
-    ASSERT_EQ(agent::bar::kfmt(999), "999");
-    ASSERT_EQ(agent::bar::kfmt(5000), "5.0k");
-    ASSERT_EQ(agent::bar::kfmt(1500), "1.5k");
-    ASSERT_EQ(agent::bar::kfmt(128000), "128k");
-    // Millions tier: "1000k" is not a thing — 1m/1.5m, integer from 10m up.
-    ASSERT_EQ(agent::bar::kfmt(1000000), "1m");
-    ASSERT_EQ(agent::bar::kfmt(1500000), "1.5m");
-    ASSERT_EQ(agent::bar::kfmt(10000000), "10m");
-    ASSERT_EQ(agent::bar::kfmt(12300000), "12m");
+TEST(compact_count_never_grows_the_field) {
+    using agent::compact::count;
+    ASSERT_EQ(count(-1), "?");
+    ASSERT_EQ(count(0), "0");
+    ASSERT_EQ(count(999), "999");
+    ASSERT_EQ(count(1000), "1k");
+    ASSERT_EQ(count(1500), "1.5k");
+    ASSERT_EQ(count(5000), "5k");
+    ASSERT_EQ(count(12500), "13k");
+    ASSERT_EQ(count(128000), "130k");
+    ASSERT_EQ(count(995000), "1m"); // 999k would be four characters
+    ASSERT_EQ(count(1000000), "1m");
+    ASSERT_EQ(count(1500000), "1.5m");
+    ASSERT_EQ(count(12300000), "12m");
+}
+
+TEST(compact_duration_uses_the_largest_sensible_unit) {
+    using agent::compact::duration_ms;
+    ASSERT_EQ(duration_ms(-1), "?");
+    ASSERT_EQ(duration_ms(240), "240ms");
+    ASSERT_EQ(duration_ms(999), "999ms");
+    ASSERT_EQ(duration_ms(1000), "1s");
+    ASSERT_EQ(duration_ms(1500), "1.5s");
+    ASSERT_EQ(duration_ms(12345), "12s");
+    ASSERT_EQ(duration_ms(59900), "60s");
+    ASSERT_EQ(duration_ms(90000), "1.5m");
+    ASSERT_EQ(duration_ms(3540000), "59m");
+    ASSERT_EQ(duration_ms(3600000), "1h");
+    ASSERT_EQ(duration_ms(5400000), "1.5h");
+}
+
+TEST(compact_percent_is_bounded) {
+    using agent::compact::percent;
+    ASSERT_EQ(percent(-5), "0");
+    ASSERT_EQ(percent(0), "0");
+    ASSERT_EQ(percent(42), "42");
+    ASSERT_EQ(percent(100), "100");
+    ASSERT_EQ(percent(101), "100");
+}
+
+TEST(compact_bytes_uses_binary_units) {
+    using agent::compact::bytes;
+    ASSERT_EQ(bytes(-1), "?");
+    ASSERT_EQ(bytes(512), "512B");
+    ASSERT_EQ(bytes(1024), "1KB");
+    ASSERT_EQ(bytes(1536), "1.5KB");
+    ASSERT_EQ(bytes(12800), "13KB");
+    ASSERT_EQ(bytes(1048576), "1MB");
+    ASSERT_EQ(bytes(3145728), "3MB");
+    ASSERT_EQ(bytes(1073741824L), "1GB");
+}
+
+TEST(usage_totals_sum_reported_and_ignore_unknown) {
+    agent::UsageTotals u;
+    ASSERT_FALSE(u.measured);
+    u.add(-1, -1); // a provider that reports no usage is unknown, not zero
+    ASSERT_FALSE(u.measured);
+    ASSERT_EQ(u.prompt_tokens, 0L);
+    u.add(100, 20);
+    u.add(-1, 5);
+    ASSERT_EQ(u.prompt_tokens, 100L);
+    ASSERT_EQ(u.completion_tokens, 25L);
+    ASSERT_TRUE(u.measured);
 }
 
 TEST(statusbar_pressure_thresholds) {
@@ -2225,27 +2279,38 @@ std::string drain_request(int c) {
     return req;
 }
 
-// Serve one canned HTTP response (any status/content-type/payload), then
-// close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
+// Serve `connections` canned HTTP responses (any status/content-type/payload),
+// then close. Lets the wire-layer pins exercise buffered chat, HTTP-error and
 // streaming paths without any external dependency.
+//
+// Bounded on purpose: the thread exits after the agreed number of accepts, so
+// nothing outlives the fd the test closes. An unbounded loop (or a poll that
+// keeps watching the fd number) would answer a later test's connection once the
+// fd is reused. A code path that makes more requests than the mock serves would
+// block in read() — the harness watchdog names that test instead of hanging.
 int spawn_mock_http(int port, std::string& body_out, const std::string& status,
-                    const std::string& content_type, const std::string& payload) {
+                    const std::string& content_type, const std::string& payload,
+                    int connections = 1) {
     int fd = bind_listener(port);
     if (fd < 0)
         return -1;
     body_out.clear();
-    std::thread t([fd, status, content_type, payload, &body_out]() {
-        int c = accept(fd, nullptr, nullptr);
-        if (c < 0)
-            return;
-        body_out = drain_request(c);
-        std::string http = status + "\r\nContent-Type: " + content_type +
-                           "\r\nContent-Length: " + std::to_string(payload.size()) + "\r\n\r\n" +
-                           payload;
-        send(c, http.c_str(), http.size(), 0);
-        // give client time to read
-        usleep(200000);
-        close(c);
+    std::thread t([fd, status, content_type, payload, &body_out, connections]() {
+        for (int i = 0; i < connections; ++i) {
+            int c = accept(fd, nullptr, nullptr);
+            if (c < 0)
+                return;
+            std::string request = drain_request(c);
+            if (i == 0)
+                body_out = std::move(request); // the first request is the pinned one
+            std::string http = status + "\r\nContent-Type: " + content_type +
+                               "\r\nContent-Length: " + std::to_string(payload.size()) +
+                               "\r\n\r\n" + payload;
+            send(c, http.c_str(), http.size(), 0);
+            // give client time to read
+            usleep(200000);
+            close(c);
+        }
     });
     t.detach();
     return fd;
@@ -2995,6 +3060,62 @@ TEST(client_serves_next_turn_after_overflow_rejection) {
     close(srv2);
 }
 
+// The window a 400 overflow rejection teaches is a fact about the request, so
+// the client records a notice: the agent drains it into a [harness] message and
+// the model learns why its room to move shrank (rather than being clamped
+// behind its back).
+TEST(overflow_400_records_a_notice_for_the_model) {
+    std::string req;
+    int srv = spawn_mock_http(8960, req, "HTTP/1.1 400 Bad Request", "text/plain",
+                              "maximum context length is 16384 tokens");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8960/v1";
+    agent::HttpLLMClient client(cfg);
+    bool threw = false;
+    try {
+        client.chat({}, {}, nullptr);
+    } catch (const agent::ApiError&) {
+        threw = true;
+    }
+    ASSERT(threw);
+
+    auto notices = client.take_notices();
+    ASSERT_EQ(notices.size(), 1u);
+    ASSERT(notices[0].find("16384") != std::string::npos);
+    ASSERT(client.take_notices().empty()); // draining empties the list
+    close(srv);
+}
+
+// A tool call with unparseable arguments is dropped (malformed calls poison
+// later requests), and the drop is reported — silently discarding a call the
+// model believes it made is exactly the kind of hidden state that produced the
+// endless re-issuing loop.
+TEST(malformed_tool_calls_are_reported_and_dropped) {
+    std::string dummy;
+    const std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\","
+        "\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{not "
+        "json\"}}]}}]}\n\n"
+        "data: [DONE]\n\n";
+    int srv = spawn_mock_sse(8961, dummy, sse);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8961/v1";
+    agent::HttpLLMClient client(cfg);
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT(m.tool_calls.is_null() || m.tool_calls.empty());
+
+    auto notices = client.take_notices();
+    ASSERT_EQ(notices.size(), 1u);
+    ASSERT(notices[0].find("invalid arguments") != std::string::npos);
+    close(srv);
+}
+
 TEST(parameter_400_surfaces_its_message_and_teaches_no_window) {
     // A 400 that names a request parameter is not a window statement: nothing
     // may be learned, and the operator must see the server's own sentence
@@ -3128,6 +3249,31 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
     }
     ASSERT_EQ(kind, "cancelled");
     close(srv);
+}
+
+// Inactivity hands the decision back to the agent: the process keeps running,
+// nothing is killed on a timer, and the agent chooses to wait again or stop it.
+TEST(bash_inactivity_returns_and_leaves_the_process_alive) {
+    agent::JobService jobs;
+    agent::CancellationToken token;
+    auto tool = agent::make_bash_tool(&jobs, token);
+
+    agent::json a = {{"command", "echo hello-from-bash; sleep 30"}, {"timeout", 1}};
+    agent::ToolResult r = tool->execute(a);
+
+    ASSERT(r.ok);
+    ASSERT_EQ(r.meta.value("stop", std::string("none")), "inactive");
+    ASSERT(r.output.find("still running") != std::string::npos);
+    ASSERT(r.output.find("hello-from-bash") != std::string::npos);
+
+    const std::string id = r.meta.value("job", std::string(""));
+    ASSERT(!id.empty());
+    std::shared_ptr<agent::Job> j = jobs.get(id);
+    ASSERT(j != nullptr);
+    ASSERT(!j->is_done()); // alive: silence returned control, it did not kill
+
+    jobs.stop(id);
+    ASSERT(jobs.get(id) == nullptr); // killed, reaped, erased
 }
 
 // ---------------------------------------------------------------------------
@@ -3285,10 +3431,16 @@ TEST(bash_tool_tracked_by_job_service) {
     ASSERT(bad.output.find("[exit 7]") != std::string::npos);
     ASSERT(jobs.list().empty());
 
+    // Silence is not a kill on this path: control returns to the agent, the
+    // process stays registered, and ending it is the agent's call.
     auto to = tool->execute({{"command", "sleep 5"}, {"timeout", 1}});
-    ASSERT_FALSE(to.ok);
-    ASSERT(to.error.find("timed out") != std::string::npos);
-    ASSERT(jobs.list().empty());
+    ASSERT_TRUE(to.ok);
+    ASSERT_EQ(to.meta.value("stop", std::string("none")), "inactive");
+    const std::string id = to.meta.value("job", std::string(""));
+    ASSERT(!id.empty());
+    ASSERT_EQ(jobs.list().size(), 1u); // still running, visible in /job
+    jobs.stop(id);
+    ASSERT(jobs.list().empty()); // stopped and reaped on request
 }
 
 // A requested cancellation token must stop the command AND stay requested:
@@ -4168,6 +4320,52 @@ TEST(job_service_start_read_stop) {
     ASSERT_FALSE(jobs.stop(id)); // already gone
 }
 
+// A stop asks before it kills: SIGTERM gives the child the chance to flush what
+// it holds (a half-written file, a lock, a report line), and SIGKILL is only for
+// the ones that will not go. Before this, every stop was a SIGKILL — the child
+// never got to say what it was doing.
+TEST(job_service_stop_asks_before_it_kills) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
+    agent::JobService jobs;
+    std::string id = jobs.start("trap 'echo got-term; exit 0' TERM; echo waiting; sleep 300",
+                                "/tmp/amber_job_ws");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto job = jobs.get(id);
+    ASSERT(job != nullptr);
+
+    ASSERT(jobs.stop(id));
+    ASSERT(job->output().find("got-term") != std::string::npos); // it heard the SIGTERM
+    ASSERT_EQ(job->exit_code(), 0);                              // and closed on its own terms
+}
+
+// A child that ignores SIGTERM is escalated after the grace, and the stop still
+// returns: a group holding its pipe open would otherwise hang the reader join
+// forever.
+TEST(job_service_stop_escalates_a_sigterm_ignoring_child) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
+    agent::JobService jobs;
+    std::string id = jobs.start("trap '' TERM; echo ignoring; sleep 300", "/tmp/amber_job_ws");
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto job = jobs.get(id);
+    ASSERT(job != nullptr);
+    const int pid = job->info().pid;
+    ASSERT(pid > 0);
+
+    const auto t0 = std::chrono::steady_clock::now();
+    ASSERT(jobs.stop(id)); // SIGTERM, 2s grace, SIGKILL — and it returns
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+            .count();
+    ASSERT(ms < 5000);
+    ASSERT_EQ(jobs.running_count(), 0);
+    // The group is gone, not merely forgotten.
+    ASSERT(kill(pid, 0) != 0 && errno == ESRCH);
+}
+
 TEST(job_service_idle_timeout_kills) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     agent::JobService jobs;
@@ -4220,6 +4418,29 @@ TEST(process_stop_returns_captured_output) {
     ASSERT(stopped.ok);
     ASSERT(stopped.output.find("held") != std::string::npos);
     ASSERT_EQ(jobs.running_count(), 0);
+}
+
+// The wait budget is silence, not a deadline: it returns after the silence it
+// asked for, kills nothing, and leaves the job for the agent to read or stop.
+TEST(process_read_wait_is_inactivity_and_kills_nothing) {
+    agent::JobService jobs;
+    auto tools = agent::make_process_tools(jobs);
+    std::string id = tools[0]->execute({{"command", "echo hi; sleep 30"}}).output;
+    ASSERT_FALSE(id.empty());
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    const auto began = std::chrono::steady_clock::now();
+    auto read = tools[1]->execute({{"id", id}, {"wait", 1}});
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - began)
+                            .count();
+
+    ASSERT(read.ok);
+    ASSERT(waited >= 900);              // it honoured the silence it was given
+    ASSERT(waited < 5000);              // and nothing kept it there longer
+    ASSERT_EQ(jobs.running_count(), 1); // nothing was killed
+    tools[2]->execute({{"id", id}});
+    ASSERT_EQ(jobs.running_count(), 0); // stop is the agent's call, and it works
 }
 
 TEST(job_service_stop_finished_returns_true) {
@@ -5029,7 +5250,8 @@ TEST(compress_request_max_tokens_fits_the_window_it_is_sent_to) {
     json reply;
     reply["choices"] =
         json::array({json{{"message", json{{"role", "assistant"}, {"content", classify}}}}});
-    int srv = spawn_mock_http(8953, req, "HTTP/1.1 200 OK", "application/json", reply.dump());
+    int srv = spawn_mock_http(8953, req, "HTTP/1.1 200 OK", "application/json", reply.dump(),
+                              /*connections=*/2); // classify, then the extract replay
     ASSERT(srv >= 0);
     usleep(100000);
 
@@ -5895,8 +6117,8 @@ TEST(context_event_integration_with_agent) {
 
 // ---------------------------------------------------------------------------
 
-int main() {
-    return agent::test::run_all();
+int main(int argc, char** argv) {
+    return agent::test::run_all(argc, argv);
 }
 
 // ---------------------------------------------------------------------------
@@ -6427,6 +6649,27 @@ TEST(data_path_finds_fhs_sibling_share_dir) {
     // points into the share dir.
     ASSERT_FALSE(got.empty());
     ASSERT(got.find("share/amber/completions.json") != std::string::npos);
+}
+
+// The coding library is a DIRECTORY under the same data root as the prompts.
+// The file resolver would happily return a same-named regular file, so the
+// directory lookup filters by kind -- and it must use the same candidate order
+// (sibling share dir included) as every other data file.
+TEST(data_path_resolves_a_directory_through_the_sibling_rule) {
+    DataTree t = make_data_tree();
+    const std::string prefix = t.base + "/prefix";
+    const std::string bin_dir = prefix + "/bin";
+    const std::string lib_dir = prefix + "/share/amber/prompts/domains/coding/library";
+    run_cmd("mkdir -p " + bin_dir + " " + lib_dir);
+    std::ofstream(lib_dir + "/tags.md") << "# tags\n";
+    std::string argv0s = bin_dir + "/amber";
+    const char* argv0 = argv0s.c_str();
+
+    const std::string got = agent::resolve_data_dir("prompts/domains/coding/library", argv0);
+    ASSERT_FALSE(got.empty());
+    ASSERT(got.find("share/amber/prompts/domains/coding/library") != std::string::npos);
+
+    ASSERT_EQ(agent::resolve_data_dir("prompts/domains/coding/absent", argv0), std::string());
 }
 
 // ---------------------------------------------------------------------------
@@ -7507,9 +7750,11 @@ TEST(job_eof_daemon_is_terminated) {
     agent::JobInfo info = j->info();
     // The daemon was terminated and reaped — either the reader forced it
     // (Killed) or the reap landed before the transition (Done). Never an
-    // unreaped-child Done with a bogus exit code.
+    // unreaped-child Done with a bogus exit code. The stop asks first now, so
+    // an ordinary daemon dies of SIGTERM (143); SIGKILL (137) is the escalation
+    // for a group that ignores the ask.
     ASSERT(info.state != agent::JobState::Running);
-    ASSERT_EQ(info.exit_code, 128 + SIGKILL);
+    ASSERT(info.exit_code == 128 + SIGTERM || info.exit_code == 128 + SIGKILL);
     jobs.stop(id);
 }
 

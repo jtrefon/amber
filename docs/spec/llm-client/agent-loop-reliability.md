@@ -32,7 +32,7 @@ conservative fallback estimate so the compression gate always has a budget.
   `lib/llm.cpp` + the existing split TUs (`request_builder`, `sse_parser`,
   `http_transport`, `model_probe`, `debug_log`) form `HttpLLMClient`,
   `lib/agent.cpp` (client member + retry), `lib/agent_helpers.cpp`
-  (`safe_chat_once` retry policy), `lib/compressor.cpp` (n_ctx fallback)
+  (`chat_with_retry` policy), `lib/compressor.cpp` (n_ctx fallback)
 - **Test files** (target): `tests/fake_llm.h` (new), `tests/agent_loop_test.cpp`
   (new, added to `UNITTEST_OBJ` in `Makefile.in`), `tests/run_tests.cpp`
 - **Spec status**: design — implementation tracked in `docs/agent-loop-tracker.md`.
@@ -116,15 +116,24 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - `ApiError : std::runtime_error { long status; bool retryable; }` thrown by
   the HTTP layer for non-2xx; curl failures remain `std::runtime_error`
   (retryable).
-- `chat_with_retry(...)`: up to **3 attempts**, exponential backoff **1s →
-  2s** (+ jitter), sleeps sliced at 100 ms **polling the CancellationToken**
-  (Esc aborts between attempts), `on_status` per attempt, and the existing
-  "continuing with error" degradation after exhaustion. The retried request
-  is the identical `prompt_copy` snapshot — no context change, no prefix
-  invalidation.
-- `safe_chat_once` keeps its contract (never throws, converts to
-  `"[error during …]"`); the retry decision moves to the typed error.
-  `error-handling.md` invariant 3 is updated accordingly.
+- `chat_with_retry(...)`: up to **3 attempts**, a growing ladder **1s → 2s → 4s
+  → 8s (capped)** with **±25 % jitter** derived from the failure text and the
+  attempt (`retry_backoff_ms`) — a metronome is the worst shape of traffic for
+  an endpoint that is recovering or throttling, and deriving the jitter from the
+  failure keeps a given failure's retries reproducible. Sleeps are sliced at
+  100 ms **polling the CancellationToken** (Esc aborts between attempts),
+  `on_status` per attempt (naming the real wait), and the exhaustion produces a
+  `[harness]` notice naming the attempt count. The retried request is the
+  identical `prompt_copy` snapshot — no context change, no prefix invalidation.
+- **`Retry-After` is not honoured yet.** The transport has no response-header
+  seam (adding one widens an already eleven-parameter `curl_exec`), and the
+  measured failures this ladder exists for carried none: 59 upstream 503s in
+  session `1792189515823-0`, zero 429s, no `Retry-After`, no quota wording.
+  Deferred until a provider demonstrates it.
+- The retry loop is the only thing that sees a failure (the old
+  `safe_chat_once` wrapper is gone): a request that cannot be answered ends as a
+  `[harness]` notice naming the attempt count, never as a fabricated reply in
+  the model's voice. `error-handling.md` invariant 3 is updated accordingly.
 
 ---
 
@@ -172,36 +181,35 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 - **Given**: fake scripts one text reply
 - **Input**: `run("hi")`
-- **Expected**: Returns the text; context holds system + user + assistant; `get_all()` chain intact.
+- **Expected**: Returns the text in ONE generation — a reply with no tool calls is the turn's end, and nothing is injected behind it (context: system + user + assistant); `get_all()` chain intact.
 - **On failure**: Loop misbehaves without a server to hide it.
 
 #### [AL-02] Tool round trip
 
 - **Given**: fake scripts tool_calls → final text; registry has a real tool
 - **Input**: `run(...)`
-- **Expected**: Tool executed, result fed back as a `tool` message, final text returned.
+- **Expected**: Tool executed, result fed back as a `tool` message, final text returned; two generations, no third.
 - **On failure**: Dispatch broken silently.
 
-#### [AL-03] Confirmation probe dispatches tool calls (the regression)
+#### [AL-03] A reply carrying content AND tool calls dispatches the calls
 
-- **Given**: model's confirmation-probe reply carries `tool_calls`
-- **Input**: the confirmation exchange (as in `confirm_turn`)
-- **Expected**: `dispatch_tool_calls` runs; the conversation continues. This
-  is the exact scenario the use-after-move broke.
+- **Given**: a reply with both `content` and `tool_calls`
+- **Input**: one turn
+- **Expected**: `dispatch_tool_calls` runs and the loop continues (the use-after-move regression: moved-from state used to swallow the calls).
 - **On failure**: Moved-from state swallows the tool calls.
 
 #### [AL-04] Max tool iterations cap
 
 - **Given**: model calls tools forever
 - **Input**: `run(...)`
-- **Expected**: Loop stops at `max_tool_iterations` with a bounded reply.
-- **On failure**: Unbounded loop.
+- **Expected**: Loop stops at `max_tool_iterations` with a bounded reply; the reply is announced to the host and the stop reason is pushed as a `[harness]` notice (a bound-ended turn is part of the record).
+- **On failure**: Unbounded loop, or a stop nobody sees.
 
 #### [AL-05] Text loop detection
 
-- **Given**: model repeats an identical text reply
+- **Given**: model repeats an identical narration while calling different tools (the opt-in guard)
 - **Input**: `run(...)`
-- **Expected**: Hard stop after the detection threshold.
+- **Expected**: `[harness]` steer at repeat 2; hard stop after the detection threshold.
 - **On failure**: Infinite echo.
 
 #### [AL-06] Compression triggers on scripted tokens
@@ -216,24 +224,43 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 
 - **Given**: fake throws retryable twice, then succeeds
 - **Input**: one turn
-- **Expected**: 3 attempts observed; final reply ok; `on_status` reported the
-  retries; context has exactly one user turn.
+- **Expected**: 3 attempts observed; final reply ok; the failures stay silent (a recovered hiccup is not the model's business); context has exactly one user turn.
 - **On failure**: Double-pushed turns or no retry.
 
-#### [AL-08] Non-retryable error fails fast
+#### [AL-08] Non-retryable error fails fast, then reports
 
-- **Given**: fake throws non-retryable (401-style)
+- **Given**: fake throws non-retryable (401-style), then scripts a text reply
 - **Input**: one turn
-- **Expected**: One attempt only; error surfaced immediately.
-- **On failure**: Backoff burned on auth errors.
+- **Expected**: One attempt only; a `role="user"`, `harness`-flagged notice naming the failure and the attempt count is pushed; the model's next reply ends the turn.
+- **On failure**: Backoff burned on auth errors, or the turn dies with the model untold.
 
 #### [AL-09] Retries exhausted
 
 - **Given**: fake throws retryable 3×
 - **Input**: one turn
-- **Expected**: Error surfaced via the existing degradation path; conversation
-  intact for the user to retry.
-- **On failure**: Exception escapes `run()`.
+- **Expected**: One `[harness]` notice naming "3 attempts"; the model's own reply follows; no harness text ever carries `role="assistant"`; the prompt is intact for a manual retry.
+- **On failure**: Exception escapes `run()`, or the model is left in the dark.
+
+#### [AL-13] A transient self-healed outage is silent
+
+- **Given**: fake throws retryable twice, then answers
+- **Input**: one turn
+- **Expected**: No `harness` message at all — nothing happened that the model could act on.
+- **On failure**: Notice spam for hiccups the retry already handled.
+
+#### [AL-14] A closing marker is part of the answer
+
+- **Given**: the reply ends with `**done.**`
+- **Input**: one turn
+- **Expected**: The whole reply (marker included) is returned, in one generation; the harness neither strips it nor asks anything after it.
+- **On failure**: The old re-injection loop (a finished coverage review became 98 bash calls).
+
+#### [AL-15] An unrecoverable request reports instead of throwing
+
+- **Given**: the adapted retry also fails (template-parser 400 twice per request, two requests)
+- **Input**: `run("hi")`
+- **Expected**: No exception; two notices (one per exhausted request); the model's reply closes the turn.
+- **On failure**: A dead session with no record of why.
 
 #### [AL-10] Cancellation during backoff
 
@@ -250,9 +277,44 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Expected**: Compression still fires (fallback estimate).
 - **On failure**: Unbounded growth (today's behavior).
 
+#### [AL-16] Silence after tool calls
+
+- **Given**: the model answers a tool result with an empty reply (no text, no calls)
+- **Input**: one turn
+- **Expected**: One `[harness]` nudge; if silence repeats, the turn stops with the fallback and the stop notice. `chat_calls` shows exactly the rounds spent (no spin to the iteration cap).
+- **On failure**: A silent death, or a loop that burns the budget on empty replies.
+
+#### [AL-17] A failing endpoint has its own bound
+
+- **Given**: every request fails every attempt (3 requests × 3 attempts)
+- **Input**: `run("hi")`
+- **Expected**: Three `[harness]` failure notices, then the bound stops the turn with the fallback and one stop notice — the endpoint, not the model, is the problem.
+- **On failure**: Unbounded retry storm, or the model blamed for an outage.
+
+#### [AL-18] The loop's state reaches the model before the bound does
+
+- **Given**: `max_tool_iterations = 5`, the model calls tools each round
+- **Input**: one turn
+- **Expected**: No request before step 4 mentions the budget; the step-4 request carries one `[harness]` notice naming `step 4/5`. Announced once — a ceiling that arrives without warning is a trap.
+- **On failure**: A silent truncation the model cannot react to.
+
+#### [AL-19] A repeat is reported, never reinforced
+
+- **Given**: the model issues the same call three times (detection off)
+- **Input**: one turn, then a closing reply
+- **Expected**: One `[harness]` note naming the repetition; the turn ends with the model's own reply — nothing intervenes. `canonical_call_key` treats a bash call with a different `timeout` as the same call.
+- **On failure**: The old trap: 30 escalations counted as 30 fresh calls.
+
+#### [AL-20] Client notices reach the model
+
+- **Given**: an `LLMClient` that accumulated a fact about the request (a window the server clamped, tool calls it had to drop)
+- **Input**: one turn, then a second
+- **Expected**: The fact lands in the conversation as a `[harness]` notice and rides the next request. `take_notices()` drains: nothing is reported twice.
+- **On failure**: The model works against state it cannot see — the hidden clamp that made a long session unexplainable.
+
 #### [AL-12] Context hash chain survives a full session
 
-- **Given**: multi-turn run with tool calls + confirmation + compression
+- **Given**: multi-turn run with tool calls + compression
 - **Input**: the whole scenario set above
 - **Expected**: `get_all()` asserts at every step; zero mutation APIs added.
 - **On failure**: Any context regression fails red here.
@@ -264,7 +326,8 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 - **Depends on**: `llm-client/error-handling.md` (retry contract updated),
   `compression/compression-pipeline.md` (gate budget), `context.h` (immutability)
 - **Depended on by**: `docs/spec/INDEX.md`, `docs/agent-loop-tracker.md`
-- **Test coverage**: `tests/agent_loop_test.cpp` (AL-01..12),
+- **Test coverage**: `tests/agent_loop_test.cpp` (AL-01..12 plus the
+  turn-contract and notice scenarios AL-13..15),
   `tests/run_tests.cpp`
 
 ---
@@ -274,3 +337,4 @@ reply to drive the compression gate, and a cancellation-aware delay option.
 | Date | Reason |
 |------|--------|
 | 2026-07-31 | Initial spec (port + fake + hermetic loop tests; typed retry policy; n_ctx fallback; context-immutability constraint) |
+| 2026-10-18 | Turn contract: a reply with no tool calls ends the turn (the `confirm_turn` probe is gone); failures reach the model as `[harness]` notices (AL-08, AL-09, AL-13, AL-15); AL-03 re-scoped to the mixed reply |

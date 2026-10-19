@@ -997,6 +997,48 @@ learning when the window was explicitly configured.
 
 ---
 
+## Task 18: The loop contract, harness notices, and full-scope context
+
+### Problem
+
+A finished answer could not be accepted. The harness injected "Are you finished?
+… use tools now" as a fake **user** message after every text-only reply and
+rejected every closing marker the model wrote: in session `1792189515823-0` that
+was 20 injections, 19 probes answered with another tool call, six rejected
+closing markers, and a turn that ran to the 100-iteration cap with nothing
+displayed at the stop (`empty_after_tools`). Independent of that, the harness
+kept facts from the model that it needed to act on: retry attempts, request
+repairs, a window the server clamped, dropped tool calls, failed compressions,
+and the reason a turn stopped.
+
+### Target architecture (proposal, 2026-10-18)
+
+`docs/fix-proposal/agent-loop-contract-and-context-transparency-2026-10-18.md`.
+
+- The model decides when a turn ends: tool calls mean "keep going", a reply with
+  none is the answer. No injected continuation, ever.
+- Harness reports are typed: `Message::harness` + a `[harness]` prefix on the
+  user channel (the OpenAI dialect hoists system messages to the request head,
+  which would lose a notice's place). No harness text in the model's voice.
+- Bounds are reported, never forcing: two silent-reply rounds bound one way,
+  three consecutive failure notices bound the other, the 80% budget crossing and
+  repeated canonical calls are announced to the model before they bite.
+- Stops are visible: `finish_turn` announces the closing text to the host,
+  records it, and pushes a notice naming the reason a bound ended the turn.
+
+### Result
+
+- 2026-10-18, branch `fix/inactivity-handoff`: the probe is gone (`1b93ab1`),
+  a stopped turn is reported (`44ed76a`), the loop's state is announced
+  (`d7b2648`), client/repair facts reach the model (`fdefe6f`), the retry ladder
+  grows and jitters (`cdb13fe`), a stopped job is asked before it is killed
+  (`b026c98`). Suite 1151/0; every gate green.
+- Deferred: `Retry-After` (no header seam in the transport; the measured
+  failures carried none) and routing MCP/plugin/probe failures into the error
+  journal (each needs the journal handed to it).
+
+---
+
 ## Dependency Graph
 
 ```

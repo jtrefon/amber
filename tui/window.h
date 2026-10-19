@@ -3,6 +3,8 @@
 
 #include <agent.h>
 
+#include "agent/extensions.h"
+
 #include <atomic>
 #include <memory>
 #include <string>
@@ -60,6 +62,10 @@ struct Window {
     // lives here so two concurrent runs never corrupt each other's status.
     agent::RunState state = agent::RunState::Idle;
     agent::Stats stats;
+    // Session spend, accumulated from every completed exchange (see
+    // UsageTotals: it spans compactions and is what the token segment shows;
+    // ctx_used below is what the NEXT request sends).
+    agent::UsageTotals usage;
     // Context token gauge. Written by this window's worker via context
     // events / stats and by the UI thread on session load; read by the UI
     // thread for the status bar. ctx_used is the server-reported

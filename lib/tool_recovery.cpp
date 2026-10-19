@@ -25,10 +25,10 @@ int FailStreak::update(const json& calls, bool all_ok) {
 void inject_tool_recovery_steer(Context* context, const AgentHooks& hooks, ConversationLog& log) {
     Message steer;
     steer.role = "user";
-    steer.content = "Some tool calls are failing repeatedly (see the ERROR "
-                    "messages above). Do not retry a failing call with the same "
-                    "arguments. Either provide corrected arguments, switch to a "
-                    "different tool, or stop and give your best answer now.";
+    steer.harness = true;
+    steer.content = "[harness] the same tool calls keep failing (see the ERROR "
+                    "messages above). Corrected arguments, a different tool, or a "
+                    "different step are the ways forward.";
     context->push(std::move(steer));
     if (hooks.on_status)
         hooks.on_status("tool recovery: injected steer");

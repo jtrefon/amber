@@ -44,6 +44,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/tool_recovery.o \
             $(BUILD_DIR)/lib/dispatch.o \
             $(BUILD_DIR)/lib/statusbar.o \
+            $(BUILD_DIR)/lib/compact.o \
             $(BUILD_DIR)/lib/session.o \
             $(BUILD_DIR)/lib/workspace.o \
             $(BUILD_DIR)/lib/worktree.o \
@@ -112,6 +113,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/deepseek/deepseek_plugin.o \
               $(BUILD_DIR)/plugins/hello/hello_plugin.o \
               $(BUILD_DIR)/plugins/amber_self/amber_self_plugin.o \
+              $(BUILD_DIR)/plugins/git_timeline/git_timeline_plugin.o \
               $(BUILD_DIR)/plugins/project_instructions/project_instructions_plugin.o \
               $(BUILD_DIR)/plugins/project_index/project_index_plugin.o \
               $(BUILD_DIR)/plugins/project_index/index_store.o \
@@ -888,7 +890,13 @@ $(BUILD_DIR)/tools/%.o: $(SRC_DIR)/tools/%.cpp
 
 # One rule for every bundled plugin directory: adding a plugin means adding
 # its object to the list above and a directory under plugins/, nothing else.
-$(BUILD_DIR)/plugins/%/%.o: $(SRC_DIR)/plugins/%/%.cpp
+#
+# ONE '%' (it spans the plugin directory and the file stem). A second '%' is not
+# a wildcard to make: the rule then matches nothing and every plugin object is
+# compiled by make's builtin rule instead -- which carries no $(DEPFLAGS), so a
+# header change leaves stale plugin objects behind (measured: a StatusSnapshot
+# layout change produced std::bad_alloc in the wallet segment tests).
+$(BUILD_DIR)/plugins/%.o: $(SRC_DIR)/plugins/%.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -I$(SRC_DIR) $(CURL_CFLAGS) -c $< -o $@
 
@@ -952,6 +960,11 @@ install: all
 	install -m 644 prompts/tools/*.md $(DESTDIR)$(datadir)/prompts/tools/
 	install -d $(DESTDIR)$(datadir)/prompts/domains/coding
 	install -m 644 prompts/domains/coding/*.md $(DESTDIR)$(datadir)/prompts/domains/coding/
+	# The coding library is a tree (topics are directories), and it is data the
+	# agent reads at runtime: without this, an installed amber has the domain
+	# prose but no library for it to select from.
+	install -d $(DESTDIR)$(datadir)/prompts/domains/coding/library
+	cp -R prompts/domains/coding/library/. $(DESTDIR)$(datadir)/prompts/domains/coding/library/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
 	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
 	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/

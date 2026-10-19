@@ -49,7 +49,7 @@ void protect_active_task(const std::vector<Message>& history, std::vector<Classi
                          int keep_prompts) {
     std::vector<size_t> user_positions;
     for (size_t i = 1; i < history.size(); ++i)
-        if (history[i].role == "user" && !is_confirmation_probe(history[i]))
+        if (history[i].role == "user" && !is_harness_notice(history[i]))
             user_positions.push_back(i);
     if (user_positions.empty())
         return;
@@ -190,7 +190,7 @@ size_t find_compressed_context(const std::vector<Message>& messages) {
 size_t protected_tail_start(const std::vector<Message>& messages, int keep) {
     std::vector<size_t> users;
     for (size_t i = 1; i < messages.size(); ++i)
-        if (messages[i].role == "user" && !is_confirmation_probe(messages[i]))
+        if (messages[i].role == "user" && !is_harness_notice(messages[i]))
             users.push_back(i);
     auto protect = static_cast<size_t>(keep);
     if (protect > users.size())

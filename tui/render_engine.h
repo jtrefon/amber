@@ -49,9 +49,8 @@ public:
     void append_rich_to(Window& w, const rich::Line& l);
 
     void draw();
-    // The working line under the chat, and the scroll position indicator.
+    // The working line under the chat.
     void draw_working_indicator(int row);
-    std::string scroll_glyph(bool show_working) const;
     // Status-bar painting: one segment (clipped to the budget), the context
     // gauge, the activity indicator, and the right zone.
     void put_segment(int y, int budget, int& x, const std::string& s, int pair);
@@ -59,7 +58,7 @@ public:
     void draw_spinner(int y, int ix);
     void draw_right_zone(int y, int w, int right_w,
                          const std::vector<status_bar_layout::Segment>& right_zone);
-    void draw_status_bar(const std::string& tail);
+    void draw_status_bar();
     // Repaint the bar on the second. A segment that renders wall-clock time
     // (the clock plugin) is correct because of this cadence, not because it
     // schedules anything itself: segments are pure reads of the moment they
@@ -87,6 +86,7 @@ public:
         std::string branch;
         int ins = 0;
         int del = 0;
+        bool dirty = false; // tracked or untracked work beyond the diff counts
     };
     void request_git_refresh(const std::string& root);
     std::shared_ptr<const GitState> git_state() const;
@@ -133,7 +133,6 @@ private:
     static int tone_pair(agent::StatusTone tone);
     static int display_cols(const std::string& s);
     static std::wstring to_wide(const std::string& s);
-    static std::string kfmt(long n);
     static int gauge_pair(double f);
     // Draw one input-line piece at `x`, advancing it (truncated to the width).
     void put_input(int y, int w, int& x, const std::string& text, int pair, int attrs = 0);
@@ -171,6 +170,7 @@ private:
     bool scroll_mode_ = false;
     bool show_reasoning_ = true;
     int anim_phase_ = 0;
+    std::chrono::steady_clock::time_point anim_tick_{};
     std::chrono::steady_clock::time_point working_since_{};
     bool working_visible_ = false;
     bool dirty_ = true;

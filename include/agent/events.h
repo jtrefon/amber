@@ -85,6 +85,13 @@ struct PluginUnloadedEvent {
     std::string plugin_id;
 };
 
+// A registered plugin that could not be activated. Published after the rollback,
+// so an observer sees a consistent harness and a reason it can report.
+struct PluginFailedEvent {
+    std::string plugin_id;
+    std::string reason;
+};
+
 // --- Payload to bus id -----------------------------------------------------
 
 template <class E> struct EventTraits;
@@ -121,6 +128,9 @@ template <> struct EventTraits<PluginLoadedEvent> {
 };
 template <> struct EventTraits<PluginUnloadedEvent> {
     static constexpr EventType type = EventType::PluginUnloaded;
+};
+template <> struct EventTraits<PluginFailedEvent> {
+    static constexpr EventType type = EventType::PluginFailed;
 };
 
 // --- Subscription ----------------------------------------------------------

@@ -14,6 +14,7 @@
 #include "agent/model_probe.h"
 #include "agent/data_path.h"
 #include "agent/workspace.h"
+#include "agent/worktree.h"
 #include "agent/run_scope.h"
 
 #include <algorithm>
@@ -32,6 +33,20 @@ namespace {
 // repeat means the run cannot make progress, so it stops with a clear reason
 // instead of burning the iteration budget.
 constexpr int kMaxInternalFailures = 2;
+// Consecutive silent replies (no tool calls, no text) the loop tolerates before
+// the turn stops: one round with a nudge, then the bound. It is a safety net,
+// not a demand — the harness asks for nothing, it just stops spending once the
+// model has stopped answering.
+constexpr int kMaxNoAnswer = 2;
+// Consecutive harness notices with no model reply in between. A request that
+// fails every attempt is not the model going quiet, so it gets its own bound:
+// the endpoint is down, and three in a row end the turn with the record of why.
+constexpr int kMaxHarnessNotices = 3;
+// When the loop's own state is announced: the share of a budget that counts as
+// "nearly spent", and how many repeats make a call worth reporting (2 means the
+// third identical call).
+constexpr int kBudgetNotePct = 80;
+constexpr int kRepeatNoteAt = 2;
 
 // Append a Markdown section to the system prompt. Files carry a trailing
 // newline and the separator is two of them, so the section is trimmed before it
@@ -83,13 +98,15 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
              std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
              std::shared_ptr<SkillCatalog> skills)
     : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
-      client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
+      client_(std::move(client)), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
       retriever_(std::move(retriever)) {
-    if (client)
-        client_ = std::move(client);
-    else
+    if (!client_)
         client_ = make_client(cfg_, client_factory_);
+    // A window's workspace may be a detached worktree; the prompt says so before
+    // the agent can commit to an unreachable HEAD. The main checkout has no
+    // worktree note (the check is a file test, not a git call, in that case).
+    workspace_note_ = worktree_session_note(Workspace::project_root());
     experience_cfg_ = load_experience_config(cfg_);
     if (skills) {
         skills_ = std::move(skills);
@@ -210,6 +227,12 @@ std::string mode_prompt(agent::AgentMode mode) {
     return "";
 }
 
+void Agent::set_workspace_root(std::string root) {
+    workspace_root_ = std::move(root);
+    workspace_note_ = worktree_session_note(workspace_root_.empty() ? Workspace::project_root()
+                                                                    : workspace_root_);
+}
+
 std::string Agent::render_system_prompt() const {
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
@@ -241,6 +264,11 @@ std::string Agent::render_system_prompt() const {
     // use them without touching the static tools.md.
     append_optional_section(system, plugin_tools_advertisement(registry_));
     system += mode_prompt(cfg_.mode);
+
+    // The workspace itself is part of the environment: a detached worktree
+    // needs a branch before its first commit, and nothing else in the prompt
+    // knows that.
+    append_optional_section(system, workspace_note_);
 
     // An explicit git prompt, when the user configured one. The standard git
     // prose lives in the coding domain plugin, so a session that is not
@@ -403,11 +431,9 @@ void Agent::record_stats(const Stats& stats) {
         cfg_.prompt_tokens_used = stats.prompt_tokens;
 }
 
-// Hidden exchanges (the confirmation probe) stay hidden from subscribers too:
-// publishing them would double-count turns in any plugin observer.
-void Agent::publish_llm_response(const Stats& stats, bool display) {
-    if (!display)
-        return;
+// Every completed exchange is visible to subscribers: the loop has no hidden
+// round-trips any more, so nothing has to be filtered out of the event stream.
+void Agent::publish_llm_response(const Stats& stats) {
     LlmResponseEvent response;
     response.status = 200;
     if (stats.valid) {
@@ -417,7 +443,7 @@ void Agent::publish_llm_response(const Stats& stats, bool display) {
     publish_event(response);
 }
 
-Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool display) {
+Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     Message reply;
     Stats stats;
     if (hooks_.on_debug)
@@ -442,28 +468,23 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools, bool d
     // memories. There is now no "before the gate" to inject into by accident.
     inject_prompt_blocks(prompt_copy);
 
-    const AgentHooks& h = display ? hooks_ : silent_hooks();
     if (cfg_.stream) {
         reply = client_->chat_stream(
-            prompt_copy, tools, [this, &h](const StreamChunk& ch) { on_stream_chunk(h, ch); },
+            prompt_copy, tools, [this](const StreamChunk& ch) { on_stream_chunk(hooks_, ch); },
             &stats);
     } else {
         reply = client_->chat(prompt_copy, tools, &stats);
     }
     record_stats(stats);
-    publish_llm_response(stats, display);
+    publish_llm_response(stats);
+
+    // Whatever the client had to do to the request (a window the server
+    // clamped, calls it had to drop) reaches the model before its next word.
+    for (const auto& note : client_->take_notices())
+        inject_harness_note("[harness] " + note);
 
     ++turn_counter_;
     return reply;
-}
-
-const AgentHooks& Agent::silent_hooks() const {
-    static const AgentHooks silent = [] {
-        AgentHooks h;
-        h.on_state = [](RunState) {};
-        return h;
-    }();
-    return silent;
 }
 
 void Agent::push_reply(Message reply) {
@@ -527,6 +548,11 @@ bool Agent::fail_compression_after(CompressionResult& r, const std::string& erro
     r.tokens_before = tokens_before;
     r.error = error;
     reporter.on_error(error);
+    // The history stands (spec invariant 7), but the model is told the attempt
+    // happened: a compression that failed changes how much room is left, and
+    // that is the model's business too.
+    inject_harness_note("[harness] context compression failed (" + error +
+                        "); the conversation is unchanged and the window is unchanged.");
     publish_compression_done(false, static_cast<long>(tokens_before));
     publish_error("compression", error);
     if (out)
@@ -639,65 +665,11 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     return true;
 }
 
-// The model's "I am finished" vocabulary, with punctuation and case folded away.
-bool is_confirmation_reply(const std::string& s) {
-    std::string flat;
-    for (char c : s) {
-        const char lc = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (lc != ' ' && lc != '.' && lc != '!' && lc != '\n' && lc != '\r')
-            flat += lc;
-    }
-    return flat == "done" || flat == "yes" || flat == "ok" || flat == "finished" ||
-           flat == "looksgood" || flat == "complete" || flat == "alldone";
-}
-
-// True when the last tool result in the context was denied — the loop is broken
-// and the candidate answer stands.
-bool Agent::probe_was_denied() const {
-    const auto& all = context_.get_all();
-    for (auto it = all.rbegin(); it != all.rend(); ++it) {
-        if (it->role != "tool")
-            continue;
-        return it->content.find("status=denied") != std::string::npos;
-    }
-    return false;
-}
-
-std::string Agent::confirm_turn(const std::string& candidate,
-                                const std::vector<std::shared_ptr<Tool>>& tools) {
-    Message done_msg;
-    done_msg.role = "user";
-    done_msg.content = "Are you finished? If you need more information or analysis, "
-                       "use tools now. Otherwise reply with \"done.\"";
-    context_.push(std::move(done_msg));
-    emit_context_event(context_events_, context_);
-
-    Message check = chat_with_recovery(tools, "probe", /*display=*/false,
-                                       /*strict=*/true);
-    // Template-style tool calls arrive embedded in the content (e.g. ornith's
-    // <tool_call><function=...><parameter=...>) — extract them so the probe
-    // dispatches them like the main loop does.
-    extract_embedded_tool_calls(check);
-    json check_tool_calls = check.tool_calls;
-    std::string check_content = check.content;
-    context_.push(std::move(check));
-    emit_context_event(context_events_, context_);
-
-    if (!check_tool_calls.is_null() && !check_tool_calls.empty()) {
-        const bool any_ran =
-            dispatch_tool_calls(check_tool_calls, cfg_, registry_, hooks_, log_, session_approved_,
-                                &policy_, event_bus_, &context_);
-        // A denied tool breaks the loop: the candidate answer stands.
-        if (!any_ran && probe_was_denied())
-            return candidate;
-        return "";
-    }
-    if (is_confirmation_reply(check_content) || check_content.empty())
-        return candidate;
-    return check_content;
-}
-
 void Agent::log_and_push_user_prompt(const std::string& prompt) {
+    // Diagnostics are opt-in and the sink is lazy: every prompt re-asserts it,
+    // so a resumed session (transcript already open) still gets its journal.
+    if (cfg_.debug)
+        log_.open_errors(error_log_path());
     if (!log_.enabled()) {
         // Default-on transcript: nothing the agent saw is ever lost, even
         // when the user never configured log_path. Per-session file under the
@@ -706,10 +678,6 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
         if (path.empty())
             path = Workspace::state_dir() + "/logs/{ts}.jsonl";
         log_.open(path);
-        // Diagnostics are opt-in: with them off there is no journal, no file,
-        // and the record path is one bool test.
-        if (cfg_.debug)
-            log_.open_errors(error_log_path());
     }
     log_.event("user", {{"content", prompt}, {"model", cfg_.model}});
     Message msg;
@@ -802,9 +770,10 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
         if (text_loop_count == 2) {
             Message steer;
             steer.role = "user";
-            steer.content = "You are repeating the same response. "
-                            "If you are done, say \"done.\" If you need more "
-                            "information, use a tool. Do not repeat yourself.";
+            steer.harness = true;
+            steer.content = "[harness] the same reply has arrived twice in a row. Either close the "
+                            "turn with the result, or take a different step — repeating the same "
+                            "words again changes nothing.";
             context_.push(std::move(steer));
             emit_context_event(context_events_, context_);
             if (hooks_.on_status)
@@ -827,17 +796,6 @@ bool Agent::detect_text_loop(const std::string& content, int& text_loop_count,
     return false;
 }
 
-std::string Agent::try_confirm(const std::string& candidate,
-                               const std::vector<std::shared_ptr<Tool>>& tools) {
-    std::string accepted = confirm_turn(candidate, tools);
-    if (accepted.empty())
-        return {};
-    if (hooks_.on_assistant)
-        hooks_.on_assistant(accepted);
-    log_.event("assistant", {{"content", accepted}});
-    return accepted;
-}
-
 std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
     // Keep the snapshot's ownership leases: raw pointers into a temporary
     // snapshot would dangle the moment the registry mutates.
@@ -848,8 +806,6 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 // the retry loop can REPAIR the request once (drop tools when the server
 // cannot parse the tool grammar for the loaded template; swap to a
 // server-known model id when the configured one is rejected) and retry.
-// `display` controls whether the exchange paints into the scrollback;
-// `strict` makes internal exchanges rethrow instead of faking a reply.
 // The recovery ladder for a failed request: template-parser (retry without
 // tools), model-name (retry with the first advertised model), and auth (ask the
 // host for a key, rebuild the client, retry). Returns an empty adapter entry when
@@ -873,40 +829,62 @@ std::string request_new_api_key(const AgentHooks& hooks, const Config& cfg, cons
 
 } // namespace
 
+// Each repair is announced as a [harness] notice before it retries: the request
+// the model asked for is about to change shape, and that is its business. Each
+// returns the retry callable, or {} when no repair applies.
+
+std::function<Message()> Agent::repair_without_tools(const std::string& err) {
+    publish_error("template_parser", err);
+    inject_harness_note("[harness] the server could not parse the tool grammar for this model; the "
+                        "request is being retried without tools.");
+    return [this]() { return chat_once({}); };
+}
+
+std::function<Message()>
+Agent::repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
+                                const std::string& err) {
+    publish_error("model_name", err);
+    auto models = list_models(cfg_);
+    if (models.empty() || models[0] == cfg_.model)
+        return {};
+    set_model(models[0]);
+    if (hooks_.on_status)
+        hooks_.on_status("server rejected model - retrying with \"" + models[0] + "\"");
+    inject_harness_note("[harness] the server rejected the configured model; this request is being "
+                        "retried with \"" +
+                        cfg_.model + "\".");
+    return [this, &tools]() { return chat_once(tools); };
+}
+
+// One-shot: ask the host for an API key, rebuild the client, and retry. The host
+// persists the key to the provider config; when no key is provided (hook unset or
+// user cancelled) no repair applies and the turn degrades as before.
+std::function<Message()> Agent::repair_with_new_key(const char* stage,
+                                                    const std::vector<std::shared_ptr<Tool>>& tools,
+                                                    const std::string& err) {
+    publish_error("auth", err);
+    const std::string key = request_new_api_key(hooks_, cfg_, stage);
+    if (key.empty())
+        return {};
+    set_connection(cfg_.api_base, key, cfg_.model);
+    inject_harness_note("[harness] the API key was rejected and has been replaced; this request is "
+                        "being retried with the new key.");
+    return [this, &tools]() { return chat_once(tools); };
+}
+
 ChatAdapter Agent::build_chat_adapter(const char* stage,
-                                      const std::vector<std::shared_ptr<Tool>>& tools,
-                                      bool display) {
-    return [this, stage, &tools, display](const std::string& err) -> std::function<Message()> {
+                                      const std::vector<std::shared_ptr<Tool>>& tools) {
+    return [this, stage, &tools](const std::string& err) -> std::function<Message()> {
         switch (classify_request_failure(err)) {
         case RequestFailure::TemplateParser:
-            publish_error("template_parser", err);
             if (!tools.empty())
-                return [this, display]() { return chat_once({}, display); };
+                return repair_without_tools(err);
+            publish_error("template_parser", err);
             break;
-        case RequestFailure::ModelName: {
-            publish_error("model_name", err);
-            auto models = list_models(cfg_);
-            if (!models.empty() && models[0] != cfg_.model) {
-                set_model(models[0]);
-                if (hooks_.on_status)
-                    hooks_.on_status("server rejected model \"" + cfg_.model +
-                                     "\" - retrying with \"" + models[0] + "\"");
-                return [this, &tools, display]() { return chat_once(tools, display); };
-            }
-            break;
-        }
-        case RequestFailure::Auth: {
-            publish_error("auth", err);
-            // One-shot: ask the host for an API key, rebuild the client, and
-            // retry. The host persists the key to the provider config; when
-            // no key is provided (hook unset or user cancelled) no repair
-            // applies and the turn degrades as before.
-            const std::string key = request_new_api_key(hooks_, cfg_, stage);
-            if (key.empty())
-                break;
-            set_connection(cfg_.api_base, key, cfg_.model);
-            return [this, &tools, display]() { return chat_once(tools, display); };
-        }
+        case RequestFailure::ModelName:
+            return repair_with_server_model(tools, err);
+        case RequestFailure::Auth:
+            return repair_with_new_key(stage, tools, err);
         default:
             break;
         }
@@ -915,12 +893,10 @@ ChatAdapter Agent::build_chat_adapter(const char* stage,
 }
 
 Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tools,
-                                  const char* stage, bool display, bool strict) {
-    const ChatAdapter adapt = build_chat_adapter(stage, tools, display);
-    auto chat = [this, &tools, display]() { return chat_once(tools, display); };
+                                  const char* stage) {
+    const ChatAdapter adapt = build_chat_adapter(stage, tools);
+    auto chat = [this, &tools]() { return chat_once(tools); };
     try {
-        if (strict)
-            return chat_with_retry_strict(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
         return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
     } catch (const std::exception& e) {
         const auto* api = dynamic_cast<const ApiError*>(&e);
@@ -941,13 +917,25 @@ std::string Agent::finish_turn_cancelled() {
     return "";
 }
 
-std::string Agent::finish_turn(std::string final_reply) {
+std::string Agent::finish_turn(std::string final_reply, bool model_closed) {
     if (final_reply.empty()) {
         final_reply = empty_turn_reply(context_.get_all());
         log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
                                             ? "empty_after_tools"
                                             : "empty_reply"}});
     }
+    if (!model_closed) {
+        // A bound ended this turn, not the model. The reason goes into the
+        // conversation so the next turn opens knowing why it stopped, and into
+        // the host's hands so the stop is never silent on screen.
+        inject_harness_note("[harness] the turn ended without a closing reply: " + final_reply);
+    }
+    // The closing text is announced and recorded here — the single exit of every
+    // non-cancelled turn. A streamed reply is already on screen (the host skips
+    // a duplicate), a stop reason is not.
+    if (hooks_.on_assistant)
+        hooks_.on_assistant(final_reply);
+    log_.event("assistant", {{"content", final_reply}});
     log_.event("turn_end", {{"content", final_reply}});
     if (hooks_.on_state)
         hooks_.on_state(RunState::Idle);
@@ -1068,6 +1056,7 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
 Agent::TurnState Agent::make_turn_state() const {
     TurnState st;
     const auto loop_t0 = std::chrono::steady_clock::now();
+    st.start = loop_t0;
     st.deadline = cfg_.max_wall_ms > 0 ? loop_t0 + std::chrono::milliseconds(cfg_.max_wall_ms)
                                        : std::chrono::steady_clock::time_point::max();
     return st;
@@ -1085,31 +1074,79 @@ bool Agent::turn_budget_exceeded(TurnState& st) {
     return true;
 }
 
+// One reply that carries tool calls: report repeated narration (opt-in guard),
+// track the canonical call for the repeat note, dispatch. Returns true when the
+// loop must stop.
+bool Agent::fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content) {
+    st.no_answer = 0;
+    st.notices = 0;
+    if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
+        return true;
+    // The repeat counter is the reporting one (canonical arguments, timing
+    // stripped); it never intervenes, it just feeds the loop-state note.
+    const std::string key = canonical_call_key(tool_calls);
+    if (!key.empty() && key == st.last_call_key) {
+        ++st.repeat_count;
+    } else {
+        st.repeat_count = 0;
+        st.last_call_key = key;
+    }
+    dispatch_with_loop_detection(tool_calls, content, st.fail_streak, st.loop_count,
+                                 st.last_loop_key, st.tool_recovery_attempts, st.final_reply);
+    return !st.final_reply.empty();
+}
+
+// A report from the environment is not the model going quiet: the model has the
+// next word. Three in a row mean the endpoint is down.
+bool Agent::fold_harness_notice(TurnState& st) {
+    st.no_answer = 0;
+    return ++st.notices >= kMaxHarnessNotices;
+}
+
+// A silent empty reply. The model may have lost the thread, so it gets one more
+// round with a note; after that the turn stops.
+bool Agent::fold_silent_reply(TurnState& st) {
+    st.notices = 0;
+    if (++st.no_answer >= kMaxNoAnswer)
+        return true;
+    inject_harness_note("[harness] the previous reply carried no tool call and no content. If work "
+                        "remains, continue with a tool or state what blocks it; otherwise close "
+                        "with the result.");
+    return false;
+}
+
 // Fold one iteration's reply into the turn. Returns true when the loop should
 // stop; the reply is pushed either way.
+//
+// The turn contract: the MODEL decides when the turn ends. Tool calls mean
+// "mid-process, keep going"; a reply with no tool calls is the answer, and the
+// loop stops there. The harness never asks for another round and never invents
+// a turn of its own; its own reports ([harness] notices) hand the model the
+// next word instead of closing the turn.
 bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
                          Message& reply) {
+    (void)tools;
     // Extract tool_calls and content before push_reply (which moves reply).
     // Template-style tool calls arrive embedded in the content (e.g. ornith's
     // <tool_call><function=...><parameter=...>) — extract them BEFORE the
     // dispatch snapshot so they actually execute.
     extract_embedded_tool_calls(reply);
     const json tc = reply.tool_calls;
-    std::string content = reply.content;
+    const std::string content = reply.content;
+    const bool notice = reply.harness;
     push_reply(std::move(reply));
 
-    if (!tc.is_null() && !tc.empty() &&
-        dispatch_with_loop_detection(tc, content, st.fail_streak, st.loop_count, st.last_loop_key,
-                                     st.tool_recovery_attempts, st.final_reply))
-        return !st.final_reply.empty();
+    if (!tc.is_null() && !tc.empty())
+        return fold_tool_calls(st, tc, content);
+    if (notice)
+        return fold_harness_notice(st);
+    if (content.empty())
+        return fold_silent_reply(st);
 
-    if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
-        return true;
-
-    std::string accepted = try_confirm(content, tools);
-    if (accepted.empty())
-        return false;
-    st.final_reply = std::move(accepted);
+    st.no_answer = 0;
+    st.notices = 0;
+    st.model_closed = true; // the model's own reply is the turn's close
+    st.final_reply = content;
     return true;
 }
 
@@ -1119,11 +1156,51 @@ bool Agent::fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& 
         return advance_turn(st, tools, reply);
     } catch (const CancelledError&) {
         throw; // a deliberate stop, not a failure to recover from
-    } catch (const RequestFailedError&) {
-        throw; // the probe's escalation: the turn ends with a real error
     } catch (const std::exception& e) {
         return recover_internal_failure(st, e.what());
     }
+}
+
+// The loop's own state, said once at the moment it changes: how much of the
+// iteration and wall-clock budget is spent, and whether the same call keeps
+// coming back. Nothing here intervenes — a bound that arrives without warning is
+// a trap, so the model is told and decides.
+void Agent::note_loop_state(TurnState& st, int iter) {
+    const long wall_ms = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               std::chrono::steady_clock::now() - st.start)
+                                               .count());
+    if (!st.budget_noted && cfg_.max_tool_iterations > 0 &&
+        (iter + 1) * 100 >= cfg_.max_tool_iterations * kBudgetNotePct) {
+        st.budget_noted = true;
+        inject_harness_note("[harness] step " + std::to_string(iter + 1) + "/" +
+                            std::to_string(cfg_.max_tool_iterations) +
+                            " of this turn's iteration budget is used.");
+    }
+    if (!st.wall_noted && cfg_.max_wall_ms > 0 &&
+        wall_ms * 100 >= cfg_.max_wall_ms * kBudgetNotePct) {
+        st.wall_noted = true;
+        inject_harness_note("[harness] " + std::to_string(wall_ms / 60000) +
+                            "m of this turn's wall-clock budget is used.");
+    }
+    if (st.repeat_count >= kRepeatNoteAt && st.noted_repeats != st.repeat_count) {
+        st.noted_repeats = st.repeat_count;
+        inject_harness_note("[harness] the same tool call has been issued " +
+                            std::to_string(st.repeat_count + 1) +
+                            " times in a row; arguments that only change the timing do not count.");
+    }
+}
+
+// Push a harness notice into the conversation. It rides the user channel with
+// the harness flag set: the model sees it in place, the loop never mistakes it
+// for an answer, and a UI can render it as the environment speaking.
+void Agent::inject_harness_note(const std::string& text) {
+    Message note;
+    note.role = "user";
+    note.harness = true;
+    note.content = text;
+    context_.push(std::move(note));
+    emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
 }
 
 bool Agent::recover_internal_failure(TurnState& st, const std::string& what) {
@@ -1131,12 +1208,7 @@ bool Agent::recover_internal_failure(TurnState& st, const std::string& what) {
     log_.event("error", {{"reason", "internal_failure"}, {"error", what}});
     if (hooks_.on_status)
         hooks_.on_status("internal error (recovered): " + what);
-    Message msg;
-    msg.role = "assistant";
-    msg.content = internal_failure_reply(what);
-    context_.push(std::move(msg));
-    emit_context_event(context_events_, context_);
-    publish_message_added(context_.get_all().back());
+    inject_harness_note(internal_failure_reply(what));
     answer_orphan_tool_calls(what);
     if (st.internal_failures < kMaxInternalFailures)
         return false;
@@ -1223,12 +1295,11 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
+        note_loop_state(st, iter);
 
         Message reply;
         try {
-            reply = chat_with_recovery(tools, "generation",
-                                       /*display=*/true,
-                                       /*strict=*/false);
+            reply = chat_with_recovery(tools, "generation");
         } catch (const CancelledError&) {
             if (hooks_.on_status)
                 hooks_.on_status("cancelled by user");
@@ -1237,7 +1308,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (fold_reply(st, tools, reply))
             break;
     }
-    return finish_turn(std::move(st.final_reply));
+    return finish_turn(std::move(st.final_reply), st.model_closed);
 }
 
 // Upserts vs deprecations in one op list.

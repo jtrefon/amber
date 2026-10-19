@@ -21,6 +21,12 @@ namespace agent {
 // Returns "name1|args1|name2|args2|..." or empty string for null/empty input.
 std::string fingerprint_tool_calls(const json& calls);
 
+// The same fingerprint with timing arguments dropped ("timeout", "timeout_s",
+// "seconds", "wait", "wait_s"): raising the timeout is an escalation of an
+// identical call, not a new one, and counting it as new is what made a 30-retry
+// loop look like 30 different calls to the old guard.
+std::string canonical_call_key(const json& calls);
+
 // Replace invalid UTF-8 sequences with U+FFFD so model/tool text can never
 // carry bytes that make nlohmann throw on json::dump (type_error.316). Tool
 // output (grep/semantic search) and some servers' assistant content can
@@ -38,19 +44,6 @@ std::string strip_think(std::string s);
 // `ok` is cleared and `args` keeps the raw string so dispatch can report a
 // clear, recoverable error instead of a silent `{}`.
 void parse_tool_call(const json& call, std::string& id, std::string& fn, json& args, bool& ok);
-
-// Extract XML-embedded tool calls from reply content or reasoning
-// (Jinja-style chat templates that emit XML instead of JSON tool_calls).
-// When `content` is empty, falls back to `stored.reasoning` — some models
-// (Qwen/Jinja) emit <tool_call> XML in their thinking block and leave
-// content blank. On success it rewrites `tool_calls`, clears the source
-// field (`content` or `stored.reasoning`), clears `content`, and returns
-// true.
-// One model round-trip that never aborts the turn: calls `chat`, sanitizes the
-// reply text, and on any failure returns a recovered assistant error message so
-// the loop can retry on the next iteration instead of crashing.
-Message safe_chat_once(const AgentHooks& hooks, ConversationLog& log,
-                       const std::function<Message()>& chat, const char* stage);
 
 // Classify a non-retryable HTTP 4xx: is the failure in OUR request, and can
 // the request be repaired by adaptation?
@@ -75,21 +68,20 @@ using ChatAdapter = std::function<std::function<Message()>(const std::string&)>;
 // ApiError{retryable=true} (429/5xx/timeouts) or plain transport exceptions;
 // non-retryable ApiErrors (auth/misconfig 4xx) fail fast after one attempt —
 // unless `adapt` repairs the REQUEST (see ChatAdapter): then one adapted
-// attempt runs with full retry semantics. On exhaustion returns the standard
-// "[error during ...]" message so the loop degrades gracefully and the
-// conversation stays intact.
+// attempt runs with full retry semantics. On exhaustion returns a [harness]
+// notice naming the attempts so the model knows the request failed and can
+// choose the next move; the conversation stays intact.
 Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
                         const std::function<Message()>& chat, const char* stage,
                         const CancellationToken& cancel_token, int max_attempts = 3,
                         const ChatAdapter& adapt = {});
 
-// Strict variant used by internal exchanges (the confirmation probe): same
-// retry/adaptation behavior, but rethrows the last error on exhaustion
-// instead of returning a fake reply that would pollute the context.
-Message chat_with_retry_strict(const AgentHooks& hooks, ConversationLog& log,
-                               const std::function<Message()>& chat, const char* stage,
-                               const CancellationToken& cancel_token, int max_attempts = 3,
-                               const ChatAdapter& adapt = {});
+// The retry ladder: 1s, 2s, 4s, 8s (capped), each with ±25% jitter derived from
+// the failure text and the attempt. A metronome is the worst shape of traffic
+// for an endpoint that is recovering (or throttling): the jitter spreads retries
+// out, while deriving it from the failure keeps a given failure's retries
+// reproducible.
+long retry_backoff_ms(int attempt, const std::string& seed);
 
 // Build the final-reply fallback when the loop ended without a usable answer.
 std::string empty_turn_reply(const std::deque<Message>& history);

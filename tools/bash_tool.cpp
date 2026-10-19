@@ -39,10 +39,12 @@ void drain_output(int fd, std::string& out) {
     }
 }
 
-// Parent-side read loop: copy pipe output until EOF or the IDLE deadline,
-// killing the child's process group on timeout. The budget counts time with no
-// new output, so a long-running command that keeps emitting (e.g. a build)
-// survives indefinitely; only silence past `timeout_s` triggers a kill.
+// Parent-side read loop for hosts without a job service: copy pipe output until
+// EOF or the child exits, and kill the group after `timeout_s` of NO output.
+// There is no wall-clock budget (an emitting command is never cut off), and the
+// budget is inactivity only — but with no registry there is nobody to hand the
+// process back to, so silence is the one case that ends it here. Hosts with a
+// job service return control to the agent instead (see run_via_jobs).
 bool run_with_timeout(int fd, pid_t pid, int timeout_s, std::string& out, bool& child_done) {
     const long deadline_ms = timeout_s * 1000L;
     long idle_ms = 0;
@@ -114,15 +116,56 @@ pid_t spawn_command(const std::string& command, const std::string& cwd, int& rea
     return pid;
 }
 
-// Assemble the combined output (with truncation notice), then either report the
-// timeout or the child's exit code into `r`.
-void format_result(std::string output, bool timed_out, int code, int timeout, long elapsed_ms,
-                   ToolResult& r) {
-    bool truncated = output.size() >= kMaxOutput;
+// How a supervised command stopped.
+enum class StopKind { Finished, Inactive, TimedOut, Cancelled };
+
+// What the tool knows when it stops watching: the outcome, the exit status (a
+// finished command), the silence that ended the wait, and the job to hand back.
+struct Stop {
+    StopKind kind = StopKind::Finished;
+    int code = 0;
+    long idle_s = 0;
+    long elapsed_ms = 0;
+    std::size_t bytes = 0;
+    std::string job_id;
+};
+
+// An inactive command is handed back, not killed: name the job, the silence and
+// the three ways forward, so the decision stays the agent's.
+void format_inactive(std::ostringstream& out, const Stop& s, ToolResult& r) {
+    out << "[inactive " << s.idle_s << "s] still running"
+        << (s.job_id.empty() ? "" : " — job " + s.job_id) << ", " << s.elapsed_ms / 1000
+        << "s elapsed, " << s.bytes << " bytes of output so far. Nothing was killed.\n"
+        << "Decide: process_read wait=" << s.idle_s
+        << " (same budget again), process_read with another wait, or process_stop to end it.";
+    r.ok = true;
+    r.output = out.str();
+    r.meta = {{"stop", "inactive"}, {"idle_s", s.idle_s}, {"duration_ms", s.elapsed_ms}};
+    if (!s.job_id.empty())
+        r.meta["job"] = s.job_id;
+}
+
+// A command that was ended rather than handed back: say how, and after how long
+// it had been inactive, so the next decision is informed.
+void format_kill_notice(std::ostringstream& out, const Stop& s, ToolResult& r) {
+    if (s.kind == StopKind::TimedOut)
+        out << "[command timed out after " << s.idle_s << "s of no output and was killed]";
+    else
+        out << "[command cancelled and killed after " << s.elapsed_ms / 1000 << "s]";
+    r.ok = false;
+    r.error = s.kind == StopKind::TimedOut ? "timed out after " + std::to_string(s.idle_s) + "s"
+                                           : "cancelled";
+    r.output = out.str();
+    r.meta["timeout"] = true;
+}
+
+// Assemble the combined output (with truncation notice), then report the
+// outcome: a finished command by its exit code, an inactive one by handing the
+// decision back to the agent, an ended one by the notice above.
+void format_result(std::string output, const Stop& s, ToolResult& r) {
+    const bool truncated = output.size() >= kMaxOutput;
     if (truncated)
         output.resize(kMaxOutput);
-
-    r.meta = {{"exit", code}, {"truncated", truncated}, {"duration_ms", elapsed_ms}};
 
     std::ostringstream out;
     out << output;
@@ -131,40 +174,38 @@ void format_result(std::string output, bool timed_out, int code, int timeout, lo
     if (truncated)
         out << "[output truncated at " << kMaxOutput << " bytes]\n";
 
-    if (timed_out) {
-        out << "[command timed out after " << timeout << "s and was killed]";
-        r.ok = false;
-        r.error = "timed out after " + std::to_string(timeout) + "s";
-        r.output = out.str();
-        // A flag, not the seconds: every reader of this key (the tool-result
-        // envelope, the bench recorder) treats it as a boolean. The seconds
-        // reach the model in the error and the output above.
-        r.meta["timeout"] = true;
+    if (s.kind == StopKind::Inactive) {
+        format_inactive(out, s, r);
         return;
     }
 
-    out << "[exit " << code << "]";
+    r.meta = {{"exit", s.code}, {"truncated", truncated}, {"duration_ms", s.elapsed_ms}};
+
+    if (s.kind != StopKind::Finished) {
+        format_kill_notice(out, s, r);
+        return;
+    }
+
+    out << "[exit " << s.code << "]";
     r.output = out.str();
-    r.ok = (code == 0);
+    r.ok = (s.code == 0);
     if (!r.ok)
-        r.error = "command exited with status " + std::to_string(code);
+        r.error = "command exited with status " + std::to_string(s.code);
 }
 
-// Poll until the job finishes, is cancelled, or breaches the idle/hard budget.
-// Returns true when the job was cut short.
-bool wait_for_job(JobService* jobs, const CancellationToken& cancel_token, const std::string& id,
-                  int timeout) {
-    const auto hard_deadline =
-        std::chrono::steady_clock::now() + std::chrono::seconds(2L * timeout);
+// Wait until the job finishes, is cancelled, or has been silent for `idle_s`.
+// Silence is not a kill: it returns control to the agent, which decides what
+// happens next (see format_result's StopKind::Inactive).
+StopKind wait_for_job(JobService* jobs, const CancellationToken& cancel_token,
+                      const std::string& id, int idle_s) {
     while (true) {
         if (run_cancelled(cancel_token))
-            return true;
+            return StopKind::Cancelled;
         std::shared_ptr<Job> j = jobs->get(id);
         if (!j || j->is_done())
-            return false;
-        if (j->info().seconds_since_output >= timeout ||
-            std::chrono::steady_clock::now() >= hard_deadline)
-            return true;
+            return StopKind::Finished;
+        if (j->info().seconds_since_output >= idle_s)
+            return StopKind::Inactive;
         usleep(50000);
     }
 }
@@ -175,29 +216,34 @@ bool wait_for_job(JobService* jobs, const CancellationToken& cancel_token, const
 void run_via_jobs(JobService* jobs, const CancellationToken& cancel_token,
                   const std::string& command, int timeout,
                   const std::chrono::steady_clock::time_point& t0, ToolResult& r) {
-    // Idle-timeout semantics: the command is killed after `timeout` seconds
-    // with NO output. A long-running task that keeps emitting output (e.g. a
-    // build) is normally never cut off, but a hard wall-clock ceiling (2x the
-    // idle budget) guarantees a constantly emitting command cannot run forever.
+    // Neither budget is a kill: 0 disables the service's own timers, so it
+    // watches and reports and the agent stays in charge of ending the process.
     const std::string id = jobs->start(command, Workspace::workspace_root(),
-                                       /*hard_timeout_s=*/2L * timeout,
-                                       /*idle_timeout_s=*/timeout);
+                                       /*hard_timeout_s=*/0, /*idle_timeout_s=*/0);
     if (id.empty()) {
         r.ok = false;
         r.error = "spawn failed";
         return;
     }
-    const bool timed_out = wait_for_job(jobs, cancel_token, id, timeout);
-    // Re-acquire the lease (a concurrent stop may have erased the entry, in
-    // which case the job was killed and reaped).
+    const StopKind kind = wait_for_job(jobs, cancel_token, id, timeout);
+    // Re-acquire the lease (a concurrent stop may have erased the entry).
     std::shared_ptr<Job> j = jobs->get(id);
+    const long idle_s = j ? j->info().seconds_since_output : 0;
     std::string output = j ? j->output() : std::string();
     const int code = j ? j->exit_code() : 0;
-    const bool stopped = !j; // erased = a concurrent stop killed it
-    const bool killed = j && j->info().state == JobState::Killed;
-    jobs->stop(id); // erase: bash returns output inline, not via /job
-    format_result(std::move(output), timed_out || killed || stopped, code, timeout, elapsed_ms(t0),
-                  r);
+    if (kind != StopKind::Inactive)
+        jobs->stop(id); // erase: bash returns output inline, not via /job
+    // Inactive: the job stays registered — /job lists it, the status bar shows
+    // it, and process_read / process_stop act on it.
+    Stop stop;
+    stop.kind = kind;
+    stop.code = code;
+    stop.idle_s = idle_s;
+    stop.elapsed_ms = elapsed_ms(t0);
+    stop.bytes = output.size();
+    if (kind == StopKind::Inactive)
+        stop.job_id = id;
+    format_result(std::move(output), stop, r);
 }
 
 // Exit code for a waitpid status, or -1 when the child neither exited nor was
@@ -229,8 +275,13 @@ void run_direct(const std::string& command, int timeout,
     }
     close(read_fd);
 
-    format_result(std::move(output), timed_out, wait_status_code(status), timeout, elapsed_ms(t0),
-                  r);
+    Stop stop;
+    stop.kind = timed_out ? StopKind::TimedOut : StopKind::Finished;
+    stop.code = wait_status_code(status);
+    stop.idle_s = timeout;
+    stop.elapsed_ms = elapsed_ms(t0);
+    stop.bytes = output.size();
+    format_result(std::move(output), stop, r);
 }
 
 } // namespace
@@ -238,18 +289,20 @@ void run_direct(const std::string& command, int timeout,
 // bash: run a shell command inside the workspace root and return its combined
 // stdout+stderr and exit status. Args:
 //   command  (string, required) the command line, run via `sh -c`
-//   timeout  (int, optional)    seconds of NO output before the command is
-//                              killed (default 60); output resets the idle
-//                              budget, but a hard ceiling of 2x timeout bounds
-//                              total wall time so an emitting command cannot
-//                              run forever
+//   timeout  (int, optional)    seconds of NO output after which control
+//                              returns to the agent (default 60). Nothing is
+//                              killed: the command keeps running as a job and
+//                              the agent decides to wait again, wait a
+//                              different amount, or stop it. Hosts without a
+//                              job service have no way to hand the process
+//                              back, so there silence ends it.
 //
 // Safety: this tool executes arbitrary commands, so commands outside the
 // read-only allowlist trigger the approval gate. Benign read-only commands
 // (ls, cat, grep, git status, ...) run freely; write/destructive commands
 // prompt first. It runs with the working directory set to the confined
-// workspace root, in its own process group so a timeout can reliably kill the
-// whole subtree.
+// workspace root, in its own process group so the whole subtree can be ended
+// when the agent asks.
 class BashTool : public Tool {
 public:
     explicit BashTool(JobService* jobs = nullptr, const CancellationToken& cancel_token = {})
@@ -281,10 +334,10 @@ private:
                                     "call over multiple separate ones."}}},
                   {"timeout",
                    {{"type", "integer"},
-                    {"description", "Seconds of no output before the command is "
-                                    "killed (default 60); output resets the idle "
-                                    "budget, but total wall time is capped at 2x "
-                                    "this value"}}}}},
+                    {"description", "Seconds of no output after which control "
+                                    "returns to you (default 60). Nothing is "
+                                    "killed: the command keeps running as a "
+                                    "job you can process_read or process_stop."}}}}},
                 {"required", {"command"}}};
     }
 

@@ -133,6 +133,9 @@ public:
     PushFn make_push(size_t window_id, const std::atomic<bool>& cancel);
     static std::function<void(const std::string&)> emit_text(const PushFn& push,
                                                              AgentEvent::Type type);
+    // The agent's on_debug sink: a status line while `/set debug on` is active,
+    // silent otherwise.
+    std::function<void(const std::string&)> debug_sink(const PushFn& push);
     void wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push);
     void wire_blocking_hooks(agent::AgentHooks& hooks, size_t window_id,
                              const std::atomic<bool>& cancel);

@@ -75,7 +75,7 @@ and the TUI status bar.
 
 - **Given**: Job running with PID
 - **Input**: `process_stop` with `{"id": "job_1"}`
-- **Expected**: `ok=true`. Output: `"[job job_1 stopped]\n<full output before kill>"`. Job removed from service. Process group receives `SIGKILL`.
+- **Expected**: `ok=true`. Output: `"[job job_1 stopped]\n<full output before kill>"`. Job removed from service. The process group is asked to stop (`SIGTERM`), gets a 2s grace, and is escalated to `SIGKILL` if it ignores the ask.
 - **Approval**: Requires user approval.
 
 #### [PT-07] Stop a finished job
