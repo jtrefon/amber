@@ -27,15 +27,20 @@ enum Priority {
 // Drop priority is what goes first when the terminal is too narrow: the
 // least-important segment has the highest number. Scroll mode never drops (0
 // means "keep"), because the user asked for it explicitly.
+//
+// The transients go before the cost readout. Lag and tps describe ONE completed
+// exchange and are stale until the next one; the token meter is the session's
+// spend, and it used to drop first (drop 7, ahead of everything), which on a
+// ~100-column terminal made it look broken rather than crowded.
 enum Drop {
     kScrollDrop = 0,
     kActivityDrop = 1,
     kModeDrop = 2,
     kWindowDrop = 3,
-    kTpsDrop = 4,
-    kModelDrop = 6,
-    kLagDrop = 6,
-    kTokensDrop = 7,
+    kModelDrop = 4,
+    kTokensDrop = 5,
+    kTpsDrop = 7,
+    kLagDrop = 8,
 };
 
 std::string dashed(const char* glyph) {
@@ -95,14 +100,12 @@ StatusText render_scroll(const StatusSnapshot& s) {
 StatusText render_lag(const StatusSnapshot& s) {
     if (s.latency_ms < 0)
         return StatusText{"  lag " + dashed(bar::emdash()), StatusTone::Dim};
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "  lag %.0fms", static_cast<double>(s.latency_ms));
     StatusTone tone = StatusTone::Dim;
     if (s.latency_ms > 5000)
         tone = StatusTone::Crit;
     else if (s.latency_ms > 1000)
         tone = StatusTone::Warn;
-    return StatusText{buf, tone};
+    return StatusText{"  lag " + bar::duration_ms(s.latency_ms), tone};
 }
 
 StatusText render_tps(const StatusSnapshot& s) {

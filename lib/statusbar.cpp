@@ -41,6 +41,28 @@ std::string kfmt(long n) {
     return buf;
 }
 
+std::string duration_ms(long ms) {
+    if (ms < 0)
+        return "?";
+    char buf[24];
+    if (ms < 1000) {
+        std::snprintf(buf, sizeof(buf), "%ldms", ms);
+        return buf;
+    }
+    if (ms < 10000) {
+        // One decimal below ten seconds, with a trailing ".0" dropped: 1500 ->
+        // "1.5s", 2000 -> "2s". A whole second reads as a whole second.
+        const double s = static_cast<double>(ms) / 1000.0;
+        std::snprintf(buf, sizeof(buf), "%.1fs", s);
+        std::string out = buf;
+        if (out.size() >= 4 && out.compare(out.size() - 3, 2, ".0") == 0)
+            out.erase(out.size() - 3, 2);
+        return out;
+    }
+    std::snprintf(buf, sizeof(buf), "%.0fs", static_cast<double>(ms) / 1000.0);
+    return buf;
+}
+
 int gauge_full_cells(double frac, int cells) {
     if (cells <= 0)
         return 0;

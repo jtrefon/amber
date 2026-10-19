@@ -16,12 +16,20 @@ int zone_cols(const std::vector<Segment>& zone) {
 
 } // namespace
 
+// The activity indicator owns its columns outright: its start column is also
+// the left zone's budget, so a left flow that fills the budget still cannot
+// reach it.
+int activity_x(int width, int right_cols) {
+    const int reserved = right_cols > 0 ? right_cols + 1 + kActivityWidth : kActivityWidth;
+    const int x = width - reserved;
+    return x < 0 ? -1 : x;
+}
+
 // The right zone is reserved whatever it holds: with the clock switched off the space
 // goes back to the left zone instead of staying reserved.
 int budget_for(int width, int right_cols) {
-    const int reserved = right_cols > 0 ? right_cols + 1 + kActivityWidth : kActivityWidth;
-    const int b = width - reserved;
-    return b < 0 ? 0 : b;
+    const int x = activity_x(width, right_cols);
+    return x < 0 ? 0 : x;
 }
 
 // One drop rule for both zones: the highest drop priority goes first when the bar

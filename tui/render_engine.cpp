@@ -415,11 +415,11 @@ void RenderEngine::draw_spinner(int y, int ix) {
         anim_phase_ = 0;
         mvaddstr(y, ix + 1, "   idle   ");
     } else {
-        static auto last_phase = std::chrono::steady_clock::now();
         const auto now = std::chrono::steady_clock::now();
-        if (now - last_phase > std::chrono::milliseconds(150)) {
+        if (anim_tick_.time_since_epoch().count() == 0 ||
+            now - anim_tick_ > std::chrono::milliseconds(150)) {
             ++anim_phase_;
-            last_phase = now;
+            anim_tick_ = now;
         }
         for (int i = 0; i < kIW - 2; ++i) {
             int c = anim_phase_ % 16;
@@ -490,13 +490,16 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
     if (!tail.empty() && x + display_cols(tail) + 1 < budget)
         put_segment(y, budget, x, "  " + tail, P_BAR_DIM);
 
-    const int right_w = plan.right_cols;
-    const int ix = right_w > 0 ? w - right_w - kIW - 1 : w - kIW - 1;
-    if (ix > x + 4)
+    // The wave's columns are reserved by the layout: its start column IS the
+    // left zone's budget, so the painter draws it whenever the terminal can
+    // hold it. The old guard (`ix > x + 4`) let the left flow -- in practice
+    // the ctx gauge -- push the wave out exactly while the agent was working.
+    const int ix = status_bar_layout::activity_x(w, plan.right_cols);
+    if (ix >= 0)
         draw_spinner(y, ix);
 
-    if (right_w > 0)
-        draw_right_zone(y, w, right_w, plan.right);
+    if (plan.right_cols > 0)
+        draw_right_zone(y, w, plan.right_cols, plan.right);
 }
 
 void RenderEngine::tick_clock() {

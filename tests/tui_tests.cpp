@@ -1971,6 +1971,39 @@ TEST(status_bar_layout_no_right_zone_reserves_only_activity) {
     ASSERT_EQ(p.budget, 40 - 13);
 }
 
+// The wave sits in the first column the left zone may not use, so the painter
+// can always draw it. The bug this pins: the painter used to drop the wave
+// whenever the left flow reached its budget (the ctx gauge routinely did), which
+// read as the activity indicator vanishing exactly while the agent worked.
+TEST(status_bar_layout_activity_slot_is_the_left_budget) {
+    for (int w : {20, 40, 80, 120, 200}) {
+        for (int right : {0, 3, 10}) {
+            std::vector<BarSeg> segs;
+            if (right > 0)
+                segs.push_back({std::string(static_cast<size_t>(right), 'r'), 0, 0,
+                                agent::StatusAlign::Right});
+            const auto p = tui::status_bar_layout::plan(segs, w, false, 0);
+            const int x = tui::status_bar_layout::activity_x(w, p.right_cols);
+            if (x < 0) {
+                ASSERT_EQ(p.budget, 0); // nothing fits: the bar has no left budget either
+                continue;
+            }
+            ASSERT_EQ(x, p.budget);
+            ASSERT(x >= 0);
+            ASSERT(x + 12 <= w); // the wave's own columns fit
+            if (right > 0)
+                ASSERT(x + 12 <= w - right - 1); // and the clock keeps its gap
+        }
+    }
+}
+
+TEST(status_bar_layout_activity_slot_is_negative_when_it_cannot_fit) {
+    ASSERT_EQ(tui::status_bar_layout::activity_x(10, 0), -1);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(12, 0), -1);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(13, 0), 0);
+    ASSERT_EQ(tui::status_bar_layout::activity_x(20, 8), -1);
+}
+
 TEST(status_bar_layout_drops_highest_priority_first) {
     // Two 10-column left segments (21 columns with the separator) in a budget
     // of 7: the drop-5 segment goes first, then the loop stops on drop 0.

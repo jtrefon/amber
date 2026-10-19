@@ -152,6 +152,52 @@ TEST(core_segments_render_the_expected_bar) {
     ASSERT(tokens.find("340") != std::string::npos);
 }
 
+// The lag readout is TTFB of the last exchange, and a slow first token on a
+// cold model is thousands of milliseconds: raw "lag 12400ms" is eleven columns
+// of a bar that has to hold five other readouts. Seconds above one second.
+TEST(core_segments_compact_a_long_latency) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.latency_ms = 12345;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 12s"));
+
+    s.latency_ms = 1500;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 1.5s"));
+
+    s.latency_ms = 2000;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 2s"));
+
+    s.latency_ms = 999;
+    ASSERT_EQ(text_of(registry.render(s), "lag"), std::string("  lag 999ms"));
+}
+
+int drop_of(const std::vector<StatusSegment>& segments, const std::string& id) {
+    for (const auto& s : segments)
+        if (s.id == id)
+            return s.drop_priority;
+    ASSERT(false && "segment did not render");
+    return 0;
+}
+
+// Drop order is a statement about what the bar is FOR. The transients go first
+// (lag is one exchange old, tps likewise), then the session's cost readout;
+// identity and mode stay longest. Tokens dropping before lag is what made the
+// meter look broken on a 100-column terminal.
+TEST(core_segments_drop_the_transients_before_the_token_meter) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.scroll_mode = true;
+    s.running_jobs = 1;
+    auto out = registry.render(s);
+    ASSERT(drop_of(out, "lag") > drop_of(out, "tps"));
+    ASSERT(drop_of(out, "tps") > drop_of(out, "tokens"));
+    ASSERT(drop_of(out, "tokens") > drop_of(out, "model"));
+    ASSERT(drop_of(out, "model") > drop_of(out, "window"));
+    ASSERT(drop_of(out, "window") > drop_of(out, "mode"));
+    ASSERT(drop_of(out, "mode") > drop_of(out, "activity"));
+    ASSERT(drop_of(out, "activity") > drop_of(out, "scroll"));
+}
+
 // The bar uses no backgrounds: a cell that names the provider must be a plain
 // foreground colour on the bar's own background. Accent (P_BUTTON_ACT) is
 // white-on-YELLOW and rendered as a filled frame glued to the window indicator,

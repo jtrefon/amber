@@ -21,6 +21,13 @@ struct Segment {
 // The activity indicator's reserved width (the [ wave ] block).
 inline constexpr int kActivityWidth = 13;
 
+// Where the activity wave starts: the first column the left zone may not use,
+// with the right zone's separator and its own width already subtracted. Negative
+// when the terminal cannot hold the wave. The painter draws from here without a
+// further guard, which is what keeps the left zone (clipped at the same column)
+// from ever crowding the wave out.
+int activity_x(int width, int right_cols);
+
 struct Plan {
     std::vector<Segment> left;  // surviving left-aligned segments, in order
     std::vector<Segment> right; // surviving right-aligned segments, in order

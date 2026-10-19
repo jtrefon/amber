@@ -171,6 +171,7 @@ private:
     bool scroll_mode_ = false;
     bool show_reasoning_ = true;
     int anim_phase_ = 0;
+    std::chrono::steady_clock::time_point anim_tick_{};
     std::chrono::steady_clock::time_point working_since_{};
     bool working_visible_ = false;
     bool dirty_ = true;

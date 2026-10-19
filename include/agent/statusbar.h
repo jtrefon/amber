@@ -19,6 +19,10 @@ Pressure pressure(double frac);
 // Negative input yields "?".
 std::string kfmt(long n);
 
+// Abbreviate a millisecond duration for the bar: 240 -> "240ms", 1500 ->
+// "1.5s", 2000 -> "2s", 12345 -> "12s". Negative input yields "?".
+std::string duration_ms(long ms);
+
 // Build a smooth Unicode partial-block gauge of `cells` columns for fraction f
 // in [0,1], using eighth-block glyphs (U+258F..U+2588) for sub-cell resolution
 // and light-shade (U+2591) for the empty track. Returns bar glyphs only (no
