@@ -86,7 +86,9 @@ inline int run_all(int argc = 0, char** argv = nullptr) {
     std::string filter;
     bool list_only = false;
     for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i] ? argv[i] : "";
+        // argc and argv are independent parameters: a caller may pass a count
+        // without the vector, and the default argv is null.
+        const std::string arg = (argv != nullptr && argv[i] != nullptr) ? argv[i] : "";
         if (arg == "--list")
             list_only = true;
         else if (!arg.empty())
