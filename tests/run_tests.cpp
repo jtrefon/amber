@@ -94,8 +94,12 @@ TEST(config_debug_dump_path_follows_the_switch) {
     ASSERT_EQ(c.debug_dump_path(), std::string());
 
     c.debug = true;
-    ASSERT(c.debug_dump_path().find("/logs/debug-{ts}.log") != std::string::npos);
-    ASSERT(c.debug_dump_path().find(agent::Workspace::state_dir()) == 0);
+    const std::string dump = c.debug_dump_path();
+    ASSERT(dump.find("/logs/debug-") != std::string::npos);
+    // The placeholder is expanded (one dump per process), never left literal.
+    ASSERT(dump.find('{') == std::string::npos);
+    ASSERT(dump.size() > 4 && dump.substr(dump.size() - 4) == ".log");
+    ASSERT(dump.find(agent::Workspace::state_dir()) == 0);
 
     c.debug_log = "/tmp/explicit-http.log";
     ASSERT_EQ(c.debug_dump_path(), std::string("/tmp/explicit-http.log"));
@@ -2124,19 +2128,69 @@ TEST(autodetect_noop_when_server_down) {
 // Status-bar rendering math (pure, no ncurses / no network)
 // ---------------------------------------------------------------------------
 
-TEST(statusbar_kfmt) {
-    ASSERT_EQ(agent::bar::kfmt(-1), "?");
-    ASSERT_EQ(agent::bar::kfmt(0), "0");
-    ASSERT_EQ(agent::bar::kfmt(512), "512");
-    ASSERT_EQ(agent::bar::kfmt(999), "999");
-    ASSERT_EQ(agent::bar::kfmt(5000), "5.0k");
-    ASSERT_EQ(agent::bar::kfmt(1500), "1.5k");
-    ASSERT_EQ(agent::bar::kfmt(128000), "128k");
-    // Millions tier: "1000k" is not a thing — 1m/1.5m, integer from 10m up.
-    ASSERT_EQ(agent::bar::kfmt(1000000), "1m");
-    ASSERT_EQ(agent::bar::kfmt(1500000), "1.5m");
-    ASSERT_EQ(agent::bar::kfmt(10000000), "10m");
-    ASSERT_EQ(agent::bar::kfmt(12300000), "12m");
+TEST(compact_count_never_grows_the_field) {
+    using agent::compact::count;
+    ASSERT_EQ(count(-1), "?");
+    ASSERT_EQ(count(0), "0");
+    ASSERT_EQ(count(999), "999");
+    ASSERT_EQ(count(1000), "1k");
+    ASSERT_EQ(count(1500), "1.5k");
+    ASSERT_EQ(count(5000), "5k");
+    ASSERT_EQ(count(12500), "13k");
+    ASSERT_EQ(count(128000), "130k");
+    ASSERT_EQ(count(995000), "1m"); // 999k would be four characters
+    ASSERT_EQ(count(1000000), "1m");
+    ASSERT_EQ(count(1500000), "1.5m");
+    ASSERT_EQ(count(12300000), "12m");
+}
+
+TEST(compact_duration_uses_the_largest_sensible_unit) {
+    using agent::compact::duration_ms;
+    ASSERT_EQ(duration_ms(-1), "?");
+    ASSERT_EQ(duration_ms(240), "240ms");
+    ASSERT_EQ(duration_ms(999), "999ms");
+    ASSERT_EQ(duration_ms(1000), "1s");
+    ASSERT_EQ(duration_ms(1500), "1.5s");
+    ASSERT_EQ(duration_ms(12345), "12s");
+    ASSERT_EQ(duration_ms(59900), "60s");
+    ASSERT_EQ(duration_ms(90000), "1.5m");
+    ASSERT_EQ(duration_ms(3540000), "59m");
+    ASSERT_EQ(duration_ms(3600000), "1h");
+    ASSERT_EQ(duration_ms(5400000), "1.5h");
+}
+
+TEST(compact_percent_is_bounded) {
+    using agent::compact::percent;
+    ASSERT_EQ(percent(-5), "0");
+    ASSERT_EQ(percent(0), "0");
+    ASSERT_EQ(percent(42), "42");
+    ASSERT_EQ(percent(100), "100");
+    ASSERT_EQ(percent(101), "100");
+}
+
+TEST(compact_bytes_uses_binary_units) {
+    using agent::compact::bytes;
+    ASSERT_EQ(bytes(-1), "?");
+    ASSERT_EQ(bytes(512), "512B");
+    ASSERT_EQ(bytes(1024), "1KB");
+    ASSERT_EQ(bytes(1536), "1.5KB");
+    ASSERT_EQ(bytes(12800), "13KB");
+    ASSERT_EQ(bytes(1048576), "1MB");
+    ASSERT_EQ(bytes(3145728), "3MB");
+    ASSERT_EQ(bytes(1073741824L), "1GB");
+}
+
+TEST(usage_totals_sum_reported_and_ignore_unknown) {
+    agent::UsageTotals u;
+    ASSERT_FALSE(u.measured);
+    u.add(-1, -1); // a provider that reports no usage is unknown, not zero
+    ASSERT_FALSE(u.measured);
+    ASSERT_EQ(u.prompt_tokens, 0L);
+    u.add(100, 20);
+    u.add(-1, 5);
+    ASSERT_EQ(u.prompt_tokens, 100L);
+    ASSERT_EQ(u.completion_tokens, 25L);
+    ASSERT_TRUE(u.measured);
 }
 
 TEST(statusbar_pressure_thresholds) {

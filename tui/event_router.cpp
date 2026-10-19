@@ -254,6 +254,7 @@ void EventRouter::handle_stats(Window* w, const AgentEvent& ev) {
     if (!w)
         return;
     w->stats = ev.stats;
+    w->usage.add(ev.stats.prompt_tokens, ev.stats.completion_tokens);
     if (ev.stats.prompt_tokens >= 0) {
         w->ctx_used.store(ev.stats.prompt_tokens);
         w->live_ctx_offset = 0;

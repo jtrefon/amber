@@ -15,14 +15,6 @@ enum class Pressure : std::uint8_t { Ok, Warn, Crit };
 // Classify a fill fraction in [0,1]: Ok <0.60, Warn 0.60-0.85, Crit >0.85.
 Pressure pressure(double frac);
 
-// Abbreviate a token count: 512 -> "512", 5000 -> "5.0k", 128000 -> "128k".
-// Negative input yields "?".
-std::string kfmt(long n);
-
-// Abbreviate a millisecond duration for the bar: 240 -> "240ms", 1500 ->
-// "1.5s", 2000 -> "2s", 12345 -> "12s". Negative input yields "?".
-std::string duration_ms(long ms);
-
 // Build a smooth Unicode partial-block gauge of `cells` columns for fraction f
 // in [0,1], using eighth-block glyphs (U+258F..U+2588) for sub-cell resolution
 // and light-shade (U+2591) for the empty track. Returns bar glyphs only (no
@@ -49,6 +41,8 @@ bool utf8();
 const char* emdash();
 const char* up();
 const char* down();
+// A single up chevron for "scrolled away from the live edge" ("^" in ASCII).
+const char* chevron_up();
 
 // Reasoning-effort badge, e.g. "(high)".
 std::string reasoning_badge(const std::string& effort);

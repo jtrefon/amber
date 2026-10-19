@@ -970,10 +970,12 @@ TEST(tool_display_close_keeps_timestamp) {
 }
 
 TEST(tool_display_elapsed_label_formatting) {
+    // One formatter for every number the UI shows (agent::compact): the label
+    // never grows into "1m 05s" / "1h 02m".
     ASSERT_EQ(tui::tool_display::elapsed_label(0), "0s");
     ASSERT_EQ(tui::tool_display::elapsed_label(12), "12s");
-    ASSERT_EQ(tui::tool_display::elapsed_label(65), "1m 05s");
-    ASSERT_EQ(tui::tool_display::elapsed_label(3725), "1h 02m");
+    ASSERT_EQ(tui::tool_display::elapsed_label(65), "1.1m");
+    ASSERT_EQ(tui::tool_display::elapsed_label(3725), "1h");
 }
 
 TEST(tool_display_working_label) {
@@ -2420,7 +2422,7 @@ TEST(session_row_file_size_units) {
     ASSERT_EQ(SR::file_size(0), ""); // the caller draws nothing
     ASSERT_EQ(SR::file_size(512), "512B");
     ASSERT_EQ(SR::file_size(2048), "2KB");
-    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3.0MB");
+    ASSERT_EQ(SR::file_size(3 * 1024 * 1024), "3MB");
 }
 
 // --- InputLineLayout (L1): prompt decor, scroll, UTF-8 slicing ---

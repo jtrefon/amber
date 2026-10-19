@@ -3,6 +3,7 @@
 #include "welcome.h"
 #include "tool_display.h"
 
+#include "agent/compact.h"
 #include "tui/drawer_rows.h"
 
 #include <algorithm>
@@ -220,9 +221,6 @@ int RenderEngine::display_cols(const std::string& s) {
 std::wstring RenderEngine::to_wide(const std::string& s) {
     return text::to_wide(s);
 }
-std::string RenderEngine::kfmt(long n) {
-    return agent::bar::kfmt(n);
-}
 
 int RenderEngine::gauge_pair(double f) {
     switch (agent::bar::pressure(f)) {
@@ -254,10 +252,16 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.reasoning_effort = acfg ? acfg->reasoning_effort : tui_.cfg_.reasoning_effort;
     snapshot.mode = acfg ? acfg->mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
+    // How far above the live edge the viewport is: -1 when everything fits, 0
+    // at the edge, 1..100 up from it.
+    const int max_top = chat_canvas_.max_top();
+    snapshot.scroll_pct =
+        max_top <= 0
+            ? -1
+            : static_cast<int>(std::lround(100.0 * std::min(w.scroll_top, max_top) / max_top));
     snapshot.latency_ms = static_cast<long>(w.stats.latency_ms);
     snapshot.tps = w.stats.tps;
-    snapshot.prompt_tokens = w.stats.prompt_tokens;
-    snapshot.completion_tokens = w.stats.completion_tokens;
+    snapshot.usage = w.usage;
     snapshot.running_jobs = tui_.jobs_.running_count();
     snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
     snapshot.running_tool = w.running_tool;
@@ -314,23 +318,16 @@ void RenderEngine::draw_working_indicator(int row) {
     attroff(COLOR_PAIR(P_STATUS));
 }
 
-// The scroll position indicator, or empty when everything fits.
-std::string RenderEngine::scroll_glyph(bool show_working) const {
-    const int total = chat_canvas_.wrapped_count() + (show_working ? 1 : 0);
-    const int vis = chat_height();
-    if (total <= vis)
-        return {};
-    const int pct = 100 - static_cast<int>(100.0 * std::min(tui_.win().scroll_top, total - vis) /
-                                           (total - vis));
-    return " P:" + std::to_string(pct) + "%";
-}
+// The scroll indicator used to live here as a " P:0%" tail appended after the
+// gauge. It is a core segment now (snapshot.scroll_pct), so it participates in
+// the layout's width arithmetic like every other readout.
 
 void RenderEngine::draw() {
     dirty_ = true;
     if (tui_.win().welcome_art) {
         erase();
         welcome::render(stdscr, chat_top(), width());
-        draw_status_bar("welcome");
+        draw_status_bar();
         wnoutrefresh(stdscr);
         return;
     }
@@ -349,7 +346,7 @@ void RenderEngine::draw() {
     if (show_working)
         draw_working_indicator(chat_top() + ch);
 
-    draw_status_bar(scroll_glyph(show_working));
+    draw_status_bar();
     wnoutrefresh(stdscr);
 }
 
@@ -388,9 +385,7 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
         // gauge entirely (the old <=0-hides behavior left users blind to
         // unbounded context growth on providers that do not advertise a
         // window).
-        char b[32];
-        std::snprintf(b, sizeof(b), "%s", kfmt(ctx_used).c_str());
-        put_segment(y, budget, x, b, P_BAR_DIM);
+        put_segment(y, budget, x, agent::compact::count(ctx_used), P_BAR_DIM);
         return;
     }
     const int cells = std::min(24, std::max(6, (budget - x) - 14));
@@ -401,10 +396,10 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
                                                 : agent::bar::gauge_bar_ascii(frac, cells);
     put_segment(y, budget, x, bar, gauge_pair(frac));
     put_segment(y, budget, x, text::glyph::block_r(), P_BAR_DIM);
-    char b[48];
-    std::snprintf(b, sizeof(b), " %d%% %s/%s", static_cast<int>(std::lround(frac * 100)),
-                  kfmt(ctx_used).c_str(), kfmt(tui_.cfg_.context_size).c_str());
-    put_segment(y, budget, x, b, gauge_pair(frac));
+    const std::string readout =
+        " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +
+        agent::compact::count(ctx_used) + "/" + agent::compact::count(tui_.cfg_.context_size);
+    put_segment(y, budget, x, readout, gauge_pair(frac));
 }
 
 // The activity indicator: a bouncing bar while a run is live, "idle" otherwise.
@@ -457,7 +452,7 @@ void RenderEngine::draw_right_zone(int y, int w, int right_w, const std::vector<
     }
 }
 
-void RenderEngine::draw_status_bar(const std::string& tail) {
+void RenderEngine::draw_status_bar() {
     const int w = width();
     const int y = height() - 2;
 
@@ -487,9 +482,6 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
 
     draw_ctx_gauge(y, budget, x, have_ctx, ctx_used, frac);
 
-    if (!tail.empty() && x + display_cols(tail) + 1 < budget)
-        put_segment(y, budget, x, "  " + tail, P_BAR_DIM);
-
     // The wave's columns are reserved by the layout: its start column IS the
     // left zone's budget, so the painter draws it whenever the terminal can
     // hold it. The old guard (`ix > x + 4`) let the left flow -- in practice
@@ -504,15 +496,7 @@ void RenderEngine::draw_status_bar(const std::string& tail) {
 
 void RenderEngine::tick_clock() {
     dirty_ = true;
-    int total = max_scroll() + chat_height();
-    int vis = chat_height();
-    int pos = tui_.win().scroll_top;
-    std::string tail;
-    if (total > vis) {
-        int pct = 100 - static_cast<int>(100.0 * std::min(pos, total - vis) / (total - vis));
-        tail = " P:" + std::to_string(pct) + "%";
-    }
-    draw_status_bar(tail);
+    draw_status_bar();
     wnoutrefresh(stdscr);
 }
 

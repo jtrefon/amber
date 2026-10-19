@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "agent/compact.h"
 #include "agent/registry.h"
 #include "agent/statusbar.h"
 #include "agent/workspace.h"
@@ -137,14 +138,9 @@ rich::Line close_tool_line(const rich::Line& open, rich::Line summary) {
 }
 
 std::string elapsed_label(size_t secs) {
-    char b[32];
-    if (secs < 60)
-        std::snprintf(b, sizeof(b), "%zus", secs);
-    else if (secs < 3600)
-        std::snprintf(b, sizeof(b), "%zum %02zus", secs / 60, secs % 60);
-    else
-        std::snprintf(b, sizeof(b), "%zuh %02zum", secs / 3600, (secs % 3600) / 60);
-    return b;
+    if (secs == 0)
+        return "0s";
+    return agent::compact::duration_ms(static_cast<long>(secs) * 1000);
 }
 
 std::string working_label(const std::string& frame, const std::string& verb, size_t elapsed_secs,
@@ -190,7 +186,7 @@ rich::Line result_line(const std::string& name, const agent::json& args, bool ok
             preview.resize(57);
             preview += "...";
         }
-        rest.text += "(" + std::to_string(lines) + " lines)  " + preview;
+        rest.text += "(" + agent::compact::count(lines) + " lines)  " + preview;
     }
     ln.runs.push_back(std::move(icon));
     ln.runs.push_back(std::move(rest));

@@ -15,54 +15,6 @@ Pressure pressure(double frac) {
     return Pressure::Ok;
 }
 
-std::string kfmt(long n) {
-    if (n < 0)
-        return "?";
-    if (n < 1000)
-        return std::to_string(n);
-    double m = n / 1000000.0;
-    if (m >= 1.0) {
-        char buf[24];
-        // Millions: one decimal below 10m with a trailing ".0" dropped
-        // (1m, 1.5m), integer from 10m up (12m). "1000k" is not a thing.
-        if (m < 10.0) {
-            if (m == static_cast<long>(m))
-                std::snprintf(buf, sizeof(buf), "%.0fm", m);
-            else
-                std::snprintf(buf, sizeof(buf), "%.1fm", m);
-        } else {
-            std::snprintf(buf, sizeof(buf), "%.0fm", m);
-        }
-        return buf;
-    }
-    double k = n / 1000.0;
-    char buf[24];
-    std::snprintf(buf, sizeof(buf), k < 10 ? "%.1fk" : "%.0fk", k);
-    return buf;
-}
-
-std::string duration_ms(long ms) {
-    if (ms < 0)
-        return "?";
-    char buf[24];
-    if (ms < 1000) {
-        std::snprintf(buf, sizeof(buf), "%ldms", ms);
-        return buf;
-    }
-    if (ms < 10000) {
-        // One decimal below ten seconds, with a trailing ".0" dropped: 1500 ->
-        // "1.5s", 2000 -> "2s". A whole second reads as a whole second.
-        const double s = static_cast<double>(ms) / 1000.0;
-        std::snprintf(buf, sizeof(buf), "%.1fs", s);
-        std::string out = buf;
-        if (out.size() >= 4 && out.compare(out.size() - 3, 2, ".0") == 0)
-            out.erase(out.size() - 3, 2);
-        return out;
-    }
-    std::snprintf(buf, sizeof(buf), "%.0fs", static_cast<double>(ms) / 1000.0);
-    return buf;
-}
-
 int gauge_full_cells(double frac, int cells) {
     if (cells <= 0)
         return 0;
@@ -154,6 +106,9 @@ const char* up() {
 }
 const char* down() {
     return utf8() ? "\u2193" : "v";
+}
+const char* chevron_up() {
+    return utf8() ? "\u25b2" : "^";
 }
 
 std::string reasoning_badge(const std::string& effort) {

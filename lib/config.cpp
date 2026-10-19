@@ -2,6 +2,7 @@
 #include "agent/config.h"
 #include "agent/workspace.h"
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -459,11 +460,28 @@ void Config::apply_environment() {
 }
 
 std::string Config::debug_dump_path() const {
-    if (!debug_log.empty())
-        return debug_log;
-    if (!debug)
-        return "";
-    return Workspace::state_dir() + "/logs/debug-{ts}.log";
+    const std::string path =
+        !debug_log.empty()
+            ? debug_log
+            : (debug ? Workspace::state_dir() + "/logs/debug-{ts}.log" : std::string());
+    if (path.empty())
+        return path;
+    const std::string token = "{ts}";
+    const std::size_t at = path.find(token);
+    if (at == std::string::npos)
+        return path;
+    // The transport opens the dump lazily and has no session id; one file per
+    // PROCESS is the honest equivalent, and it is what the transcript path does
+    // too. Without this the name stayed literally "debug-{ts}.log" and every
+    // session of the project appended to one unbounded file.
+    static const long long started = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    }();
+    std::string out = path;
+    out.replace(at, token.size(), std::to_string(started));
+    return out;
 }
 
 std::vector<std::string> Config::validate() const {

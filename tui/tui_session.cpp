@@ -5,6 +5,7 @@
 #include "tui/session_browser_core.h"
 #include "tui/session_row.h"
 #include "tui/keys_ncurses.h"
+#include "tui/session_usage.h"
 #include "tui/window_ops.h"
 #include "tool_display.h"
 
@@ -104,6 +105,7 @@ agent::Session SessionController::snapshot(Window& w) const {
     // Persist UI state so it survives exit/reload.
     s.meta["ctx_used"] = w.ctx_used.load();
     s.meta["ctx_size"] = acfg ? acfg->context_size : tui_.cfg_.context_size;
+    save_usage(s.meta, w.usage);
     if (w.stats.valid) {
         s.meta["latency_ms"] = w.stats.latency_ms;
         s.meta["tps"] = w.stats.tps;
@@ -217,6 +219,9 @@ void SessionController::restore_stats(Window& w, const agent::Session& s) {
         w.stats.completion_tokens = get_num("completion_tokens", -1);
         w.stats.valid = true;
     }
+    // The session's spend, not the last exchange's readings: a reload must not
+    // reset the meter to whatever the previous turn happened to cost.
+    load_usage(s.meta, w.usage);
 }
 
 void SessionController::restore_into(Window& w, const agent::Session& s) {

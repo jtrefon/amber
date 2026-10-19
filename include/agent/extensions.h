@@ -119,6 +119,28 @@ struct StatusText {
     StatusTone tone = StatusTone::Dim;
 };
 
+// Tokens the session has spent, summed over completed exchanges. A compaction
+// rewrites the context but does not un-spend anything, so the totals span it;
+// the ctx gauge carries the other half of the story (what the NEXT request
+// sends). `measured` is false until a provider reports usage at all: an
+// endpoint that omits `usage` must render as unknown, never as zero.
+struct UsageTotals {
+    long prompt_tokens = 0;
+    long completion_tokens = 0;
+    bool measured = false;
+
+    void add(long prompt, long completion) noexcept {
+        if (prompt >= 0) {
+            prompt_tokens += prompt;
+            measured = true;
+        }
+        if (completion >= 0) {
+            completion_tokens += completion;
+            measured = true;
+        }
+    }
+};
+
 // What the host publishes about itself each frame. Segments are pure functions
 // of this snapshot: they are called during frame composition, so they must be
 // fast, allocation-light, and must not touch plugin state or do I/O.
@@ -133,10 +155,12 @@ struct StatusSnapshot {
     std::string reasoning_effort;
     AgentMode mode = AgentMode::Read;
     bool scroll_mode = false;
-    long latency_ms = -1;    // < 0: not measured yet
-    double tps = -1.0;       // < 0: not measured yet
-    long prompt_tokens = -1; // < 0: not reported
-    long completion_tokens = -1;
+    // Distance above the live edge, as a percentage: -1 when everything fits
+    // (nothing to scroll), 0 at the live edge, 1..100 up from it.
+    int scroll_pct = -1;
+    long latency_ms = -1; // < 0: not measured yet
+    double tps = -1.0;    // < 0: not measured yet
+    UsageTotals usage;    // session spend; `measured` false until reported
     int running_jobs = 0;
     int job_seconds_left = -1;
     std::string running_tool;
