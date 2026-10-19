@@ -662,10 +662,12 @@ with the provenance line reporting a source that has moved; its tools
 `/index show|refresh` command arrive and leave with it),
 `plugins/clock/` (the bar's right-edge readout),
 `plugins/metrics/` (an event-observing plugin with no contributions),
-`plugins/hello/` (the command example) and `plugins/amber_self/` (the
+`plugins/hello/` (the command example), `plugins/amber_self/` (the
 `amber-self` plugin: it contributes the `amber-config` skill, whose body is
-rendered from the same table `/get config paths` prints). That is 27 bundled
-plugins in total.
+rendered from the same table `/get config paths` prints) and
+`plugins/git_timeline/` (the `git-timeline` plugin: the snapshot/history
+playbook as a skill, so its depth is activation-tier rather than resident
+prose). That is 28 bundled plugins in total.
 
 Steps:
 

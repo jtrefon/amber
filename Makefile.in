@@ -113,6 +113,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/deepseek/deepseek_plugin.o \
               $(BUILD_DIR)/plugins/hello/hello_plugin.o \
               $(BUILD_DIR)/plugins/amber_self/amber_self_plugin.o \
+              $(BUILD_DIR)/plugins/git_timeline/git_timeline_plugin.o \
               $(BUILD_DIR)/plugins/project_instructions/project_instructions_plugin.o \
               $(BUILD_DIR)/plugins/project_index/project_index_plugin.o \
               $(BUILD_DIR)/plugins/project_index/index_store.o \

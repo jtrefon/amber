@@ -1,6 +1,7 @@
 #include "agent/plugins_bundled.h"
 
 #include "plugins/amber_self/amber_self_plugin.h"
+#include "plugins/git_timeline/git_timeline_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
 #include "plugins/project_index/project_index_plugin.h"
 #include "plugins/coding/coding_plugin.h"
@@ -95,6 +96,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // "where does amber keep this?" and change amber's own settings without
     // guessing at paths. The body is rendered from agent::config_paths().
     plugins.push_back(std::make_shared<plugins::AmberSelfPlugin>());
+    // The timeline playbook: snapshots with an indexed subject, and the history
+    // moves that find and undo them. A skill rather than resident prose, so the
+    // depth loads only when the work needs it.
+    plugins.push_back(std::make_shared<plugins::GitTimelinePlugin>());
     return plugins;
 }
 

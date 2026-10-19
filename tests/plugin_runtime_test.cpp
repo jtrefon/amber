@@ -15,6 +15,7 @@
 #include "plugins/commandcode/commandcode_plugin.h"
 #include "plugins/coding/coding_library.h"
 #include "plugins/deepseek/deepseek_plugin.h"
+#include "plugins/git_timeline/git_timeline_plugin.h"
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
@@ -502,6 +503,41 @@ TEST(tool_source_is_re_installable) {
     ASSERT_TRUE(runtime.set_state("source", true));
     ASSERT_EQ(source->starts_, 2);
     ASSERT_TRUE((bool)f.tools.find("discovered_one"));
+}
+
+// The timeline playbook ships compiled in and travels with its plugin: a fresh
+// project has it from the first turn, and disabling the plugin takes it away.
+TEST(git_timeline_skill_installs_and_unwinds) {
+    ScratchConfig scratch("git-timeline-skill");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<plugins::GitTimelinePlugin>());
+    const auto has_skill = [] {
+        for (const auto& s : agent::system_skills())
+            if (s.name == "git-timeline")
+                return true;
+        return false;
+    };
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(has_skill());
+    ASSERT_TRUE(runtime.set_state("git-timeline", false));
+    ASSERT_FALSE(has_skill());
+}
+
+// The grammar the resident prose points at: one area per subject, a compact
+// key, and the history moves that make a snapshot findable and undoable.
+TEST(git_timeline_skill_teaches_the_index_grammar) {
+    const std::string body = agent::plugins::render_git_timeline_skill();
+    ASSERT(body.find("<area>: <imperative summary>") != std::string::npos);
+    ASSERT(body.find("One area per commit") != std::string::npos);
+    ASSERT(body.find("git log --oneline") != std::string::npos);
+    ASSERT(body.find("git bisect run") != std::string::npos);
+    ASSERT(body.find("git revert <sha>") != std::string::npos);
+    ASSERT(body.find("git reset --soft") != std::string::npos);
+    ASSERT(body.find("git reflog") != std::string::npos);
+    ASSERT(body.find("detached worktree") != std::string::npos);
+    // The activation budget is 5000 tokens; ~4 chars per token leaves room.
+    ASSERT(body.size() < 16000);
 }
 
 // A capability whose install fails: the plugin is registered and activatable,
