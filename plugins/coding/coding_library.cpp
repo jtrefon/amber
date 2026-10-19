@@ -234,15 +234,10 @@ std::vector<std::string> selected_tags_from(const std::string& index_body) {
 }
 
 std::string library_dir() {
-    const std::string near_binary = exe_dir();
-    if (!near_binary.empty()) {
-        const std::string candidate = near_binary + "/" + kLibraryRel;
-        std::error_code ec;
-        if (fs::is_directory(candidate, ec))
-            return candidate;
-    }
-    std::error_code ec;
-    return fs::is_directory(kLibraryRel, ec) ? std::string(kLibraryRel) : std::string();
+    // A directory, resolved with the same candidate order as the prompts: a
+    // packaged install keeps it under <prefix>/share/amber, away from the
+    // binary, and a same-named file must not be mistaken for the tree.
+    return resolve_data_dir(kLibraryRel, exe_path().c_str());
 }
 
 std::vector<LibraryEntry> topic_entries(const std::string& dir) {

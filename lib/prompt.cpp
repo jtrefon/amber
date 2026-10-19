@@ -39,13 +39,11 @@ std::string read_capped_file(const std::string& path, std::size_t cap, bool& tru
 }
 
 std::string optional_prompt_path(const std::string& name) {
-    const std::string dir = exe_dir();
-    if (!dir.empty()) {
-        const std::string p = dir + "/" + name;
-        if (file_exists(p))
-            return p;
-    }
-    return name;
+    // The same candidate order as every other data file, so a packaged install
+    // finds its per-tool docs and domain prose under <prefix>/share/amber --
+    // not only a binary built next to the source tree.
+    const std::string found = resolve_data_path(name, exe_path().c_str());
+    return found.empty() ? name : found;
 }
 
 std::string load_optional_prompt(const std::string& name) {

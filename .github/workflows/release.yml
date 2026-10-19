@@ -179,6 +179,11 @@ jobs:
           # The installed app must find prompts and completions.json from the
           # system data dir — no project files, no user config.
           sudo dpkg -i dist/amber_${{ steps.ver.outputs.version }}_amd64.deb
+          # The package must carry the data the agent reads at runtime, not just
+          # the bootstrap files: per-tool docs and the coding library tree.
+          test -f /usr/share/amber/prompts/tools/read.md
+          test -f /usr/share/amber/prompts/domains/coding/library/tags.md
+          test -d /usr/share/amber/prompts/domains/coding/library/cpp-debugging
           rm -rf /tmp/smoke && mkdir -p /tmp/smoke
           cd /tmp/smoke
           set +e

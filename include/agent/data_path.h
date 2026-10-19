@@ -31,6 +31,11 @@ inline bool file_exists(const std::string& path) {
     return stat(path.c_str(), &st) == 0;
 }
 
+// First existing DIRECTORY among the same candidates, or "" when none is a
+// directory. A same-named regular file does not satisfy it: data trees (the
+// coding library) are directories, and a file at that path is not the tree.
+std::string resolve_data_dir(const std::string& path, const char* argv0);
+
 // Full path of the running binary's directory (via /proc/self/exe or
 // _NSGetExecutablePath), or "" if unknown.
 std::string exe_dir();

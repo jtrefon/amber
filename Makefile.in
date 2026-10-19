@@ -959,6 +959,11 @@ install: all
 	install -m 644 prompts/tools/*.md $(DESTDIR)$(datadir)/prompts/tools/
 	install -d $(DESTDIR)$(datadir)/prompts/domains/coding
 	install -m 644 prompts/domains/coding/*.md $(DESTDIR)$(datadir)/prompts/domains/coding/
+	# The coding library is a tree (topics are directories), and it is data the
+	# agent reads at runtime: without this, an installed amber has the domain
+	# prose but no library for it to select from.
+	install -d $(DESTDIR)$(datadir)/prompts/domains/coding/library
+	cp -R prompts/domains/coding/library/. $(DESTDIR)$(datadir)/prompts/domains/coding/library/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
 	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
 	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/

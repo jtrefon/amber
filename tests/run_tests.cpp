@@ -6651,6 +6651,27 @@ TEST(data_path_finds_fhs_sibling_share_dir) {
     ASSERT(got.find("share/amber/completions.json") != std::string::npos);
 }
 
+// The coding library is a DIRECTORY under the same data root as the prompts.
+// The file resolver would happily return a same-named regular file, so the
+// directory lookup filters by kind -- and it must use the same candidate order
+// (sibling share dir included) as every other data file.
+TEST(data_path_resolves_a_directory_through_the_sibling_rule) {
+    DataTree t = make_data_tree();
+    const std::string prefix = t.base + "/prefix";
+    const std::string bin_dir = prefix + "/bin";
+    const std::string lib_dir = prefix + "/share/amber/prompts/domains/coding/library";
+    run_cmd("mkdir -p " + bin_dir + " " + lib_dir);
+    std::ofstream(lib_dir + "/tags.md") << "# tags\n";
+    std::string argv0s = bin_dir + "/amber";
+    const char* argv0 = argv0s.c_str();
+
+    const std::string got = agent::resolve_data_dir("prompts/domains/coding/library", argv0);
+    ASSERT_FALSE(got.empty());
+    ASSERT(got.find("share/amber/prompts/domains/coding/library") != std::string::npos);
+
+    ASSERT_EQ(agent::resolve_data_dir("prompts/domains/coding/absent", argv0), std::string());
+}
+
 // ---------------------------------------------------------------------------
 // WS-A: fail-fast bootstrap. The app must not start when critical data files
 // are missing; the validator reports each missing file and the locations
