@@ -23,6 +23,7 @@
 #include "agent/todo.h"
 #include "agent/session_brief.h"
 #include "agent/run_scope.h"
+#include "agent/worktree.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -2754,4 +2755,47 @@ TEST(agent_loop_internal_failure_is_recovered) {
             ++answered;
     }
     ASSERT_EQ(asked, answered);
+}
+
+// A window workspace is a detached worktree. The agent must know before it can
+// commit to an unreachable HEAD; the note is computed when the root is set, so
+// the per-turn prompt costs no git call.
+TEST(agent_prompt_names_a_detached_worktree) {
+    namespace fs = std::filesystem;
+    const std::string repo =
+        (fs::temp_directory_path() / ("amber_agent_wt_repo_" + std::to_string(::getpid())))
+            .string();
+    fs::remove_all(repo);
+    fs::create_directories(repo);
+    const std::string init = "cd '" + repo +
+                             "' && git init -q -b main . && echo base > f.txt && git add f.txt && "
+                             "git -c user.email=t@t -c user.name=t commit -qm init";
+    ASSERT_EQ(std::system(init.c_str()), 0);
+
+    const std::string tree =
+        (fs::temp_directory_path() / ("amber_agent_wt_tree_" + std::to_string(::getpid())))
+            .string();
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo, tree, agent::git_head_oid(repo), err));
+    ASSERT_TRUE(err.empty());
+
+    const std::string saved = agent::Workspace::project_root();
+    agent::Workspace::set_root(tree);
+    agent::Config cfg = loop_cfg();
+    // This test constructs a real Agent in a temp project: keep its transcript
+    // and learned memory out of the developer's state.
+    cfg.log_path = "/dev/null";
+    cfg.experience_store_path = "/dev/null";
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "ok");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.run("hi");
+
+    ASSERT(ag.context().get_all()[0].content.find("detached git worktree") != std::string::npos);
+
+    agent::Workspace::set_root(saved);
+    std::string cleanup_err;
+    ASSERT_TRUE(agent::remove_worktree_safe(repo, tree, cleanup_err));
+    fs::remove_all(repo);
 }

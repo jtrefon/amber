@@ -86,6 +86,7 @@ public:
         std::string branch;
         int ins = 0;
         int del = 0;
+        bool dirty = false; // tracked or untracked work beyond the diff counts
     };
     void request_git_refresh(const std::string& root);
     std::shared_ptr<const GitState> git_state() const;

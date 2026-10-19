@@ -762,14 +762,16 @@ RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
     GitState st;
     st.project = current_project_name(root);
 
-    std::string ref = read_stdout("git -C " + dir + " symbolic-ref HEAD 2>/dev/null");
-    if (ref.empty())
+    // A detached HEAD (every window worktree starts here) has no symbolic ref.
+    // Showing the short oid keeps the branch readout alive instead of dropping
+    // the whole state -- and the diff counts below still apply to it.
+    const std::string ref = read_stdout("git -C " + dir + " symbolic-ref HEAD 2>/dev/null");
+    const std::string oid =
+        ref.empty() ? read_stdout("git -C " + dir + " rev-parse --short HEAD 2>/dev/null")
+                    : std::string();
+    st.branch = text::git_branch_label(ref, oid);
+    if (st.branch.empty())
         return st;
-    ref.erase(ref.find_last_not_of(" \n\r") + 1);
-    if (ref.compare(0, 11, "refs/heads/") == 0)
-        st.branch = ref.substr(11);
-    else
-        st.branch = ref;
 
     std::string stat = read_stdout("git -C " + dir +
                                    " diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' "
@@ -787,6 +789,15 @@ RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
         st.ins = extract(" insertion");
         st.del = extract(" deletion");
     }
+    // Untracked files are invisible to `git diff`, so a tree whose only work is
+    // new files would look clean. The marker says "there is work here the diff
+    // counts do not show"; a tracked diff already speaks for itself.
+    const std::string dirty = read_stdout("git -C " + dir +
+                                          " status --porcelain -- . ':!bench/results' ':!*.o' "
+                                          "':!*.a' ':!*.d' 2>/dev/null");
+    st.dirty = !dirty.empty();
+    if (st.dirty && st.ins == 0 && st.del == 0)
+        st.branch += "*";
     return st;
 }
 

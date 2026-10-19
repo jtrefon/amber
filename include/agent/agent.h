@@ -211,7 +211,7 @@ public:
     // Confine this agent's tools to `root` (a window's worktree). Empty means
     // the process's project root. Installed into every run scope, so tools
     // running on dispatch workers confine to the same tree as the agent.
-    void set_workspace_root(std::string root) { workspace_root_ = std::move(root); }
+    void set_workspace_root(std::string root);
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
@@ -341,6 +341,10 @@ private:
     // root: a window working in its own worktree sets it at creation, and every
     // run installs it into the run scope so dispatch workers inherit it.
     std::string workspace_root_;
+    // Environment note for the prompt when that root is a detached worktree
+    // (see worktree_session_note). Computed when the root is set, never per
+    // turn: rendering the system prompt must not shell out.
+    std::string workspace_note_;
     // Publish the display-relevant config for other threads. Copy-on-write:
     // `cfg_` stays the worker's private working copy, readers get an immutable
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.

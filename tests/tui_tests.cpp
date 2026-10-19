@@ -689,6 +689,14 @@ TEST(palette_usage_and_common_prefix) {
     ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
 
+TEST(git_prompt_branch_label_handles_a_detached_head) {
+    // Every window worktree starts detached: show the commit it sits at rather
+    // than dropping the branch readout (and with it the diff counts).
+    ASSERT_EQ(tui::text::git_branch_label("refs/heads/main\n", ""), "main");
+    ASSERT_EQ(tui::text::git_branch_label("", "abc1234\n"), "@abc1234");
+    ASSERT_EQ(tui::text::git_branch_label("", ""), "");
+}
+
 TEST(git_prompt_no_diff) {
     std::string r = tui::text::git_prompt("myproject", "main", 0, 0);
     ASSERT(r.find("myproject") != std::string::npos);

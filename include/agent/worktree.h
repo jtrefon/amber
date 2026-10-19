@@ -35,6 +35,12 @@ std::string worktree_base_dir(const std::string& project_root);
 bool is_git_repo(const std::string& dir);
 std::string git_head_oid(const std::string& dir);
 
+// One prompt line for an agent whose workspace is a DETACHED worktree: the
+// branch it must create before its first commit, because this window refuses to
+// discard commits no branch reaches. Empty for the main checkout, for a
+// worktree already on a branch, and for a non-repository.
+std::string worktree_session_note(const std::string& root);
+
 // Create a DETACHED worktree at `base_oid`. Branch policy belongs to the
 // workflow (fix/, feat/, bug/, ...), so amber creates no branch: the agent
 // does, before its first commit. Fails when the path exists and is not empty.

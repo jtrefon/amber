@@ -14,6 +14,7 @@
 #include "agent/model_probe.h"
 #include "agent/data_path.h"
 #include "agent/workspace.h"
+#include "agent/worktree.h"
 #include "agent/run_scope.h"
 
 #include <algorithm>
@@ -100,10 +101,11 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
       client_(nullptr), hooks_(std::move(hooks)), compression_(std::move(compressor)),
       gate_(std::move(gate)), memory_store_(std::move(memory_store)),
       retriever_(std::move(retriever)) {
-    if (client)
-        client_ = std::move(client);
-    else
-        client_ = make_client(cfg_, client_factory_);
+    client_ = client ? std::move(client) : make_client(cfg_, client_factory_);
+    // A window's workspace may be a detached worktree; the prompt says so before
+    // the agent can commit to an unreachable HEAD. The main checkout has no
+    // worktree note (the check is a file test, not a git call, in that case).
+    workspace_note_ = worktree_session_note(Workspace::project_root());
     experience_cfg_ = load_experience_config(cfg_);
     if (skills) {
         skills_ = std::move(skills);
@@ -224,6 +226,12 @@ std::string mode_prompt(agent::AgentMode mode) {
     return "";
 }
 
+void Agent::set_workspace_root(std::string root) {
+    workspace_root_ = std::move(root);
+    workspace_note_ = worktree_session_note(workspace_root_.empty() ? Workspace::project_root()
+                                                                    : workspace_root_);
+}
+
 std::string Agent::render_system_prompt() const {
     std::string system = load_prompt(cfg_.system_prompt_path);
     if (system.empty())
@@ -255,6 +263,11 @@ std::string Agent::render_system_prompt() const {
     // use them without touching the static tools.md.
     append_optional_section(system, plugin_tools_advertisement(registry_));
     system += mode_prompt(cfg_.mode);
+
+    // The workspace itself is part of the environment: a detached worktree
+    // needs a branch before its first commit, and nothing else in the prompt
+    // knows that.
+    append_optional_section(system, workspace_note_);
 
     // An explicit git prompt, when the user configured one. The standard git
     // prose lives in the coding domain plugin, so a session that is not
