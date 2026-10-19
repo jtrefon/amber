@@ -4714,7 +4714,7 @@ TEST(dispatch_missing_tool_reports_unknown) {
 
 static agent::Message msg(const std::string& role, const std::string& content,
                           const std::string& name = "") {
-    return {role, content, "", "", name, json::object()};
+    return {role, content, "", "", name, json::object(), false, ""};
 }
 
 // =========================================================================

@@ -84,7 +84,7 @@ Message chat_with_retry(const AgentHooks& hooks, ConversationLog& log,
 long retry_backoff_ms(int attempt, const std::string& seed);
 
 // Build the final-reply fallback when the loop ended without a usable answer.
-std::string empty_turn_reply(const std::deque<Message>& history);
+std::string empty_turn_reply(bool had_tool_calls, const std::string& last_failure);
 
 // Build the message the harness hands the model when folding a reply into the
 // turn failed (dispatch, a tool envelope, a host callback): the model must know

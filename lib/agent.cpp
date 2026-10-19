@@ -80,6 +80,11 @@ void Agent::publish_error(const std::string& kind, const std::string& message, b
     raised.message = message;
     raised.retryable = retryable;
     publish_event(raised);
+    // The event bus is plugin-facing. The host's status channel is what the user
+    // reads, and a failure that exists only in the journal is a failure nobody
+    // can act on (a 502 during compaction used to be invisible).
+    if (hooks_.on_status)
+        hooks_.on_status("error: " + kind + ": " + message);
 }
 
 namespace {
@@ -897,7 +902,13 @@ Message Agent::chat_with_recovery(const std::vector<std::shared_ptr<Tool>>& tool
     const ChatAdapter adapt = build_chat_adapter(stage, tools);
     auto chat = [this, &tools]() { return chat_once(tools); };
     try {
-        return chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
+        Message reply = chat_with_retry(hooks_, log_, chat, stage, cfg_.cancel_token, 3, adapt);
+        // Retry exhaustion is returned as a harness notice, not thrown: publish
+        // it once here, so the failure reaches the host and the plugins before
+        // the model is asked to decide the next move.
+        if (!reply.failure_detail.empty())
+            publish_error("transport", reply.failure_detail);
+        return reply;
     } catch (const std::exception& e) {
         const auto* api = dynamic_cast<const ApiError*>(&e);
         publish_error("transport", e.what(), api ? api->retryable : false);
@@ -917,14 +928,18 @@ std::string Agent::finish_turn_cancelled() {
     return "";
 }
 
-std::string Agent::finish_turn(std::string final_reply, bool model_closed) {
+std::string Agent::finish_turn(TurnState& st) {
+    std::string final_reply = std::move(st.final_reply);
     if (final_reply.empty()) {
-        final_reply = empty_turn_reply(context_.get_all());
-        log_.event("error", {{"reason", final_reply.find("tool calls") != std::string::npos
-                                            ? "empty_after_tools"
-                                            : "empty_reply"}});
+        const char* reason = "empty_reply";
+        if (st.had_tool_calls)
+            reason = "empty_after_tools";
+        else if (!st.last_failure.empty())
+            reason = "empty_after_failure";
+        final_reply = empty_turn_reply(st.had_tool_calls, st.last_failure);
+        log_.event("error", {{"reason", reason}});
     }
-    if (!model_closed) {
+    if (!st.model_closed) {
         // A bound ended this turn, not the model. The reason goes into the
         // conversation so the next turn opens knowing why it stopped, and into
         // the host's hands so the stop is never silent on screen.
@@ -1080,6 +1095,7 @@ bool Agent::turn_budget_exceeded(TurnState& st) {
 bool Agent::fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content) {
     st.no_answer = 0;
     st.notices = 0;
+    st.had_tool_calls = true;
     if (detect_text_loop(content, st.text_loop_count, st.last_text, st.final_reply))
         return true;
     // The repeat counter is the reporting one (canonical arguments, timing
@@ -1134,12 +1150,16 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     const json tc = reply.tool_calls;
     const std::string content = reply.content;
     const bool notice = reply.harness;
+    const std::string failure = reply.failure_detail;
     push_reply(std::move(reply));
 
     if (!tc.is_null() && !tc.empty())
         return fold_tool_calls(st, tc, content);
-    if (notice)
+    if (notice) {
+        if (!failure.empty())
+            st.last_failure = failure;
         return fold_harness_notice(st);
+    }
     if (content.empty())
         return fold_silent_reply(st);
 
@@ -1308,7 +1328,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (fold_reply(st, tools, reply))
             break;
     }
-    return finish_turn(std::move(st.final_reply), st.model_closed);
+    return finish_turn(st);
 }
 
 // Upserts vs deprecations in one op list.
