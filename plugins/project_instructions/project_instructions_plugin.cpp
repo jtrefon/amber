@@ -4,6 +4,7 @@
 #include "agent/extensions.h"
 #include "agent/prompt.h"
 #include "agent/workspace.h"
+#include "agent/worktree.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -60,7 +61,40 @@ std::string read_capped(const fs::path& path, bool& truncated) {
     return text;
 }
 
-std::vector<std::string> nested_files(const fs::path& root) {
+// A path under a directory that carries `.git` belongs to another tree (a
+// nested repository or a linked worktree). Git usually refuses to descend
+// there; this also catches a worktree whose metadata points elsewhere and the
+// git implementations that do list it.
+bool under_nested_repository(const fs::path& root, const fs::path& rel) {
+    fs::path dir = root;
+    for (const auto& part : rel.parent_path()) {
+        dir /= part;
+        std::error_code ec;
+        if (fs::exists(dir / ".git", ec))
+            return true;
+    }
+    return false;
+}
+
+// In a checkout, git answers both questions at once: ignore rules are honoured
+// (tracked plus untracked-not-ignored), and git does not descend into a nested
+// repository or linked worktree -- so a sibling copy's stale AGENTS.md never
+// reaches the prompt.
+std::vector<std::string> nested_files_git(const fs::path& root) {
+    std::vector<std::string> found;
+    for (const auto& rel : git_files_matching(root.string(), ":(glob)**/AGENTS.md")) {
+        if (rel == "AGENTS.md" || under_nested_repository(root, fs::path(rel)))
+            continue;
+        found.push_back(rel);
+        if (static_cast<int>(found.size()) >= kMaxNested)
+            break;
+    }
+    return found;
+}
+
+// A tree without git: the walk, with the same boundaries. A directory carrying
+// `.git` is a different tree, whatever its ignore rules are.
+std::vector<std::string> nested_files_walk(const fs::path& root) {
     std::vector<std::string> found;
     std::error_code ec;
     fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
@@ -72,13 +106,12 @@ std::vector<std::string> nested_files(const fs::path& root) {
             // temporaries would compare iterators from different objects.
             const fs::path rel = entry.path().lexically_relative(root);
             const int depth = static_cast<int>(std::distance(rel.begin(), rel.end()));
-            if (!is_scannable_dir(entry.path()) || depth > kMaxDepth)
+            if (!is_scannable_dir(entry.path()) || depth > kMaxDepth ||
+                fs::exists(entry.path() / ".git", ec))
                 it.disable_recursion_pending();
             continue;
         }
-        if (entry.path().filename() != "AGENTS.md")
-            continue;
-        if (entry.path() == root / "AGENTS.md")
+        if (entry.path().filename() != "AGENTS.md" || entry.path() == root / "AGENTS.md")
             continue;
         found.emplace_back(entry.path().lexically_relative(root).string());
         if (static_cast<int>(found.size()) >= kMaxNested) {
@@ -88,6 +121,12 @@ std::vector<std::string> nested_files(const fs::path& root) {
     }
     std::sort(found.begin(), found.end());
     return found;
+}
+
+std::vector<std::string> nested_files(const fs::path& root) {
+    if (is_git_repo(root.string()))
+        return nested_files_git(root);
+    return nested_files_walk(root);
 }
 
 std::string render_block(const std::string& body, bool truncated,

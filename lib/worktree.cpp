@@ -134,6 +134,31 @@ std::string git_head_oid(const std::string& dir) {
     return r.status == 0 ? trimmed(r.output) : std::string();
 }
 
+std::vector<std::string> git_files_matching(const std::string& dir, const std::string& glob) {
+    std::vector<std::string> out;
+    const GitResult r =
+        run_git(dir, {"ls-files", "--cached", "--others", "--exclude-standard", "--", glob});
+    if (r.status != 0)
+        return out;
+    std::istringstream lines(r.output);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (!line.empty())
+            out.push_back(line);
+    }
+    // --cached lists a tracked file even after it was deleted from the working
+    // tree; a path the user cannot read is not a path to offer them.
+    std::error_code ec;
+    out.erase(std::remove_if(out.begin(), out.end(),
+                             [&](const std::string& rel) {
+                                 return !fs::is_regular_file(fs::path(dir) / rel, ec);
+                             }),
+              out.end());
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
 std::string worktree_session_note(const std::string& root) {
     if (root.empty())
         return {};
