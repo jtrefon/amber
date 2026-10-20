@@ -284,6 +284,38 @@ long read_usage_token(const json& usage, const char* key) {
     return (it != usage.end() && it->is_number()) ? it->get<long>() : -1;
 }
 
+void append_strings(const json& j, const char* key, std::vector<std::string>& out) {
+    if (!j.contains(key) || !j[key].is_array())
+        return;
+    for (const auto& v : j[key])
+        if (v.is_string())
+            out.push_back(v.get<std::string>());
+}
+
+void parse_top_provider(const json& e, ModelInfo& m) {
+    if (!e.contains("top_provider") || !e["top_provider"].is_object())
+        return;
+    const json& top = e["top_provider"];
+    if (m.context == 0)
+        m.context = read_int(top, "context_length");
+    if (m.context_train == 0)
+        m.context_train = read_int(top, "context_length");
+    m.max_output = read_int(top, "max_completion_tokens");
+}
+
+void parse_capabilities(const json& e, ModelInfo& m) {
+    if (m.max_output == 0)
+        m.max_output = read_int(e, "max_completion_tokens");
+    append_strings(e, "supported_parameters", m.supported_parameters);
+    for (const auto& p : m.supported_parameters)
+        if (p == "reasoning" || p == "include_reasoning")
+            m.reasoning = true;
+    if (e.contains("architecture") && e["architecture"].is_object()) {
+        append_strings(e["architecture"], "input_modalities", m.input_modalities);
+        append_strings(e["architecture"], "output_modalities", m.output_modalities);
+    }
+}
+
 // Parse a single model entry into a ModelInfo. The id may come from any of
 // the shapes servers use ("id", "model", "name").
 ModelInfo parse_entry(const json& e) {
@@ -310,6 +342,8 @@ ModelInfo parse_entry(const json& e) {
         m.context_train = read_int(e, "n_ctx_train");
     if (m.context_train == 0)
         m.context_train = read_int(e, "context_length");
+    parse_top_provider(e, m);
+    parse_capabilities(e, m);
     return m;
 }
 

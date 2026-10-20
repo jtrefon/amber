@@ -509,11 +509,16 @@ TEST(anthropic_model_list_and_probe_parse) {
     auto models = d->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].id, "claude-sonnet-4-5");
-    ASSERT_EQ(models[0].context, 0); // no window reported -> unknown, never guessed
+    // A known Claude family falls back to its documented constants when the
+    // proxy omits the listing fields; this is not a guess for an unknown id.
+    ASSERT_EQ(models[0].context, 200000);
+    ASSERT_EQ(models[0].max_output, 64000);
+    ASSERT_TRUE(models[0].reasoning);
 
     agent::ServerInfo info = d->parse_models_response(body, "claude-haiku-4-5");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.model, "claude-haiku-4-5");
+    ASSERT_EQ(info.context_size, 200000);
 }
 
 // The listing reports max_input_tokens (the model's input window), so the
@@ -528,11 +533,33 @@ TEST(anthropic_model_list_reports_the_input_window) {
     auto models = d->parse_model_list_response(body);
     ASSERT_EQ(models.size(), 2u);
     ASSERT_EQ(models[0].context, 200000);
-    ASSERT_EQ(models[1].context, 0); // null must read as unknown, not as 0 tokens
+    // null falls back to the known Claude family; it is not read as 0 tokens.
+    ASSERT_EQ(models[1].context, 200000);
+    ASSERT_EQ(models[1].max_output, 64000);
 
     agent::ServerInfo info = d->parse_models_response(body, "claude-sonnet-4-5");
     ASSERT_TRUE(info.ok);
     ASSERT_EQ(info.context_size, 200000);
+}
+
+TEST(anthropic_known_family_fallback_is_bounded) {
+    auto d = anthropic();
+    const std::string body = R"({"data":[
+        {"type":"model","id":"claude-sonnet-4-5","max_output_tokens":32000},
+        {"type":"model","id":"claude-experimental"},
+        {"type":"model","id":"gpt-4"}]})";
+
+    auto models = d->parse_model_list_response(body);
+    ASSERT_EQ(models.size(), 3u);
+    // The documented family supplies the context; a reported output limit wins.
+    ASSERT_EQ(models[0].context, 200000);
+    ASSERT_EQ(models[0].max_output, 32000);
+    ASSERT_TRUE(models[0].reasoning);
+    // An unknown id is not guessed.
+    ASSERT_EQ(models[1].context, 0);
+    ASSERT_EQ(models[1].max_output, 0);
+    ASSERT_FALSE(models[1].reasoning);
+    ASSERT_EQ(models[2].context, 0);
 }
 
 TEST(anthropic_error_classification) {

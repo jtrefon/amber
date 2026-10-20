@@ -3,6 +3,7 @@
 #include "tests/test_util.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -503,6 +504,40 @@ TEST(model_picker_reads_a_providers_cached_catalogue) {
     ASSERT_EQ(rows[0].provider, std::string("kilocode"));
     ASSERT_EQ(rows[0].id, std::string("kilo-auto/free"));
     ASSERT(rows[0].context > 0);
+}
+
+TEST(model_picker_carries_output_reasoning_and_modalities) {
+    ScopedConfigHome home;
+    write_catalogue(home.dir, "https://openrouter.ai/api/v1", "openai",
+                    R"({"data":[)"
+                    R"({"id":"vendor/model","context_length":128000,)"
+                    R"("top_provider":{"max_completion_tokens":16384},)"
+                    R"("supported_parameters":["tools","reasoning"],)"
+                    R"("architecture":{"input_modalities":["text","image"],)"
+                    R"("output_modalities":["text"]}},)"
+                    R"({"id":"vendor/top-only",)"
+                    R"("top_provider":{"context_length":64000,"max_completion_tokens":4096}}]})");
+    tui::ProviderEndpoint e;
+    e.name = "openrouter";
+    e.api_base = "https://openrouter.ai/api/v1";
+    auto rows = tui::cached_models_for(e);
+    ASSERT_EQ(rows.size(), 2u);
+    ASSERT_EQ(rows[0].context, 128000);
+    ASSERT_EQ(rows[0].max_output, 16384);
+    ASSERT(rows[0].reasoning);
+    ASSERT(std::find(rows[0].input_modalities.begin(), rows[0].input_modalities.end(), "image") !=
+           rows[0].input_modalities.end());
+    // top_provider is the fallback when the top-level context is absent.
+    ASSERT_EQ(rows[1].context, 64000);
+    ASSERT_EQ(rows[1].max_output, 4096);
+
+    const auto subtree = tui::model_subtree(rows, "core.config.set.model.");
+    const auto& leaves = subtree["set"]["children"]["model"]["children"];
+    const std::string help = leaves["openrouter::vendor/model"]["help"].get<std::string>();
+    ASSERT(help.find("ctx 128000") != std::string::npos);
+    ASSERT(help.find("out 16384") != std::string::npos);
+    ASSERT(help.find("reasoning") != std::string::npos);
+    ASSERT(help.find("image") != std::string::npos);
 }
 
 // The cache key is api_base+flavor, so a provider speaking a different dialect
