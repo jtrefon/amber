@@ -346,6 +346,10 @@ struct RetryContext {
     std::function<Message()>& chat;
     bool adapted = false;
     LastFailure last;
+
+    RetryContext(const AgentHooks& h, ConversationLog& l, const char* s, const CancellationToken& c,
+                 const ChatAdapter& a, std::function<Message()>& ch)
+        : hooks(h), log(l), stage(s), cancel_token(c), adapt(a), chat(ch) {}
 };
 
 // One failed attempt's policy: rate limit -> stop with a reply; a repairable
