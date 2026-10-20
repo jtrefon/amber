@@ -17,6 +17,8 @@
 #include <atomic>
 
 #include "agent.h"
+#include "agent/agent_helpers.h"
+#include "agent/rate_limit.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_runtime.h"
@@ -334,6 +336,67 @@ TEST(agent_loop_compression_trigger) {
 // The mode is read from the published snapshot by the status bar. set_mode
 // used to mutate cfg_ without publishing, so the bar (and any other reader)
 // kept the old mode while the next turn used the new one.
+TEST(rate_limit_policy_escalates_then_decays) {
+    agent::RateLimitPolicy p;
+    p.note_rate_limit(std::chrono::milliseconds(0));
+    ASSERT_EQ(p.strikes, 1);
+    ASSERT_EQ(p.interval.count(), 500);
+    ASSERT_EQ(p.cooldown.count(), 1000);
+    p.note_rate_limit(std::chrono::milliseconds(30000));
+    ASSERT_EQ(p.strikes, 2);
+    ASSERT_EQ(p.interval.count(), 1000);
+    ASSERT_EQ(p.cooldown.count(), 30000);
+    p.note_success();
+    ASSERT_EQ(p.strikes, 0);
+    ASSERT_EQ(p.cooldown.count(), 0);
+    for (int i = 0; i < 4; ++i)
+        p.note_success();
+    ASSERT_EQ(p.interval.count(), 750); // one 250 ms decay after four successes
+}
+
+TEST(retry_after_parses_seconds_not_dates) {
+    ASSERT_EQ(agent::parse_retry_after_ms("30"), 30000);
+    ASSERT_EQ(agent::parse_retry_after_ms(" 7 \r\n"), 7000);
+    ASSERT_EQ(agent::parse_retry_after_ms("120"), 120000);
+    ASSERT_EQ(agent::parse_retry_after_ms("Wed, 21 Oct 2015 07:28:00 GMT"), 0);
+    ASSERT_EQ(agent::parse_retry_after_ms(""), 0);
+}
+
+// A 429 is a pause, not a retryable bug: one request, no ladder, and the
+// failure carries the status/Retry-After so the turn can stop.
+TEST(chat_with_retry_stops_on_rate_limit) {
+    agent::ConversationLog log;
+    agent::AgentHooks hooks;
+    agent::CancellationToken token;
+    int calls = 0;
+    auto chat = [&calls]() -> agent::Message {
+        ++calls;
+        throw agent::ApiError(429, true, "HTTP 429: rate limited", 30000);
+    };
+    const agent::Message reply = agent::chat_with_retry(hooks, log, chat, "test", token, 3, {});
+    ASSERT_EQ(calls, 1);
+    ASSERT_EQ(reply.failure_status, 429L);
+    ASSERT_EQ(reply.failure_retry_after_ms, 30000L);
+    ASSERT(reply.content.find("rate limited") != std::string::npos);
+}
+
+TEST(agent_turn_stops_on_rate_limit) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    auto* raw = fake.get();
+    agent_test::FakeReply r;
+    r.error = "HTTP 429: rate limited";
+    r.status = 429;
+    r.retry_after_ms = 30000;
+    raw->script.push_back(std::move(r));
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    const std::string out = ag.run("hello");
+    ASSERT_EQ(raw->chat_calls, 1);
+    ASSERT(out.find("rate limited") != std::string::npos);
+}
+
 TEST(agent_set_mode_publishes_the_status_snapshot) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
