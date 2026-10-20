@@ -221,7 +221,7 @@ TEST(gemini_model_list_parses_and_strips_prefix) {
     auto d = make_gemini_dialect();
     const std::string body = R"({
       "models": [
-        {"name": "models/gemini-2.5-pro", "inputTokenLimit": 1048576},
+        {"name": "models/gemini-2.5-pro", "inputTokenLimit": 1048576, "outputTokenLimit": 65536},
         {"name": "models/gemini-2.5-flash", "inputTokenLimit": 1048576}
       ]})";
 
@@ -230,6 +230,7 @@ TEST(gemini_model_list_parses_and_strips_prefix) {
     // "models/" is stripped: every other call takes the bare id.
     ASSERT_EQ(models[0].id, std::string("gemini-2.5-pro"));
     ASSERT_EQ(models[0].context, 1048576);
+    ASSERT_EQ(models[0].max_output, 65536);
 
     ServerInfo info = d->parse_models_response(body, "gemini-2.5-flash");
     ASSERT_TRUE(info.ok);

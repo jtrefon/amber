@@ -70,8 +70,23 @@ nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::
         nlohmann::json& leaf =
             subtree["set"]["children"]["model"]["children"][provider_key(m.provider, m.id)];
         leaf["action"] = prefix + provider_key(m.provider, m.id);
+        std::string help;
+        const auto add = [&help](const std::string& part) {
+            if (!help.empty())
+                help += " · ";
+            help += part;
+        };
         if (m.context > 0)
-            leaf["help"] = "ctx " + std::to_string(m.context);
+            add("ctx " + std::to_string(m.context));
+        if (m.max_output > 0)
+            add("out " + std::to_string(m.max_output));
+        if (m.reasoning)
+            add("reasoning");
+        if (std::find(m.input_modalities.begin(), m.input_modalities.end(), "image") !=
+            m.input_modalities.end())
+            add("image");
+        if (!help.empty())
+            leaf["help"] = help;
     }
     return subtree;
 }
@@ -86,7 +101,10 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
         pm.provider = e.name;
         pm.id = m.id;
         pm.context = m.context ? m.context : m.context_train;
-        out.push_back(pm);
+        pm.max_output = m.max_output;
+        pm.reasoning = m.reasoning;
+        pm.input_modalities = m.input_modalities;
+        out.push_back(std::move(pm));
     }
     return out;
 }

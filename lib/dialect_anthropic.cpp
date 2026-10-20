@@ -37,6 +37,56 @@ std::string str_field(const json& o, const char* key) {
     return it->get<std::string>();
 }
 
+// Documented family defaults for listings that omit the limits (a corporate
+// proxy may return ids only). These are constants, not a guess: an id outside
+// the table stays 0. The 1M context beta is opt-in and remains a user pin.
+struct ClaudeFamily {
+    const char* prefix;
+    int context;
+    int max_output;
+    bool reasoning;
+};
+
+constexpr ClaudeFamily kClaudeFamilies[] = {
+    {"claude-3-5-", 200000, 8192, false},     {"claude-3-7-", 200000, 64000, true},
+    {"claude-sonnet-4", 200000, 64000, true}, {"claude-opus-4", 200000, 32000, true},
+    {"claude-haiku-4", 200000, 64000, true},  {"claude-3-opus", 200000, 4096, false},
+    {"claude-3-sonnet", 200000, 4096, false}, {"claude-3-haiku", 200000, 4096, false},
+    {"claude-2.1", 200000, 4096, false},      {"claude-2", 100000, 4096, false},
+    {"claude-instant", 100000, 4096, false},
+};
+
+const ClaudeFamily* claude_family(const std::string& id) {
+    for (const auto& family : kClaudeFamilies)
+        if (id.rfind(family.prefix, 0) == 0)
+            return &family;
+    return nullptr;
+}
+
+// One listing entry: reported limits win; a known family fills the gaps; an
+// unknown id stays 0. Free rather than a class member so the dialect type does
+// not grow past its size cap.
+ModelInfo parse_model_entry(const json& e) {
+    ModelInfo m;
+    m.id = str_field(e, "id");
+    const auto read_limit = [&](const char* key) -> int {
+        auto it = e.find(key);
+        return it != e.end() && it->is_number() && it->get<long>() > 0
+                   ? static_cast<int>(it->get<long>())
+                   : 0;
+    };
+    m.context = read_limit("max_input_tokens");
+    m.max_output = read_limit("max_output_tokens");
+    if (const ClaudeFamily* family = claude_family(m.id)) {
+        if (m.context == 0)
+            m.context = family->context;
+        if (m.max_output == 0)
+            m.max_output = family->max_output;
+        m.reasoning = family->reasoning;
+    }
+    return m;
+}
+
 // Parse a tool call's `arguments` (a JSON string on the internal model) into
 // the object Anthropic expects for tool_use.input. Malformed arguments yield
 // an empty object: the request must stay well-formed, and the model can
@@ -353,15 +403,7 @@ public:
         for (const auto& e : j["data"]) {
             if (!e.is_object())
                 continue;
-            ModelInfo m;
-            m.id = str_field(e, "id");
-            // The listing reports the model's input window (max_input_tokens,
-            // nullable), which is the number the context gauge and the
-            // compression budget need. A null/absent value stays 0: unknown is
-            // never guessed.
-            if (auto it = e.find("max_input_tokens");
-                it != e.end() && it->is_number() && it->get<long>() > 0)
-                m.context = static_cast<int>(it->get<long>());
+            ModelInfo m = parse_model_entry(e);
             if (!m.id.empty())
                 out.push_back(std::move(m));
         }

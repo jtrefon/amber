@@ -42,10 +42,10 @@ struct Plan {
 
 // Split by alignment and drop the highest-drop segments until the left zone
 // fits `budget`, reserving the right zone and the activity indicator. The
-// gauge's minimum width is reserved whenever a context window exists or the
-// used count is known, so the bar does not jump when the window is detected
-// mid-session.
-Plan plan(std::vector<Segment> segments, int width, bool have_ctx, long ctx_used);
+// context gauge always occupies its minimum width: an unknown window is a
+// state to show ("ctx —"), not an empty slot, and reserving it keeps the bar
+// from jumping when a window is detected mid-session.
+Plan plan(std::vector<Segment> segments, int width);
 
 } // namespace tui::status_bar_layout
 

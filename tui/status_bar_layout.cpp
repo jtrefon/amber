@@ -67,21 +67,21 @@ bool drop_worst(std::vector<Segment>& left, std::vector<Segment>& right) {
     return true;
 }
 
-Plan plan(std::vector<Segment> segments, int width, bool have_ctx, long ctx_used) {
+Plan plan(std::vector<Segment> segments, int width) {
     Plan p;
     for (auto& s : segments)
         (s.align == agent::StatusAlign::Right ? p.right : p.left).push_back(std::move(s));
 
-    // Reserve room for the gauge whether or not the window is known: the count
-    // is meaningful on its own ("ctx 44.7k"), the fraction only once a window
-    // exists. A constant gauge_min stops the layout from jumping when the window
-    // is detected mid-session.
-    const int gauge_min = (have_ctx || ctx_used > 0) ? 12 : 0;
+    // The gauge is always present: an unknown window renders "ctx —" (or the
+    // live count), so the layout must not reserve zero columns for it. A
+    // constant minimum also stops the bar jumping when a window is detected
+    // mid-session.
+    constexpr int kGaugeMin = 12;
 
     p.right_cols = zone_cols(p.right);
     p.budget = budget_for(width, p.right_cols);
 
-    while (zone_cols(p.left) + gauge_min > p.budget && (!p.left.empty() || !p.right.empty())) {
+    while (zone_cols(p.left) + kGaugeMin > p.budget && (!p.left.empty() || !p.right.empty())) {
         if (!drop_worst(p.left, p.right))
             break;
         p.right_cols = zone_cols(p.right);

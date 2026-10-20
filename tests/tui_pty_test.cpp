@@ -307,7 +307,9 @@ bool write_file(const std::string& path, const std::string& body) {
 bool seed_two_provider_catalogues(const std::string& xdg_home) {
     // xdg_home IS XDG_CONFIG_HOME, and global_config_dir() appends "/amber".
     const std::string dir = xdg_home + "/amber/providers";
-    if (!fs::create_directories(dir))
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec)
         return false;
     const char* bodies[] = {
         R"({"data":[{"id":"beta-large","context_length":100000},{"id":"beta-small","context_length":8000}]})",
@@ -817,6 +819,29 @@ TEST(set_model_lists_every_configured_providers_cached_models) {
     require(bar_moved, "picking the other provider's model left the window agent behind", tui);
 }
 
+// The gauge is the other end of the same switch: the picked model carries its
+// catalogue window into the agent, and the bar must show it without a restart.
+TEST(model_switch_updates_the_context_gauge) {
+    Tui tui;
+    tui.name = "model_switch_updates_the_context_gauge";
+    ASSERT(seed_two_provider_catalogues(fixture().workspace + "/xdg"));
+    // The shared fixture's global config carries the provider a previous test
+    // last picked; start this one from the fixture's own default so the model
+    // switch exercises the same path as the first pick.
+    ASSERT(write_file(fixture().workspace + "/xdg/amber/config",
+                      "api_base=http://127.0.0.1:9/v1\nmodel=pty-test\n"));
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 60, 200));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(open_set_model(tui), "the drawer has no rows", tui))
+        return;
+    if (!require(pick_by_fragment(tui, "large", "model set to beta-large"),
+                 "the model pick did not complete", tui))
+        return;
+    require(tui.wait_for("100k", 10000),
+            "the gauge did not follow the picked model's context window", tui);
+}
+
 // ── the provider tabs narrow the list (and therefore what Enter runs) ──
 //
 // Switching a tab used to move only the strip's marker: the rows painted, the
@@ -1170,6 +1195,42 @@ TEST(get_model_list_reports_why_the_catalogue_is_empty) {
     std::error_code ec;
     fs::remove(conf, ec);
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// The gauge used to reserve zero columns and paint nothing when the window was
+// unknown and the live count was 0 — exactly the /set model context 0 state.
+// Unknown is a state to show ("ctx —" or the count), not an empty slot.
+TEST(context_gauge_stays_visible_when_the_window_is_unknown) {
+    Tui tui;
+    tui.name = "context_gauge_stays_visible_when_the_window_is_unknown";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 60, 200));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.text().find("ctx") != std::string::npos,
+                 "the context gauge is not visible with an unknown window", tui))
+        return;
+
+    tui.send("/set model context 200000\r");
+    if (!require(tui.wait_for("context window pinned: 200000", 10000),
+                 "the pin did not take effect", tui))
+        return;
+    // A /get leaves the model drawer closed, so the status bar is the last
+    // readable state rather than a command line with a completion open.
+    tui.send("/get model context\r");
+    if (!require(tui.wait_for("ctx: 200000", 10000), "the readout did not show the pin", tui))
+        return;
+    if (!require(tui.text().find("200k") != std::string::npos,
+                 "the pinned window is not in the gauge", tui))
+        return;
+
+    tui.send("/set model context 0\r");
+    if (!require(tui.wait_for("context window: auto", 10000), "the pin was not cleared", tui))
+        return;
+    tui.send("/get model context\r");
+    if (!require(tui.wait_for("ctx: unknown", 10000), "the cleared window did not re-resolve", tui))
+        return;
+    require(tui.text().find("ctx") != std::string::npos,
+            "the gauge vanished when the window was cleared", tui);
 }
 
 // ── /set policy mode reaches the active agent and the status bar ──
@@ -1560,6 +1621,7 @@ int main(int argc, char** argv) {
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();
+    model_switch_updates_the_context_gauge();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
     settings_lists_the_groups_and_opens_the_provider_picker();
@@ -1570,6 +1632,7 @@ int main(int argc, char** argv) {
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
     get_config_paths_prints_the_resolved_layout();
+    context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
     system_commands_do_not_freeze_the_ui();
