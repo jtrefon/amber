@@ -11,15 +11,18 @@
 #include "bench/resources.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
+#include "bench/state_reaper.h"
 #include "bench/template.h"
 
 #include "tests/test_util.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 namespace fs = std::filesystem;
 
@@ -2789,4 +2792,103 @@ TEST(harness_scorecard_family_integrity_defaults_to_zero) {
     ASSERT_EQ(sc.family_integrity("absent"), 0.0); // unknown family
     sc.families["empty"] = {0, 0};
     ASSERT_EQ(sc.family_integrity("empty"), 0.0); // known family, zero total
+}
+
+// ---------------------------------------------------------------------------
+// State reaper
+// ---------------------------------------------------------------------------
+
+static void set_age_days(const fs::path& p, int days) {
+    fs::last_write_time(p, fs::file_time_type::clock::now() - std::chrono::hours(24 * days));
+}
+
+// One old bench dir, one young bench dir, a normal project, a no-dash directory
+// that must not match, and a prefixed regular file.
+static fs::path bench_state_fixture(const char* tag) {
+    const fs::path root = tmp_dir(tag);
+    fs::create_directories(root / "tmp-amber-bench-ws-old");
+    write_file((root / "tmp-amber-bench-ws-old" / "experience.json").string(), "12345");
+    fs::create_directories(root / "tmp-amber-bench-ws-young");
+    fs::create_directories(root / "real-project");
+    fs::create_directories(root / "tmp-amber-bench-ws");
+    write_file((root / "tmp-amber-bench-ws-file").string(), "x");
+    set_age_days(root / "tmp-amber-bench-ws-old", 30);
+    set_age_days(root / "tmp-amber-bench-ws", 30);
+    return root;
+}
+
+TEST(reaper_dry_run_lists_only_old_bench_dirs) {
+    const fs::path root = bench_state_fixture("reaper_dry");
+    bench::ReapOptions opts;
+    opts.older_than_days = 7;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 1u);
+    ASSERT_EQ(r.entries[0].path.string(), (root / "tmp-amber-bench-ws-old").string());
+    ASSERT_EQ(r.entries[0].bytes, static_cast<std::uintmax_t>(5));
+    ASSERT_EQ(r.skipped_young, static_cast<std::size_t>(1));
+    ASSERT_EQ(r.errors.size(), 0u);
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-old"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-young"));
+    ASSERT_TRUE(fs::exists(root / "real-project"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-file"));
+    fs::remove_all(root);
+}
+
+TEST(reaper_apply_removes_only_old_bench_dirs) {
+    const fs::path root = bench_state_fixture("reaper_apply");
+    bench::ReapOptions opts;
+    opts.older_than_days = 7;
+    opts.apply = true;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 1u);
+    ASSERT_EQ(r.errors.size(), 0u);
+    ASSERT_TRUE(!fs::exists(root / "tmp-amber-bench-ws-old"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-young"));
+    ASSERT_TRUE(fs::exists(root / "real-project"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws"));
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-file"));
+    fs::remove_all(root);
+}
+
+TEST(reaper_never_follows_a_symlink) {
+    const fs::path root = tmp_dir("reaper_link");
+    const fs::path outside = root / "outside";
+    fs::create_directories(outside);
+    write_file((outside / "sentinel").string(), "keep");
+    const fs::path link = root / "tmp-amber-bench-ws-link";
+    std::error_code ec;
+    fs::create_directory_symlink(outside, link, ec);
+    ASSERT_EQ(ec.value(), 0);
+    set_age_days(outside, 30);
+
+    bench::ReapOptions opts;
+    opts.older_than_days = 7;
+    opts.apply = true;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 0u);
+    ASSERT_TRUE(fs::exists(outside / "sentinel"));
+    ASSERT_TRUE(fs::is_symlink(link));
+    fs::remove_all(root);
+}
+
+TEST(reaper_missing_root_is_empty_and_quiet) {
+    const fs::path root = fs::path(tmp_dir("reaper_missing")) / "absent";
+    bench::ReapOptions opts;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 0u);
+    ASSERT_EQ(r.errors.size(), 0u);
+}
+
+TEST(reaper_rejects_an_age_below_one) {
+    const fs::path root = tmp_dir("reaper_age");
+    fs::create_directories(root / "tmp-amber-bench-ws-old");
+    bench::ReapOptions opts;
+    opts.older_than_days = 0;
+    opts.apply = true;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 0u);
+    ASSERT_EQ(r.errors.size(), 1u);
+    ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-old"));
+    fs::remove_all(root);
 }
