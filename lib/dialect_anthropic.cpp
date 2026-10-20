@@ -63,6 +63,19 @@ const ClaudeFamily* claude_family(const std::string& id) {
     return nullptr;
 }
 
+// Anthropic's reasoning control is a numeric thinking budget, not an effort
+// tag. Map the configured effort to a documented budget; an unknown effort
+// sends no thinking block.
+int reasoning_budget(const std::string& effort) {
+    if (effort == "minimal" || effort == "low")
+        return 1024;
+    if (effort == "medium")
+        return 2048;
+    if (effort == "high" || effort == "xhigh")
+        return 4096;
+    return 0;
+}
+
 // One listing entry: reported limits win; a known family fills the gaps; an
 // unknown id stays 0. Free rather than a class member so the dialect type does
 // not grow past its size cap.
@@ -337,8 +350,9 @@ public:
     json build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                          const std::vector<std::shared_ptr<Tool>>& tools,
                          bool stream) const override {
+        const size_t max_tokens = request_max_tokens(cfg);
         json body = {{"model", cfg.model},
-                     {"max_tokens", cfg.max_tokens}, // required by the API
+                     {"max_tokens", max_tokens}, // required by the API, capped to the model
                      {"stream", stream},
                      {"messages", json::array()}};
 
@@ -355,6 +369,18 @@ public:
         }
         if (!system.empty())
             body["system"] = system;
+
+        // Anthropic extended thinking is a numeric budget, not a tag. Only a
+        // model that advertises reasoning gets it, and the budget must stay
+        // below max_tokens (the API's own rule).
+        if (cfg.model_supports_reasoning && !cfg.reasoning_effort.empty() &&
+            cfg.reasoning_effort != "off" && max_tokens > 1024) {
+            int budget = cfg.thinking_budget > 0 ? cfg.thinking_budget
+                                                 : reasoning_budget(cfg.reasoning_effort);
+            budget = std::min(budget, static_cast<int>(max_tokens) - 1);
+            if (budget >= 1024)
+                body["thinking"] = {{"type", "enabled"}, {"budget_tokens", budget}};
+        }
 
         append_messages(body["messages"], messages);
         append_tools(body, tools);
@@ -389,6 +415,9 @@ public:
             info.model = m.id;
             info.context_size = m.context; // max_input_tokens, 0 when unreported
             info.context_train = m.context_train;
+            info.max_output = m.max_output;
+            info.reasoning = m.reasoning;
+            info.supported_parameters = m.supported_parameters;
             info.ok = true;
             break;
         }

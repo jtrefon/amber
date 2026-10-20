@@ -2,6 +2,7 @@
 #ifndef AGENT_LLM_H
 #define AGENT_LLM_H
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include <functional>
@@ -51,7 +52,18 @@ struct ServerInfo {
     std::string model;     // model id (e.g. the gguf name / alias)
     int context_size = 0;  // n_ctx (loaded context window), 0 if unknown
     int context_train = 0; // n_ctx_train (model's native max), 0 if unknown
+    int max_output = 0;    // max completion tokens, 0 if unknown
+    bool reasoning = false;
+    std::vector<std::string> supported_parameters;
 };
+
+// The completion ask the model will actually accept: the configured budget
+// capped by the model's advertised output limit (0 = not advertised).
+inline size_t request_max_tokens(const Config& cfg) {
+    if (cfg.model_max_output <= 0)
+        return cfg.max_tokens;
+    return std::min(cfg.max_tokens, static_cast<size_t>(cfg.model_max_output));
+}
 
 // One entry of a provider's model listing, as parsed by a Dialect. `context`
 // is 0 when the protocol does not report a window and no known-family fallback

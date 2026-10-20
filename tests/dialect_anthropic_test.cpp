@@ -562,6 +562,29 @@ TEST(anthropic_known_family_fallback_is_bounded) {
     ASSERT_EQ(models[2].context, 0);
 }
 
+TEST(anthropic_request_respects_output_and_reasoning) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-3-5-sonnet";
+    cfg.max_tokens = 16384;
+    cfg.model_max_output = 8192;
+    std::vector<agent::Message> msgs;
+
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["max_tokens"].get<int>(), 8192); // never above the model's ceiling
+    ASSERT(!body.contains("thinking"));
+
+    cfg.model_supports_reasoning = true;
+    cfg.reasoning_effort = "high";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(body.contains("thinking"));
+    ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 4096); // numeric budget, not a tag
+
+    cfg.max_tokens = 2048; // the budget must stay below max_tokens
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 2047);
+}
+
 TEST(anthropic_error_classification) {
     auto d = anthropic();
     ASSERT_TRUE(d->is_retryable(429, "{}")); // rate limited

@@ -378,6 +378,35 @@ TEST(agent_set_model_scopes_an_unpinned_window) {
     ASSERT_FALSE(snapshot->context_explicit);
 }
 
+TEST(agent_set_model_carries_capabilities) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.set_model("m", 1000, 8192, true, {"reasoning"});
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->model_max_output, 8192);
+    ASSERT(snapshot->model_supports_reasoning);
+    ASSERT_EQ(snapshot->model_supported_parameters.size(), 1u);
+
+    // A same-model call without capabilities keeps what the catalogue set.
+    ag.set_model("m");
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->model_max_output, 8192);
+
+    // A new model without capabilities is unknown, not the previous model's.
+    ag.set_model("m2");
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->model_max_output, 0);
+    ASSERT_FALSE(snapshot->model_supports_reasoning);
+    ASSERT(snapshot->model_supported_parameters.empty());
+}
+
 // A user pin survives a model switch, a provider switch and a catalogue push.
 TEST(agent_user_pin_survives_context_resolution) {
     agent::Workspace::set_root(cwd());

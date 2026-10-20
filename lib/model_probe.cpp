@@ -318,6 +318,11 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
         cfg.model = info.model;
     if (!cfg.context_explicit && info.context_size > 0)
         cfg.context_size = info.context_size;
+    // Capabilities belong to the model the listing described; unknown means
+    // empty, not "keep the previous model's".
+    cfg.model_max_output = info.max_output;
+    cfg.model_supports_reasoning = info.reasoning;
+    cfg.model_supported_parameters = info.supported_parameters;
 }
 
 ServerInfo apply_cached_server_autodetect(Config& cfg) {
