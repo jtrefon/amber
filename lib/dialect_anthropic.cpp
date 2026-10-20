@@ -324,6 +324,18 @@ private:
     std::map<int, json> tool_slots_;
 };
 
+void append_tools_json(json& body, const std::vector<std::shared_ptr<Tool>>& tools) {
+    if (tools.empty())
+        return;
+    json arr = json::array();
+    for (const auto& t : tools) {
+        json schema = t->parameters_schema();
+        arr.push_back(
+            {{"name", t->name()}, {"description", t->description()}, {"input_schema", schema}});
+    }
+    body["tools"] = arr;
+}
+
 class AnthropicDialect : public Dialect {
 public:
     std::string flavor() const override { return "anthropic"; }
@@ -383,7 +395,8 @@ public:
         }
 
         append_messages(body["messages"], messages);
-        append_tools(body, tools);
+        if (tools_advertised(cfg))
+            append_tools_json(body, tools);
         return body;
     }
 
@@ -563,20 +576,7 @@ private:
         blocks.push_back(text_block(m.content));
         out.push_back({{"role", kRoleUser}, {"content", std::move(blocks)}});
     }
-
-    void append_tools(json& body, const std::vector<std::shared_ptr<Tool>>& tools) const {
-        if (tools.empty())
-            return;
-        json arr = json::array();
-        for (const auto& t : tools) {
-            json schema = t->parameters_schema();
-            arr.push_back(
-                {{"name", t->name()}, {"description", t->description()}, {"input_schema", schema}});
-        }
-        body["tools"] = arr;
-    }
 };
-
 } // namespace
 
 std::unique_ptr<Dialect> make_anthropic_dialect() {

@@ -312,7 +312,11 @@ bool seed_two_provider_catalogues(const std::string& xdg_home) {
     if (ec)
         return false;
     const char* bodies[] = {
-        R"({"data":[{"id":"beta-large","context_length":100000},{"id":"beta-small","context_length":8000}]})",
+        R"({"data":[{"id":"beta-large","context_length":100000,)"
+        R"("top_provider":{"max_completion_tokens":16384},)"
+        R"("supported_parameters":["tools","reasoning"],)"
+        R"("architecture":{"input_modalities":["text","image"],"output_modalities":["text"]}},)"
+        R"({"id":"beta-small","context_length":8000}]})",
         R"({"data":[{"id":"alpha-shared","context_length":200000}]})"};
     const char* names[] = {"beta", "alpha"};
     for (int i = 0; i < 2; ++i) {
@@ -840,6 +844,43 @@ TEST(model_switch_updates_the_context_gauge) {
         return;
     require(tui.wait_for("100k", 10000),
             "the gauge did not follow the picked model's context window", tui);
+}
+
+// The picker and the readout show what the listing advertises, so the limits
+// and reasoning shape are visible before a request goes out.
+TEST(model_picker_shows_advertised_capabilities) {
+    Tui tui;
+    tui.name = "model_picker_shows_advertised_capabilities";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 60, 200));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(open_set_model(tui), "the drawer has no rows", tui))
+        return;
+    if (!require(tui.wait_for("out 16384", 10000), "the picker omits the output limit", tui))
+        return;
+    require(tui.wait_for("reasoning", 10000), "the picker omits reasoning support", tui);
+}
+
+TEST(get_model_list_shows_advertised_capabilities) {
+    Tui tui;
+    tui.name = "get_model_list_shows_advertised_capabilities";
+    ASSERT(seed_two_provider_catalogues(fixture().workspace + "/xdg"));
+    // A previous test may have left another provider in the shared global
+    // config; start from the fixture default so the pick switches to beta.
+    ASSERT(write_file(fixture().workspace + "/xdg/amber/config",
+                      "api_base=http://127.0.0.1:9/v1\nmodel=pty-test\n"));
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 60, 200));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(open_set_model(tui), "the drawer has no rows", tui))
+        return;
+    if (!require(pick_by_fragment(tui, "large", "model set to beta-large"),
+                 "the model pick did not complete", tui))
+        return;
+    tui.send("/get model list\r");
+    if (!require(tui.wait_for("out 16384", 10000), "the readout omits the output limit", tui))
+        return;
+    require(tui.wait_for("reasoning", 10000), "the readout omits reasoning support", tui);
 }
 
 // ── the provider tabs narrow the list (and therefore what Enter runs) ──
@@ -1622,6 +1663,8 @@ int main(int argc, char** argv) {
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();
     model_switch_updates_the_context_gauge();
+    model_picker_shows_advertised_capabilities();
+    get_model_list_shows_advertised_capabilities();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
     settings_lists_the_groups_and_opens_the_provider_picker();

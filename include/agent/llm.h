@@ -69,6 +69,16 @@ inline size_t request_max_tokens(const Config& cfg) {
     return std::min(cfg.max_tokens, static_cast<size_t>(cfg.model_max_output));
 }
 
+// A non-empty advertised parameter list that omits tools means the model is not
+// a tool caller; an empty list is unknown, so tools are sent. Respecting the
+// listing avoids offering a tool schema the endpoint never advertised.
+inline bool tools_advertised(const Config& cfg) {
+    if (cfg.model_supported_parameters.empty())
+        return true;
+    return std::find(cfg.model_supported_parameters.begin(), cfg.model_supported_parameters.end(),
+                     "tools") != cfg.model_supported_parameters.end();
+}
+
 // One entry of a provider's model listing, as parsed by a Dialect. `context`
 // is 0 when the protocol does not report a window and no known-family fallback
 // applies. The capability fields are 0/empty/false when the listing is silent:
