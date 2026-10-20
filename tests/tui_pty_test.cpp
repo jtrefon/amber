@@ -1124,6 +1124,32 @@ TEST(get_model_list_reports_why_the_catalogue_is_empty) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// ── /set policy mode reaches the active agent and the status bar ──
+
+// /set policy mode used to update only the TUI template, never the active
+// agent, and Agent::set_mode did not publish; enforcement and the bar both
+// stayed on the launch mode. The bar renders from the agent's snapshot, so
+// seeing it change here proves the agent adopted the mode.
+TEST(set_policy_mode_reaches_the_agent_and_the_bar) {
+    Tui tui;
+    tui.name = "set_policy_mode_reaches_the_agent_and_the_bar";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set policy mode yolo\r");
+    if (!require(tui.wait_for(" yolo ", 10000), "the status bar never showed yolo", tui))
+        return;
+
+    tui.send("/set policy mode read\r");
+    if (!require(tui.wait_for(" read ", 10000), "the status bar never showed read", tui))
+        return;
+
+    tui.send("/set policy mode write\r");
+    if (!require(tui.wait_for(" write ", 10000), "the status bar never returned to write", tui))
+        return;
+}
+
 // ── diagnostics are opt-in, and toggling them shows where they land ──
 //
 // /set debug on is not just a config write: the journal has to exist so it can
@@ -1389,6 +1415,7 @@ int main(int argc, char** argv) {
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     get_config_paths_prints_the_resolved_layout();
+    set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
     system_commands_do_not_freeze_the_ui();
     worktree_setting_reports_itself_and_persists();

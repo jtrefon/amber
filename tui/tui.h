@@ -247,6 +247,7 @@ private:
     void on_models_refreshed(const agent::CatalogFetchReport& refresh, bool announce,
                              const std::string& api_base, const std::string& flavor);
     void adopt_detected_model();
+    void apply_detected_context_window();
     // A post_to_ui_thread variant for background catalog work: the post is
     // dropped once destruction begins, so a late worker can never touch a
     // torn-down Tui.

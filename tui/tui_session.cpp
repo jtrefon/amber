@@ -191,10 +191,11 @@ void SessionController::fork_session() {
 // because this is a one-time load reduction, not an inline compression that
 // would break tail-injection.
 void SessionController::maybe_background_compress(Window& w, const agent::Session& s) {
-    const double utilisation = s.messages.empty()
-                                   ? 0.0
-                                   : static_cast<double>(w.agent->context().token_count()) /
-                                         std::max(1, tui_.cfg_.context_size);
+    const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+    const int window = acfg ? acfg->context_size : 0;
+    if (s.messages.empty() || window <= 0)
+        return;
+    const double utilisation = static_cast<double>(w.agent->context().token_count()) / window;
     if (utilisation <= 0.40)
         return;
     tui_.append_line(P_STATUS, "large session — background compression started");
@@ -209,9 +210,9 @@ void SessionController::restore_stats(Window& w, const agent::Session& s) {
     };
     w.ctx_used.store(get_num("ctx_used", -1));
     w.ctx_estimate = 0; // refilled by the restore's context events
-    const long restored_ctx = get_num("ctx_size", 0);
-    if (restored_ctx > 0)
-        tui_.cfg_.context_size = static_cast<int>(restored_ctx);
+    // The saved ctx_size is history, not a live setting: writing it into the
+    // shared template is what left the gauge at an old session's 130k after a
+    // model/provider switch. The active agent resolves the current window.
     if (s.meta.contains("latency_ms") && s.meta["latency_ms"].is_number()) {
         w.stats.latency_ms = s.meta["latency_ms"].get<double>();
         w.stats.tps = static_cast<double>(get_num("tps", -1));

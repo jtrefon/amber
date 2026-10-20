@@ -54,6 +54,9 @@ public:
     // Status-bar painting: one segment (clipped to the budget), the context
     // gauge, the activity indicator, and the right zone.
     void put_segment(int y, int budget, int& x, const std::string& s, int pair);
+    // The window the ACTIVE agent will actually use. Reading the template
+    // (tui_.cfg_) is what made the gauge stay at a stale 130k after a switch.
+    int context_window() const;
     void draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long ctx_used, double frac);
     void draw_spinner(int y, int ix);
     void draw_right_zone(int y, int w, int right_w,

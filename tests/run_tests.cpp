@@ -1100,6 +1100,31 @@ TEST(provider_service_select_applies_connection) {
     ASSERT_EQ(cfg.api_key, "sk-alpha");
 }
 
+TEST(apply_selection_scopes_the_context_window) {
+    auto repo = std::make_unique<FakeProviderRepo>();
+    repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
+    auto svc =
+        agent::ProviderService(make_repos(std::move(repo)), std::make_unique<FakeModelCatalog>());
+    auto sel = svc.select("alpha");
+    ASSERT(sel.ok());
+
+    agent::Config cfg;
+    cfg.context_size = 131072;
+    cfg.context_explicit = false;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.context_size, 0); // no provider default: unknown, not the old value
+
+    cfg.context_explicit = true;
+    cfg.context_size = 200000;
+    sel.provider.default_context_size = 524288;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.context_size, 200000); // a user pin survives
+
+    cfg.context_explicit = false;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.context_size, 524288); // the provider default is adopted
+}
+
 TEST(provider_service_select_unknown_fails) {
     auto svc = agent::ProviderService(make_repos(std::make_unique<FakeProviderRepo>()),
                                       std::make_unique<FakeModelCatalog>());
@@ -5301,8 +5326,8 @@ TEST(compress_uses_the_providers_window_not_a_stale_configured_one) {
     agent::Workspace::set_root(".");
     agent::Config cfg;
     cfg.stream = false;
-    cfg.context_size = 262144; // what the local endpoint taught amber
-    cfg.context_explicit = true;
+    cfg.context_size = 262144; // auto-resolved from the local endpoint
+    cfg.context_explicit = false;
     agent::ToolRegistry reg;
     const auto cc = agent::load_compression_config(cfg);
     auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {

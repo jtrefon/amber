@@ -194,8 +194,12 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
         cfg.model = sel.provider.default_model;
         cfg.model_explicit = true;
     }
-    if (sel.provider.default_context_size > 0 && !cfg.context_explicit)
-        cfg.context_size = sel.provider.default_context_size;
+    // The window belongs to the provider's endpoint/model pair, so a switch
+    // clears an unpinned value even when the provider has no default. Keeping
+    // the previous provider's number is what made the gauge and the gate lie.
+    if (!cfg.context_explicit)
+        cfg.context_size =
+            sel.provider.default_context_size > 0 ? sel.provider.default_context_size : 0;
     // The dialect the client resolves travels with the provider, so a provider
     // contributed by a plugin needs nothing from a table in the core. Derived
     // on every selection, never persisted.

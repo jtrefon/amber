@@ -134,19 +134,39 @@ void Agent::publish_config() {
                                std::memory_order_release);
 }
 
+void Agent::set_mode(AgentMode mode) {
+    cfg_.mode = mode;
+    // The status bar renders from the published snapshot, not cfg_; without
+    // this the mode changed for the next turn but the bar stayed on the old
+    // value (/set policy mode looked like it did nothing).
+    publish_config();
+}
+
 void Agent::set_model(const std::string& model, int window) {
+    const bool model_changed = model != cfg_.model;
     cfg_.model = model;
     cfg_.model_explicit = true;
-    if (window > 0) {
-        // Choosing a model from the provider's catalogue IS a window choice:
-        // that model's window replaces whatever an earlier endpoint left in the
-        // config. A stale 262144 from the local server sent an otherwise-fitting
-        // request over a smaller provider's limit.
+    if (window > 0)
         model_windows_[model] = window;
-        cfg_.context_size = window;
-        cfg_.context_explicit = true;
+    // A catalogue pick is an automatic resolution, not a user pin. Apply the
+    // window it reports; when the new model reports none, clear the previous
+    // model's value instead of pretending it still applies.
+    if (!cfg_.context_explicit) {
+        if (window > 0)
+            cfg_.context_size = window;
+        else if (model_changed)
+            cfg_.context_size = 0;
     }
     client_ = make_client(cfg_, client_factory_);
+    publish_config();
+}
+
+void Agent::set_context_window(int window) {
+    if (cfg_.context_explicit)
+        return;
+    cfg_.context_size = window;
+    if (window > 0)
+        model_windows_[cfg_.model] = window;
     publish_config();
 }
 
@@ -193,6 +213,11 @@ void Agent::set_provider(const Config& resolved, const std::string& model) {
     cfg_.api_base = resolved.api_base;
     cfg_.api_key = resolved.api_key;
     cfg_.flavor = resolved.flavor;
+    // The window belongs to the endpoint/model pair that was just selected.
+    // A user pin survives; an unpinned agent adopts the resolved default (0
+    // when the provider has none) instead of keeping the previous provider's.
+    if (!cfg_.context_explicit)
+        cfg_.context_size = resolved.context_size;
     if (!model.empty()) {
         cfg_.model = model;
         cfg_.model_explicit = true;
