@@ -335,11 +335,39 @@ std::string render_proposal(const Findings& f) {
                           : lines_of(f.runs);
     out += "\n## " + index_store::section_title("where") + "\n";
     out += lines_of(f.where);
-    out += "artefacts: record keys, tokens and hosts by mechanism, never by value — for example "
-           "$ADO_PAT in the dev container env\n";
     out += "\n## " + index_store::section_title("selection") + "\n";
     out += f.tags.empty() ? "(none detected)\n" : join(f.tags) + "\n";
     return out;
+}
+
+// Guidance for the agent belongs before the proposal, never inside the body it
+// may copy verbatim into `commit`. The markers make the boundary explicit; the
+// writer strips the block if the whole output is passed back.
+constexpr const char* kAdvisoryOpen = "[index_init advisory — not part of the index body]";
+constexpr const char* kAdvisoryClose = "[/index_init advisory]";
+
+std::string render_advisory() {
+    std::string out = std::string(kAdvisoryOpen) + "\n";
+    out += "Record keys, tokens and hosts by mechanism, never by value — for example $ADO_PAT in "
+           "the dev container env.\n";
+    out += "Confirm this with the user, correct anything wrong, then call index_init again with "
+           "the final body in `commit`.\n";
+    out += std::string(kAdvisoryClose) + "\n";
+    return out;
+}
+
+std::string strip_advisory(std::string text) {
+    const size_t open = text.find(kAdvisoryOpen);
+    if (open == std::string::npos)
+        return text;
+    const size_t close = text.find(kAdvisoryClose, open);
+    if (close == std::string::npos)
+        return text;
+    size_t end = close + std::string(kAdvisoryClose).size();
+    while (end < text.size() && (text[end] == '\n' || text[end] == '\r'))
+        ++end;
+    text.erase(open, end - open);
+    return text;
 }
 
 class IndexInitTool : public Tool {
@@ -353,12 +381,14 @@ public:
                "or several stacks make the value clear, or when the user asks.";
     }
     json parameters_schema() const override {
-        return {{"type", "object"},
-                {"properties",
-                 {{"commit",
-                   {{"type", "string"},
-                    {"description",
-                     "The confirmed index body to write. Omit to get the proposal."}}}}}};
+        return {
+            {"type", "object"},
+            {"properties",
+             {{"commit",
+               {{"type", "string"},
+                {"description",
+                 "The confirmed index body to write. The proposal's advisory block is not "
+                 "part of the body and is stripped if included. Omit to get the proposal."}}}}}};
     }
     bool requires_approval(const json& args) const noexcept override {
         return args.is_object() && args.contains("commit");
@@ -371,15 +401,13 @@ public:
 };
 
 ToolResult IndexInitTool::execute(const json& args) const {
-    const std::string body = string_arg(args, "commit");
-    if (body.empty())
+    const std::string requested = string_arg(args, "commit");
+    if (requested.empty())
         return ToolResult{
-            true,
-            render_proposal(scan_project()) +
-                "\nConfirm this with the user, correct anything wrong, then call index_init again "
-                "with the final body in `commit`.\n",
-            {},
-            nullptr};
+            true, render_advisory() + "\n" + render_proposal(scan_project()), {}, nullptr};
+    // A model may copy the whole tool output; the advisory is guidance, not an
+    // index entry, so it is removed before validation and the write.
+    const std::string body = strip_advisory(requested);
     std::string error;
     if (!index_store::write_all(body, error))
         return ToolResult{false, {}, error, nullptr};

@@ -89,7 +89,10 @@ it — there is no init step the user must run.
 - **`index_init`** — scans (bounded, deterministic), proposes the index, asks for
   confirmation, writes it with provenance hashes. Offered by the agent when the
   value is obvious (compose present, monorepo, several stacks) or when the user
-  asks. Approval-gated: structural, once.
+  asks. Approval-gated: structural, once. The redaction/confirm guidance is an
+  advisory block **outside** the proposed body (delimited `[index_init advisory
+  ...]`); the writer strips it if the whole output is passed back to `commit`,
+  so a verbatim copy cannot record the hint as a project fact.
 - **`index_add`** — a brick, a service, an artefact, a shared resource. Carries
   name, trigger line, tags, reference (url or path). Free (no approval), redaction
   checked, append-logged.
