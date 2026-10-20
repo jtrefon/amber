@@ -20,6 +20,8 @@ struct FakeReply {
     json tool_calls = json::array(); // assistant tool_calls
     std::string error;               // non-empty -> throw instead of replying
     bool retryable = true;           // ApiError.retryable when throwing
+    long status = 0;                 // ApiError.status; 0 = 503/401 by retryable
+    long retry_after_ms = 0;         // ApiError.retry_after_ms
     long prompt_tokens = 0;          // stats.prompt_tokens for this reply
     long completion_tokens = 0;
 };
@@ -56,7 +58,8 @@ public:
             stats->valid = true;
         }
         if (!r.error.empty())
-            throw agent::ApiError(r.retryable ? 503 : 401, r.retryable, r.error);
+            throw agent::ApiError(r.status != 0 ? r.status : (r.retryable ? 503 : 401), r.retryable,
+                                  r.error, r.retry_after_ms);
         agent::Message m;
         m.role = "assistant";
         m.content = r.content;
