@@ -2806,7 +2806,7 @@ static void set_age_days(const fs::path& p, int days) {
 // that must not match, and a prefixed regular file.
 static fs::path bench_state_fixture(const char* tag) {
     const fs::path root = tmp_dir(tag);
-    fs::create_directories(root / "tmp-amber-bench-ws-old");
+    fs::create_directories(root / "tmp-amber-bench-ws-old" / "logs");
     write_file((root / "tmp-amber-bench-ws-old" / "experience.json").string(), "12345");
     fs::create_directories(root / "tmp-amber-bench-ws-young");
     fs::create_directories(root / "real-project");
@@ -2890,5 +2890,56 @@ TEST(reaper_rejects_an_age_below_one) {
     ASSERT_EQ(r.entries.size(), 0u);
     ASSERT_EQ(r.errors.size(), 1u);
     ASSERT_TRUE(fs::exists(root / "tmp-amber-bench-ws-old"));
+    fs::remove_all(root);
+}
+
+TEST(reaper_root_file_reports_an_error) {
+    const fs::path root = tmp_dir("reaper_rootfile");
+    const fs::path file = root / "not-a-directory";
+    write_file(file.string(), "x");
+    bench::ReapOptions opts;
+    const bench::ReapReport r = bench::reap_scenario_state(file, opts);
+    ASSERT_EQ(r.entries.size(), 0u);
+    ASSERT_EQ(r.errors.size(), 1u);
+    fs::remove_all(root);
+}
+
+TEST(reaper_reports_a_failed_removal) {
+    const fs::path root = bench_state_fixture("reaper_remove_fail");
+    const fs::path old = root / "tmp-amber-bench-ws-old";
+    std::error_code ec;
+    fs::permissions(root, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace,
+                    ec);
+    ASSERT_EQ(ec.value(), 0);
+
+    bench::ReapOptions opts;
+    opts.older_than_days = 7;
+    opts.apply = true;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 0u);
+    ASSERT_EQ(r.errors.size(), 1u);
+    ASSERT_TRUE(fs::exists(old));
+
+    fs::permissions(root, fs::perms::owner_all, fs::perm_options::replace);
+    fs::remove_all(root);
+}
+
+TEST(reaper_reports_a_size_error_but_still_removes) {
+    const fs::path root = tmp_dir("reaper_size");
+    const fs::path old = root / "tmp-amber-bench-ws-old";
+    fs::create_directories(old);
+    write_file((old / "experience.json").string(), "12345");
+    std::error_code ec;
+    fs::create_symlink("missing", old / "dangling", ec);
+    ASSERT_EQ(ec.value(), 0);
+    set_age_days(old, 30);
+
+    bench::ReapOptions opts;
+    opts.older_than_days = 7;
+    opts.apply = true;
+    const bench::ReapReport r = bench::reap_scenario_state(root, opts);
+    ASSERT_EQ(r.entries.size(), 1u);
+    ASSERT_EQ(r.errors.size(), 1u);
+    ASSERT_TRUE(!fs::exists(old));
     fs::remove_all(root);
 }

@@ -1,5 +1,6 @@
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -7,44 +8,51 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "agent.h"
 #include "agent/version.h"
+#include "agent/workspace.h"
 #include "bench/probe.h"
 #include "bench/report.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
+#include "bench/state_reaper.h"
 
 namespace fs = std::filesystem;
 
 namespace {
 
 void print_usage(const char* prog) {
-    std::cerr << "Usage: " << prog << " <command> [options]\n\n"
-              << "Commands:\n"
-              << "  list                        list available scenarios\n"
-              << "  run                         run scenarios (hermetic fake LLM by default)\n"
-              << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
-              << "  report <results.json>...     re-render stored JSON report(s);\n"
-              << "                               multiple files render a model comparison\n"
-              << "  delta <a.json> <b.json>      win/lose/stagnate per-scenario KPI delta\n"
-              << "  scorecard <results.json>     full diagnostic: dimensions, per-suite,\n"
-              << "                               failed-scenario diagnosis, signals\n"
-              << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
-              << "                               deviation, suggested difficulties\n\n"
-              << "Options:\n"
-              << "  --suite NAME     filter by suite\n"
-              << "  --scenario NAME  run a single scenario\n"
-              << "  --live           use the real model (amber.conf / env / flags)\n"
-              << "  --profile NAME   model profile from bench/profiles.json\n"
-              << "  --model NAME     model override (live)\n"
-              << "  --temperature T  temperature override (live)\n"
-              << "  --repeat N       run each scenario N times\n"
-              << "  --cat NAME       category: model | harness | both (default)\n"
-              << "  --out FILE       write JSON report to FILE\n"
-              << "  --format FMT     report output: text (default), markdown, json\n"
-              << "  -h, --help       show this help\n";
+    std::cerr
+        << "Usage: " << prog << " <command> [options]\n\n"
+        << "Commands:\n"
+        << "  list                        list available scenarios\n"
+        << "  run                         run scenarios (hermetic fake LLM by default)\n"
+        << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
+        << "  report <results.json>...     re-render stored JSON report(s);\n"
+        << "                               multiple files render a model comparison\n"
+        << "  delta <a.json> <b.json>      win/lose/stagnate per-scenario KPI delta\n"
+        << "  scorecard <results.json>     full diagnostic: dimensions, per-suite,\n"
+        << "                               failed-scenario diagnosis, signals\n"
+        << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
+        << "                               deviation, suggested difficulties\n"
+        << "  reap-state                   remove old bench scenario state; dry run by default\n\n"
+        << "Options:\n"
+        << "  --suite NAME     filter by suite\n"
+        << "  --scenario NAME  run a single scenario\n"
+        << "  --live           use the real model (amber.conf / env / flags)\n"
+        << "  --profile NAME   model profile from bench/profiles.json\n"
+        << "  --model NAME     model override (live)\n"
+        << "  --temperature T  temperature override (live)\n"
+        << "  --repeat N       run each scenario N times\n"
+        << "  --cat NAME       category: model | harness | both (default)\n"
+        << "  --out FILE       write JSON report to FILE\n"
+        << "  --format FMT     report output: text (default), markdown, json\n"
+        << "  --older-than-days N  reap-state age floor (default 7, minimum 1)\n"
+        << "  --apply          reap-state: actually remove (default: dry run)\n"
+        << "  -h, --help       show this help\n";
 }
 
 std::vector<bench::Scenario> discover_scenarios(const std::string& suite, const std::string& name) {
@@ -159,10 +167,25 @@ struct CliOptions {
     std::string category;
     std::string disable;
     std::string format = "text";
+    int older_than_days = 7;
+    bool reap_apply = false;
     std::vector<std::string> rest;
 };
 
 using NextArg = std::function<std::string(const char*)>;
+
+bool parse_positive_int(const std::string& text, int& out) {
+    if (text.empty())
+        return false;
+    const char* first = text.data();
+    const char* last = first + text.size();
+    int value = 0;
+    const auto [end, ec] = std::from_chars(first, last, value);
+    if (ec != std::errc{} || end != last || value < 1)
+        return false;
+    out = value;
+    return true;
+}
 
 // Flags that consume the next argument.
 bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) {
@@ -208,6 +231,13 @@ std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
         } else if (a == "-h" || a == "--help") {
             print_usage(argv[0]);
             return 0;
+        } else if (a == "--apply") {
+            o.reap_apply = true;
+        } else if (a == "--older-than-days") {
+            if (!parse_positive_int(next(""), o.older_than_days)) {
+                std::cerr << "error: --older-than-days needs an integer >= 1\n";
+                return 2;
+            }
         } else if (!apply_value_flag(a, next, o)) {
             o.rest.push_back(a);
         }
@@ -611,8 +641,35 @@ int cmd_calibrate(const std::vector<std::string>& files) {
         std::cout << "- " << ref_reports[i].name << ": " << d[i] << "\n";
     return 0;
 }
+// The one maintenance command: select direct children of the projects root
+// that carry the scenario-state prefix, are directories (never symlinks), and
+// are older than the age floor. Dry run unless --apply was passed.
+int cmd_reap_state(const CliOptions& args) {
+    const fs::path root = fs::path(agent::Workspace::state_dir()).parent_path();
+    bench::ReapOptions opts;
+    opts.older_than_days = args.older_than_days;
+    opts.apply = args.reap_apply;
+    const bench::ReapReport report = bench::reap_scenario_state(root, opts);
+    const char* verb = opts.apply ? "removed" : "would remove";
+    for (const auto& entry : report.entries)
+        std::cout << verb << " " << entry.path.string() << " (" << entry.bytes << " bytes)\n";
+    std::cout << report.entries.size() << " director" << (report.entries.size() == 1 ? "y" : "ies")
+              << ", " << report.bytes / (1024 * 1024) << " MiB older than " << opts.older_than_days
+              << " days";
+    if (!opts.apply && !report.entries.empty())
+        std::cout << "; dry run, pass --apply to remove";
+    std::cout << "\n";
+    if (report.skipped_young > 0)
+        std::cout << report.skipped_young << " younger kept\n";
+    for (const auto& error : report.errors)
+        std::cerr << "error: " << error << "\n";
+    return report.errors.empty() ? 0 : 2;
+}
+
 // Dispatch the subcommand. Returns its exit code.
 int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
+    if (cmd == "reap-state")
+        return cmd_reap_state(o);
     if (cmd == "list")
         return cmd_list(o.suite);
     if (cmd == "run") {
