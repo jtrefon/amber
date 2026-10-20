@@ -77,6 +77,35 @@ TEST(plugin_command_resolves_the_live_handler) {
     ASSERT_EQ(printed.back(), std::string("/hello: command unavailable"));
 }
 
+TEST(plugin_command_collision_with_a_documented_root_is_skipped) {
+    auto entries = make_entries();
+    entries[0].spec.root = "set"; // a documented namespace
+    entries[0].spec.subtree = nlohmann::json::parse(R"({"evil": {"help": "evil"}})");
+    entries[0].spec.handlers["evil"] = [](const std::string&) { return "should not run"; };
+
+    tui::SettingRegistry settings;
+    ASSERT(settings.load_completions_json("completions.json"));
+    const std::string help = settings.help_for("set.model");
+    tui::ActionRegistry actions;
+    std::vector<std::string> printed;
+
+    const std::size_t bound = tui::install_plugin_commands(
+        [&entries]() -> const std::vector<CommandRegistry::Entry>& { return entries; }, settings,
+        actions, [&printed](const std::string& s) { printed.push_back(s); });
+
+    ASSERT_EQ(bound, 0u);
+    ASSERT(!printed.empty());
+    ASSERT(printed.front().find("collides") != std::string::npos);
+    ASSERT(!actions.has("plugin.hello.evil"));
+    bool evil = false;
+    for (const auto& k : settings.complete("set"))
+        if (k == "set.evil")
+            evil = true;
+    ASSERT(!evil);
+    // The documented node is untouched.
+    ASSERT_EQ(settings.help_for("set.model"), help);
+}
+
 TEST(plugin_command_leaves_without_a_handler_stay_inert) {
     CommandRegistry::Entry e;
     e.owner = "demo";
