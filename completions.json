@@ -11,12 +11,8 @@
   },
   "settings": {
    "action": "core.settings",
-   "help": "Open the settings screen to configure provider, model, API key, and connection test.",
-   "man": "Opens a full-screen configuration dialog where you can manage API providers, change the active model, set API keys, and test server connectivity. All changes are persisted to ~/.config/amber/.",
-   "aliases": [
-    "server",
-    "endpoint"
-   ]
+   "help": "Browse settings groups; edit with /set <group>.",
+   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think and worktree. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/."
   },
   "new": {
    "action": "core.session.reset",

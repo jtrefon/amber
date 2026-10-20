@@ -1455,6 +1455,17 @@ TEST(test_documented_leaf_keeps_its_fields_when_extended) {
     ASSERT(has_child);
 }
 
+TEST(test_settings_surface_matches_the_tree) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    // The aliases that opened a provider picker under a server-wide name are
+    // gone; the settings surface is the tree.
+    for (const auto& a : reg.top_level_aliases())
+        ASSERT(a != "server" && a != "endpoint");
+    ASSERT(reg.help_for("settings").find("group") != std::string::npos);
+    ASSERT(reg.man_for("settings").find("full-screen") == std::string::npos);
+}
+
 TEST(test_set_model_has_a_context_pin_leaf) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
@@ -1511,6 +1522,7 @@ int main() {
         test_merge_never_rewrites_documented_fields();
         test_dynamic_fields_refresh_in_place();
         test_documented_leaf_keeps_its_fields_when_extended();
+        test_settings_surface_matches_the_tree();
         test_set_model_has_a_context_pin_leaf();
         test_dynamic_merge_is_additive_under_a_documented_root();
         test_feed_leaves_visible_after_merge();

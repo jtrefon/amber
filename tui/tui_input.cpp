@@ -825,7 +825,8 @@ void SlashDispatcher::register_builtin_actions() {
 // /help, /settings, /prompt, /session reset, /window*, /stop.
 void SlashDispatcher::register_core_session_actions() {
     register_action("core.help", [this](const std::string& a) { cmd_help(a); });
-    register_action("core.settings", [this](const std::string&) {
+    register_action("core.settings", [this](const std::string&) { cmd_settings(); });
+    register_action("core.settings.provider", [this](const std::string&) {
         tui_.settings_screen();
         tui_.redraw_after_modal();
     });
@@ -1456,6 +1457,64 @@ void SlashDispatcher::cmd_get_model_context() {
         line += "  ctx: unknown";
     }
     tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::refresh_settings_feed() {
+    // /settings is a namespace fed from the same tree as /set: the group list,
+    // help and man are the JSON mapper's, not a code-side list. The generated
+    // actions dispatch the matching /get readout; the provider child opens the
+    // provider picker. Editing stays /set, so no setting logic is duplicated.
+    nlohmann::json sub;
+    auto& kids = sub["settings"]["children"];
+    for (const auto& g : tui_.settings_.children_of("set")) {
+        if (g == "provider")
+            continue;
+        const std::string key = "set." + g;
+        kids[g]["action"] = "core.settings.group." + g;
+        const std::string help = tui_.settings_.help_for(key);
+        if (!help.empty())
+            kids[g]["help"] = help;
+        const std::string man = tui_.settings_.man_for(key);
+        if (!man.empty())
+            kids[g]["man"] = man;
+        register_action("core.settings.group." + g,
+                        [this, g](const std::string&) { cmd_settings_group(g); });
+    }
+    kids["provider"]["action"] = "core.settings.provider";
+    kids["provider"]["help"] = "Manage API providers: add, edit, key and connection test.";
+    kids["provider"]["man"] =
+        "Opens the provider picker. Selecting a provider offers activate/edit, key entry and a "
+        "connection test; changes are persisted under ~/.config/amber/.";
+    tui_.settings_.merge_completions_json(sub);
+}
+
+void SlashDispatcher::cmd_settings() {
+    tui_.append_line(P_STATUS, "settings groups (edit with /set <group>):");
+    for (const auto& g : tui_.settings_.children_of("settings")) {
+        std::string line = "  " + g;
+        const std::string help = tui_.settings_.help_for("settings." + g);
+        if (!help.empty())
+            line += "  \u2014  " + help;
+        tui_.append_line(P_STATUS, line);
+    }
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_settings_group(const std::string& group) {
+    const auto& tree = tui_.settings_.command_tree();
+    const auto& get = tree["commands"]["get"]["children"];
+    if (get.contains(group)) {
+        const auto& node = get[group];
+        const std::string action = (node.contains("action") && node["action"].is_string())
+                                       ? node["action"].get<std::string>()
+                                       : std::string();
+        if (!action.empty() && action_registry_.has(action)) {
+            action_registry_.dispatch(action, "");
+            return;
+        }
+    }
+    tui_.append_line(P_STATUS, "settings " + group + " \u2014 use /set " + group);
+    tui_.draw();
 }
 
 void SlashDispatcher::refresh_model_list() {
