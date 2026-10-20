@@ -164,6 +164,7 @@ private:
         std::atomic<bool> in_flight{false};
     };
     std::shared_ptr<GitPublication> git_pub_ = std::make_shared<GitPublication>();
+    std::chrono::steady_clock::time_point last_git_request_{};
     bool drawer_open_ = false;
     int drawer_sel_ = 0;
     // The model picker's tab strip, empty when the open drawer has no tabs.

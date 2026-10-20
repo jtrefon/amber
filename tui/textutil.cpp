@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cwchar>
 #include <langinfo.h>
+#include <sstream>
 
 namespace tui::text {
 
@@ -129,6 +130,40 @@ std::string git_branch_label(const std::string& symbolic_ref, const std::string&
     }
     const std::string oid = trim(short_oid);
     return oid.empty() ? std::string() : "@" + oid;
+}
+
+GitStatus parse_git_status_v2(const std::string& output) {
+    GitStatus st;
+    std::string head;
+    std::string oid;
+    std::istringstream in(output);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind("# branch.head ", 0) == 0) {
+            head = line.substr(14);
+        } else if (line.rfind("# branch.oid ", 0) == 0) {
+            oid = line.substr(13);
+        } else if (line.rfind("1 ", 0) == 0 || line.rfind("2 ", 0) == 0 ||
+                   line.rfind("u ", 0) == 0) {
+            st.dirty = st.tracked = true;
+        } else if (line.rfind("? ", 0) == 0) {
+            st.dirty = true;
+        }
+    }
+    // A detached HEAD (every window worktree starts here) has no symbolic ref;
+    // show the short oid instead of dropping the branch readout. git's own
+    // --short uses the same 7 characters unless the prefix is ambiguous.
+    const bool detached = head.empty() || head.front() == '(';
+    const std::string short_oid =
+        (oid.size() >= 7 && oid.front() != '(') ? oid.substr(0, 7) : std::string();
+    st.branch = git_branch_label(detached ? std::string() : head, short_oid);
+    return st;
+}
+
+bool git_refresh_due(std::chrono::steady_clock::time_point last,
+                     std::chrono::steady_clock::time_point now) {
+    constexpr std::chrono::milliseconds kWindow{250};
+    return now - last >= kWindow;
 }
 
 std::string git_prompt(const std::string& project, const std::string& branch, int ins, int del) {

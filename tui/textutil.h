@@ -2,6 +2,7 @@
 #ifndef AMBER_TUI_TEXTUTIL_H
 #define AMBER_TUI_TEXTUTIL_H
 
+#include <chrono>
 #include <cstddef>
 #include <optional>
 #include <string>
@@ -99,6 +100,22 @@ std::string git_prompt(const std::string& project, const std::string& branch, in
 // HEAD is detached (every window worktree starts that way). Empty when neither
 // is known, so a non-repository draws no branch at all.
 std::string git_branch_label(const std::string& symbolic_ref, const std::string& short_oid);
+
+// One `git status --porcelain=v2 --branch` read, parsed without a repository so
+// the rules are testable. branch is the head name, or @<oid7> for a detached
+// HEAD; tracked means a 1/2/u entry (the only case that needs a diff); dirty
+// includes untracked-only work.
+struct GitStatus {
+    std::string branch;
+    bool tracked = false;
+    bool dirty = false;
+};
+GitStatus parse_git_status_v2(const std::string& output);
+
+// The coalescing window for prompt refreshes: a burst of tool results produces
+// one read. The window is 250 ms.
+bool git_refresh_due(std::chrono::steady_clock::time_point last,
+                     std::chrono::steady_clock::time_point now);
 
 // Convert a display-column offset to a byte offset in a UTF-8 string.
 // Returns the byte position (npos if col exceeds the string's display width).
