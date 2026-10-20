@@ -34,6 +34,10 @@ struct Message {
     // guidance, and deliberately not serialized: it describes the turn, not the
     // conversation.
     std::string failure_detail;
+    // A rate-limit failure is a stop signal, not a retryable turn: the status
+    // and Retry-After let the loop end instead of asking the model to continue.
+    long failure_status = 0;
+    long failure_retry_after_ms = 0;
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
@@ -94,8 +98,9 @@ struct CancelledError : std::runtime_error {
 struct ApiError : std::runtime_error {
     long status = 0;
     bool retryable = true;
-    ApiError(long s, bool r, const std::string& msg)
-        : std::runtime_error(msg), status(s), retryable(r) {}
+    long retry_after_ms = 0; // Retry-After header, 0 when absent
+    ApiError(long s, bool r, const std::string& msg, long retry_after = 0)
+        : std::runtime_error(msg), status(s), retryable(r), retry_after_ms(retry_after) {}
 };
 
 class LLMClient {

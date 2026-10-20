@@ -287,11 +287,22 @@ bool wait_for_retry(const AgentHooks& hooks, const CancellationToken& cancel_tok
 // model can act on. It rides the user channel (a system message would be hoisted
 // to the head of the request by the OpenAI dialect) and carries `harness = true`
 // so the loop never mistakes it for the model's own closing reply.
-Message chat_error_reply(const char* stage, const std::string& last_error, int attempts) {
+Message chat_error_reply(const char* stage, const std::string& last_error, int attempts,
+                         long status = 0, long retry_after_ms = 0) {
     Message err;
     err.role = "user";
     err.harness = true;
     err.failure_detail = last_error;
+    err.failure_status = status;
+    err.failure_retry_after_ms = retry_after_ms;
+    if (status == 429 || retry_after_ms > 0) {
+        err.content = "[harness] the " + std::string(stage) +
+                      " request was rate limited by the provider. It was not retried";
+        if (retry_after_ms > 0)
+            err.content += "; retry after " + std::to_string((retry_after_ms + 999) / 1000) + "s";
+        err.content += ". Wait for the provider window before continuing.";
+        return err;
+    }
     err.content = "[harness] the " + std::string(stage) + " request failed after " +
                   std::to_string(attempts) + " attempt" + (attempts == 1 ? "" : "s") + ": " +
                   last_error +
@@ -307,30 +318,78 @@ struct LastFailure {
     std::string error;
     bool retryable = false;
     int attempt = 0;
+    long status = 0;
+    long retry_after_ms = 0;
 };
+
+// A rate limit is a pause, not a retryable bug: one request, no ladder. The
+// shared pacer already set its cooldown in the transport; retrying here is
+// exactly the flood. Returns true with the stop notice when it applies.
+bool stop_on_rate_limit(const char* stage, const LastFailure& last, const AgentHooks& hooks,
+                        Message& out) {
+    if (last.status != 429 && last.retry_after_ms <= 0)
+        return false;
+    if (hooks.on_status)
+        hooks.on_status("provider rate limit; stopping instead of retrying");
+    out = chat_error_reply(stage, last.error, last.attempt, last.status, last.retry_after_ms);
+    return true;
+}
+
+enum class RetryDecision { Stop, Retry, Return };
+
+struct RetryContext {
+    const AgentHooks& hooks;
+    ConversationLog& log;
+    const char* stage;
+    const CancellationToken& cancel_token;
+    const ChatAdapter& adapt;
+    std::function<Message()>& chat;
+    bool adapted = false;
+    LastFailure last;
+
+    RetryContext(const AgentHooks& h, ConversationLog& l, const char* s, const CancellationToken& c,
+                 const ChatAdapter& a, std::function<Message()>& ch)
+        : hooks(h), log(l), stage(s), cancel_token(c), adapt(a), chat(ch) {}
+};
+
+// One failed attempt's policy: rate limit -> stop with a reply; a repairable
+// non-retryable error -> repair and retry; otherwise the shared backoff decides.
+RetryDecision handle_failure(RetryContext& ctx, const std::exception& e, int attempt,
+                             int max_attempts, Message& out) {
+    const auto* api = dynamic_cast<const ApiError*>(&e);
+    ctx.last = {e.what(), retryable_error(e), attempt, api ? api->status : 0,
+                api ? api->retry_after_ms : 0};
+    ctx.log.event("chat_error",
+                  {{"stage", ctx.stage}, {"error", ctx.last.error}, {"attempt", attempt}});
+    if (ctx.hooks.on_debug)
+        ctx.hooks.on_debug("chat error " + std::to_string(attempt) + ": " + ctx.last.error);
+    if (stop_on_rate_limit(ctx.stage, ctx.last, ctx.hooks, out))
+        return RetryDecision::Return;
+    if (!ctx.adapted && !ctx.last.retryable &&
+        try_repair(ctx.hooks, ctx.log, ctx.stage, ctx.last.error, ctx.adapt, ctx.chat)) {
+        ctx.adapted = true;
+        return RetryDecision::Retry;
+    }
+    if (!wait_for_retry(ctx.hooks, ctx.cancel_token, attempt, max_attempts, ctx.last.retryable,
+                        ctx.last.error))
+        return RetryDecision::Stop;
+    return RetryDecision::Retry;
+}
 
 Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
                              std::function<Message()> chat, const char* stage,
                              const CancellationToken& cancel_token, int max_attempts,
                              const ChatAdapter& adapt) {
-    LastFailure last;
-    bool adapted = false;
+    RetryContext ctx{hooks, log, stage, cancel_token, adapt, chat};
     for (int attempt = 1; attempt <= max_attempts; ++attempt) {
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
-            last = {e.what(), retryable_error(e), attempt};
-            log.event("chat_error",
-                      {{"stage", stage}, {"error", last.error}, {"attempt", attempt}});
-            if (hooks.on_debug)
-                hooks.on_debug("chat error " + std::to_string(attempt) + ": " + last.error);
-            if (!adapted && !last.retryable &&
-                try_repair(hooks, log, stage, last.error, adapt, chat)) {
-                adapted = true;
-                continue;
-            }
-            if (!wait_for_retry(hooks, cancel_token, attempt, max_attempts, last.retryable,
-                                last.error))
+            Message reply;
+            const RetryDecision decision = handle_failure(ctx, e, attempt, max_attempts, reply);
+            if (decision == RetryDecision::Return)
+                return reply;
+            if (decision == RetryDecision::Stop)
                 break;
         }
     }
@@ -339,7 +398,8 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
         // (Agent::run) ends the turn cleanly instead.
         throw CancelledError("request cancelled by user");
     }
-    return chat_error_reply(stage, last.error, last.attempt);
+    return chat_error_reply(stage, ctx.last.error, ctx.last.attempt, ctx.last.status,
+                            ctx.last.retry_after_ms);
 }
 
 } // namespace

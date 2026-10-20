@@ -1190,6 +1190,8 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     const std::string content = reply.content;
     const bool notice = reply.harness;
     const std::string failure = reply.failure_detail;
+    const long failure_status = reply.failure_status;
+    const long failure_retry = reply.failure_retry_after_ms;
     push_reply(std::move(reply));
 
     if (!tc.is_null() && !tc.empty())
@@ -1197,6 +1199,19 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     if (notice) {
         if (!failure.empty())
             st.last_failure = failure;
+        if (failure_status == 429 || failure_retry > 0) {
+            // A rate limit is the provider asking for time. Asking the model to
+            // "adjust the request" would re-fire the same full context; end the
+            // turn with the reason instead.
+            st.final_reply = "[rate limited by the provider; stopped this turn instead of retrying";
+            if (failure_retry > 0)
+                st.final_reply +=
+                    " (retry after " + std::to_string((failure_retry + 999) / 1000) + "s)";
+            st.final_reply += "]";
+            if (!failure.empty())
+                st.final_reply += " " + failure;
+            return true;
+        }
         return fold_harness_notice(st);
     }
     if (content.empty())
