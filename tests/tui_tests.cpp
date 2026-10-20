@@ -697,6 +697,35 @@ TEST(git_prompt_branch_label_handles_a_detached_head) {
     ASSERT_EQ(tui::text::git_branch_label("", ""), "");
 }
 
+TEST(git_status_v2_parses_branch_changes_and_detached_head) {
+    const auto main = tui::text::parse_git_status_v2("# branch.oid abcdef1234567890\n"
+                                                     "# branch.head main\n"
+                                                     "1 .M N... 100644 100644 100644 a b f\n"
+                                                     "? untracked\n");
+    ASSERT_EQ(main.branch, "main");
+    ASSERT(main.tracked);
+    ASSERT(main.dirty);
+
+    const auto detached =
+        tui::text::parse_git_status_v2("# branch.oid abcdef1234567890\n# branch.head (detached)\n");
+    ASSERT_EQ(detached.branch, "@abcdef1");
+    ASSERT_FALSE(detached.tracked);
+    ASSERT_FALSE(detached.dirty);
+
+    // An untracked-only tree is dirty but needs no diff read.
+    const auto untracked = tui::text::parse_git_status_v2(
+        "# branch.oid abcdef1234567890\n# branch.head main\n? new\n");
+    ASSERT_EQ(untracked.branch, "main");
+    ASSERT_FALSE(untracked.tracked);
+    ASSERT(untracked.dirty);
+}
+
+TEST(git_refresh_is_coalesced) {
+    const auto t0 = std::chrono::steady_clock::time_point{};
+    ASSERT_FALSE(tui::text::git_refresh_due(t0, t0 + std::chrono::milliseconds(100)));
+    ASSERT_TRUE(tui::text::git_refresh_due(t0, t0 + std::chrono::milliseconds(250)));
+}
+
 TEST(git_prompt_no_diff) {
     std::string r = tui::text::git_prompt("myproject", "main", 0, 0);
     ASSERT(r.find("myproject") != std::string::npos);

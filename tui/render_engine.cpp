@@ -721,11 +721,15 @@ void RenderEngine::draw_drawer(const std::string& input) {
 }
 
 void RenderEngine::request_git_refresh(const std::string& root) {
-    // Non-blocking: git is two subprocesses, and this runs at startup (before the
-    // first paint) and after every tool result. One refresh at a time; a request
-    // that arrives while one is in flight is satisfied by it. The root is the
-    // ACTIVE window's workspace, so the bar reports the branch of the tree the
-    // user is working in — a window's worktree, not the project it came from.
+    // Non-blocking: one status read (plus a diff when tracked) on a detached
+    // worker, at most once per window. A burst of tool results coalesces; the
+    // UI thread never forks. One refresh at a time; a request that arrives
+    // while one is in flight is satisfied by it. The root is the ACTIVE
+    // window's workspace, so the bar reports the tree the user is working in.
+    const auto now = std::chrono::steady_clock::now();
+    if (!text::git_refresh_due(last_git_request_, now))
+        return;
+    last_git_request_ = now;
     if (git_pub_->in_flight.exchange(true))
         return;
     auto pub = git_pub_; // by value: the worker never touches this RenderEngine
@@ -773,40 +777,38 @@ RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
     GitState st;
     st.project = current_project_name(root);
 
-    // A detached HEAD (every window worktree starts here) has no symbolic ref.
-    // Showing the short oid keeps the branch readout alive instead of dropping
-    // the whole state -- and the diff counts below still apply to it.
-    const std::string ref = read_stdout("git -C " + dir + " symbolic-ref HEAD 2>/dev/null");
-    const std::string oid =
-        ref.empty() ? read_stdout("git -C " + dir + " rev-parse --short HEAD 2>/dev/null")
-                    : std::string();
-    st.branch = text::git_branch_label(ref, oid);
+    // One process for branch, oid and every entry class. The pathspec matches
+    // the diff's exclusions, so the two reads describe the same tree.
+    const std::string status = read_stdout(
+        "git -C " + dir +
+        " status --porcelain=v2 --branch -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' "
+        "2>/dev/null");
+    const text::GitStatus parsed = text::parse_git_status_v2(status);
+    st.branch = parsed.branch;
     if (st.branch.empty())
         return st;
 
-    std::string stat = read_stdout("git -C " + dir +
-                                   " diff --shortstat -- . ':!bench/results' ':!*.o' ':!*.a' "
-                                   "':!*.d' 2>/dev/null");
-    if (!stat.empty()) {
-        auto extract = [&](const std::string& needle) -> int {
-            size_t pos = stat.find(needle);
-            if (pos == std::string::npos)
-                return 0;
-            size_t begin = pos;
-            while (begin > 0 && isdigit(static_cast<unsigned char>(stat[begin - 1])))
-                --begin;
-            return std::stoi(stat.substr(begin, pos - begin));
-        };
-        st.ins = extract(" insertion");
-        st.del = extract(" deletion");
+    // A diff read is only needed when the status reported tracked changes;
+    // untracked-only work is the `*` case below.
+    if (parsed.tracked) {
+        std::string stat = read_stdout("git -C " + dir +
+                                       " diff --shortstat -- . ':!bench/results' ':!*.o' "
+                                       "':!*.a' ':!*.d' 2>/dev/null");
+        if (!stat.empty()) {
+            auto extract = [&](const std::string& needle) -> int {
+                size_t pos = stat.find(needle);
+                if (pos == std::string::npos)
+                    return 0;
+                size_t begin = pos;
+                while (begin > 0 && isdigit(static_cast<unsigned char>(stat[begin - 1])))
+                    --begin;
+                return std::stoi(stat.substr(begin, pos - begin));
+            };
+            st.ins = extract(" insertion");
+            st.del = extract(" deletion");
+        }
     }
-    // Untracked files are invisible to `git diff`, so a tree whose only work is
-    // new files would look clean. The marker says "there is work here the diff
-    // counts do not show"; a tracked diff already speaks for itself.
-    const std::string dirty = read_stdout("git -C " + dir +
-                                          " status --porcelain -- . ':!bench/results' ':!*.o' "
-                                          "':!*.a' ':!*.d' 2>/dev/null");
-    st.dirty = !dirty.empty();
+    st.dirty = parsed.dirty;
     if (st.dirty && st.ins == 0 && st.del == 0)
         st.branch += "*";
     return st;
