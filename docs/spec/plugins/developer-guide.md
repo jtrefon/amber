@@ -329,9 +329,18 @@ no blocking. The registry console at Alt+0 is the worked example.
 
 ### Command
 
-A plugin contributes a slash-command namespace: a root, its help/man, the child
-nodes (completions.json shape), and one handler per executable leaf. The host
-merges the subtree into the command tree and binds each leaf to its handler.
+A plugin contributes a slash-command namespace: a **new root**, its help/man,
+the child nodes as a completions.json subtree, and one handler per executable
+leaf. The host merges the subtree into the command tree and binds each leaf to
+its handler. The subtree is the only shape the plugin supplies: the plugin
+cannot add rows, help or choices from code, and the host derives every action
+as `plugin.<id>.<path>` so a plugin never names (or overwrites) a core action.
+
+Merging is additive and collision-checked. A root that already exists --
+documented, contributed by another plugin, or created by a feed -- is skipped
+whole and reported; a plugin never patches a core namespace. Documented fields
+(`action`, `help`, `man`, `aliases`, `choices`, `range`) are immutable, while
+children are concatenated.
 
 ```cpp
 agent::CommandSpec spec;
@@ -719,6 +728,12 @@ the completion drawer but cannot execute, no handler is bound for their
 (`CommandCapability`, `plugin-framework.md`); it does not reach the subprocess
 tier, which contributes tools only. Treat external plugin commands as
 documented-but-inert and expose behaviour through tools.
+
+The `completion` object is a completions.json subtree, not a code list: its
+top-level keys are **new command roots**. A root that already exists is skipped
+whole (the contribution never patches a core command), and documented fields
+are never overwritten. The host derives the leaf actions, so the manifest does
+not carry action strings. See `docs/spec/tui/command-tree.md`.
 
 ---
 

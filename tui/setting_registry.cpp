@@ -258,52 +258,92 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
 
     if (root.contains("commands") && root["commands"].is_object()) {
         tree_["commands"] = root["commands"];
+        static_paths_.clear();
+        merge_collisions_ = 0;
         for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
-            index_node(it.value(), it.key());
+            record_static_paths(it.value(), it.key());
+        reindex();
     }
     return true;
 }
 
-namespace {
-
-// Deep-merge a subtree into the command tree: "children" objects are merged
-// recursively (union), every other field is taken from the source. This keeps
-// documented nodes (action/help/man + static children) alive when a live
-// integration (MCP server, plugin, value feed) merges its branches in.
-void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src) {
-    if (!dst.is_object()) {
-        dst = src;
+void SettingRegistry::record_static_paths(const nlohmann::json& node, const std::string& path) {
+    if (!node.is_object())
         return;
-    }
-    for (auto it = src.begin(); it != src.end(); ++it) {
-        if (it.key() == "children" && it.value().is_object()) {
-            if (!dst.contains("children") || !dst["children"].is_object())
-                dst["children"] = nlohmann::json::object();
-            for (auto cit = it.value().begin(); cit != it.value().end(); ++cit)
-                merge_tree_node(dst["children"][cit.key()], cit.value());
-        } else {
-            dst[it.key()] = it.value();
-        }
+    static_paths_.insert(path);
+    if (!node.contains("children") || !node["children"].is_object())
+        return;
+    for (auto it = node["children"].begin(); it != node["children"].end(); ++it) {
+        const std::string child = path.empty() ? it.key() : path + "." + it.key();
+        record_static_paths(it.value(), child);
     }
 }
 
-} // namespace
+void SettingRegistry::merge_children(nlohmann::json& dst, const nlohmann::json& children,
+                                     const std::string& path) {
+    if (!children.is_object())
+        return;
+    if (!dst.contains("children") || !dst["children"].is_object())
+        dst["children"] = nlohmann::json::object();
+    for (auto cit = children.begin(); cit != children.end(); ++cit) {
+        const std::string child = path.empty() ? cit.key() : path + "." + cit.key();
+        merge_tree_node(dst["children"][cit.key()], cit.value(), child);
+    }
+}
+
+void SettingRegistry::merge_field(nlohmann::json& dst, const std::string& key,
+                                  const nlohmann::json& value) {
+    if (!dst.contains(key) || dst[key] != value)
+        ++merge_collisions_;
+}
+
+// Documented fields are immutable. A merge adds children (a documented
+// command may also be a namespace: /set model is both the switch and the list
+// of model rows) and fills in new dynamic branches, but never rewrites a
+// field completions.json supplied -- a plugin or feed that tries is recorded
+// as a collision and the documented value stays.
+void SettingRegistry::merge_tree_node(nlohmann::json& dst, const nlohmann::json& src,
+                                      const std::string& path) {
+    const bool documented = static_paths_.count(path) > 0;
+    if (!dst.is_object()) {
+        if (documented)
+            ++merge_collisions_;
+        else
+            dst = src;
+        return;
+    }
+    for (auto it = src.begin(); it != src.end(); ++it) {
+        if (it.key() == "children")
+            merge_children(dst, it.value(), path);
+        else if (documented)
+            merge_field(dst, it.key(), it.value());
+        else
+            dst[it.key()] = it.value();
+    }
+}
 
 bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     if (!subtree.is_object())
         return false;
     for (auto it = subtree.begin(); it != subtree.end(); ++it) {
-        index_node(it.value(), it.key());
         nlohmann::json& node = tree_["commands"][it.key()];
         if (!node.is_object())
             node = nlohmann::json::object();
-        merge_tree_node(node, it.value());
+        merge_tree_node(node, it.value(), it.key());
     }
+    // The index must describe the merged tree, not the subtree that was
+    // offered: otherwise a blocked overwrite would still leak into help or
+    // choices through the index.
+    reindex();
     return true;
 }
 
-void SettingRegistry::reset_completion_index() {
-    tree_ = nlohmann::json::object();
+bool SettingRegistry::has_top_level_command(const std::string& name) const {
+    return tree_.contains("commands") && tree_["commands"].is_object() &&
+           tree_["commands"].contains(name);
+}
+
+void SettingRegistry::clear_index() {
     key_help_.clear();
     key_man_.clear();
     key_children_.clear();
@@ -311,6 +351,21 @@ void SettingRegistry::reset_completion_index() {
     command_ranges_.clear();
     command_aliases_.clear();
     command_subcommands_.clear();
+}
+
+void SettingRegistry::reindex() {
+    clear_index();
+    if (!tree_.contains("commands") || !tree_["commands"].is_object())
+        return;
+    for (auto it = tree_["commands"].begin(); it != tree_["commands"].end(); ++it)
+        index_node(it.value(), it.key());
+}
+
+void SettingRegistry::reset_completion_index() {
+    tree_ = nlohmann::json::object();
+    static_paths_.clear();
+    merge_collisions_ = 0;
+    clear_index();
 }
 
 const std::vector<std::string>& SettingRegistry::aliases_for(const std::string& key) const {

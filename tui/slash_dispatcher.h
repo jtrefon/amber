@@ -29,6 +29,7 @@ public:
     bool busy_reject(const std::string& what);
     void request_quit();
     void refresh_completions();
+    void merge_plugin_completions();
     // Plugin command output: one status row per line.
     void append_output(const std::string& text);
     void refresh_model_list();
@@ -191,10 +192,9 @@ private:
     bool prompt_provider_key(const std::string& a, const agent::Provider& p);
 
     // build_settings() is likewise a facade: one group per setting namespace,
-    // and add_setting() is the single registration helper they share.
-    void add_setting(const std::string& key, const std::string& help,
-                     const std::string& placeholder, Setting::Type type, double rmin, double rmax,
-                     std::function<std::string()> getter,
+    // and add_setting() is the single registration helper they share. It binds
+    // behaviour only; help, choices and ranges come from completions.json.
+    void add_setting(const std::string& key, std::function<std::string()> getter,
                      std::function<void(const std::string&)> setter);
     void add_detection_settings();
     void add_debug_settings();
