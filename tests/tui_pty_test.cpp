@@ -1189,6 +1189,35 @@ TEST(set_debug_toggles_the_error_journal) {
     require(tui.wait_for("diagnostics: off", 10000), "/set debug off did not take effect", tui);
 }
 
+// ── context readouts ──
+//
+// The context readouts read the ACTIVE agent's published snapshot, not the
+// template. This exercises both the /get model context fallback and the config
+// screen, which the pty suite otherwise never opens.
+TEST(get_context_readouts_use_the_active_snapshot) {
+    Tui tui;
+    tui.name = "get_context_readouts_use_the_active_snapshot";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/get model context\r");
+    if (!require(tui.wait_for("ctx:", 10000), "/get model context produced no readout", tui))
+        return;
+
+    tui.pump(300);
+    // The fallback readout opens the config screen; /get config itself descends
+    // into its documented `paths` child when the drawer is open.
+    tui.send("/get zzz\r");
+    if (!tui.wait_for("Configuration", 10000)) {
+        std::cerr << "--- config screen text ---\n" << tui.text() << "\n--- end ---\n";
+        require(false, "the config screen did not open", tui);
+        return;
+    }
+    tui.send("\x1b");
+    tui.pump(300);
+}
+
 // ── amber knows where its own files are ──
 //
 // The agent had no way to answer "where does amber keep X?": nothing in the
@@ -1414,6 +1443,7 @@ int main(int argc, char** argv) {
     settings_activation_switches_the_session_to_the_providers_protocol();
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
+    get_context_readouts_use_the_active_snapshot();
     get_config_paths_prints_the_resolved_layout();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();

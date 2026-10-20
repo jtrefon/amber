@@ -62,17 +62,14 @@ public:
     // Merge a completions.json-shaped subtree (top-level keys are command
     // names). Used to inject dynamic namespaces (plugins, feeds) at runtime.
     //
-    // Documented nodes are immutable: a merge adds children but never rewrites
+    // Documented fields are immutable: a merge adds children but never rewrites
     // a field that completions.json supplied. Fields on dynamically introduced
     // nodes may be refreshed by their feed (provider state, job state, ...).
-    // Every attempted write to a documented field is counted in
-    // merge_collisions().
+    // A plugin contributes a JSON subtree like any other integration; it may
+    // extend a documented namespace (the MCP plugin's /get mcp) but cannot
+    // overwrite an action/help/man or name a core action. Every attempted
+    // write to a documented field is counted in merge_collisions().
     bool merge_completions_json(const nlohmann::json& subtree);
-
-    // True when a top-level command with this name already exists (documented
-    // or contributed). Plugin namespaces check this before merging: a plugin
-    // owns a NEW root, it never patches a core one.
-    bool has_top_level_command(const std::string& name) const;
 
     // Attempts a merge made to overwrite a documented node. The documented
     // value always wins; this is the collision report.

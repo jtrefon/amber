@@ -77,15 +77,20 @@ TEST(plugin_command_resolves_the_live_handler) {
     ASSERT_EQ(printed.back(), std::string("/hello: command unavailable"));
 }
 
-TEST(plugin_command_collision_with_a_documented_root_is_skipped) {
+// A plugin may extend a documented namespace (the MCP plugin contributes
+// /get mcp), but cannot rewrite its fields: children concatenate, documented
+// action/help/man stay, and the derived action cannot collide with a core one.
+TEST(plugin_command_extends_a_documented_root_additively) {
     auto entries = make_entries();
-    entries[0].spec.root = "set"; // a documented namespace
+    entries[0].spec.root = "set";
     entries[0].spec.subtree = nlohmann::json::parse(R"({"evil": {"help": "evil"}})");
-    entries[0].spec.handlers["evil"] = [](const std::string&) { return "should not run"; };
+    entries[0].spec.handlers["evil"] = [](const std::string&) { return "extended"; };
 
     tui::SettingRegistry settings;
     ASSERT(settings.load_completions_json("completions.json"));
     const std::string help = settings.help_for("set.model");
+    const std::string action =
+        settings.command_tree()["commands"]["set"]["action"].get<std::string>();
     tui::ActionRegistry actions;
     std::vector<std::string> printed;
 
@@ -93,17 +98,17 @@ TEST(plugin_command_collision_with_a_documented_root_is_skipped) {
         [&entries]() -> const std::vector<CommandRegistry::Entry>& { return entries; }, settings,
         actions, [&printed](const std::string& s) { printed.push_back(s); });
 
-    ASSERT_EQ(bound, 0u);
-    ASSERT(!printed.empty());
-    ASSERT(printed.front().find("collides") != std::string::npos);
-    ASSERT(!actions.has("plugin.hello.evil"));
+    ASSERT_EQ(bound, 1u);
     bool evil = false;
     for (const auto& k : settings.complete("set"))
         if (k == "set.evil")
             evil = true;
-    ASSERT(!evil);
-    // The documented node is untouched.
+    ASSERT(evil);
     ASSERT_EQ(settings.help_for("set.model"), help);
+    ASSERT_EQ(settings.command_tree()["commands"]["set"]["action"].get<std::string>(), action);
+    ASSERT(settings.merge_collisions() > 0u); // the plugin's root help/man were refused
+    ASSERT_TRUE(actions.dispatch("plugin.hello.evil", ""));
+    ASSERT_EQ(printed.back(), "extended");
 }
 
 TEST(plugin_command_leaves_without_a_handler_stay_inert) {

@@ -517,12 +517,14 @@ behaviour, never shape:
   (`refresh_*_feed()`, `mcp_completion_subtree()`) build a
   completions.json-shaped subtree and merge it; they register only the leaf
   action closures (`register_action`).
-- **Plugins contribute a new root, never a patch.** External plugins supply
-  `completion` in `manifest.json`; bundled plugins supply
-  `CommandSpec::subtree`. The host derives actions as `plugin.<id>.<path>`, so
-  a plugin cannot name a core action. A contribution whose top-level root
-  already exists is skipped whole and reported (`has_top_level_command()`), and
-  documented fields are never overwritten.
+- **Plugins contribute a JSON subtree, never a code-shaped patch.** External
+  plugins supply `completion` in `manifest.json`; bundled plugins supply
+  `CommandSpec::subtree`. A contribution merges additively like a feed: it may
+  extend a documented namespace (the MCP plugin contributes `/get mcp`) and add
+  children, but it never rewrites a documented `action`/`help`/`man` and it
+  cannot name a core action — every action is host-derived as
+  `plugin.<id>.<path>`. A field collision is counted (`merge_collisions()`);
+  the documented value wins.
 - **No dead legacy dispatch.** When a feed/tree supersedes a hand-written
   branch, delete the branch; a namespace's bare usage page is allowed only
   when its action is registered.
