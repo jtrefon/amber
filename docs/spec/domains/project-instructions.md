@@ -22,7 +22,7 @@ instruction from the user outranks both.
 | Dimension | Detail |
 |-----------|--------|
 | **Input** | The workspace root; `AGENTS.md` at its top; a git checkout or a plain tree |
-| **Output** | One System prompt block: the root file's body, truncated at a line boundary with a marker, plus the nested files' repo-relative paths |
+| **Output** | One System prompt block: the root file's body, truncated at 8 KB with a marker and a table of contents of the omitted top-level sections, plus the nested files' repo-relative paths |
 | **Error states** | No root file → no block. Unreadable file → no block. Non-repository → filesystem walk |
 | **Invariants** | See below |
 | **Thread safety** | The block is built once (`load_once`) on the agent thread; a compression completion refreshes it |
@@ -30,8 +30,14 @@ instruction from the user outranks both.
 ### Invariants
 
 1. **The injected body is capped at 8 KB**, cut at the last line boundary inside
-   the cap, followed by `[truncated at 8 KB — read AGENTS.md for the rest]`.
-   The size is a per-turn cost, so it does not grow silently.
+   the cap, followed by `[truncated at 8 KB — read AGENTS.md for the rest]` and
+   a digest of every top-level `##` section whose heading is past the cut:
+   `- <title> (lines <start>-<end>)`, the range ending at the next heading with
+   trailing blank lines trimmed. A section whose heading is inside the body is
+   not repeated. Measured on this repo's AGENTS.md: the cut lands around line
+   116, the digest names 18 sections in 936 characters (~0.9 KB), so the block is the
+   8 KiB body plus ~1 KB — the reason the cap was not raised. The body size is
+   a per-turn cost, so it does not grow silently.
 2. **Nested files are named, never inlined.** The nearest file wins; the agent
    reads the one that applies to the tree it works in.
 3. **Nested discovery honours the project's ignore rules.** In a checkout the
@@ -82,7 +88,16 @@ instruction from the user outranks both.
   `sibling/AGENTS.md`
 - **Expected**: `pkg/AGENTS.md` is named; `sibling/AGENTS.md` is not.
 
-#### [PI-06] No instructions, no block
+#### [PI-06] The omitted sections are named
+
+- **Given**: an `AGENTS.md` larger than 8 KB whose top-level `##` sections
+  continue past the cut
+- **Expected**: the marker is followed by `Omitted top-level sections (line
+  ranges):` and one `- <title> (lines a-b)` per section whose heading is past
+  the cut. A heading inside the body is not listed again; each range ends at
+  the next heading with trailing blank lines trimmed.
+
+#### [PI-07] No instructions, no block
 
 - **Given**: no root `AGENTS.md`
 - **Expected**: the plugin contributes no block (and disabling it removes the
@@ -102,3 +117,4 @@ instruction from the user outranks both.
 | Date | Reason |
 |------|--------|
 | 2026-10-19 | Nested discovery is git-aware: ignore rules honoured, nested repositories and linked worktrees excluded, cap and fallback documented (#280) |
+| 2026-10-20 | The 8 KB cut is followed by a digest of the omitted top-level sections (title + line range); measured cost recorded (#284) |

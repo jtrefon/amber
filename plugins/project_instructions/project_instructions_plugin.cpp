@@ -41,24 +41,80 @@ fs::path root_file() {
     return root.empty() ? fs::path() : fs::path(root) / "AGENTS.md";
 }
 
-std::string read_capped(const fs::path& path, bool& truncated) {
+struct CappedText {
+    std::string body;
+    std::string digest;
+    bool truncated = false;
+};
+
+bool blank_line(const std::string& line) {
+    return line.find_first_not_of(" \t\r") == std::string::npos;
+}
+
+// A table of contents for the part past the cut: every top-level `##` section
+// whose heading line was not kept, with its file line range. The range ends at
+// the line before the next top-level heading, trailing blank lines trimmed, so
+// the heading and the range come from the same scan and cannot drift.
+std::string omitted_sections(const std::string& text, std::size_t first_omitted_line) {
+    std::vector<std::string> lines;
+    std::string line;
+    for (char c : text) {
+        if (c == '\n') {
+            lines.push_back(line);
+            line.clear();
+        } else {
+            line += c;
+        }
+    }
+    if (!line.empty())
+        lines.push_back(line);
+
+    struct Heading {
+        std::size_t index; // 0-based
+        std::string title;
+    };
+    std::vector<Heading> headings;
+    for (std::size_t i = 0; i < lines.size(); ++i)
+        if (lines[i].rfind("## ", 0) == 0)
+            headings.push_back({i, lines[i].substr(3)});
+
+    std::string out;
+    for (std::size_t h = 0; h < headings.size(); ++h) {
+        const std::size_t start = headings[h].index + 1; // 1-based
+        if (start < first_omitted_line)
+            continue;
+        std::size_t end = (h + 1 < headings.size()) ? headings[h + 1].index : lines.size();
+        while (end > start && blank_line(lines[end - 1]))
+            --end;
+        out += "- " + headings[h].title + " (lines " + std::to_string(start) + "-" +
+               std::to_string(end) + ")\n";
+    }
+    return out;
+}
+
+CappedText read_capped(const fs::path& path) {
+    CappedText out;
     std::ifstream in(path, std::ios::binary);
     if (!in)
-        return {};
+        return out;
     std::ostringstream ss;
     ss << in.rdbuf();
-    std::string text = ss.str();
-    truncated = false;
-    if (text.size() <= kMaxBytes)
-        return text;
+    const std::string text = ss.str();
+    if (text.size() <= kMaxBytes) {
+        out.body = text;
+        return out;
+    }
     // Cut at the last line boundary inside the cap: a marker mid-word reads as
     // corruption, and the agent should be able to trust what it was given.
     std::size_t cut = text.rfind('\n', kMaxBytes);
     if (cut == std::string::npos)
         cut = kMaxBytes;
-    text.resize(cut);
-    truncated = true;
-    return text;
+    out.body = text.substr(0, cut);
+    out.truncated = true;
+    const std::size_t kept_lines =
+        static_cast<std::size_t>(std::count(out.body.begin(), out.body.end(), '\n')) + 1;
+    out.digest = omitted_sections(text, kept_lines + 1);
+    return out;
 }
 
 // A path under a directory that carries `.git` belongs to another tree (a
@@ -135,17 +191,21 @@ std::vector<std::string> nested_files(const fs::path& root) {
     return nested_files_walk(root);
 }
 
-std::string render_block(const std::string& body, bool truncated,
-                         const std::vector<std::string>& nested) {
+std::string render_block(const CappedText& text, const std::vector<std::string>& nested) {
     std::string out = "# Project instructions (AGENTS.md)\n\n";
     out += "This project states its own conventions. They are durable policy: a direct "
            "instruction from the user outranks them, and they outrank this system prompt "
            "where the two disagree.\n\n";
-    out += body;
+    out += text.body;
     if (!out.empty() && out.back() != '\n')
         out += '\n';
-    if (truncated)
+    if (text.truncated) {
         out += "\n[truncated at 8 KB — read AGENTS.md for the rest]\n";
+        if (!text.digest.empty()) {
+            out += "\nOmitted top-level sections (line ranges):\n";
+            out += text.digest;
+        }
+    }
     if (!nested.empty()) {
         out += "\n## Nested instruction files\n\n";
         out += "The nearest file to the work wins. Read the one for the tree you are in:\n";
@@ -169,11 +229,10 @@ std::string ProjectInstructionsPlugin::load_once() {
     const fs::path file = root_file();
     if (file.empty() || !fs::exists(file))
         return block_;
-    bool truncated = false;
-    const std::string body = read_capped(file, truncated);
-    if (body.find_first_not_of(" \t\r\n") == std::string::npos)
+    const CappedText text = read_capped(file);
+    if (text.body.find_first_not_of(" \t\r\n") == std::string::npos)
         return block_; // whitespace only is not an instruction
-    block_ = render_block(body, truncated, nested_files(file.parent_path()));
+    block_ = render_block(text, nested_files(file.parent_path()));
     return block_;
 }
 
@@ -184,11 +243,10 @@ std::vector<std::string> ProjectInstructionsPlugin::report_lines() const {
         lines.emplace_back("(no AGENTS.md in this workspace)");
         return lines;
     }
-    bool truncated = false;
-    const std::string body = read_capped(file, truncated);
+    const CappedText text = read_capped(file);
     std::ostringstream head;
-    head << file.string() << " (" << body.size() << " bytes" << (truncated ? ", truncated" : "")
-         << ")";
+    head << file.string() << " (" << text.body.size() << " bytes"
+         << (text.truncated ? ", truncated" : "") << ")";
     lines.emplace_back(head.str());
     for (const auto& path : nested_files(file.parent_path()))
         lines.push_back("nested: " + path);

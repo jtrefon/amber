@@ -986,6 +986,33 @@ TEST(project_instructions_are_capped_and_say_so) {
     ASSERT(block.find("line 1000:") == std::string::npos);
 }
 
+// The 8 KB cut used to end at a marker with no map of what was omitted. The
+// digest names every top-level section past the cut with its file line range;
+// a section whose heading is inside the kept body is not listed again.
+TEST(project_instructions_digest_names_omitted_sections) {
+    ScratchWorkspace ws("instructions-digest");
+    std::string big = "# Project\n## Early section\nearly\n";
+    for (int i = 0; i < 2000; ++i)
+        big += "filler " + std::to_string(i) + "\n";
+    big += "\n## First late section\nbody one\n\n## Second late section\nbody two\n";
+    write_text(ws.root() / "AGENTS.md", big);
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string block = instructions_block(runtime);
+    ASSERT(!block.empty());
+    ASSERT(block.find("[truncated at 8 KB") != std::string::npos);
+    // The heading is at line 2005; its section ends at the line before the next
+    // heading (2008), trailing blank lines trimmed -> 2006.
+    ASSERT(block.find("- First late section (lines 2005-2006)") != std::string::npos);
+    ASSERT(block.find("- Second late section (lines 2008-2009)") != std::string::npos);
+    // Early is visible in the body, so it is not an omitted section.
+    ASSERT(block.find("## Early section") != std::string::npos);
+    ASSERT(block.find("- Early section") == std::string::npos);
+}
+
 TEST(project_instructions_absent_leaves_no_block) {
     ScratchWorkspace ws("instructions-none");
     Fixture f;
