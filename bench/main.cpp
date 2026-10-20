@@ -654,8 +654,8 @@ int cmd_reap_state(const CliOptions& args) {
     for (const auto& entry : report.entries)
         std::cout << verb << " " << entry.path.string() << " (" << entry.bytes << " bytes)\n";
     std::cout << report.entries.size() << " director" << (report.entries.size() == 1 ? "y" : "ies")
-              << ", " << report.bytes / (1024 * 1024) << " MiB older than " << opts.older_than_days
-              << " days";
+              << ", " << report.bytes / (1024ULL * 1024ULL) << " MiB older than "
+              << opts.older_than_days << " days";
     if (!opts.apply && !report.entries.empty())
         std::cout << "; dry run, pass --apply to remove";
     std::cout << "\n";
