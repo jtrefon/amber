@@ -344,7 +344,11 @@ bool Config::save_global(const std::string& path) const {
     if (!kilo_balance_token.empty())
         f << "kilo_balance_token=" << kilo_balance_token << "\n";
     f << "model=" << model << "\n";
-    f << "context_size=" << context_size << "\n";
+    // Only a user pin is written: an automatic resolution must not round-trip
+    // into the file, because load() treats any value > 0 as explicit and the
+    // next start would inherit a stale window as a pin.
+    if (context_explicit)
+        f << "context_size=" << context_size << "\n";
     f << "wallet=" << (wallet_enabled ? 1 : 0) << "\n";
     return static_cast<bool>(f);
 }

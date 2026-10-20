@@ -170,6 +170,20 @@ void Agent::set_context_window(int window) {
     publish_config();
 }
 
+void Agent::pin_context_window(int window) {
+    cfg_.context_size = window;
+    cfg_.context_explicit = true;
+    publish_config();
+}
+
+void Agent::clear_context_pin() {
+    cfg_.context_explicit = false;
+    // resolve_window() only overwrites from a known map entry; clearing the
+    // value first is what prevents the pin itself being left behind.
+    cfg_.context_size = 0;
+    resolve_window();
+}
+
 void Agent::resolve_window() {
     // Tier 1: the active model's probed window (unless the user pinned
     // context_size explicitly). Tier 2: anything the server taught us via

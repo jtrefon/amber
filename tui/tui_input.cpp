@@ -30,8 +30,10 @@
 #include <agent/workspace.h>
 
 namespace tui {
-// Provider edit form (Server URL / API Key / Model / Context). Returns
-// true when the user saved, false on cancel.
+// Provider edit form (Server URL / API Key / Model). Returns true when the
+// user saved, false on cancel. The context window is a deliberate pin, set
+// with /set model context, not a provider-form field (a provider default that
+// an existing pin outranks was the bug in #290).
 static bool edit_provider_form(agent::Config& cfg, const std::string& title);
 
 namespace {
@@ -1042,6 +1044,8 @@ void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.get.model.context",
                     [this](const std::string&) { cmd_get_model_context(); });
     register_action("core.config.set.model", [this](const std::string& a) { cmd_model_set(a); });
+    register_action("core.config.set.model.context",
+                    [this](const std::string& a) { cmd_model_context(a); });
     register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
     register_action("core.panel", [this](const std::string& a) { tui_.open_panels(a); });
 }
@@ -1317,6 +1321,67 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
     tui_.providers_->remember_model(tui_.cfg_.provider_name, arg);
     tui_.append_line(P_STATUS,
                      "model set to " + arg + " (remembered for " + tui_.cfg_.provider_name + ")");
+}
+
+void SlashDispatcher::show_model_context() {
+    const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr;
+    const int ctx = acfg ? acfg->context_size : tui_.cfg_.context_size;
+    const bool pinned = acfg ? acfg->context_explicit : tui_.cfg_.context_explicit;
+    std::string line = "context window: ";
+    if (pinned && ctx > 0)
+        line += std::to_string(ctx) + " tokens (pinned)";
+    else if (ctx > 0)
+        line += "auto (" + std::to_string(ctx) + " tokens)";
+    else
+        line += "auto (unknown)";
+    tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::clear_model_context() {
+    tui_.cfg_.context_explicit = false;
+    tui_.cfg_.context_size = 0;
+    if (tui_.win().agent) {
+        tui_.win().agent->clear_context_pin();
+        const auto now = tui_.win().agent->config_snapshot();
+        if (now)
+            tui_.cfg_.context_size = now->context_size;
+    }
+    // The writer omits context_size when it is not explicit, so clearing
+    // removes the file pin as well as the live one.
+    tui_.cfg_.save_global(agent::global_config_path());
+    std::string msg = "context window: auto";
+    if (tui_.cfg_.context_size > 0)
+        msg += " (" + std::to_string(tui_.cfg_.context_size) + " tokens)";
+    tui_.append_line(P_STATUS, msg);
+    tui_.draw();
+}
+
+void SlashDispatcher::pin_model_context(int window) {
+    tui_.cfg_.context_size = window;
+    tui_.cfg_.context_explicit = true;
+    if (tui_.win().agent)
+        tui_.win().agent->pin_context_window(window);
+    tui_.cfg_.save_global(agent::global_config_path());
+    tui_.append_line(P_STATUS, "context window pinned: " + std::to_string(window) + " tokens");
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_model_context(const std::string& arg) {
+    const std::string& v = arg;
+    if (v.empty()) {
+        show_model_context();
+        return;
+    }
+    if (v == "0" || v == "auto") {
+        clear_model_context();
+        return;
+    }
+    auto n = text::parse_setting_int(v, 1024, 10000000);
+    if (!n) {
+        tui_.append_line(P_STATUS, "usage: /set model context <tokens >= 1024> | 0 | auto");
+        return;
+    }
+    pin_model_context(*n);
 }
 
 void SlashDispatcher::cmd_model_set_for(const std::string& provider, const std::string& id) {
@@ -2535,12 +2600,10 @@ void Tui::test_connection(bool announce) {
 
 static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
     std::string model_field = cfg.model_explicit ? cfg.model : "";
-    std::string ctx_field = cfg.context_explicit ? std::to_string(cfg.context_size) : "0";
     std::vector<FieldSpec> fields = {
         {"Server URL", cfg.api_base, false},
         {"API Key", cfg.api_key, true},
         {"Model (blank = auto)", model_field, false},
-        {"Context n_ctx (0 = auto)", ctx_field, false},
     };
     if (!form_edit(title, fields))
         return false;
@@ -2553,17 +2616,6 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
     } else {
         cfg.model = fields[2].value;
         cfg.model_explicit = true;
-    }
-    try {
-        int n = std::stoi(fields[3].value);
-        if (n > 0) {
-            cfg.context_size = n;
-            cfg.context_explicit = true;
-        } else {
-            cfg.context_explicit = false;
-        }
-    } catch (...) {
-        cfg.context_explicit = false;
     }
     return true;
 }

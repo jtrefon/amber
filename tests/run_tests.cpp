@@ -575,6 +575,30 @@ TEST(config_global_save_roundtrip_preserves_provider) {
     std::remove(path.c_str());
 }
 
+// An automatic resolution is not a user pin. save_global used to write
+// context_size unconditionally, so a model switch turned the current window
+// into a pin for the next start; the loader treats any value > 0 as explicit.
+TEST(config_global_save_does_not_pin_an_automatic_window) {
+    std::string path = "/tmp/amber_global_ctx.conf";
+    agent::Config c;
+    c.context_size = 262144;
+    c.context_explicit = false;
+    ASSERT_TRUE(c.save_global(path));
+
+    agent::Config d;
+    d.load(path);
+    ASSERT_EQ(d.context_size, 0);
+    ASSERT_FALSE(d.context_explicit);
+
+    c.context_explicit = true;
+    ASSERT_TRUE(c.save_global(path));
+    agent::Config e;
+    e.load(path);
+    ASSERT_EQ(e.context_size, 262144);
+    ASSERT_TRUE(e.context_explicit);
+    std::remove(path.c_str());
+}
+
 TEST(config_global_save_roundtrip_kilo_balance_token) {
     std::string path = "/tmp/amber_global_kilo.conf";
     agent::Config c;

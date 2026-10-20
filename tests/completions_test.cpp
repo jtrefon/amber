@@ -375,15 +375,17 @@ TEST(test_set_model_feed_leaves_complete) {
     reg.merge_completions_json(subtree);
     auto kids = reg.complete("set.model");
     REQUIRE_NONEMPTY(kids);
-    ASSERT_EQ(kids.size(), 2u);
-    bool has_llama = false, has_qwen = false;
+    ASSERT_EQ(kids.size(), 3u); // the documented context leaf + two feed rows
+    bool has_llama = false, has_qwen = false, has_context = false;
     for (const auto& k : kids) {
         if (k == "set.model.llama3")
             has_llama = true;
         if (k == "set.model.qwen2")
             has_qwen = true;
+        if (k == "set.model.context")
+            has_context = true;
     }
-    ASSERT(has_llama && has_qwen);
+    ASSERT(has_llama && has_qwen && has_context);
     ASSERT_EQ(reg.help_for("set.model.llama3"), "ctx 8192");
 }
 
@@ -500,10 +502,15 @@ TEST(test_full_path_namespaces_are_distinct) {
     subtree["set"]["children"]["model"]["children"]["m1"]["help"] = "ctx 8192";
     reg.merge_completions_json(subtree);
 
-    // The set side sees the merged leaves...
+    // The set side sees the documented context leaf plus the merged leaves...
     auto set_kids = reg.children_of("set.model");
-    ASSERT_EQ(set_kids.size(), 1u);
-    ASSERT_EQ(set_kids.front(), "m1");
+    ASSERT_EQ(set_kids.size(), 2u);
+    ASSERT_EQ(set_kids.front(), "context");
+    bool has_m1 = false;
+    for (const auto& k : set_kids)
+        if (k == "m1")
+            has_m1 = true;
+    ASSERT(has_m1);
     ASSERT(!reg.help_for("set.model.m1").empty());
     // ...while the get side of the same namespace stays untouched (its static
     // list/context children are not joined by the set-side feed leaves).
@@ -680,7 +687,9 @@ static void seed_provider_model_feed(tui::SettingRegistry& reg) {
 TEST(test_drawer_rows_narrow_to_the_selected_providers_tab) {
     tui::SettingRegistry reg;
     seed_provider_model_feed(reg);
-    ASSERT_EQ(tui::drawer_rows("/set model ", reg, "").size(), 4u);
+    // The context pin is a non-model row in the All tab; the provider tabs
+    // still narrow to their own models.
+    ASSERT_EQ(tui::drawer_rows("/set model ", reg, "").size(), 5u);
     auto kilo = tui::drawer_rows("/set model ", reg, "kilo");
     ASSERT_EQ(kilo.size(), 2u);
     for (const auto& r : kilo)
@@ -1446,6 +1455,18 @@ TEST(test_documented_leaf_keeps_its_fields_when_extended) {
     ASSERT(has_child);
 }
 
+TEST(test_set_model_has_a_context_pin_leaf) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    bool has = false;
+    for (const auto& k : reg.complete("set.model"))
+        if (k == "set.model.context")
+            has = true;
+    ASSERT(has);
+    ASSERT(!reg.help_for("set.model.context").empty());
+    ASSERT(reg.help_for("set.model.context").find("0") != std::string::npos);
+}
+
 TEST(test_dynamic_merge_is_additive_under_a_documented_root) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
@@ -1490,6 +1511,7 @@ int main() {
         test_merge_never_rewrites_documented_fields();
         test_dynamic_fields_refresh_in_place();
         test_documented_leaf_keeps_its_fields_when_extended();
+        test_set_model_has_a_context_pin_leaf();
         test_dynamic_merge_is_additive_under_a_documented_root();
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
