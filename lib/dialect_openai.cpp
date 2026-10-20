@@ -730,7 +730,8 @@ json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message
     append_reasoning(body, cfg);
 
     append_messages(body["messages"], messages);
-    append_tools(body, tools);
+    if (tools_advertised(cfg))
+        append_tools(body, tools);
     return body;
 }
 

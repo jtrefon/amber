@@ -1186,6 +1186,26 @@ TEST(openai_request_respects_output_and_reasoning) {
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(!body.contains("reasoning_effort"));
     ASSERT(!body.contains("reasoning"));
+
+    // Tool support is advertised too: an explicit list without "tools" means
+    // no tool schema; an empty (unknown) list keeps the tools.
+    class ProbeTool : public agent::Tool {
+    public:
+        std::string name() const noexcept override { return "probe"; }
+        std::string description() const noexcept override { return "probe"; }
+        agent::json parameters_schema() const override { return agent::json::object(); }
+        agent::ToolResult execute(const agent::json&) const override { return {true, "ok", ""}; }
+    };
+    std::vector<std::shared_ptr<agent::Tool>> tools{std::make_shared<ProbeTool>()};
+    cfg.model_supported_parameters = {"reasoning"};
+    body = d->build_chat_body(cfg, msgs, tools, false);
+    ASSERT(!body.contains("tools"));
+    cfg.model_supported_parameters = {"tools"};
+    body = d->build_chat_body(cfg, msgs, tools, false);
+    ASSERT(body.contains("tools"));
+    cfg.model_supported_parameters.clear();
+    body = d->build_chat_body(cfg, msgs, tools, false);
+    ASSERT(body.contains("tools"));
 }
 
 TEST(openai_model_list_carries_capabilities) {

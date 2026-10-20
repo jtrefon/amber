@@ -383,7 +383,8 @@ public:
         }
 
         append_messages(body["messages"], messages);
-        append_tools(body, tools);
+        if (tools_advertised(cfg))
+            append_tools(body, tools);
         return body;
     }
 

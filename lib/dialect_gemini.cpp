@@ -231,7 +231,8 @@ public:
         body["generationConfig"] = {{"maxOutputTokens", request_max_tokens(cfg)},
                                     {"temperature", cfg.temperature}};
 
-        append_tools(body, tools);
+        if (tools_advertised(cfg))
+            append_tools(body, tools);
         return body;
     }
 
