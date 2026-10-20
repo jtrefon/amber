@@ -235,6 +235,12 @@ public:
     // model was chosen, and by the host after a provider switch. Ignored when
     // the user pinned context_size explicitly.
     void set_context_window(int window);
+    // A deliberate override: /set model context. The pin survives model and
+    // provider switches and is persisted by the host. clear_context_pin drops
+    // it and re-resolves from the current model's known window or the learned
+    // overflow clamp; unknown stays 0.
+    void pin_context_window(int window);
+    void clear_context_pin();
     void set_reasoning_effort(const std::string& effort);
     void set_connection(const std::string& api_base, const std::string& api_key,
                         const std::string& model);

@@ -435,6 +435,38 @@ TEST(agent_set_provider_and_context_window_adopt_the_resolution) {
     ASSERT_EQ(snapshot->context_size, 262144);
 }
 
+// A user pin is independent of the catalogue: it survives a model switch, and
+// clearing it resolves the CURRENT model's known window (0 when unknown), not
+// the pin it replaced.
+TEST(agent_pin_and_clear_context_window) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 131072;
+    cfg.context_explicit = false;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.set_model("first", 65536);
+    ag.pin_context_window(200000);
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 200000);
+    ASSERT_TRUE(snapshot->context_explicit);
+
+    ag.set_model("second", 524288);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 200000);
+    ASSERT_TRUE(snapshot->context_explicit);
+
+    ag.clear_context_pin();
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 524288);
+    ASSERT_FALSE(snapshot->context_explicit);
+}
+
 // A window learned from a 400 overflow rejection clamps the configured one:
 // the runtime truth wins (a model's trained n_ctx can exceed the server's
 // actual --ctx-size), so the gate fires at 70% of the LEARNED window.

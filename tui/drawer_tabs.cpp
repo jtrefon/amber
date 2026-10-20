@@ -117,14 +117,15 @@ std::vector<std::string> tab_names(const std::vector<ProviderTab>& tabs) {
 }
 
 // The distinct providers named by `rows`, or empty when the rows are not the
-// model picker. Every row must name one: a partial list would take the arrow
-// keys away from an ordinary drawer, which is the failure this avoids.
+// model picker. A settings row in a mixed namespace (the context pin under
+// /set model) names no provider and is simply not a tab; if no row names a
+// provider the drawer keeps its ordinary arrow-key behaviour.
 std::vector<std::string> providers_in_rows(const std::vector<std::string>& rows) {
     std::vector<std::string> providers;
     for (const auto& row : rows) {
         std::string p;
         if (!provider_of_row(row, p))
-            return {};
+            continue;
         if (std::find(providers.begin(), providers.end(), p) == providers.end())
             providers.push_back(p);
     }

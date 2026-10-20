@@ -1218,6 +1218,80 @@ TEST(get_context_readouts_use_the_active_snapshot) {
     tui.pump(300);
 }
 
+// The escape hatch for a mis-detected window: a slash pin that reaches the
+// active agent immediately, persists to the global config, and clears back to
+// automatic. The global file is restored so the fixture's later tests are not
+// affected by the value this test proves.
+TEST(set_model_context_pins_and_clears_the_window) {
+    Tui tui;
+    tui.name = "set_model_context_pins_and_clears_the_window";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const std::string cfg_path = agent::global_config_path();
+    std::string before;
+    {
+        std::ifstream f(cfg_path);
+        before.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    struct Restore {
+        std::string path, body;
+        ~Restore() {
+            std::ofstream f(path, std::ios::trunc);
+            f << body;
+        }
+    } restore{cfg_path, before};
+
+    tui.send("/set model context 200000\r");
+    if (!require(tui.wait_for("context window pinned: 200000", 10000),
+                 "the pin did not take effect", tui))
+        return;
+
+    tui.send("/set model context\r");
+    if (!require(tui.wait_for("context window: 200000 tokens (pinned)", 10000),
+                 "the pinned state readout failed", tui))
+        return;
+
+    tui.send("/set model context 12\r");
+    if (!require(tui.wait_for("usage: /set model context", 10000),
+                 "a value below the floor was accepted", tui))
+        return;
+
+    tui.send("/get model context\r");
+    if (!require(tui.wait_for("ctx: 200000", 10000), "the readout did not show the pin", tui))
+        return;
+
+    std::string body;
+    {
+        std::ifstream f(cfg_path);
+        body.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    if (!require(body.find("context_size=200000") != std::string::npos,
+                 "the pin was not persisted to the global config", tui))
+        return;
+
+    tui.send("/set model context 0\r");
+    if (!require(tui.wait_for("context window: auto", 10000), "the pin was not cleared", tui))
+        return;
+
+    tui.send("/set model context\r");
+    if (!require(tui.wait_for("context window: auto (unknown)", 10000),
+                 "the cleared state readout failed", tui))
+        return;
+
+    tui.send("/get model context\r");
+    if (!require(tui.wait_for("ctx: unknown", 10000), "the cleared window did not re-resolve", tui))
+        return;
+
+    {
+        std::ifstream f(cfg_path);
+        body.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    }
+    require(body.find("context_size=") == std::string::npos,
+            "an automatic window was persisted as a pin", tui);
+}
+
 // ── amber knows where its own files are ──
 //
 // The agent had no way to answer "where does amber keep X?": nothing in the
@@ -1444,6 +1518,7 @@ int main(int argc, char** argv) {
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     get_context_readouts_use_the_active_snapshot();
+    set_model_context_pins_and_clears_the_window();
     get_config_paths_prints_the_resolved_layout();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
