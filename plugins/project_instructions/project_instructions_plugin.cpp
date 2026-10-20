@@ -70,7 +70,7 @@ std::string omitted_sections(const std::string& text, std::size_t first_omitted_
         lines.push_back(line);
 
     struct Heading {
-        std::size_t index; // 0-based
+        std::size_t index = 0; // 0-based
         std::string title;
     };
     std::vector<Heading> headings;
