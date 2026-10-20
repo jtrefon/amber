@@ -972,6 +972,54 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// /settings used to be a dead leaf: no children, so Tab had nothing to
+// traverse, and Enter opened a provider-only modal. The namespace now lists
+// the same groups as /set, and the provider picker is one child.
+TEST(settings_lists_the_groups_and_opens_the_provider_picker) {
+    Tui tui;
+    tui.name = "settings_lists_the_groups_and_opens_the_provider_picker";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/settings ");
+    if (!require(tui.wait_for("Permission and approval settings", 10000),
+                 "the settings drawer has no groups", tui))
+        return;
+
+    tui.send("policy");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("policy mode:", 10000), "a settings group printed no readout", tui))
+        return;
+
+    tui.send("/settings ");
+    tui.pump(300);
+    tui.send("provider");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("Providers (", 10000), "/settings provider did not open the picker",
+                 tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(300);
+}
+
+TEST(settings_bare_prints_the_group_overview) {
+    Tui tui;
+    tui.name = "settings_bare_prints_the_group_overview";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/settings\r");
+    if (!require(tui.wait_for("settings groups", 10000),
+                 "the bare /settings did not print the group overview", tui))
+        return;
+    require(tui.wait_for("Manage API providers", 10000), "the overview omitted the provider group",
+            tui);
+}
+
 // ── activating a provider from /settings switches the whole session ──
 //
 // The settings screen ("Activate & edit") updated the session config by hand:
@@ -996,7 +1044,7 @@ TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
 
-    tui.send("/settings\r");
+    tui.send("/settings provider\r");
     if (!require(tui.wait_for("Providers (", 10000), "the settings screen did not open", tui))
         return;
     tui.send("/anthropic"); // filter the provider list down to the one row
@@ -1514,6 +1562,8 @@ int main(int argc, char** argv) {
     set_model_provider_tabs_narrow_the_rows();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
+    settings_lists_the_groups_and_opens_the_provider_picker();
+    settings_bare_prints_the_group_overview();
     settings_activation_switches_the_session_to_the_providers_protocol();
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();

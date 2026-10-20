@@ -92,6 +92,7 @@ void SlashDispatcher::refresh_completions() {
     refresh_provider_feed();
     if (tui_.feed_manager_)
         tui_.feed_manager_->refresh_plugin_feed();
+    refresh_settings_feed();
 }
 
 void SlashDispatcher::request_quit() {

@@ -36,6 +36,9 @@ public:
     void refresh_policy_feed();
     void refresh_provider_feed();
     void refresh_job_feed();
+    void refresh_settings_feed();
+    void cmd_settings();
+    void cmd_settings_group(const std::string& group);
     double compression_threshold_effective() const;
     void cmd_model_set(const std::string& arg);
     void cmd_model_context(const std::string& arg);
