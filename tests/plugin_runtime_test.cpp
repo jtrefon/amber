@@ -1261,6 +1261,14 @@ TEST(index_init_proposes_and_commits) {
     ASSERT(proposed.output.find("#vitest") != std::string::npos);
     // The proposal names what it read, so a disagreement is checkable.
     ASSERT(proposed.output.find("sources:") != std::string::npos);
+    // The redaction/confirm guidance is an advisory outside the body, not an
+    // entry a verbatim copy would persist as a fact.
+    ASSERT(proposed.output.find("[index_init advisory") != std::string::npos);
+    ASSERT(proposed.output.find("artefacts: record keys") == std::string::npos);
+    const size_t close = proposed.output.find("[/index_init advisory]");
+    ASSERT(close != std::string::npos);
+    ASSERT(proposed.output.substr(close).find("record keys, tokens and hosts") ==
+           std::string::npos);
     // Nothing is written until the confirmed body comes back.
     ASSERT(!fs::exists(plugins::ProjectIndexPlugin::file_path()));
 
@@ -1268,6 +1276,15 @@ TEST(index_init_proposes_and_commits) {
     const ToolResult committed = call_tool(f, "index_init", json{{"commit", proposed.output}});
     ASSERT(committed.ok);
     ASSERT(fs::exists(plugins::ProjectIndexPlugin::file_path()));
+    // Copying the whole proposal verbatim must not persist the advisory: the
+    // writer strips it, so the index holds entries only.
+    std::ifstream index_file(plugins::ProjectIndexPlugin::file_path());
+    const std::string written((std::istreambuf_iterator<char>(index_file)),
+                              std::istreambuf_iterator<char>());
+    ASSERT(written.find("index_init advisory") == std::string::npos);
+    ASSERT(written.find("record keys, tokens and hosts") == std::string::npos);
+    ASSERT(written.find("Confirm this with the user") == std::string::npos);
+    ASSERT(written.find("#dockercompose") != std::string::npos);
     // The running session's block is frozen: it moves on refresh, and would
     // have moved by itself at the next session's activation.
     auto* plugin = dynamic_cast<plugins::ProjectIndexPlugin*>(runtime.find("project_index"));
