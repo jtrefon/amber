@@ -289,6 +289,9 @@ public:
             auto limit = e.find("inputTokenLimit");
             if (limit != e.end() && limit->is_number())
                 m.context = limit->get<int>();
+            auto output = e.find("outputTokenLimit");
+            if (output != e.end() && output->is_number())
+                m.max_output = output->get<int>();
             out.push_back(std::move(m));
         }
         return out;

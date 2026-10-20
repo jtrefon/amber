@@ -384,15 +384,17 @@ int RenderEngine::context_window() const {
 // alone otherwise.
 void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long ctx_used,
                                   double frac) {
-    if (x >= budget || (!have_ctx && ctx_used <= 0))
+    if (x >= budget)
         return;
     put_segment(y, budget, x, "  ctx ", P_BAR_DIM);
     if (!have_ctx) {
-        // Window unknown: show the live count alone rather than hiding the
-        // gauge entirely (the old <=0-hides behavior left users blind to
-        // unbounded context growth on providers that do not advertise a
-        // window).
-        put_segment(y, budget, x, agent::compact::count(ctx_used), P_BAR_DIM);
+        // Unknown is a state, not an empty slot: show the live count when there
+        // is one, and a dash otherwise. Returning here used to make the whole
+        // gauge vanish at 0/auto.
+        if (ctx_used > 0)
+            put_segment(y, budget, x, agent::compact::count(ctx_used), P_BAR_DIM);
+        else
+            put_segment(y, budget, x, text::glyph::utf8() ? "\u2014" : "?", P_BAR_DIM);
         return;
     }
     const int cells = std::min(24, std::max(6, (budget - x) - 14));
@@ -480,8 +482,7 @@ void RenderEngine::draw_status_bar() {
 
     // Width arbitration is pure (status_bar_layout); this function only paints
     // the plan it returns.
-    const status_bar_layout::Plan plan =
-        status_bar_layout::plan(bar_segments(), w, have_ctx, ctx_used);
+    const status_bar_layout::Plan plan = status_bar_layout::plan(bar_segments(), w);
     const int budget = plan.budget;
 
     int x = 0;

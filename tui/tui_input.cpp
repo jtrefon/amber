@@ -1436,6 +1436,15 @@ void SlashDispatcher::cmd_get_model_list() {
         std::string line = "  " + m.id;
         if (ctx > 0)
             line += "  (ctx " + std::to_string(ctx) + ")";
+        if (m.max_output > 0)
+            line += "  out " + std::to_string(m.max_output);
+        if (m.reasoning)
+            line += "  reasoning";
+        if (!m.input_modalities.empty()) {
+            line += "  in";
+            for (const auto& modality : m.input_modalities)
+                line += ":" + modality;
+        }
         tui_.append_line(P_ASSISTANT, line);
     }
 }

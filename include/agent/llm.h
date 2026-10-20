@@ -58,11 +58,18 @@ struct ServerInfo {
 };
 
 // One entry of a provider's model listing, as parsed by a Dialect. `context`
-// is 0 when the protocol does not report a window (e.g. Anthropic's listing).
+// is 0 when the protocol does not report a window and no known-family fallback
+// applies. The capability fields are 0/empty/false when the listing is silent:
+// unknown is never guessed.
 struct ModelInfo {
     std::string id;
-    int context = 0;       // n_ctx (loaded context window)
-    int context_train = 0; // n_ctx_train (native max)
+    int context = 0;       // input context window
+    int context_train = 0; // native max
+    int max_output = 0;    // max completion/output tokens
+    bool reasoning = false;
+    std::vector<std::string> input_modalities;
+    std::vector<std::string> output_modalities;
+    std::vector<std::string> supported_parameters;
 };
 
 // Per-request telemetry, surfaced to UIs for the status bar. Filled in after a

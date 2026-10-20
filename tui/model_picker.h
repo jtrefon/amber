@@ -23,6 +23,9 @@ struct ProviderModel {
     std::string provider; // provider name, e.g. "kilocode"
     std::string id;       // model id as the provider spells it
     int context = 0;      // context window, 0 when unknown
+    int max_output = 0;   // completion/output limit, 0 when unknown
+    bool reasoning = false;
+    std::vector<std::string> input_modalities;
 };
 
 // The separator between provider and model in a leaf key.
