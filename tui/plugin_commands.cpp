@@ -73,14 +73,6 @@ std::size_t install_plugin_commands(const std::function<const Entries&()>& entri
                                     const std::function<void(const std::string&)>& output) {
     std::size_t bound = 0;
     for (const auto& entry : entries()) {
-        // The namespace shape comes from the plugin, but it may only add a NEW
-        // root. A plugin that names an existing command would be patching the
-        // tree from code, so the whole contribution is skipped.
-        if (settings.has_top_level_command(entry.spec.root)) {
-            output("plugin " + entry.owner + ": command namespace '" + entry.spec.root +
-                   "' collides with an existing command; skipped");
-            continue;
-        }
         nlohmann::json node = nlohmann::json::object();
         if (!entry.spec.help.empty())
             node["help"] = entry.spec.help;

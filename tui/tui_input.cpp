@@ -957,12 +957,10 @@ void SlashDispatcher::register_set_policy_actions() {
             tui_.append_line(P_STATUS, "usage: /set policy mode read|write|yolo");
             return;
         }
-        if (v == "read")
-            tui_.cfg_.mode = agent::AgentMode::Read;
-        else if (v == "yolo")
-            tui_.cfg_.mode = agent::AgentMode::Yolo;
-        else
-            tui_.cfg_.mode = agent::AgentMode::Write;
+        // One path for the command and the dotted setting: the active window's
+        // agent adopts the mode (its approval gate reads it), the template gets
+        // it for new windows, and set_mode publishes the snapshot the bar reads.
+        apply_policy_mode(v);
         tui_.append_line(P_STATUS, "policy mode: " + v);
         tui_.draw();
     });
@@ -1382,12 +1380,13 @@ void SlashDispatcher::cmd_get_model_context() {
     if (!entry || !agent::model_catalog_fresh(*entry))
         tui_.refresh_models_async(false);
     std::string line = "model: " + tui_.cfg_.model;
+    const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr;
     if (info.ok && info.context_size > 0) {
         line += "  ctx: " + std::to_string(info.context_size);
         if (info.context_train > 0 && info.context_train != info.context_size)
             line += " (max " + std::to_string(info.context_train) + ")";
-    } else if (tui_.cfg_.context_size > 0) {
-        line += "  ctx: " + std::to_string(tui_.cfg_.context_size) + " (cached)";
+    } else if (const int ctx = acfg ? acfg->context_size : tui_.cfg_.context_size; ctx > 0) {
+        line += "  ctx: " + std::to_string(ctx) + " (cached)";
     } else {
         line += "  ctx: unknown";
     }
@@ -2303,16 +2302,18 @@ void Tui::config_screen() const {
     auto mask = [](const std::string& s) {
         return s.empty() ? std::string("(unset)") : std::string(s.size(), '*');
     };
+    const auto acfg = win().agent ? win().agent->config_snapshot() : nullptr;
+    const int ctx = acfg ? acfg->context_size : cfg_.context_size;
+    const bool ctx_explicit = acfg ? acfg->context_explicit : cfg_.context_explicit;
     info_dialog("Configuration",
                 {
                     "api_base:  " + cfg_.api_base,
                     "api_key:   " + mask(cfg_.api_key),
-                    "model:     " + cfg_.model,
+                    "model:     " + (acfg ? acfg->model : cfg_.model),
                     "stream:    " + std::string(cfg_.stream ? "on" : "off"),
-                    "context:   " + (cfg_.context_size > 0
-                                         ? std::to_string(cfg_.context_size) + " tokens" +
-                                               (cfg_.context_explicit ? "" : " (auto-detected)")
-                                         : std::string("auto (not detected)")),
+                    "context:   " + (ctx > 0 ? std::to_string(ctx) + " tokens" +
+                                                   (ctx_explicit ? "" : " (auto-detected)")
+                                             : std::string("auto (not detected)")),
                     "max_iter:  " + std::to_string(cfg_.max_tool_iterations),
                     "system:    " + cfg_.system_prompt_path,
                     "tools:     " + cfg_.tools_prompt_path,
@@ -2470,6 +2471,7 @@ void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool ann
         // ownership, not locking). A busy window with no model resolves it in
         // Agent::run() against this now-warm catalog.
         adopt_detected_model();
+        apply_detected_context_window();
         refresh_model_list();
     }
     draw();
@@ -2482,6 +2484,21 @@ void Tui::adopt_detected_model() {
         const auto acfg = w->agent->config_snapshot();
         if (!acfg || acfg->model.empty())
             w->agent->set_model(cfg_.model);
+    }
+}
+
+// The catalogue's window belongs to the model it describes. Push it into the
+// idle agents on that model: the gauge and compression read the agent
+// snapshot, so without this a provider switch leaves them on the previous
+// endpoint's value until the next restart. A user pin is ignored by
+// set_context_window.
+void Tui::apply_detected_context_window() {
+    for (auto& w : window_manager_->all()) {
+        if (!w->agent || runs_.busy(w->id))
+            continue;
+        const auto acfg = w->agent->config_snapshot();
+        if (acfg && acfg->model == cfg_.model)
+            w->agent->set_context_window(cfg_.context_size);
     }
 }
 

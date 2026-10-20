@@ -331,6 +331,110 @@ TEST(agent_loop_compression_trigger) {
     (void)ag.context().get_all();
 }
 
+// The mode is read from the published snapshot by the status bar. set_mode
+// used to mutate cfg_ without publishing, so the bar (and any other reader)
+// kept the old mode while the next turn used the new one.
+TEST(agent_set_mode_publishes_the_status_snapshot) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.mode = agent::AgentMode::Write;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.set_mode(agent::AgentMode::Yolo);
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT(snapshot->mode == agent::AgentMode::Yolo);
+
+    ag.set_mode(agent::AgentMode::Read);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT(snapshot->mode == agent::AgentMode::Read);
+}
+
+// A model switch is an automatic resolution: it applies the window the new
+// model reports, and an unknown window clears the previous model's value.
+// It never becomes a user pin.
+TEST(agent_set_model_scopes_an_unpinned_window) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 131072;
+    cfg.context_explicit = false;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.set_model("other");
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 0);
+    ASSERT_FALSE(snapshot->context_explicit);
+
+    ag.set_model("big", 524288);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 524288);
+    ASSERT_FALSE(snapshot->context_explicit);
+}
+
+// A user pin survives a model switch, a provider switch and a catalogue push.
+TEST(agent_user_pin_survives_context_resolution) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 200000;
+    cfg.context_explicit = true;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    ag.set_model("big", 524288);
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 200000);
+    ASSERT_TRUE(snapshot->context_explicit);
+
+    agent::Config resolved = cfg;
+    resolved.provider_name = "other";
+    resolved.context_size = 0;
+    ag.set_provider(resolved, "big");
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 200000);
+
+    ag.set_context_window(1);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 200000);
+}
+
+// A provider switch adopts the resolved default (or 0 = unknown) instead of
+// keeping the previous endpoint's window; the catalogue push uses the same
+// method, without rebuilding the client.
+TEST(agent_set_provider_and_context_window_adopt_the_resolution) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 131072;
+    cfg.context_explicit = false;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+
+    agent::Config resolved = cfg;
+    resolved.provider_name = "other";
+    resolved.context_size = 524288;
+    ag.set_provider(resolved, "big");
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 524288);
+    ASSERT_FALSE(snapshot->context_explicit);
+
+    ag.set_context_window(262144);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 262144);
+}
+
 // A window learned from a 400 overflow rejection clamps the configured one:
 // the runtime truth wins (a model's trained n_ctx can exceed the server's
 // actual --ctx-size), so the gate fires at 70% of the LEARNED window.

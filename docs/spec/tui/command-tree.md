@@ -95,11 +95,12 @@ non-zero when a contribution tried to rewrite documented material.
   lists.
 - The host derives every leaf action as `plugin.<id>.<path>`, so a plugin
   cannot name (or overwrite) a core action.
-- A plugin root must be **new**. `refresh_completions()` and
-  `install_plugin_commands()` check `has_top_level_command()` first; a
-  contribution whose root already exists (documented, another plugin, or a
-  feed) is skipped whole and reported on the debug/status channel. Plugins
-  extend the surface with a namespace; they never patch a core one.
+- A contribution merges **additively**, like a feed. It may extend a documented
+  namespace with new children (the MCP plugin's `/get mcp` is the precedent)
+  and may add a new root. It may not rewrite a documented
+  `action`/`help`/`man`/`aliases`/`choices`/`range`: the documented value wins
+  and the attempt increments `merge_collisions()`. A plugin's root metadata is
+  therefore advice for a new namespace, not a replacement for a documented one.
 - Handlers are code, but they bind only the leaves their subtree declares. A
   leaf with no handler is documented and inert.
 
@@ -127,8 +128,9 @@ non-zero when a contribution tried to rewrite documented material.
   documented fields survive, its new child is added, `merge_collisions()`
   reports the attempts.
 - **CT-04**: a dynamic node's state help refreshes between merges.
-- **CT-05**: a plugin root that already exists is skipped; a new root is
-  merged and its host-derived actions dispatch.
+- **CT-05**: a plugin contribution extends a documented namespace with new
+  children; its attempted root help/man writes are refused and counted, and its
+  host-derived leaf action dispatches. A new root merges whole.
 - **CT-06**: `/settings`-style surfaces expose their children through the tree,
   not through a code-side list (see #289).
 

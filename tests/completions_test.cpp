@@ -1412,7 +1412,6 @@ TEST(test_merge_never_rewrites_documented_fields) {
 TEST(test_dynamic_fields_refresh_in_place) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
-    ASSERT(!reg.has_top_level_command("plugintest"));
     nlohmann::json v1 = {{"plugintest", {{"help", "v1"}, {"action", "plugin.a.x"}}}};
     nlohmann::json v2 = {{"plugintest", {{"help", "v2"}, {"action", "plugin.a.x"}}}};
     ASSERT(reg.merge_completions_json(v1));
@@ -1447,13 +1446,18 @@ TEST(test_documented_leaf_keeps_its_fields_when_extended) {
     ASSERT(has_child);
 }
 
-TEST(test_top_level_command_lookup) {
+TEST(test_dynamic_merge_is_additive_under_a_documented_root) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
-    ASSERT(reg.has_top_level_command("set"));
-    ASSERT(!reg.has_top_level_command("plugintest"));
-    ASSERT(reg.merge_completions_json({{"plugintest", {{"help", "x"}}}}));
-    ASSERT(reg.has_top_level_command("plugintest"));
+    const std::string help = reg.help_for("set.model");
+    nlohmann::json plugin = {{"set", {{"children", {{"plugintest", {{"help", "x"}}}}}}}};
+    ASSERT(reg.merge_completions_json(plugin));
+    bool added = false;
+    for (const auto& k : reg.complete("set"))
+        if (k == "set.plugintest")
+            added = true;
+    ASSERT(added);
+    ASSERT_EQ(reg.help_for("set.model"), help);
 }
 
 int main() {
@@ -1486,7 +1490,7 @@ int main() {
         test_merge_never_rewrites_documented_fields();
         test_dynamic_fields_refresh_in_place();
         test_documented_leaf_keeps_its_fields_when_extended();
-        test_top_level_command_lookup();
+        test_dynamic_merge_is_additive_under_a_documented_root();
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
         test_drawer_filter_matches_model_name_not_only_vendor();

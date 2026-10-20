@@ -336,11 +336,12 @@ its handler. The subtree is the only shape the plugin supplies: the plugin
 cannot add rows, help or choices from code, and the host derives every action
 as `plugin.<id>.<path>` so a plugin never names (or overwrites) a core action.
 
-Merging is additive and collision-checked. A root that already exists --
-documented, contributed by another plugin, or created by a feed -- is skipped
-whole and reported; a plugin never patches a core namespace. Documented fields
-(`action`, `help`, `man`, `aliases`, `choices`, `range`) are immutable, while
-children are concatenated.
+Merging is additive and collision-checked. A contribution may extend a
+documented namespace with new children (the MCP plugin contributes `/get mcp`)
+or add a new root, but documented fields (`action`, `help`, `man`, `aliases`,
+`choices`, `range`) are immutable — the documented value wins and the attempted
+write is counted. A plugin never names a core action; the host derives every
+leaf as `plugin.<id>.<path>`.
 
 ```cpp
 agent::CommandSpec spec;
@@ -729,11 +730,12 @@ the completion drawer but cannot execute, no handler is bound for their
 tier, which contributes tools only. Treat external plugin commands as
 documented-but-inert and expose behaviour through tools.
 
-The `completion` object is a completions.json subtree, not a code list: its
-top-level keys are **new command roots**. A root that already exists is skipped
-whole (the contribution never patches a core command), and documented fields
-are never overwritten. The host derives the leaf actions, so the manifest does
-not carry action strings. See `docs/spec/tui/command-tree.md`.
+The `completion` object is a completions.json subtree, not a code list. Its
+top-level keys merge into the command tree additively: a key may extend a
+documented namespace with children (the MCP plugin's `/get mcp`) or add a new
+root, but it cannot rewrite a documented field — the documented value wins and
+the collision is counted. The host derives the leaf actions, so the manifest
+does not carry action strings. See `docs/spec/tui/command-tree.md`.
 
 ---
 

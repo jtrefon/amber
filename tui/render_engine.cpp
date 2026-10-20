@@ -370,6 +370,16 @@ void RenderEngine::put_segment(int y, int budget, int& x, const std::string& s, 
         x = budget;
 }
 
+int RenderEngine::context_window() const {
+    const Window& w = tui_.win();
+    if (w.agent) {
+        const auto acfg = w.agent->config_snapshot();
+        if (acfg)
+            return acfg->context_size;
+    }
+    return tui_.cfg_.context_size;
+}
+
 // The context gauge: a labelled bar when the window is known, the live count
 // alone otherwise.
 void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long ctx_used,
@@ -395,7 +405,7 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     put_segment(y, budget, x, text::glyph::block_r(), P_BAR_DIM);
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +
-        agent::compact::count(ctx_used) + "/" + agent::compact::count(tui_.cfg_.context_size);
+        agent::compact::count(ctx_used) + "/" + agent::compact::count(context_window());
     put_segment(y, budget, x, readout, gauge_pair(frac));
 }
 
@@ -461,11 +471,12 @@ void RenderEngine::draw_status_bar() {
     mvhline(y, 0, ' ', w);
     attroff(COLOR_PAIR(P_BANNER));
 
-    const bool have_ctx = (tui_.cfg_.context_size > 0);
+    const int window = context_window();
+    const bool have_ctx = (window > 0);
     const Window& aw = tui_.win();
     const long ctx_used =
         tool_display::gauge_tokens(aw.ctx_used.load(), aw.ctx_estimate.load(), aw.live_ctx_offset);
-    const double frac = have_ctx ? static_cast<double>(ctx_used) / tui_.cfg_.context_size : 0.0;
+    const double frac = have_ctx ? static_cast<double>(ctx_used) / window : 0.0;
 
     // Width arbitration is pure (status_bar_layout); this function only paints
     // the plan it returns.

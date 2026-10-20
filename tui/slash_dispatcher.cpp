@@ -36,23 +36,13 @@ void SlashDispatcher::append_output(const std::string& text) {
     }
 }
 
-// A plugin owns a NEW top-level namespace. If the root already exists
-// (documented, another plugin, or a feed), merging would let it patch someone
-// else's command, so the contribution is skipped whole. The collision is
-// reported on the debug channel, not silently dropped.
+// Plugin completion subtrees merge additively: a plugin may extend a
+// documented namespace (the MCP plugin contributes /get mcp) and add children,
+// but it can never rewrite a documented field or name a core action. The
+// registry merge enforces that and counts a field collision.
 void SlashDispatcher::merge_plugin_completions() {
     for (const auto& p : tui_.plugins_.plugins()) {
-        if (p.state != agent::PluginState::Enabled || !p.manifest.completion.is_object())
-            continue;
-        bool collided = false;
-        for (auto it = p.manifest.completion.begin(); it != p.manifest.completion.end(); ++it) {
-            if (tui_.settings_.has_top_level_command(it.key())) {
-                collided = true;
-                tui_.append_line(P_DEBUG, "plugin " + p.id + ": completion root '" + it.key() +
-                                              "' collides with an existing command; skipped");
-            }
-        }
-        if (!collided)
+        if (p.state == agent::PluginState::Enabled && p.manifest.completion.is_object())
             tui_.settings_.merge_completions_json(p.manifest.completion);
     }
 }

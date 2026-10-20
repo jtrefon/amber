@@ -338,11 +338,6 @@ bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     return true;
 }
 
-bool SettingRegistry::has_top_level_command(const std::string& name) const {
-    return tree_.contains("commands") && tree_["commands"].is_object() &&
-           tree_["commands"].contains(name);
-}
-
 void SettingRegistry::clear_index() {
     key_help_.clear();
     key_man_.clear();

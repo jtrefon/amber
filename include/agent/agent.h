@@ -224,9 +224,17 @@ public:
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
     // injected factory — the next turn talks to the new model. `window` is
-    // the new model's probed context window (0 = unknown); it feeds the
-    // compression gate unless the user set context_size explicitly.
+    // the new model's probed context window (0 = unknown). An automatic
+    // resolution never becomes a user pin: when the model changes and the
+    // window is unknown the previous model's value is cleared rather than
+    // reused. A user pin (context_explicit) survives.
     void set_model(const std::string& model, int window = 0);
+
+    // Apply a probed window (or a provider default) to the current model
+    // without rebuilding the client. Used when a catalogue arrives after the
+    // model was chosen, and by the host after a provider switch. Ignored when
+    // the user pinned context_size explicitly.
+    void set_context_window(int window);
     void set_reasoning_effort(const std::string& effort);
     void set_connection(const std::string& api_base, const std::string& api_key,
                         const std::string& model);
@@ -295,7 +303,8 @@ public:
     // availability and approval policy, both read from cfg_ per turn, so
     // the next run picks it up — and the system prompt renders from cfg_,
     // which makes a mode change a new wire prefix for the next request.
-    void set_mode(AgentMode mode) { cfg_.mode = mode; }
+    // Publishes the config snapshot so the status bar reflects it immediately.
+    void set_mode(AgentMode mode);
     void set_thinking(const std::string& thinking) { cfg_.thinking = thinking; }
 
     // Session-activated skill bodies (own list — see inject_prompt_blocks).
