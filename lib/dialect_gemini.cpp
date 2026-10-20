@@ -228,7 +228,7 @@ public:
             append_message(body["contents"], m, call_counter);
         }
 
-        body["generationConfig"] = {{"maxOutputTokens", cfg.max_tokens},
+        body["generationConfig"] = {{"maxOutputTokens", request_max_tokens(cfg)},
                                     {"temperature", cfg.temperature}};
 
         append_tools(body, tools);
@@ -268,6 +268,7 @@ public:
             info.model = m.id;
             info.context_size = m.context;
             info.context_train = m.context_train;
+            info.max_output = m.max_output;
             info.ok = true;
             break;
         }

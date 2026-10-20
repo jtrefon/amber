@@ -102,6 +102,13 @@ struct Config {
     // the reasoning_effort field instead of a jinja kwarg: "off" disables it.
     std::string reasoning_effort = "off";
 
+    // The active model's advertised capabilities, derived from the listing and
+    // never persisted. model_max_output = 0 / reasoning false / empty params
+    // mean the provider did not advertise them: the request stays conservative.
+    int model_max_output = 0;
+    bool model_supports_reasoning = false;
+    std::vector<std::string> model_supported_parameters;
+
     // Conversation / telemetry log. When non-empty, the agent appends one JSON
     // object per event (JSON Lines) to this path. Supports a literal "{ts}"
     // placeholder, expanded to a start-of-session unix timestamp. Empty = off.

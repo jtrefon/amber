@@ -674,12 +674,37 @@ private:
     }
 };
 
+namespace {
+
+void append_reasoning(json& body, const Config& cfg) {
+    const auto advertises = [&cfg](const char* name) {
+        return std::find(cfg.model_supported_parameters.begin(),
+                         cfg.model_supported_parameters.end(),
+                         name) != cfg.model_supported_parameters.end();
+    };
+    const auto known_openai_reasoning = [&cfg]() {
+        const std::string& m = cfg.model;
+        return m.rfind("o1", 0) == 0 || m.rfind("o3", 0) == 0 || m.rfind("o4", 0) == 0 ||
+               m.rfind("gpt-5", 0) == 0;
+    };
+    const bool known = !cfg.model_supports_reasoning && known_openai_reasoning();
+    if ((cfg.model_supports_reasoning || known) && !cfg.reasoning_effort.empty() &&
+        cfg.reasoning_effort != "off") {
+        if (advertises("reasoning_effort") || known)
+            body["reasoning_effort"] = cfg.reasoning_effort;
+        else if (advertises("reasoning"))
+            body["reasoning"] = {{"effort", cfg.reasoning_effort}};
+    }
+}
+
+} // namespace
+
 json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message>& messages,
                                     const std::vector<std::shared_ptr<Tool>>& tools,
                                     bool stream) const {
     json body = {{"model", cfg.model},
                  {"temperature", cfg.temperature},
-                 {"max_tokens", cfg.max_tokens},
+                 {"max_tokens", request_max_tokens(cfg)},
                  {"stream", stream},
                  {"messages", json::array()}};
 
@@ -701,11 +726,8 @@ json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message
             body["chat_template_kwargs"]["thinking_budget"] = cfg.thinking_budget;
     }
 
-    // Compatibility fallback for OpenAI o-series / vLLM style reasoning
-    // servers that use the reasoning_effort field instead of a jinja
-    // kwarg.
-    if (!cfg.reasoning_effort.empty() && cfg.reasoning_effort != "off")
-        body["reasoning_effort"] = cfg.reasoning_effort;
+    // Reasoning follows the listing, not a hardcoded tag.
+    append_reasoning(body, cfg);
 
     append_messages(body["messages"], messages);
     append_tools(body, tools);
@@ -771,6 +793,9 @@ ServerInfo OpenAIDialect::parse_models_response(const std::string& body,
     info.model = m.id;
     info.context_size = m.context;
     info.context_train = m.context_train;
+    info.max_output = m.max_output;
+    info.reasoning = m.reasoning;
+    info.supported_parameters = m.supported_parameters;
     info.ok = !info.model.empty() || info.context_size > 0;
     return info;
 }

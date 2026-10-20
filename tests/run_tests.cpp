@@ -1147,6 +1147,62 @@ TEST(apply_selection_scopes_the_context_window) {
     cfg.context_explicit = false;
     agent::apply_selection(cfg, sel);
     ASSERT_EQ(cfg.context_size, 524288); // the provider default is adopted
+
+    // Capabilities belong to the listing, not the previous provider.
+    cfg.model_max_output = 8192;
+    cfg.model_supports_reasoning = true;
+    cfg.model_supported_parameters = {"reasoning"};
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.model_max_output, 0);
+    ASSERT_FALSE(cfg.model_supports_reasoning);
+    ASSERT(cfg.model_supported_parameters.empty());
+}
+
+TEST(openai_request_respects_output_and_reasoning) {
+    auto d = agent::make_dialect("openai");
+    agent::Config cfg;
+    cfg.model = "vendor/model";
+    cfg.max_tokens = 16384;
+    cfg.model_max_output = 4096;
+    std::vector<agent::Message> msgs;
+
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["max_tokens"].get<int>(), 4096);
+
+    cfg.model_supports_reasoning = true;
+    cfg.reasoning_effort = "high";
+    cfg.model_supported_parameters = {"reasoning"};
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(body.contains("reasoning"));
+    ASSERT(!body.contains("reasoning_effort"));
+    ASSERT_EQ(body["reasoning"]["effort"].get<std::string>(), "high");
+
+    cfg.model_supported_parameters = {"reasoning_effort"};
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["reasoning_effort"].get<std::string>(), "high");
+    ASSERT(!body.contains("reasoning"));
+
+    cfg.model_supported_parameters.clear();
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(!body.contains("reasoning_effort"));
+    ASSERT(!body.contains("reasoning"));
+}
+
+TEST(openai_model_list_carries_capabilities) {
+    auto d = agent::make_dialect("openai");
+    const std::string body = R"({"data":[{"id":"vendor/model","context_length":128000,)"
+                             R"("top_provider":{"max_completion_tokens":4096},)"
+                             R"("supported_parameters":["reasoning","tools"]}]})";
+    auto info = d->parse_models_response(body);
+    ASSERT_EQ(info.max_output, 4096);
+    ASSERT(info.reasoning);
+    ASSERT_EQ(info.supported_parameters.size(), 2u);
+
+    agent::Config cfg;
+    agent::merge_server_info(cfg, info);
+    ASSERT_EQ(cfg.model_max_output, 4096);
+    ASSERT(cfg.model_supports_reasoning);
+    ASSERT_EQ(cfg.model_supported_parameters.size(), 2u);
 }
 
 TEST(provider_service_select_unknown_fails) {
@@ -7589,6 +7645,7 @@ TEST(llm_reasoning_effort_in_request_body) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8915/v1";
     cfg.stream = true;
+    cfg.model = "o3-mini"; // documented OpenAI reasoning family, no listing metadata
     cfg.reasoning_effort = "high";
     agent::HttpLLMClient client(cfg);
     agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});

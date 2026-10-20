@@ -49,14 +49,16 @@ private:
 // so). Fit the ask to the window the request is actually going to; with no
 // known window the configured ask stands.
 Config fit_completion_budget(const Config& cfg, const std::vector<Message>& messages) {
+    Config fitted = cfg;
+    // The model's advertised output ceiling first; the context room below can
+    // only lower it further.
+    fitted.max_tokens = request_max_tokens(cfg);
     if (cfg.context_size <= 0)
-        return cfg;
+        return fitted;
     const long room =
         static_cast<long>(cfg.context_size) - static_cast<long>(estimate_tokens(messages));
-    if (room >= static_cast<long>(cfg.max_tokens))
-        return cfg;
-    Config fitted = cfg;
-    fitted.max_tokens = static_cast<size_t>(std::max(1L, room));
+    if (room < static_cast<long>(fitted.max_tokens))
+        fitted.max_tokens = static_cast<size_t>(std::max(1L, room));
     return fitted;
 }
 

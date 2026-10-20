@@ -46,6 +46,26 @@ std::string mode_name(agent::AgentMode m) {
     return "write";
 }
 
+struct ModelChoice {
+    bool found = false;
+    int window = 0;
+    int max_output = 0;
+    bool reasoning = false;
+    std::vector<std::string> supported_parameters;
+};
+
+// The model row also carries the limits/reasoning the listing advertised; the
+// request must respect them, so the pick hands them to the agent.
+ModelChoice find_model(const std::vector<agent::ModelInfo>& models, const std::string& id) {
+    for (const auto& m : models) {
+        if (m.id != id)
+            continue;
+        return {true, m.context ? m.context : m.context_train, m.max_output, m.reasoning,
+                m.supported_parameters};
+    }
+    return {};
+}
+
 } // namespace
 
 void Tui::fold_reasoning(Window& w) {
@@ -1296,18 +1316,8 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
         tui_.append_line(P_STATUS, "model list not loaded yet - retry in a moment");
         return;
     }
-    bool found = false;
-    int window = 0;
-    for (const auto& m : models) {
-        if (m.id != arg)
-            continue;
-        found = true;
-        // Carry the new model's probed context window so the compression
-        // gate re-resolves (Hermes pattern: on every model switch).
-        window = m.context ? m.context : m.context_train;
-        break;
-    }
-    if (!found) {
+    const ModelChoice choice = find_model(models, arg);
+    if (!choice.found) {
         tui_.append_line(P_STATUS, "model \"" + arg + "\" not found in provider's model list");
         return;
     }
@@ -1315,8 +1325,12 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
     // the template for future windows; siblings keep their own model.
     tui_.cfg_.model = arg;
     tui_.cfg_.model_explicit = true;
+    tui_.cfg_.model_max_output = choice.max_output;
+    tui_.cfg_.model_supports_reasoning = choice.reasoning;
+    tui_.cfg_.model_supported_parameters = choice.supported_parameters;
     if (tui_.win().agent)
-        tui_.win().agent->set_model(arg, window);
+        tui_.win().agent->set_model(arg, choice.window, choice.max_output, choice.reasoning,
+                                    choice.supported_parameters);
     std::string global = agent::global_config_path();
     tui_.cfg_.save_global(global);
     tui_.providers_->remember_model(tui_.cfg_.provider_name, arg);
@@ -2630,8 +2644,11 @@ void Tui::apply_detected_context_window() {
         if (!w->agent || runs_.busy(w->id))
             continue;
         const auto acfg = w->agent->config_snapshot();
-        if (acfg && acfg->model == cfg_.model)
+        if (acfg && acfg->model == cfg_.model) {
             w->agent->set_context_window(cfg_.context_size);
+            w->agent->set_model_capabilities(cfg_.model_max_output, cfg_.model_supports_reasoning,
+                                             cfg_.model_supported_parameters);
+        }
     }
 }
 

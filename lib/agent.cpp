@@ -142,7 +142,8 @@ void Agent::set_mode(AgentMode mode) {
     publish_config();
 }
 
-void Agent::set_model(const std::string& model, int window) {
+void Agent::set_model(const std::string& model, int window, int max_output, bool reasoning,
+                      const std::vector<std::string>& supported_parameters) {
     const bool model_changed = model != cfg_.model;
     cfg_.model = model;
     cfg_.model_explicit = true;
@@ -157,6 +158,25 @@ void Agent::set_model(const std::string& model, int window) {
         else if (model_changed)
             cfg_.context_size = 0;
     }
+    // Capabilities follow the model. A same-model call with no capabilities
+    // keeps what the catalogue already established.
+    if (model_changed || max_output > 0 || reasoning || !supported_parameters.empty()) {
+        cfg_.model_max_output = max_output;
+        cfg_.model_supports_reasoning = reasoning;
+        cfg_.model_supported_parameters = supported_parameters;
+    }
+    client_ = make_client(cfg_, client_factory_);
+    publish_config();
+}
+
+void Agent::set_model_capabilities(int max_output, bool reasoning,
+                                   const std::vector<std::string>& supported_parameters) {
+    if (cfg_.model_max_output == max_output && cfg_.model_supports_reasoning == reasoning &&
+        cfg_.model_supported_parameters == supported_parameters)
+        return;
+    cfg_.model_max_output = max_output;
+    cfg_.model_supports_reasoning = reasoning;
+    cfg_.model_supported_parameters = supported_parameters;
     client_ = make_client(cfg_, client_factory_);
     publish_config();
 }
@@ -232,6 +252,9 @@ void Agent::set_provider(const Config& resolved, const std::string& model) {
     // when the provider has none) instead of keeping the previous provider's.
     if (!cfg_.context_explicit)
         cfg_.context_size = resolved.context_size;
+    cfg_.model_max_output = resolved.model_max_output;
+    cfg_.model_supports_reasoning = resolved.model_supports_reasoning;
+    cfg_.model_supported_parameters = resolved.model_supported_parameters;
     if (!model.empty()) {
         cfg_.model = model;
         cfg_.model_explicit = true;
@@ -888,12 +911,14 @@ std::function<Message()>
 Agent::repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
                                 const std::string& err) {
     publish_error("model_name", err);
-    auto models = list_models(cfg_);
-    if (models.empty() || models[0] == cfg_.model)
+    auto models = list_model_info(cfg_);
+    if (models.empty() || models[0].id == cfg_.model)
         return {};
-    set_model(models[0]);
+    const ModelInfo& m = models[0];
+    set_model(m.id, m.context ? m.context : m.context_train, m.max_output, m.reasoning,
+              m.supported_parameters);
     if (hooks_.on_status)
-        hooks_.on_status("server rejected model - retrying with \"" + models[0] + "\"");
+        hooks_.on_status("server rejected model - retrying with \"" + m.id + "\"");
     inject_harness_note("[harness] the server rejected the configured model; this request is being "
                         "retried with \"" +
                         cfg_.model + "\".");
