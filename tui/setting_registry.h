@@ -1,26 +1,23 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <map>
 #include <nlohmann/json.hpp>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace tui {
 
-// A single setting (config key) with its metadata and accessors.
-// Both /get and /set use this as their single source of truth for
-// completion, help text, validation, and dispatch.
+// The behaviour bound to one dotted key. Existence, help, choices and ranges
+// are NOT here: completions.json owns every piece of metadata, and code only
+// says how to read and write the value. Adding a second metadata source here
+// is the "code custom work" the command-tree contract forbids.
 struct Setting {
-    std::string key;         // dotted path, e.g. "detection.loop"
-    std::string help;        // human-readable description
-    std::string placeholder; // e.g. "<on|off|toggle>"
-
-    enum Type { Choice, Int, Float, Bool, String } type = Choice;
-    double range_min = 0, range_max = 0; // for Int/Float
-
+    std::string key;                                // dotted path, e.g. "detection.loop"
     std::function<std::string()> getter;            // returns current value as string
     std::function<void(const std::string&)> setter; // sets from string
 };
@@ -63,8 +60,23 @@ public:
     bool load_completions_json(const std::string& path);
 
     // Merge a completions.json-shaped subtree (top-level keys are command
-    // names). Used to inject plugin namespaces at runtime.
+    // names). Used to inject dynamic namespaces (plugins, feeds) at runtime.
+    //
+    // Documented nodes are immutable: a merge adds children but never rewrites
+    // a field that completions.json supplied. Fields on dynamically introduced
+    // nodes may be refreshed by their feed (provider state, job state, ...).
+    // Every attempted write to a documented field is counted in
+    // merge_collisions().
     bool merge_completions_json(const nlohmann::json& subtree);
+
+    // True when a top-level command with this name already exists (documented
+    // or contributed). Plugin namespaces check this before merging: a plugin
+    // owns a NEW root, it never patches a core one.
+    bool has_top_level_command(const std::string& name) const;
+
+    // Attempts a merge made to overwrite a documented node. The documented
+    // value always wins; this is the collision report.
+    std::size_t merge_collisions() const { return merge_collisions_; }
 
     // Clear all JSON-derived metadata (help/man/choices/children). Used to
     // rebuild the index after plugin namespaces are added or removed.
@@ -107,12 +119,24 @@ private:
     void index_children(const std::string& display_path, const std::string& key_path,
                         const nlohmann::json& node);
     void index_node(const nlohmann::json& node, const std::string& display_path);
+    void clear_index();
+    void reindex();
+    void record_static_paths(const nlohmann::json& node, const std::string& path);
+    void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src, const std::string& path);
+    void merge_children(nlohmann::json& dst, const nlohmann::json& children,
+                        const std::string& path);
+    void merge_field(nlohmann::json& dst, const std::string& key, const nlohmann::json& value);
 
     // Canonical full-path key for a possibly-dotted key: exact match, then
     // the "get.<key>" / "set.<key>" namespace probes. Empty when not indexed.
     std::string resolve_key(const std::string& key) const;
 
     nlohmann::json tree_;
+
+    // Every node path completions.json supplied. A path in here is documented
+    // and immutable; a path absent from it was introduced dynamically.
+    std::set<std::string> static_paths_;
+    std::size_t merge_collisions_ = 0;
 
     std::vector<Setting> settings_;
     std::map<std::string, std::string> key_help_;

@@ -30,7 +30,7 @@
     "lib/agent.cpp": {
       "agent::Agent::Agent": {
         "ccn": 4,
-        "nloc": 25,
+        "nloc": 24,
         "param": 10
       },
       "agent::Agent::dispatch_with_loop_detection": {
@@ -52,7 +52,7 @@
       },
       "agent::chat_with_retry_impl": {
         "ccn": 9,
-        "nloc": 32,
+        "nloc": 30,
         "param": 7
       }
     },
@@ -101,13 +101,6 @@
         "ccn": 5,
         "nloc": 14,
         "param": 7
-      }
-    },
-    "tui/tui_input.cpp": {
-      "tui::SlashDispatcher::add_setting": {
-        "ccn": 1,
-        "nloc": 7,
-        "param": 8
       }
     }
   },

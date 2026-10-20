@@ -1379,6 +1379,83 @@ TEST(test_feeds_never_clobber_documented_verbs) {
     ASSERT(feed_leaf);
 }
 
+// ── A merge may add children, never rewrite a documented field ────
+
+TEST(test_merge_never_rewrites_documented_fields) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto before = reg.command_tree()["commands"]["set"]["children"]["model"];
+    ASSERT(before.contains("action"));
+    ASSERT(before.contains("help"));
+    const std::string action = before["action"].get<std::string>();
+    const std::string help = before["help"].get<std::string>();
+
+    nlohmann::json hostile = {
+        {"set",
+         {{"children",
+           {{"model",
+             {{"action", "core.config.evil"},
+              {"help", "HACKED"},
+              {"man", "HACKED"},
+              {"children", {{"plug::row", {{"action", "a"}, {"help", "row"}}}}}}}}}}}};
+    ASSERT(reg.merge_completions_json(hostile));
+
+    const auto& after = reg.command_tree()["commands"]["set"]["children"]["model"];
+    ASSERT_EQ(after["action"].get<std::string>(), action);
+    ASSERT_EQ(after["help"].get<std::string>(), help);
+    ASSERT(!after.contains("man") || after["man"] != "HACKED");
+    ASSERT(after["children"].contains("plug::row"));
+    ASSERT(reg.merge_collisions() >= 3u);
+    ASSERT_EQ(reg.help_for("set.model"), help);
+}
+
+TEST(test_dynamic_fields_refresh_in_place) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT(!reg.has_top_level_command("plugintest"));
+    nlohmann::json v1 = {{"plugintest", {{"help", "v1"}, {"action", "plugin.a.x"}}}};
+    nlohmann::json v2 = {{"plugintest", {{"help", "v2"}, {"action", "plugin.a.x"}}}};
+    ASSERT(reg.merge_completions_json(v1));
+    ASSERT_EQ(reg.command_tree()["commands"]["plugintest"]["help"].get<std::string>(), "v1");
+    ASSERT(reg.merge_completions_json(v2));
+    ASSERT_EQ(reg.command_tree()["commands"]["plugintest"]["help"].get<std::string>(), "v2");
+    ASSERT_EQ(reg.merge_collisions(), 0u);
+}
+
+TEST(test_documented_leaf_keeps_its_fields_when_extended) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto before =
+        reg.command_tree()["commands"]["set"]["children"]["detection"]["children"]["loop"];
+    ASSERT(before.contains("action"));
+    const std::string action = before["action"].get<std::string>();
+
+    nlohmann::json branch = {
+        {"set",
+         {{"children",
+           {{"detection",
+             {{"children", {{"loop", {{"children", {{"x", {{"help", "x"}}}}}}}}}}}}}}}};
+    ASSERT(reg.merge_completions_json(branch));
+
+    const auto& after =
+        reg.command_tree()["commands"]["set"]["children"]["detection"]["children"]["loop"];
+    ASSERT_EQ(after["action"].get<std::string>(), action);
+    bool has_child = false;
+    for (const auto& k : reg.complete("set.detection.loop"))
+        if (k == "set.detection.loop.x")
+            has_child = true;
+    ASSERT(has_child);
+}
+
+TEST(test_top_level_command_lookup) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT(reg.has_top_level_command("set"));
+    ASSERT(!reg.has_top_level_command("plugintest"));
+    ASSERT(reg.merge_completions_json({{"plugintest", {{"help", "x"}}}}));
+    ASSERT(reg.has_top_level_command("plugintest"));
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1406,6 +1483,10 @@ int main() {
         test_job_feed_leaves();
         test_full_path_namespaces_are_distinct();
         test_merge_preserves_static_tree_children();
+        test_merge_never_rewrites_documented_fields();
+        test_dynamic_fields_refresh_in_place();
+        test_documented_leaf_keeps_its_fields_when_extended();
+        test_top_level_command_lookup();
         test_feed_leaves_visible_after_merge();
         test_drawer_rows_children_and_help();
         test_drawer_filter_matches_model_name_not_only_vendor();

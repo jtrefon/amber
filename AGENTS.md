@@ -489,30 +489,47 @@ tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
   dispatch. The legacy flat `palette::Command` carries display metadata only
   (name/aliases/usage/help); there is no `complete_arg`/`current_value`.
 
-### Hard rule: slash commands are NEVER hardcoded (no exceptions)
+### Hard rule: the JSON mapper is the only command surface (no exceptions)
 
-Every slash-command path, completion, and dispatch must come from the JSON
-tree + feeds. Concretely:
+`completions.json` is the single source of truth for every slash command, its
+children, help/man, aliases, choices, ranges and action. The drawer, completion,
+`?` help page and `handle_slash` are views of that tree. Code supplies
+behaviour, never shape:
 
-- **No hardcoded command paths in handlers.** `handle_slash` walks the tree
-  and dispatches the deepest documented node's `action`; C++ handlers are
-  pure `(action, arg)` closures. Do NOT special-case command names in
-  `cmd_set`/`cmd_get`/`handle_slash`, if a command is missing from the
-  tree, add the node (or a feed leaf), not an `if (arg.rfind(...))`.
-- **No hardcoded completion/choice lists.** Completion rows, `choices`,
-  usage hints, and "try: ..." messages derive from the tree/feeds,
-  including dynamically discovered names (providers, policy rules, models,
-  MCP servers): they are feed leaves (`merge_completions_json`), never
-  hardcoded C++ lists.
+- **No code-side command surface.** No hardcoded command paths in handlers
+  (`handle_slash` walks the tree and dispatches the deepest documented node's
+  `action`; handlers are pure `(action, arg)` closures). No C++ completion,
+  choice or usage lists. No `Setting` metadata in code: `Setting` is a dotted
+  key plus getter/setter, and help/placeholder/type/range live in the mapper.
+  A missing command is a missing JSON node, never an `if (arg.rfind(...))`.
+- **No patching the tree in code.** `SettingRegistry` is the only writer;
+  `load_completions_json` the only loader and `merge_completions_json` the only
+  merge. Do not write `tree_` directly, rename nodes, or overlay fields after
+  load.
+- **Documented fields are immutable.** A merge may append children (a
+  documented command may also be a namespace: `/set model` is the switch and
+  the model list) and may refresh fields on nodes it introduced, but it never
+  rewrites an `action`/`help`/`man`/`aliases`/`choices`/`range` that came from
+  `completions.json`. Collisions are counted (`merge_collisions()`); the
+  documented value wins. The index is rebuilt from the merged tree, so a
+  blocked overwrite cannot leak into help or choices.
+- **Dynamic namespaces are JSON subtrees, not code lists.** Feeds
+  (`refresh_*_feed()`, `mcp_completion_subtree()`) build a
+  completions.json-shaped subtree and merge it; they register only the leaf
+  action closures (`register_action`).
+- **Plugins contribute a new root, never a patch.** External plugins supply
+  `completion` in `manifest.json`; bundled plugins supply
+  `CommandSpec::subtree`. The host derives actions as `plugin.<id>.<path>`, so
+  a plugin cannot name a core action. A contribution whose top-level root
+  already exists is skipped whole and reported (`has_top_level_command()`), and
+  documented fields are never overwritten.
 - **No dead legacy dispatch.** When a feed/tree supersedes a hand-written
-  branch, delete the branch; a branch that "only sees the bare namespace"
-  is acceptable only as the namespace's usage page (its `action` is
-  registered).
-- Feeds register their leaf action closures exactly like static nodes;
-  `register_action` is the only place command behavior exists.
+  branch, delete the branch; a namespace's bare usage page is allowed only
+  when its action is registered.
 
-The command surface is `completions.json` + `refresh_*_feed()`s; anything a
-user can type must be resolvable there.
+The command surface is `completions.json` + JSON-subtree feeds; anything a user
+can type must be resolvable there. Full contract:
+`docs/spec/tui/command-tree.md`.
 
 ## Context stack architecture (immutable, hash-chained)
 
@@ -907,7 +924,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | 8687 | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 343 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 3025 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 3009 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

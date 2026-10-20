@@ -57,6 +57,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `tui/input-system/auto-complete.md` | Per-depth completion, zsh-style inline menu cycling, Ctrl-D list-choices, Ctrl-R reverse-i-search, value cycling, Up/Down synced with cycle, alias-aware shadow |
 | `tui/input-system/nested-commands.md` | Full command tree: settings, provider/model/session/job CRUD, file browsing (`/files`), system operations (`/system exec|rmdir|mv|cp|ps|kill|df|uptime`), `config` key-chain. Shortcut alias scheme with design rules. Tree model: `CommandNode` with `ArgSpec`/`FlagSpec`, depth-aware walk, Cisco `/no` prefix |
 | `tui/input-system/contextual-help.md` | `?` at any depth replaces `/help`. Scales to infinite key-chain nesting. Full info_dialog: description, args, types, choices, ranges, current values, flags, related commands. `?` stripped on dismiss. |
+| `tui/command-tree.md` | The JSON mapper contract: `completions.json` is the only command surface, code binds behaviour only, documented fields are immutable, merges concatenate children and count collisions, plugin namespaces must be new roots |
 
 ## TUI, Widgets
 

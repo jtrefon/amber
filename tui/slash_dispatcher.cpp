@@ -36,6 +36,27 @@ void SlashDispatcher::append_output(const std::string& text) {
     }
 }
 
+// A plugin owns a NEW top-level namespace. If the root already exists
+// (documented, another plugin, or a feed), merging would let it patch someone
+// else's command, so the contribution is skipped whole. The collision is
+// reported on the debug channel, not silently dropped.
+void SlashDispatcher::merge_plugin_completions() {
+    for (const auto& p : tui_.plugins_.plugins()) {
+        if (p.state != agent::PluginState::Enabled || !p.manifest.completion.is_object())
+            continue;
+        bool collided = false;
+        for (auto it = p.manifest.completion.begin(); it != p.manifest.completion.end(); ++it) {
+            if (tui_.settings_.has_top_level_command(it.key())) {
+                collided = true;
+                tui_.append_line(P_DEBUG, "plugin " + p.id + ": completion root '" + it.key() +
+                                              "' collides with an existing command; skipped");
+            }
+        }
+        if (!collided)
+            tui_.settings_.merge_completions_json(p.manifest.completion);
+    }
+}
+
 void SlashDispatcher::refresh_completions() {
     tui_.settings_.reset_completion_index();
     auto try_load = [&](const std::string& path) {
@@ -51,20 +72,25 @@ void SlashDispatcher::refresh_completions() {
          agent::data_file_candidates("completions.json", exe.empty() ? nullptr : exe.c_str()))
         if (try_load(c))
             break;
-    for (const auto& p : tui_.plugins_.plugins())
-        if (p.state == agent::PluginState::Enabled)
-            tui_.settings_.merge_completions_json(p.manifest.completion);
-    tui_.settings_.merge_completions_json(agent::mcp_completion_subtree(tui_.reg_));
+    merge_plugin_completions();
 
     // Plugin command namespaces: merge each contribution and bind its
     // executable leaves into the action registry. The binding resolves the
     // handler from the live registry at dispatch time, so a disable/re-enable
-    // always uses the current handler.
+    // always uses the current handler. Plugin roots come FIRST: a feed that
+    // creates its namespace before the plugin that owns it would make the
+    // plugin's own contribution look like a collision.
     install_plugin_commands(
         [this]() -> const std::vector<agent::CommandRegistry::Entry>& {
             return tui_.plugin_runtime_.commands().all();
         },
         tui_.settings_, action_registry_, [this](const std::string& text) { append_output(text); });
+
+    // Live feeds add children under the namespaces they serve (MCP servers,
+    // models, providers, policy rules, jobs); they never own the command node
+    // itself. Merging after the plugins is what keeps the MCP command's
+    // help/man/action while its server branches stay live.
+    tui_.settings_.merge_completions_json(agent::mcp_completion_subtree(tui_.reg_));
 
     // The tree was rebuilt from scratch, so the live feeds must be merged again:
     // without this their leaves (models, providers, policy rules, jobs, plugin
