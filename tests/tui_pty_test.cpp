@@ -987,6 +987,14 @@ TEST(settings_lists_the_groups_and_opens_the_provider_picker) {
                  "the settings drawer has no groups", tui))
         return;
 
+    tui.send("policy");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("policy mode:", 10000), "a settings group printed no readout", tui))
+        return;
+
+    tui.send("/settings ");
+    tui.pump(300);
     tui.send("provider");
     tui.pump(400);
     tui.send("\r");
