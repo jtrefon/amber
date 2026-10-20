@@ -35,9 +35,9 @@ instruction from the user outranks both.
    `- <title> (lines <start>-<end>)`, the range ending at the next heading with
    trailing blank lines trimmed. A section whose heading is inside the body is
    not repeated. Measured on this repo's AGENTS.md: the cut lands around line
-   116, the digest names 18 sections in 936 characters (~0.9 KB), so the block is the
-   8 KiB body plus ~1 KB — the reason the cap was not raised. The body size is
-   a per-turn cost, so it does not grow silently.
+   116, the digest names 18 sections in 936 characters (~0.9 KB), so the block
+   is the 8 KiB body plus ~1 KB — the reason the cap was not raised. The body
+   size is a per-turn cost, so it does not grow silently.
 2. **Nested files are named, never inlined.** The nearest file wins; the agent
    reads the one that applies to the tree it works in.
 3. **Nested discovery honours the project's ignore rules.** In a checkout the
