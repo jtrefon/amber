@@ -14,6 +14,7 @@
 #include "tui/model_picker.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <map>
 #include <set>
 
@@ -192,25 +193,25 @@ void FeedManager::refresh_plugin_feed() {
 
 namespace {
 
-const char* worktree_state_name(agent::WorktreeState state) {
-    switch (state) {
-    case agent::WorktreeState::Live:
-        return "live";
-    case agent::WorktreeState::Parked:
-        return "parked";
-    case agent::WorktreeState::Kept:
-        return "kept";
-    }
-    return "?";
-}
-
-std::string worktree_help(const agent::WorktreeStatus& status) {
-    std::string help = worktree_state_name(status.state);
-    help += " | " + status.branch;
-    if (!status.problem.empty())
-        help += " | " + status.problem;
-    if (!status.owner.empty())
-        help += " | " + status.owner;
+// Registry-only state: this feed runs at startup and on every command-tree
+// rebuild, so it must not fork git. Branch, cleanliness and reachability are
+// what the explicit `status`/`list` verbs inspect.
+std::string worktree_feed_help(const agent::WorktreeEntry& entry, bool live, bool exists) {
+    std::string state;
+    if (!exists)
+        state = "missing";
+    else if (entry.parked)
+        state = "parked";
+    else if (live)
+        state = "live";
+    else
+        state = "kept";
+    std::string help = state;
+    if (live)
+        help += " | attached";
+    else if (entry.parked)
+        help += " | attachable";
+    help += " | " + entry.path;
     return help;
 }
 
@@ -221,27 +222,32 @@ std::string worktree_help(const agent::WorktreeStatus& status) {
 // the tree, the drawer and completion all learn the names from the registry,
 // never from a C++ list.
 void FeedManager::refresh_worktree_feed() {
-    const std::string project = agent::Workspace::project_root();
     const std::string state_dir = agent::Workspace::state_dir();
     const auto entries = agent::load_worktrees(state_dir);
-    const auto statuses = agent::worktree_statuses(project, entries, tui_.live_worktree_claims(),
-                                                   tui_.live_worktree_paths());
+    const auto claims = tui_.live_worktree_claims();
+    const auto live_paths = tui_.live_worktree_paths();
     nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& status : statuses) {
-        const std::string help = worktree_help(status);
-        const std::string attach_action = "core.worktree.attach." + status.name;
-        nlohmann::json& attach = subtree["worktree"]["children"]["attach"]["children"][status.name];
+    for (const auto& entry : entries) {
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(entry.path, ec);
+        const bool live =
+            (!entry.session_id.empty() &&
+             std::find(claims.begin(), claims.end(), entry.session_id) != claims.end()) ||
+            std::find(live_paths.begin(), live_paths.end(), entry.path) != live_paths.end();
+        const std::string help = worktree_feed_help(entry, live, exists);
+        const std::string attach_action = "core.worktree.attach." + entry.name;
+        nlohmann::json& attach = subtree["worktree"]["children"]["attach"]["children"][entry.name];
         attach["action"] = attach_action;
         attach["help"] = help;
-        tui_.register_action(attach_action, [this, name = status.name](const std::string&) {
+        tui_.register_action(attach_action, [this, name = entry.name](const std::string&) {
             tui_.slash_dispatcher_->cmd_worktree_attach(name);
         });
 
-        const std::string remove_action = "core.worktree.remove." + status.name;
-        nlohmann::json& remove = subtree["worktree"]["children"]["remove"]["children"][status.name];
+        const std::string remove_action = "core.worktree.remove." + entry.name;
+        nlohmann::json& remove = subtree["worktree"]["children"]["remove"]["children"][entry.name];
         remove["action"] = remove_action;
-        remove["help"] = help + (status.problem.empty() ? " | removable" : " | not removable");
-        tui_.register_action(remove_action, [this, name = status.name](const std::string&) {
+        remove["help"] = help + (live ? " | in use" : "");
+        tui_.register_action(remove_action, [this, name = entry.name](const std::string&) {
             tui_.slash_dispatcher_->cmd_worktree_remove(name);
         });
     }

@@ -1717,7 +1717,7 @@ TEST(worktree_detach_parks_and_attach_reclaims) {
     // The attach node is a registry feed: the parked name appears there with
     // its state, and running that leaf claims it.
     tui.send("/worktree attach ");
-    if (!require(tui.wait_for("parked | detached", 8000),
+    if (!require(tui.wait_for("parked | attachable", 8000),
                  "the registry feed did not list the parked workspace", tui))
         return;
     tui.send("\r");

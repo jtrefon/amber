@@ -76,6 +76,9 @@ whose `worktree.attach.children.<name>` and `worktree.remove.children.<name>`
 leaves carry host-derived actions (`core.worktree.attach.<name>`). The feeder
 reads the registry, so a name appears in the drawer as soon as it exists and
 disappears when it is removed; no C++ command name or choice list is involved.
+Registry-only fields (name, path, parked/claimed, directory present) go in the
+feed; branch, cleanliness and reachability are inspected by `/worktree status`
+and `/worktree list`, so a startup feed never forks git.
 
 #### Merge semantics
 

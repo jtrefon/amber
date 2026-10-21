@@ -173,7 +173,9 @@ individually.
 `attach`, `detach`, `remove`, `status`, `list`, `prune`, `main`. The name lists
 under `attach` and `remove` are a **registry feed**
 (`FeedManager::refresh_worktree_feed()`), each leaf carrying a host-derived
-action (`core.worktree.attach.<name>`) and a help line with state/branch/owner.
+action (`core.worktree.attach.<name>`) and a help line with state/path (registry-only:
+the feed runs at startup and never forks git; `status`/`list` inspect branch,
+cleanliness and reachability).
 Handlers are pure `(action, arg)` closures; there is no C++ command path,
 choice list, or usage string.
 
