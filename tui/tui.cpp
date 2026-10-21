@@ -748,6 +748,10 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
         render_engine_->draw();
         break;
     case KeyAction::CloseDrawer:
+        // The command line owns drawer_open_; redrawing alone left it set, so
+        // the next Enter dispatched the highlighted row instead of the line
+        // the user had actually typed (arguments were silently dropped).
+        cl.on_escape();
         render_engine_->draw();
         break;
     case KeyAction::DeleteWord:
