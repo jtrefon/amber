@@ -154,6 +154,7 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/report.o \
              $(BUILD_DIR)/bench/fake.o \
              $(BUILD_DIR)/bench/runner.o \
+             $(BUILD_DIR)/bench/state_reaper.o \
              $(BUILD_DIR)/bench/probe.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
@@ -266,7 +267,7 @@ BENCH_BIN = amber-bench
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui bench check test lint lint-changed lint-baseline-update \
+.PHONY: all lib cli tui bench bench-reap bench-reap-apply check test lint lint-changed lint-baseline-update \
         class-size class-size-update \
         analyze duplicates complexity format-check format-check-changed clean install uninstall
 
@@ -833,6 +834,14 @@ $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB
 	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
 
 bench: $(BUILD_DIR)/$(BENCH_BIN)
+
+# Old hermetic scenario state (pre-fix tmp-amber-bench-ws-* project dirs).
+# Dry run by default; the apply target says what it does.
+bench-reap: $(BUILD_DIR)/$(BENCH_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) reap-state
+
+bench-reap-apply: $(BUILD_DIR)/$(BENCH_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) reap-state --apply
 
 $(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS)
