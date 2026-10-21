@@ -6,8 +6,9 @@ branch switch moves files under the other session. This proposal gives every
 chat window its own git worktree, created and reaped by the harness. (New
 issues.md entry to be registered with this proposal.)
 
-Status: proposal — sign-off required before production code (AGENTS.md
-Red → Proposal → Sign-off → Green).
+Status: implemented (PR1–PR3). The 2026-10-21 follow-up below adds the
+lifecycle the first cut was missing: a working `/set worktree off`, a leave
+flow, and a full JSON-driven workspace manager.
 
 ## Problem
 
@@ -121,8 +122,81 @@ UI-side call sites take the active window's root explicitly:
 
 `completions.json` gains `window.new.children.noworkdir`; `worktree.auto on|off`
 (default on) is a normal setting; `/window list` shows each window's workspace.
-Optional: `/window worktree list` as a feed over the registry so kept orphans
-are visible.
+The manager below replaces the optional registry readout.
+
+## Lifecycle follow-up (2026-10-21)
+
+The first cut left `/set worktree off` flipping a config bool while the window
+stayed attached, and a restart re-attached the recorded root regardless of the
+setting. There was also no supported way to leave, keep, or re-attach a
+workspace. The fix:
+
+### States and ownership
+
+- **live** — claimed by a window (registry `session_id`; before the first save,
+  a stable `window-<id>` claim).
+- **parked** — released, kept on disk, never reaped. `/worktree detach` parks,
+  and a restore with `worktree off` parks; `/worktree attach <name>` claims
+  again.
+- **kept** — unclaimed and unsafe to remove (dirty or a HEAD no ref reaches).
+  Reported, never force-removed.
+- Exactly one live window per workspace. `claim_worktree` refuses a claim held
+  by another live session; a stale claim is reclaimable (the registry is a
+  lease, not an identity).
+
+### Leave flow (no data loss, no force)
+
+`/set worktree off` and `/worktree main` go through the explicit leave flow.
+Window close uses the same safe removal primitive (and parks what it cannot
+remove) but has no dialog: the window is already going away.
+
+1. Refuse while the window's agent is running.
+2. Dirty tree → `[Cancel]` or `[Stash and leave]` (`git stash push
+   --include-untracked -m "amber: leave <name>"`).
+3. Detached HEAD reachable from no ref → `[Cancel]` or `[Create branch
+   amber-leave-<name>-<oid8> and leave]` (the only branch amber ever creates,
+   and only on this explicit choice).
+4. Clean and reachable → `[Cancel]` or `[Leave and remove]`.
+5. On success the window's root returns to the project root, its conversation
+   and scrollback are untouched, and sessions plus the workspace file are saved
+   atomically. Cancelling changes nothing.
+
+A restored window whose recorded workspace exists re-claims it. With
+`worktree off`, it parks the workspace instead and restores at the project
+root, with a notice naming the attach command. Other windows are unaffected:
+the setting is the default for new windows, and each existing window leaves
+individually.
+
+### JSON command surface (no hardcoded names)
+
+`completions.json` documents the `worktree` verb tree: `new [name] [at <ref>]`,
+`attach`, `detach`, `remove`, `status`, `list`, `prune`, `main`. The name lists
+under `attach` and `remove` are a **registry feed**
+(`FeedManager::refresh_worktree_feed()`), each leaf carrying a host-derived
+action (`core.worktree.attach.<name>`) and a help line with state/branch/owner.
+Handlers are pure `(action, arg)` closures; there is no C++ command path,
+choice list, or usage string.
+
+### Manager behavior
+
+| Verb | Behavior |
+|---|---|
+| `new [name] [at <ref>]` | Park the active window's current workspace, resolve the ref to a commit, create a detached worktree, register and claim it |
+| `attach <name>` | Refuse a live claim by another window; park the current workspace; claim the named one |
+| `detach` | Park the current workspace and return to the project root |
+| `remove <name>` | Only an unclaimed workspace; safe removal (dirty/unreachable refused) |
+| `status` | Path, branch/HEAD, clean/dirty, reachability, state, owner |
+| `list` | Every registry entry with state, branch, path and the reason a kept one is unsafe |
+| `prune` | Drop entries whose directory vanished (and git's stale metadata); parked existing workspaces survive |
+| `main` | Leave via the safe flow above |
+
+### Additional invariants
+
+8. A skipped claim (another live window) is never overridden.
+9. `worktree off` is honored on restore, not just on creation.
+10. Parked workspaces survive every reap pass; only an explicit `remove`
+    deletes them.
+11. The attach/remove names are a JSON feed, never a C++ list.
 
 ## Sequence (each PR red → green)
 

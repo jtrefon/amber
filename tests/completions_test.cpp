@@ -1055,12 +1055,38 @@ TEST(test_window_worktree_tree_nodes) {
     ASSERT(!reg.help_for("window.new.noworkdir").empty());
     ASSERT(!reg.man_for("window.new.noworkdir").empty());
     // The setting that decides the default is documented like every other one.
-    ASSERT(!reg.man_for("worktree").empty());
-    auto ch = reg.choices_for("worktree");
+    // `worktree` is also a top-level command now, so the setting is addressed
+    // by its full key; bare resolution reaches the command, which is correct.
+    ASSERT(!reg.man_for("get.worktree").empty());
+    auto ch = reg.choices_for("get.worktree");
     ASSERT_EQ(ch.size(), 3u);
     ASSERT_EQ(ch[0], "on");
     ASSERT_EQ(ch[1], "off");
     ASSERT_EQ(ch[2], "toggle");
+}
+
+// ── Test: the workspace manager is a documented command tree ──────────────
+//
+// The static verbs are JSON nodes; the attach/remove names are a registry feed
+// (tested through the runtime in the pty suite). What this pins is that the
+// verb surface exists, is documented, and is not a hardcoded branch.
+TEST(test_worktree_command_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    auto verbs = reg.children_of("worktree");
+    ASSERT_EQ(verbs.size(), 8u);
+    const char* expected[] = {"new",    "attach", "detach", "remove",
+                              "status", "list",   "prune",  "main"};
+    for (const char* verb : expected) {
+        ASSERT(std::find(verbs.begin(), verbs.end(), std::string(verb)) != verbs.end());
+        const std::string path = std::string("worktree.") + verb;
+        ASSERT(!reg.man_for(path).empty());
+    }
+    // The dynamic name lists start empty in the documented tree: the runtime
+    // feed (not a C++ list) fills them.
+    ASSERT(reg.children_of("worktree.attach").empty());
+    ASSERT(reg.children_of("worktree.remove").empty());
+    ASSERT(reg.man_for("worktree").find("registry") != std::string::npos);
 }
 
 // ── Test: reasoning effort lives in the get/set tree ──────────────
@@ -1550,6 +1576,7 @@ int main() {
         test_subagent_tree_nodes();
         test_reasoning_tree_nodes();
         test_window_worktree_tree_nodes();
+        test_worktree_command_tree_nodes();
         test_provider_tree_nodes();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();

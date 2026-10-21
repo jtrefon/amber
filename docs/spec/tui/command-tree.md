@@ -54,8 +54,9 @@ registered by `register_action`, referenced by an `action` string in the tree.
 
 ### Dynamic namespaces
 
-Runtime content (models, providers, policy rules, jobs, plugins, MCP servers)
-is injected as **completions.json-shaped JSON subtrees**:
+Runtime content (models, providers, policy rules, jobs, plugins, MCP servers,
+and the worktree registry's names) is injected as **completions.json-shaped
+JSON subtrees**:
 
 ```cpp
 nlohmann::json subtree = nlohmann::json::object();
@@ -67,6 +68,14 @@ settings.merge_completions_json(subtree);
 
 A feed registers only the leaf action closures; it never builds a completion
 row list in C++.
+
+The same rule covers the workspace manager: `completions.json` documents the
+`worktree` verbs (`new`, `attach`, `detach`, `remove`, `status`, `list`,
+`prune`, `main`), and `FeedManager::refresh_worktree_feed()` merges a subtree
+whose `worktree.attach.children.<name>` and `worktree.remove.children.<name>`
+leaves carry host-derived actions (`core.worktree.attach.<name>`). The feeder
+reads the registry, so a name appears in the drawer as soon as it exists and
+disappears when it is removed; no C++ command name or choice list is involved.
 
 #### Merge semantics
 

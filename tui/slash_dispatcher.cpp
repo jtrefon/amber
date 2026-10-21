@@ -90,8 +90,10 @@ void SlashDispatcher::refresh_completions() {
     refresh_policy_feed();
     refresh_job_feed();
     refresh_provider_feed();
-    if (tui_.feed_manager_)
+    if (tui_.feed_manager_) {
         tui_.feed_manager_->refresh_plugin_feed();
+        tui_.feed_manager_->refresh_worktree_feed();
+    }
     refresh_settings_feed();
 }
 

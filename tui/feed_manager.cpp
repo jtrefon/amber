@@ -8,6 +8,8 @@
 #include <agent/policy.h>
 #include <agent/providers.h>
 #include <agent/shell_classify.h>
+#include <agent/workspace.h>
+#include <agent/worktree.h>
 
 #include "tui/model_picker.h"
 
@@ -186,6 +188,64 @@ void FeedManager::refresh_plugin_feed() {
         tui_.register_action(plugin_action("set.plugin.off", id),
                              [this, id](const std::string&) { tui_.set_plugin(id, false); });
     }
+}
+
+namespace {
+
+const char* worktree_state_name(agent::WorktreeState state) {
+    switch (state) {
+    case agent::WorktreeState::Live:
+        return "live";
+    case agent::WorktreeState::Parked:
+        return "parked";
+    case agent::WorktreeState::Kept:
+        return "kept";
+    }
+    return "?";
+}
+
+std::string worktree_help(const agent::WorktreeStatus& status) {
+    std::string help = worktree_state_name(status.state);
+    help += " | " + status.branch;
+    if (!status.problem.empty())
+        help += " | " + status.problem;
+    if (!status.owner.empty())
+        help += " | " + status.owner;
+    return help;
+}
+
+} // namespace
+
+// The registry as a JSON subtree: each workspace hangs under the verb it can
+// be used with. Actions are host-derived (`core.worktree.attach.<name>`), so
+// the tree, the drawer and completion all learn the names from the registry,
+// never from a C++ list.
+void FeedManager::refresh_worktree_feed() {
+    const std::string project = agent::Workspace::project_root();
+    const std::string state_dir = agent::Workspace::state_dir();
+    const auto entries = agent::load_worktrees(state_dir);
+    const auto statuses = agent::worktree_statuses(project, entries, tui_.live_worktree_claims(),
+                                                   tui_.live_worktree_paths());
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& status : statuses) {
+        const std::string help = worktree_help(status);
+        const std::string attach_action = "core.worktree.attach." + status.name;
+        nlohmann::json& attach = subtree["worktree"]["children"]["attach"]["children"][status.name];
+        attach["action"] = attach_action;
+        attach["help"] = help;
+        tui_.register_action(attach_action, [this, name = status.name](const std::string&) {
+            tui_.slash_dispatcher_->cmd_worktree_attach(name);
+        });
+
+        const std::string remove_action = "core.worktree.remove." + status.name;
+        nlohmann::json& remove = subtree["worktree"]["children"]["remove"]["children"][status.name];
+        remove["action"] = remove_action;
+        remove["help"] = help + (status.problem.empty() ? " | removable" : " | not removable");
+        tui_.register_action(remove_action, [this, name = status.name](const std::string&) {
+            tui_.slash_dispatcher_->cmd_worktree_remove(name);
+        });
+    }
+    tui_.settings_.merge_completions_json(subtree);
 }
 
 void FeedManager::refresh_job_feed() {

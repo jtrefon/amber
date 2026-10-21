@@ -641,3 +641,167 @@ TEST(worktree_reap_leaves_an_attached_session_alone) {
     ASSERT_EQ(agent::load_worktrees(state.string()).size(), 1u);
     fs::remove_all(state);
 }
+
+// Parking is an explicit "keep this": an unclaimed parked workspace survives a
+// reap pass even when its owner is provably gone, which is what makes
+// /worktree detach and /set worktree off non-destructive.
+TEST(worktree_parked_entry_survives_reap) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const fs::path state = temp_state_dir("parked");
+    std::string err;
+    const std::string path = repo.worktree_path("parked-one");
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+
+    agent::WorktreeEntry e = entry_for("parked-one", path);
+    e.base_oid = base;
+    e.session_id.clear();
+    e.parked = true;
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
+    ASSERT_EQ(report.removed.size(), 0u);
+    ASSERT_TRUE(fs::exists(path));
+    const auto left = agent::load_worktrees(state.string());
+    ASSERT_EQ(left.size(), 1u);
+    ASSERT_TRUE(left[0].parked);
+
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+    fs::remove_all(state);
+}
+
+// A live window's claim cannot be stolen. A stale session id (nobody claims it
+// now) is reclaimable: the registry is a lease, not a permanent identity.
+TEST(worktree_claim_refuses_a_live_owner_and_reclaims_a_stale_one) {
+    const fs::path state = temp_state_dir("claim");
+    agent::WorktreeEntry live = agent::make_worktree_entry("live", "/tmp/a/live", "oid", "s-live");
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {live}));
+
+    std::string err;
+    ASSERT_FALSE(agent::claim_worktree(state.string(), "live", "s-other", {"s-live"}, err));
+    ASSERT(err.find("another window") != std::string::npos);
+    ASSERT_EQ(agent::load_worktrees(state.string())[0].session_id, std::string("s-live"));
+
+    // The same window may re-claim its own workspace (a restart path).
+    ASSERT_TRUE(agent::claim_worktree(state.string(), "live", "s-live", {"s-live"}, err));
+
+    // A session nobody claims is stale, not live.
+    ASSERT_TRUE(agent::claim_worktree(state.string(), "live", "s-new", {"s-new"}, err));
+    ASSERT_EQ(agent::load_worktrees(state.string())[0].session_id, std::string("s-new"));
+
+    ASSERT_FALSE(agent::claim_worktree(state.string(), "missing", "s-new", {}, err));
+    ASSERT(err.find("no workspace") != std::string::npos);
+    fs::remove_all(state);
+}
+
+TEST(worktree_park_releases_the_claim_without_removing) {
+    const fs::path state = temp_state_dir("park");
+    agent::WorktreeEntry e = agent::make_worktree_entry("one", "/tmp/a/one", "oid", "s-1");
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+    ASSERT_TRUE(agent::park_worktree(state.string(), "one"));
+
+    const auto parked = agent::load_worktrees(state.string());
+    ASSERT_EQ(parked.size(), 1u);
+    ASSERT_TRUE(parked[0].parked);
+    ASSERT_TRUE(parked[0].session_id.empty());
+    ASSERT_EQ(parked[0].pid, 0L);
+    ASSERT_FALSE(agent::park_worktree(state.string(), "missing"));
+    fs::remove_all(state);
+}
+
+// The status the manager and the leave dialog read: branch, cleanliness and
+// whether HEAD is reachable. A dirty tree or an unreferenced HEAD is exactly
+// what removal must refuse, so both must be visible before the user chooses.
+TEST(worktree_status_reports_dirty_branch_and_reachability) {
+    TempRepo repo;
+    const std::string base = repo.head_oid();
+    const std::string path = repo.worktree_path("status");
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, base, err));
+    agent::WorktreeEntry e = agent::make_worktree_entry("status", path, base, "s-1");
+
+    agent::WorktreeStatus clean = agent::worktree_status(repo.dir.string(), e, {}, {});
+    ASSERT_TRUE(clean.exists);
+    ASSERT_FALSE(clean.dirty);
+    ASSERT_TRUE(clean.reachable);
+    ASSERT_EQ(clean.branch, std::string("detached"));
+    ASSERT(clean.state == agent::WorktreeState::Kept);
+
+    {
+        std::ofstream out(fs::path(path) / "scratch.txt");
+        out << "wip\n";
+    }
+    agent::WorktreeStatus dirty = agent::worktree_status(repo.dir.string(), e, {"s-1"}, {});
+    ASSERT_TRUE(dirty.dirty);
+    ASSERT(dirty.problem.find("uncommitted") != std::string::npos);
+    ASSERT(dirty.state == agent::WorktreeState::Live);
+
+    fs::remove(fs::path(path) / "scratch.txt");
+    run_in_dir(path,
+               "echo more >> f.txt && git -c user.email=t@t -c user.name=t commit -qam second");
+    agent::WorktreeStatus detached = agent::worktree_status(repo.dir.string(), e, {}, {});
+    ASSERT_FALSE(detached.dirty);
+    ASSERT_FALSE(detached.reachable); // the new commit is on no ref
+    ASSERT(detached.problem.find("no branch") != std::string::npos);
+
+    ASSERT_TRUE(agent::create_branch_at_head(path, "amber-keep", err));
+    ASSERT_TRUE(agent::worktree_head_reachable(repo.dir.string(), path));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+}
+
+// The dirty leave option preserves work where git expects it. A clean tree is
+// a success too: the user chose leave, and there was nothing to save.
+TEST(worktree_stash_preserves_uncommitted_work) {
+    TempRepo repo;
+    const std::string path = repo.worktree_path("stash");
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, repo.head_oid(), err));
+    {
+        std::ofstream out(fs::path(path) / "wip.txt");
+        out << "work in progress\n";
+    }
+    ASSERT_FALSE(agent::worktree_dirty_reason(path).empty());
+    ASSERT_TRUE(agent::stash_worktree(repo.dir.string(), path, "amber: leave stash", err));
+    ASSERT_TRUE(agent::worktree_dirty_reason(path).empty());
+    ASSERT(read_file(repo.dir / ".git" / "logs" / "refs" / "stash").find("amber: leave stash") !=
+           std::string::npos);
+    ASSERT_TRUE(agent::stash_worktree(repo.dir.string(), path, "amber: empty", err));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+}
+
+// Walking away from a detached HEAD must not leave commits to gc: the explicit
+// branch option is what makes the workspace removable.
+TEST(worktree_branch_at_head_makes_commits_reachable) {
+    TempRepo repo;
+    const std::string path = repo.worktree_path("branch");
+    std::string err;
+    ASSERT_TRUE(agent::create_worktree(repo.dir.string(), path, repo.head_oid(), err));
+    run_in_dir(path, "echo more >> f.txt && git -c user.email=t@t -c user.name=t commit -qam work");
+    ASSERT_FALSE(agent::worktree_head_reachable(repo.dir.string(), path));
+    ASSERT_FALSE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+
+    ASSERT_TRUE(agent::create_branch_at_head(path, "amber-leave-branch", err));
+    ASSERT_TRUE(agent::worktree_head_reachable(repo.dir.string(), path));
+    ASSERT_TRUE(fs::exists(repo.dir / ".git" / "refs" / "heads" / "amber-leave-branch"));
+    ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
+}
+
+TEST(worktree_prune_drops_vanished_entries_and_keeps_existing_parked) {
+    TempRepo repo;
+    const fs::path state = temp_state_dir("prune");
+    agent::WorktreeEntry gone = entry_for("gone", repo.worktree_path("gone"));
+    agent::WorktreeEntry parked =
+        agent::make_worktree_entry("parked", repo.worktree_path("parked"), "oid", "");
+    parked.parked = true;
+    fs::create_directories(repo.worktree_path("parked"));
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {gone, parked}));
+
+    const auto removed = agent::prune_registry(repo.dir.string(), state.string());
+    ASSERT_EQ(removed.size(), 1u);
+    ASSERT_EQ(removed[0], "gone");
+    const auto left = agent::load_worktrees(state.string());
+    ASSERT_EQ(left.size(), 1u);
+    ASSERT_EQ(left[0].name, "parked");
+    ASSERT_TRUE(left[0].parked);
+    fs::remove_all(state);
+}

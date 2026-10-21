@@ -8,6 +8,7 @@
 #include <agent/agent.h>
 #include <agent/model_probe.h>
 #include <agent/plugin.h>
+#include <agent/worktree.h>
 
 #include "action_registry.h"
 #include "palette.h"
@@ -15,6 +16,7 @@
 
 namespace tui {
 class Tui;
+class Window;
 
 class SlashDispatcher {
 public:
@@ -75,6 +77,16 @@ public:
     void show_debug_status();
     void cmd_set_worktree(const std::string& val);
     void cmd_get_worktree();
+    void cmd_worktree(const std::string& arg);
+    void cmd_worktree_new(const std::string& arg);
+    void cmd_worktree_attach(const std::string& name);
+    void cmd_worktree_detach();
+    void cmd_worktree_remove(const std::string& name);
+    void cmd_worktree_status();
+    void cmd_worktree_list();
+    void cmd_worktree_prune();
+    void cmd_worktree_main();
+    void refresh_worktree_feed();
     void cmd_set_subagent_parallel(const std::string& val);
     void cmd_set_subagent_max(const std::string& val);
     void cmd_get_subagent();
@@ -169,6 +181,7 @@ private:
     // register_builtin_actions() is a facade over these per-domain groups, so
     // each stays well under the size limit and a domain is edited in one place.
     void register_core_actions();
+    void register_worktree_actions();
     void register_provider_actions();
     void register_os_actions();
     void register_config_set_actions();
@@ -197,6 +210,17 @@ private:
     void report_missing_handler(const json* node, const std::string& first);
     bool seed_new_provider(const std::string& a);
     bool prompt_provider_key(const std::string& a, const agent::Provider& p);
+    // Workspace-command pieces. Each ends in one observable step so the verb
+    // handlers stay readable and under the complexity cap.
+    bool parse_worktree_new_arg(const std::string& arg, std::string& name, std::string& ref);
+    bool resolve_worktree_name(const Window& w, const std::string& requested, std::string& name);
+    bool create_worktree_and_attach(Window& w, const std::string& name, const std::string& path,
+                                    const std::string& base);
+    bool workspace_attachable(const agent::WorktreeEntry& entry,
+                              const agent::WorktreeStatus& status, const Window& w,
+                              const std::string& claim);
+    bool attach_workspace_to(Window& w, const agent::WorktreeEntry& entry,
+                             const std::string& claim);
 
     // build_settings() is likewise a facade: one group per setting namespace,
     // and add_setting() is the single registration helper they share. It binds

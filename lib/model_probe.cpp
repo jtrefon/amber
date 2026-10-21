@@ -53,7 +53,12 @@ CURLcode fetch_models(const Config& cfg, std::string& body, CatalogFetchReport& 
 // regenerable data out of the config tree, and a lost catalogue is a re-fetch.
 // ---------------------------------------------------------------------------
 
-constexpr long long kCatalogTtlMs = 24LL * 3600 * 1000;
+// Six hours, not a day: a model catalogue is how new families (and the limits
+// and reasoning contract they ship with) become visible. A day-old snapshot
+// left new Claude 5.x rows blank for most of their first day in the picker; the
+// request still revalidates in the background, this only bounds how long a
+// stale body can answer.
+constexpr long long kCatalogTtlMs = 6LL * 3600 * 1000;
 
 long long now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -320,9 +325,7 @@ void merge_server_info(Config& cfg, const ServerInfo& info) {
         cfg.context_size = info.context_size;
     // Capabilities belong to the model the listing described; unknown means
     // empty, not "keep the previous model's".
-    cfg.model_max_output = info.max_output;
-    cfg.model_supports_reasoning = info.reasoning;
-    cfg.model_supported_parameters = info.supported_parameters;
+    apply_model_capabilities(cfg, capabilities_of(info));
 }
 
 ServerInfo apply_cached_server_autodetect(Config& cfg) {

@@ -856,7 +856,7 @@ TEST(model_picker_shows_advertised_capabilities) {
         return;
     if (!require(open_set_model(tui), "the drawer has no rows", tui))
         return;
-    if (!require(tui.wait_for("out 16384", 10000), "the picker omits the output limit", tui))
+    if (!require(tui.wait_for("out 16k", 10000), "the picker omits the output limit", tui))
         return;
     require(tui.wait_for("reasoning", 10000), "the picker omits reasoning support", tui);
 }
@@ -878,7 +878,7 @@ TEST(get_model_list_shows_advertised_capabilities) {
                  "the model pick did not complete", tui))
         return;
     tui.send("/get model list\r");
-    if (!require(tui.wait_for("out 16384", 10000), "the readout omits the output limit", tui))
+    if (!require(tui.wait_for("out 16k", 10000), "the readout omits the output limit", tui))
         return;
     require(tui.wait_for("reasoning", 10000), "the readout omits reasoning support", tui);
 }
@@ -1646,6 +1646,146 @@ TEST(window_workspace_survives_a_restart_and_is_reattached) {
     fs::remove_all(prepared);
 }
 
+// The reported bug: `/set worktree off` flipped a setting and left the window
+// sitting in the worktree, with no supported way back. It must now leave: the
+// clean, reachable workspace is removed only after the user confirms, and the
+// window continues in the project root with its conversation intact.
+TEST(worktree_off_leaves_and_removes_the_directory) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/w1";
+    fs::remove_all(prepared);
+
+    Tui tui;
+    tui.name = "worktree_off_leaves_and_removes_the_directory";
+    ASSERT(tui.start(fixture().binary, repo.workspace));
+    if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+        return;
+    tui.send("\x0e");
+    if (!require(tui.wait_for("workspace:", 15000), "the new window prepared no workspace", tui))
+        return;
+    ASSERT(fs::exists(prepared));
+
+    tui.send("/set worktree off");
+    tui.pump(500);
+    tui.send("\r");
+    if (!tui.wait_for("leave", 4000)) {
+        tui.send("\r"); // the drawer needed a second Enter to dispatch the leaf
+        if (!require(tui.wait_for("leave", 8000), "the leave dialog did not open", tui))
+            return;
+    }
+    // The safe default is Cancel; the second row is the explicit leave.
+    tui.send_arrow('B');
+    tui.pump(300);
+    tui.send("\r");
+    require(tui.wait_for("worktree: left", 8000), "the window did not leave the workspace", tui);
+    ASSERT(!fs::exists(prepared));
+    ASSERT(agent::load_worktrees(child_state_dir(repo.workspace)).empty());
+    fs::remove_all(prepared);
+}
+
+// Detach parks without deleting; the registry feed then offers the name under
+// /worktree attach, and attaching claims it again. This is the manager round
+// trip the user asked for: close, keep, and re-attach from a window.
+TEST(worktree_detach_parks_and_attach_reclaims) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/w1";
+    fs::remove_all(prepared);
+
+    Tui tui;
+    tui.name = "worktree_detach_parks_and_attach_reclaims";
+    ASSERT(tui.start(fixture().binary, repo.workspace));
+    if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+        return;
+    tui.send("\x0e");
+    if (!require(tui.wait_for("workspace:", 15000), "the new window prepared no workspace", tui))
+        return;
+
+    tui.send("/worktree d");
+    tui.pump(500);
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("parked", 8000), "detach did not park the workspace", tui))
+        return;
+    ASSERT(fs::exists(prepared));
+    const auto parked = agent::load_worktrees(child_state_dir(repo.workspace));
+    ASSERT_EQ(parked.size(), 1u);
+    ASSERT(parked[0].parked);
+
+    // The attach node is a registry feed: the parked name appears there with
+    // its state, and running that leaf claims it.
+    tui.send("/worktree attach ");
+    if (!require(tui.wait_for("parked | detached", 8000),
+                 "the registry feed did not list the parked workspace", tui))
+        return;
+    tui.send("\r");
+    tui.pump(400);
+    tui.send("\r");
+    require(tui.wait_for("attached w1", 8000), "the workspace was not re-attached", tui);
+    const auto attached = agent::load_worktrees(child_state_dir(repo.workspace));
+    ASSERT_EQ(attached.size(), 1u);
+    ASSERT(!attached[0].parked);
+
+    fs::remove_all(prepared);
+    agent::registry_remove(child_state_dir(repo.workspace), "w1");
+}
+
+// The second half of the bug: a restart ignored `worktree off` and re-attached
+// the recorded root. It must restore at the project root and park the
+// workspace, which keeps its contents and its name for an explicit attach.
+TEST(worktree_off_survives_a_restart_and_parks_instead_of_reattaching) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/w1";
+    fs::remove_all(prepared);
+    const std::string state = child_state_dir(repo.workspace);
+
+    {
+        Tui tui;
+        tui.name = "worktree_off_survives_a_restart_and_parks_instead_of_reattaching (first)";
+        ASSERT(tui.start(fixture().binary, repo.workspace));
+        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+            return;
+        tui.send("\x0e");
+        if (!require(tui.wait_for("workspace:", 15000), "the new window prepared no workspace",
+                     tui))
+            return;
+        tui.send("/set worktree off");
+        tui.pump(500);
+        tui.send("\r");
+        if (!tui.wait_for("leave", 4000)) {
+            tui.send("\r");
+            if (!require(tui.wait_for("leave", 8000), "the leave dialog did not open", tui))
+                return;
+        }
+        // Cancel: keep this window attached for now. The setting is still off,
+        // and the next start must honour it.
+        tui.send("\r");
+        require(tui.wait_for("worktree: kept", 8000), "cancelling did not keep the workspace", tui);
+    }
+
+    ASSERT(fs::exists(prepared));
+    {
+        Tui tui;
+        tui.name = "worktree_off_survives_a_restart_and_parks_instead_of_reattaching (second)";
+        ASSERT(tui.start(fixture().binary, repo.workspace));
+        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted again", tui))
+            return;
+        if (!require(tui.wait_for("parked", 10000),
+                     "a restart with worktree off did not park the recorded workspace", tui))
+            return;
+        const auto entries = agent::load_worktrees(state);
+        ASSERT_EQ(entries.size(), 1u);
+        ASSERT(entries[0].parked);
+        ASSERT(entries[0].session_id.empty());
+        ASSERT(fs::exists(prepared));
+    }
+    fs::remove_all(prepared);
+    agent::registry_remove(state, "w1");
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -1682,6 +1822,9 @@ int main(int argc, char** argv) {
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();
+    worktree_off_leaves_and_removes_the_directory();
+    worktree_detach_parks_and_attach_reclaims();
+    worktree_off_survives_a_restart_and_parks_instead_of_reattaching();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.

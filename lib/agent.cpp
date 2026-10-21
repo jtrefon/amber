@@ -142,41 +142,41 @@ void Agent::set_mode(AgentMode mode) {
     publish_config();
 }
 
-void Agent::set_model(const std::string& model, int window, int max_output, bool reasoning,
-                      const std::vector<std::string>& supported_parameters) {
+void Agent::set_model(const std::string& model, const ModelCapabilities& caps) {
     const bool model_changed = model != cfg_.model;
     cfg_.model = model;
     cfg_.model_explicit = true;
-    if (window > 0)
-        model_windows_[model] = window;
+    if (caps.context > 0)
+        model_windows_[model] = caps.context;
     // A catalogue pick is an automatic resolution, not a user pin. Apply the
     // window it reports; when the new model reports none, clear the previous
     // model's value instead of pretending it still applies.
     if (!cfg_.context_explicit) {
-        if (window > 0)
-            cfg_.context_size = window;
+        if (caps.context > 0)
+            cfg_.context_size = caps.context;
         else if (model_changed)
             cfg_.context_size = 0;
     }
     // Capabilities follow the model. A same-model call with no capabilities
     // keeps what the catalogue already established.
-    if (model_changed || max_output > 0 || reasoning || !supported_parameters.empty()) {
-        cfg_.model_max_output = max_output;
-        cfg_.model_supports_reasoning = reasoning;
-        cfg_.model_supported_parameters = supported_parameters;
-    }
+    if (model_changed || has_capabilities(caps))
+        apply_model_capabilities(cfg_, caps);
     client_ = make_client(cfg_, client_factory_);
     publish_config();
 }
 
-void Agent::set_model_capabilities(int max_output, bool reasoning,
-                                   const std::vector<std::string>& supported_parameters) {
-    if (cfg_.model_max_output == max_output && cfg_.model_supports_reasoning == reasoning &&
-        cfg_.model_supported_parameters == supported_parameters)
+void Agent::set_model_capabilities(const ModelCapabilities& caps) {
+    if (cfg_.model_max_output == caps.max_output &&
+        cfg_.model_supports_reasoning == caps.reasoning &&
+        cfg_.model_supported_parameters == caps.supported_parameters &&
+        cfg_.model_line == caps.line && cfg_.model_thinking_adaptive == caps.thinking_adaptive &&
+        cfg_.model_thinking_legacy == caps.thinking_legacy &&
+        cfg_.model_thinking_always_on == caps.thinking_always_on &&
+        cfg_.model_thinking_disabled_ok == caps.thinking_disabled_ok &&
+        cfg_.model_thinking_between_tools_ok == caps.thinking_between_tools_ok &&
+        cfg_.model_efforts == caps.efforts && cfg_.model_default_effort == caps.default_effort)
         return;
-    cfg_.model_max_output = max_output;
-    cfg_.model_supports_reasoning = reasoning;
-    cfg_.model_supported_parameters = supported_parameters;
+    apply_model_capabilities(cfg_, caps);
     client_ = make_client(cfg_, client_factory_);
     publish_config();
 }
@@ -252,9 +252,7 @@ void Agent::set_provider(const Config& resolved, const std::string& model) {
     // when the provider has none) instead of keeping the previous provider's.
     if (!cfg_.context_explicit)
         cfg_.context_size = resolved.context_size;
-    cfg_.model_max_output = resolved.model_max_output;
-    cfg_.model_supports_reasoning = resolved.model_supports_reasoning;
-    cfg_.model_supported_parameters = resolved.model_supported_parameters;
+    apply_model_capabilities(cfg_, capabilities_of(resolved));
     if (!model.empty()) {
         cfg_.model = model;
         cfg_.model_explicit = true;
@@ -915,8 +913,7 @@ Agent::repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
     if (models.empty() || models[0].id == cfg_.model)
         return {};
     const ModelInfo& m = models[0];
-    set_model(m.id, m.context ? m.context : m.context_train, m.max_output, m.reasoning,
-              m.supported_parameters);
+    set_model(m.id, capabilities_of(m));
     if (hooks_.on_status)
         hooks_.on_status("server rejected model - retrying with \"" + m.id + "\"");
     inject_harness_note("[harness] the server rejected the configured model; this request is being "

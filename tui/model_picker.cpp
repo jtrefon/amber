@@ -64,6 +64,19 @@ std::vector<ProviderCatalog> catalogs_from(const std::vector<ProviderEndpoint>& 
     return out;
 }
 
+std::string compact_tokens(int tokens) {
+    if (tokens <= 0)
+        return {};
+    if (tokens >= 1000000) {
+        const int whole = tokens / 1000000;
+        const int tenth = (tokens % 1000000) / 100000;
+        return std::to_string(whole) + (tenth ? "." + std::to_string(tenth) : "") + "M";
+    }
+    if (tokens >= 1000)
+        return std::to_string(tokens / 1000) + "k"; // 16384 -> 16k, 128000 -> 128k
+    return std::to_string(tokens);
+}
+
 nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::string& prefix) {
     nlohmann::json subtree = nlohmann::json::object();
     for (const auto& m : rows) {
@@ -71,16 +84,22 @@ nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::
             subtree["set"]["children"]["model"]["children"][provider_key(m.provider, m.id)];
         leaf["action"] = prefix + provider_key(m.provider, m.id);
         std::string help;
+        // ASCII only: the drawer is rendered in terminals that do not all agree
+        // on UTF-8, and a middle dot arrives as M-BM-7 on a non-UTF-8 locale.
         const auto add = [&help](const std::string& part) {
             if (!help.empty())
-                help += " · ";
+                help += " | ";
             help += part;
         };
         if (m.context > 0)
-            add("ctx " + std::to_string(m.context));
+            add("in " + compact_tokens(m.context));
         if (m.max_output > 0)
-            add("out " + std::to_string(m.max_output));
-        if (m.reasoning)
+            add("out " + compact_tokens(m.max_output));
+        if (m.thinking_adaptive)
+            add("thinking adaptive" + (m.default_effort.empty() ? "" : " " + m.default_effort));
+        else if (m.thinking_legacy)
+            add("thinking budget");
+        else if (m.reasoning)
             add("reasoning");
         if (std::find(m.input_modalities.begin(), m.input_modalities.end(), "image") !=
             m.input_modalities.end())
@@ -103,6 +122,10 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
         pm.context = m.context ? m.context : m.context_train;
         pm.max_output = m.max_output;
         pm.reasoning = m.reasoning;
+        pm.thinking_adaptive = m.thinking_adaptive;
+        pm.thinking_legacy = m.thinking_legacy;
+        pm.thinking_always_on = m.thinking_always_on;
+        pm.default_effort = m.default_effort;
         pm.input_modalities = m.input_modalities;
         out.push_back(std::move(pm));
     }

@@ -108,6 +108,17 @@ struct Config {
     int model_max_output = 0;
     bool model_supports_reasoning = false;
     std::vector<std::string> model_supported_parameters;
+    // The reasoning contract the listing advertised. Empty/false means the
+    // provider did not say: the request stays conservative rather than guessing
+    // a thinking shape the model may reject.
+    std::string model_line;
+    bool model_thinking_adaptive = false;
+    bool model_thinking_legacy = false;
+    bool model_thinking_always_on = false;
+    bool model_thinking_disabled_ok = false;
+    bool model_thinking_between_tools_ok = false;
+    std::vector<std::string> model_efforts;
+    std::string model_default_effort;
 
     // Conversation / telemetry log. When non-empty, the agent appends one JSON
     // object per event (JSON Lines) to this path. Supports a literal "{ts}"

@@ -245,6 +245,12 @@ void Tui::restore_workspace() {
     if (ws.active < window_manager_->count())
         window_manager_->set_active(ws.active);
     lazy_load_active();
+    // Restored windows may have parked or re-claimed names after the feeds were
+    // first merged; the tree must match the registry the user is looking at.
+    refresh_worktree_feed();
+    // A window parked by `worktree off` needs its explanation visible now, not
+    // on the next window switch.
+    flush_workspace_notice();
 }
 
 Tui::~Tui() {

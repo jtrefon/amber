@@ -142,6 +142,63 @@ dialect.
   `anthropic_wire_synthesizes_missing_tool_ids`,
   `anthropic_wire_drops_tool_results_nobody_asked_for` tests.
 
+#### [DL-09] The listing carries the limits and the thinking contract
+
+- **Given**: An Anthropic Models API response (`max_input_tokens`, `max_tokens`,
+  `line`, `capabilities.thinking.types`) or an OpenAI-compatible gateway that
+  lists `anthropic/claude-*` with limits omitted
+- **Input**: `parse_model_list_response` / `parse_models_response`
+- **Expected**: The output ceiling is read from `max_tokens` (the documented
+  field), falling back to `max_output_tokens`; the input window from
+  `max_input_tokens`. A documented Claude family fills only fields the listing
+  omitted, matched on the basename by longest prefix (`claude-opus-4-5` never
+  resolves as `claude-opus-4`), and the family carries the thinking mode
+  (adaptive, legacy budget, always-on), the accepted effort levels and their
+  default. A `capabilities.thinking.types` entry that says `supported: false`
+  overrides the family default. An unknown id stays 0/false: unknown is never
+  guessed. The 5.x/4.6+ families are 1M/128K adaptive; 4.5 is 200K/64K legacy;
+  4.1/4.0 are 200K/32K; 3.x keeps its documented limits.
+- **Regression guard**: `anthropic_model_list_reads_limits_capabilities_and_efforts`,
+  `anthropic_model_list_reports_the_input_window`,
+  `anthropic_known_family_fallback_is_bounded`,
+  `probe_parse_model_list_fills_documented_claude_families` tests.
+
+#### [DL-10] The request uses the model's reasoning shape, not a guess
+
+- **Given**: A model whose listing established a reasoning contract, and a
+  configured effort (`off|low|medium|high|xhigh|max`)
+- **Input**: `build_chat_body`
+- **Expected**: Adaptive models send `thinking:{type:"adaptive"}` plus
+  `output_config.effort` when the effort is listed (otherwise the model's
+  documented default); they never send `budget_tokens`. Legacy models send
+  `thinking:{type:"enabled",budget_tokens}` (kept below `max_tokens`) and, when
+  the model lists efforts (Opus 4.5), the clamped effort too. "Off" is sent as
+  `disabled` or `between_tools` only when the capability advertises that type;
+  an always-on model is left with its default instead of receiving a block the
+  API rejects. A model whose listing said nothing about thinking gets no
+  block. The adaptive Claude families also reject non-default sampling
+  temperature, so the OpenAI-compatible dialect omits it for them (amber's 0.2
+  would 400 on every request); every other model keeps the configured value.
+- **Regression guard**: `anthropic_request_uses_adaptive_thinking_and_effort`,
+  `anthropic_request_off_on_always_on_model_never_sends_disabled`,
+  `anthropic_request_legacy_budget_and_effort`,
+  `anthropic_request_respects_output_and_reasoning`,
+  `openai_request_omits_temperature_only_for_adaptive_claude` tests.
+
+#### [DL-11] Thinking blocks survive the tool round trip
+
+- **Given**: An assistant turn that contains thinking blocks (with signatures)
+  and tool_use blocks, from a buffered response or an SSE stream
+- **Input**: `parse_completion` then `build_chat_body` with that turn and its
+  tool result
+- **Expected**: The protocol's own content blocks travel with the `Message`
+  (`raw_content`); the next assistant message replays them verbatim. The API
+  requires the signed thinking blocks back unmodified, so reconstructing the
+  turn from text plus parsed arguments is a 400 on every later request in the
+  session. Text-only assistant turns use the same raw blocks when present.
+- **Regression guard**: `anthropic_thinking_blocks_survive_the_tool_round_trip`
+  test.
+
 ---
 
 ### Cross-references
@@ -161,3 +218,4 @@ dialect.
 | Date | Reason |
 |------|--------|
 | 2026-09-09 | Initial spec (FIX-027..032, dialect seam, capability wiring, Anthropic proof, learned-window fix) |
+| 2026-10-21 | DL-09..11: documented 5.x/4.6+ limits and thinking contract, adaptive/legacy/off request shapes and effort clamping, thinking-block round trip, OpenAI Claude-family fallback and sampling guard; catalogue TTL 6h |
