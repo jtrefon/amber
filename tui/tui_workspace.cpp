@@ -34,13 +34,13 @@ struct LeaveOutcome {
 // The dirty path: never force a removal, preserve the work in the repository's
 // stash under a message that names the workspace.
 LeaveOutcome stash_and_leave(const agent::WorktreeStatus& status, const std::string& name,
-                             const std::string& path, const std::string& project) {
+                             const std::string& path) {
     const int pick = menu_select("worktree " + name + ": " + status.problem + ". Leave it?",
                                  {"Cancel", "Stash and leave"});
     if (pick != 1)
         return {false, {"worktree: kept " + name + " — " + status.problem}};
     std::string err;
-    if (!agent::stash_worktree(project, path, "amber: leave " + name, err))
+    if (!agent::stash_worktree(path, "amber: leave " + name, err))
         return {false, {"worktree: kept " + name + " — could not stash: " + err}};
     return {true, {"worktree: changes stashed (git stash list keeps them)"}};
 }
@@ -49,7 +49,7 @@ LeaveOutcome stash_and_leave(const agent::WorktreeStatus& status, const std::str
 // the one the user explicitly chooses here. Its name names the workspace and
 // the commit, so `git branch` lists something recognizable later.
 LeaveOutcome branch_and_leave(const agent::WorktreeStatus& status, const std::string& name,
-                              const std::string& path, const std::string& project) {
+                              const std::string& path) {
     const std::string short_oid = status.head_oid.substr(0, 8);
     const std::string branch = "amber-leave-" + name + "-" + short_oid;
     const int pick =
@@ -82,12 +82,12 @@ LeaveOutcome prepare_leave(const agent::WorktreeStatus& status, const std::strin
                            const std::string& path, const std::string& project) {
     LeaveOutcome outcome;
     if (status.dirty) {
-        outcome = stash_and_leave(status, name, path, project);
+        outcome = stash_and_leave(status, name, path);
         if (!outcome.ok)
             return outcome;
     }
     if (!status.reachable) {
-        LeaveOutcome branch = branch_and_leave(status, name, path, project);
+        LeaveOutcome branch = branch_and_leave(status, name, path);
         if (!branch.ok)
             return branch;
         outcome.ok = true;

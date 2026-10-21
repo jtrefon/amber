@@ -2369,25 +2369,20 @@ bool SlashDispatcher::resolve_worktree_name(const Window& w, const std::string& 
     return true;
 }
 
-bool SlashDispatcher::create_worktree_and_attach(Window& w, const std::string& name,
-                                                 const std::string& path, const std::string& base) {
+// Create the directory and its registry row, but leave the active window
+// alone. Attaching is a separate step, so a failed create cannot park the
+// workspace the window is already using.
+bool SlashDispatcher::create_worktree_record(const std::string& name, const std::string& path,
+                                             const std::string& base) {
     const std::string project = agent::Workspace::project_root();
     std::string err;
     if (!agent::create_worktree(project, path, base, err)) {
         tui_.append_line(P_STATUS, "worktree: could not create " + path + " - " + err);
         return false;
     }
-    const std::string claim = tui_.worktree_claim(w);
     if (!agent::registry_add(agent::Workspace::state_dir(),
-                             agent::make_worktree_entry(name, path, base, claim)))
+                             agent::make_worktree_entry(name, path, base, "")))
         tui_.append_line(P_STATUS, "warning: the workspace registry could not be written");
-    w.root = path;
-    w.worktree = name;
-    w.base_oid = base;
-    if (w.agent)
-        w.agent->set_workspace_root(path);
-    tui_.session_controller_->save_window_sessions();
-    tui_.session_controller_->save_workspace_now();
     return true;
 }
 
@@ -2410,15 +2405,22 @@ void SlashDispatcher::cmd_worktree_new(const std::string& arg) {
         return;
     }
     Window& w = tui_.win();
-    if (!w.worktree.empty()) {
-        const std::string previous = w.worktree;
-        tui_.detach_window_from_workspace(w, /*park=*/true);
-        tui_.append_line(P_STATUS, "worktree: parked " + previous + " before creating a new one");
-    }
     if (!resolve_worktree_name(w, name, name))
         return;
     const std::string path = agent::worktree_base_dir(project) + "/" + name;
-    if (!create_worktree_and_attach(w, name, path, base))
+    if (!create_worktree_record(name, path, base))
+        return;
+    const auto entries = agent::load_worktrees(agent::Workspace::state_dir());
+    const auto found = std::find_if(entries.begin(), entries.end(),
+                                    [&](const agent::WorktreeEntry& e) { return e.name == name; });
+    if (found == entries.end()) {
+        tui_.append_line(P_STATUS,
+                         "worktree: created " + path + " but its registry row is missing");
+        return;
+    }
+    // Only now, with the new directory safely on disk, release the window from
+    // its previous workspace and claim the new one.
+    if (!attach_workspace_to(w, *found, tui_.worktree_claim(w)))
         return;
     tui_.append_line(P_STATUS, "worktree: created " + name + " at " + path + " from " + ref +
                                    " - detached; create a branch before the first commit");

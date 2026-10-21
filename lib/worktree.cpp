@@ -97,6 +97,18 @@ bool claims(const WorktreeEntry& entry, const std::vector<std::string>& sessions
     return std::find(paths.begin(), paths.end(), entry.path) != paths.end();
 }
 
+// A parked row survives while it names a directory. Once the directory is
+// gone there is nothing to keep, so the row and git's stale worktree metadata
+// go together. Returns false when the entry was dropped.
+bool keep_parked_entry(const WorktreeEntry& entry, const std::string& repo, ReapReport& report) {
+    std::error_code ec;
+    if (fs::exists(entry.path, ec))
+        return true;
+    prune_worktrees(repo);
+    report.removed.push_back(entry.name);
+    return false;
+}
+
 std::string registry_path(const std::string& state_dir) {
     return state_dir + "/worktrees.json";
 }
@@ -474,9 +486,7 @@ bool create_branch_at_head(const std::string& path, const std::string& branch, s
     return true;
 }
 
-bool stash_worktree(const std::string& repo, const std::string& path, const std::string& message,
-                    std::string& error) {
-    (void)repo;
+bool stash_worktree(const std::string& path, const std::string& message, std::string& error) {
     const GitResult r = run_git(path, {"stash", "push", "--include-untracked", "-m", message});
     if (r.status != 0) {
         error = trimmed(r.output).empty() ? "git stash failed" : trimmed(r.output);
@@ -561,9 +571,12 @@ ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
     ReapReport report;
     std::vector<WorktreeEntry> survivors;
     for (const auto& entry : load_worktrees(state_dir)) {
-        // Parked is an explicit "keep this": it survives every reap pass.
+        // Parked is an explicit "keep this": it survives every reap pass while
+        // there is something to keep. A vanished directory leaves metadata
+        // only, so the entry goes and git prunes its stale worktree record.
         if (entry.parked) {
-            survivors.push_back(entry);
+            if (keep_parked_entry(entry, repo, report))
+                survivors.push_back(entry);
             continue;
         }
         // A restored window re-attaches before the reaper runs: its workspace

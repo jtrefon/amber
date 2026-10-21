@@ -670,6 +670,22 @@ TEST(worktree_parked_entry_survives_reap) {
     fs::remove_all(state);
 }
 
+TEST(worktree_reap_drops_a_parked_entry_whose_directory_vanished) {
+    TempRepo repo;
+    const fs::path state = temp_state_dir("parked-gone");
+    agent::WorktreeEntry e = entry_for("parked-gone", repo.worktree_path("parked-gone"));
+    e.parked = true;
+    ASSERT_TRUE(agent::save_worktrees(state.string(), {e}));
+
+    // Parking keeps a directory, not a memory of one: a vanished path has
+    // nothing left to lose, so its row is tidied rather than kept forever.
+    const auto report = agent::reap_worktrees(repo.dir.string(), state.string(), {}, {});
+    ASSERT_EQ(report.removed.size(), 1u);
+    ASSERT_EQ(report.removed[0], "parked-gone");
+    ASSERT_TRUE(agent::load_worktrees(state.string()).empty());
+    fs::remove_all(state);
+}
+
 // A live window's claim cannot be stolen. A stale session id (nobody claims it
 // now) is reclaimable: the registry is a lease, not a permanent identity.
 TEST(worktree_claim_refuses_a_live_owner_and_reclaims_a_stale_one) {
@@ -761,11 +777,11 @@ TEST(worktree_stash_preserves_uncommitted_work) {
         out << "work in progress\n";
     }
     ASSERT_FALSE(agent::worktree_dirty_reason(path).empty());
-    ASSERT_TRUE(agent::stash_worktree(repo.dir.string(), path, "amber: leave stash", err));
+    ASSERT_TRUE(agent::stash_worktree(path, "amber: leave stash", err));
     ASSERT_TRUE(agent::worktree_dirty_reason(path).empty());
     ASSERT(read_file(repo.dir / ".git" / "logs" / "refs" / "stash").find("amber: leave stash") !=
            std::string::npos);
-    ASSERT_TRUE(agent::stash_worktree(repo.dir.string(), path, "amber: empty", err));
+    ASSERT_TRUE(agent::stash_worktree(path, "amber: empty", err));
     ASSERT_TRUE(agent::remove_worktree_safe(repo.dir.string(), path, err));
 }
 

@@ -3487,6 +3487,34 @@ TEST(session_json_roundtrip_preserves_messages) {
     ASSERT_EQ(back.messages[2].reasoning, "think first");
 }
 
+// The Anthropic tool loop requires signed thinking blocks back verbatim. A
+// session saved between the assistant turn and its tool result must preserve
+// them, or the next start replays a turn the API rejects.
+TEST(session_json_roundtrip_preserves_protocol_blocks) {
+    agent::Session s;
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "on it";
+    a.raw_content =
+        agent::json::array({{{"type", "thinking"}, {"thinking", "read it"}, {"signature", "sig_1"}},
+                            {{"type", "tool_use"},
+                             {"id", "toolu_1"},
+                             {"name", "read"},
+                             {"input", {{"path", "a.txt"}}}}});
+    a.tool_calls = agent::json::array(
+        {{{"id", "toolu_1"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
+    s.messages = {a};
+
+    const agent::Session back = agent::Session::from_json(s.to_json());
+    ASSERT_EQ(back.messages.size(), 1u);
+    ASSERT(back.messages[0].raw_content.is_array());
+    ASSERT_EQ(back.messages[0].raw_content.size(), 2u);
+    ASSERT_EQ(back.messages[0].raw_content[0]["signature"], "sig_1");
+    ASSERT_EQ(back.messages[0].raw_content[1]["input"]["path"], "a.txt");
+}
+
 TEST(session_store_save_load_list_delete) {
     std::string dir = "/tmp/amber_sessions_test";
     run_cmd("rm -rf " + dir);

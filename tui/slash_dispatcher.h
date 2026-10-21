@@ -214,8 +214,8 @@ private:
     // handlers stay readable and under the complexity cap.
     bool parse_worktree_new_arg(const std::string& arg, std::string& name, std::string& ref);
     bool resolve_worktree_name(const Window& w, const std::string& requested, std::string& name);
-    bool create_worktree_and_attach(Window& w, const std::string& name, const std::string& path,
-                                    const std::string& base);
+    bool create_worktree_record(const std::string& name, const std::string& path,
+                                const std::string& base);
     bool workspace_attachable(const agent::WorktreeEntry& entry,
                               const agent::WorktreeStatus& status, const Window& w,
                               const std::string& claim);

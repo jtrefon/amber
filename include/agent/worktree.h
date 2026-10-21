@@ -66,8 +66,7 @@ bool create_branch_at_head(const std::string& path, const std::string& branch, s
 // Preserve uncommitted work in the repository's stash before leaving. The
 // message names the workspace so `git stash list` still says where it came
 // from. A tree with nothing to save is a success.
-bool stash_worktree(const std::string& repo, const std::string& path, const std::string& message,
-                    std::string& error);
+bool stash_worktree(const std::string& path, const std::string& message, std::string& error);
 
 // A worktree is usable as a workspace only for a name that stays a single,
 // visible path component: separators, traversal and hidden names are refused
