@@ -121,6 +121,32 @@ commit.
 - `tests/bench_test.cpp` — probe RED/GREEN tests (hermetic, deterministic).
 - Wire the harness probes into the CI regression gate alongside `make check`.
 
+## State lifecycle
+
+A hermetic scenario is a measurement, not a session: without `--debug` it writes
+its transcript and experience store to `/dev/null`, so a run leaves no project
+state behind. `tests/bench_test.cpp` asserts that invariant.
+
+Before that fix each run left a project directory named `tmp-amber-bench-ws-*`
+under `$XDG_STATE_HOME/amber/projects` (the slug of the `/tmp/amber_bench_ws_*`
+scenario workspace). Those -- and only those -- are removable:
+
+```
+make bench-reap                 # dry run: list the candidates and their size
+make bench-reap-apply           # remove them (explicit)
+./amber-bench reap-state --older-than-days 7           # the same, direct
+./amber-bench reap-state --older-than-days 7 --apply
+```
+
+The reaper considers direct children of the projects root whose name starts
+with `tmp-amber-bench-ws-`, are directories (never symlinks), and are older than
+the age floor (default 7 days, minimum 1). Normal project state is never a
+candidate, there is no automatic reaping, and the dry run is the default.
+
+`bench/results/` is a curated archive of tracked reports. Run outputs are
+generated; scratch reports belong in `.amber/bench/results/` (ignored). A
+deliberate baseline is committed with `git add -f`.
+
 ## Probe roadmap (the full failure surface)
 
 The scorecard grows in planned increments (tracker: BENCH-09..11). Each

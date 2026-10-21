@@ -40,9 +40,12 @@ difficulty-weighted aggregate (1-5 per scenario), scaled to /1000. Partial
 credit everywhere: a weak model loses points per missed oracle step, per
 wasted call, per failed hidden test.
 
-Raw per-run JSON lives in `bench/results/`. The baseline (2026-08-03) is
-tracked here so we can measure our own rate of improvement as the engine
-changes — rerun the same commands after any harness change and compare.
+Raw per-run JSON is kept in `bench/results/` as a curated archive. The baseline
+(2026-08-03) is tracked here so we can measure our own rate of improvement as
+the engine changes — rerun the same commands after any harness change and
+compare. Scratch reports belong in `.amber/bench/results/` (ignored); a
+deliberate baseline is committed with `git add -f`. Old hermetic scenario state
+is reaped with `make bench-reap` (dry run) or `make bench-reap-apply`.
 
 > Naming note: `qwen35-dense` is the preset for **Qwen3.6-27B dense**
 > (27B, not MoE, not Qwen3.5 — the 35B mixture-of-experts is
