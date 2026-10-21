@@ -203,6 +203,16 @@ void Tui::adopt_recorded_workspace(Window& w, const agent::WorkspaceState::Windo
         queue_restored_rebuild(w, entry, name);
         return;
     }
+    // One live window per workspace, even if a damaged workspace file recorded
+    // the same root twice. The path claim is what protects an already-restored
+    // window from a second one adopting its tree.
+    const auto live_paths = live_worktree_paths();
+    if (std::find(live_paths.begin(), live_paths.end(), entry.root) != live_paths.end()) {
+        pending_workspace_notice_ = "worktree: " + name +
+                                    " is already attached to another window; window at the "
+                                    "project root";
+        return;
+    }
     if (!claim_restored_workspace(w, name, entry.worktree))
         return;
     w.root = entry.root;
