@@ -344,6 +344,10 @@ ModelInfo parse_entry(const json& e) {
         m.context_train = read_int(e, "context_length");
     parse_top_provider(e, m);
     parse_capabilities(e, m);
+    // A gateway that lists `anthropic/claude-*` often reports only the id. The
+    // documented family fills the limits and the reasoning contract; anything
+    // the listing did report already won above.
+    apply_claude_family(m);
     return m;
 }
 
@@ -703,10 +707,16 @@ json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message
                                     const std::vector<std::shared_ptr<Tool>>& tools,
                                     bool stream) const {
     json body = {{"model", cfg.model},
-                 {"temperature", cfg.temperature},
                  {"max_tokens", request_max_tokens(cfg)},
                  {"stream", stream},
                  {"messages", json::array()}};
+    // The adaptive Claude families reject a non-default sampling temperature
+    // (amber's 0.2 is non-default) with a 400 on every request. They are
+    // reached through this dialect when a gateway serves them, so the same
+    // rule applies here as in the Messages dialect: omit it.
+    const ClaudeFamily* claude = claude_family_for(cfg.model);
+    if (!claude || !claude->adaptive)
+        body["temperature"] = cfg.temperature;
 
     // Ask the server to emit a final usage chunk during streaming so we can
     // show context usage and token counts (Qwen/llama.cpp/vLLM honour

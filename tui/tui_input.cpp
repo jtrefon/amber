@@ -28,6 +28,7 @@
 #include <unistd.h>
 #include <agent/job.h>
 #include <agent/workspace.h>
+#include <agent/worktree.h>
 
 namespace tui {
 // Provider edit form (Server URL / API Key / Model). Returns true when the
@@ -48,11 +49,29 @@ std::string mode_name(agent::AgentMode m) {
 
 struct ModelChoice {
     bool found = false;
-    int window = 0;
-    int max_output = 0;
-    bool reasoning = false;
-    std::vector<std::string> supported_parameters;
+    agent::ModelCapabilities caps;
 };
+
+std::vector<std::string> split_words(const std::string& text) {
+    std::istringstream in(text);
+    std::vector<std::string> out;
+    std::string word;
+    while (in >> word)
+        out.push_back(word);
+    return out;
+}
+
+const char* worktree_state_label(agent::WorktreeState state) {
+    switch (state) {
+    case agent::WorktreeState::Live:
+        return "live";
+    case agent::WorktreeState::Parked:
+        return "parked";
+    case agent::WorktreeState::Kept:
+        return "kept";
+    }
+    return "?";
+}
 
 // The model row also carries the limits/reasoning the listing advertised; the
 // request must respect them, so the pick hands them to the agent.
@@ -60,8 +79,10 @@ ModelChoice find_model(const std::vector<agent::ModelInfo>& models, const std::s
     for (const auto& m : models) {
         if (m.id != id)
             continue;
-        return {true, m.context ? m.context : m.context_train, m.max_output, m.reasoning,
-                m.supported_parameters};
+        agent::ModelCapabilities caps = agent::capabilities_of(m);
+        if (caps.context == 0)
+            caps.context = m.context_train;
+        return {true, std::move(caps)};
     }
     return {};
 }
@@ -902,6 +923,23 @@ void SlashDispatcher::register_core_job_actions() {
 void SlashDispatcher::register_core_actions() {
     register_core_session_actions();
     register_core_job_actions();
+    register_worktree_actions();
+}
+
+// /worktree: the static verbs. The attach/remove name leaves are contributed by
+// FeedManager::refresh_worktree_feed(), each with a host-derived action.
+void SlashDispatcher::register_worktree_actions() {
+    register_action("core.worktree", [this](const std::string& a) { cmd_worktree(a); });
+    register_action("core.worktree.new", [this](const std::string& a) { cmd_worktree_new(a); });
+    register_action("core.worktree.attach",
+                    [this](const std::string& a) { cmd_worktree_attach(a); });
+    register_action("core.worktree.detach", [this](const std::string&) { cmd_worktree_detach(); });
+    register_action("core.worktree.remove",
+                    [this](const std::string& a) { cmd_worktree_remove(a); });
+    register_action("core.worktree.status", [this](const std::string&) { cmd_worktree_status(); });
+    register_action("core.worktree.list", [this](const std::string&) { cmd_worktree_list(); });
+    register_action("core.worktree.prune", [this](const std::string&) { cmd_worktree_prune(); });
+    register_action("core.worktree.main", [this](const std::string&) { cmd_worktree_main(); });
 }
 
 void SlashDispatcher::register_provider_actions() {
@@ -1325,12 +1363,9 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
     // the template for future windows; siblings keep their own model.
     tui_.cfg_.model = arg;
     tui_.cfg_.model_explicit = true;
-    tui_.cfg_.model_max_output = choice.max_output;
-    tui_.cfg_.model_supports_reasoning = choice.reasoning;
-    tui_.cfg_.model_supported_parameters = choice.supported_parameters;
+    agent::apply_model_capabilities(tui_.cfg_, choice.caps);
     if (tui_.win().agent)
-        tui_.win().agent->set_model(arg, choice.window, choice.max_output, choice.reasoning,
-                                    choice.supported_parameters);
+        tui_.win().agent->set_model(arg, choice.caps);
     std::string global = agent::global_config_path();
     tui_.cfg_.save_global(global);
     tui_.providers_->remember_model(tui_.cfg_.provider_name, arg);
@@ -1446,16 +1481,21 @@ void SlashDispatcher::cmd_get_model_list() {
         return;
     }
     for (const auto& m : model_info_) {
-        int ctx = m.context ? m.context : m.context_train;
+        const int ctx = m.context ? m.context : m.context_train;
         std::string line = "  " + m.id;
         if (ctx > 0)
-            line += "  (ctx " + std::to_string(ctx) + ")";
+            line += "  in " + compact_tokens(ctx);
         if (m.max_output > 0)
-            line += "  out " + std::to_string(m.max_output);
-        if (m.reasoning)
-            line += "  reasoning";
+            line += " | out " + compact_tokens(m.max_output);
+        if (m.thinking_adaptive)
+            line +=
+                " | thinking adaptive" + (m.default_effort.empty() ? "" : " " + m.default_effort);
+        else if (m.thinking_legacy)
+            line += " | thinking budget";
+        else if (m.reasoning)
+            line += " | reasoning";
         if (!m.input_modalities.empty()) {
-            line += "  in";
+            line += " | in";
             for (const auto& modality : m.input_modalities)
                 line += ":" + modality;
         }
@@ -2259,16 +2299,353 @@ void SlashDispatcher::cmd_set_worktree(const std::string& val) {
     const bool on = parse_toggle(val, tui_.cfg_.worktree_auto);
     tui_.cfg_.worktree_auto = on;
     tui_.append_line(P_STATUS, std::string("worktree: ") + (on ? "on" : "off") +
-                                   " \u2014 a new window prepares its own working copy");
+                                   (on ? " \u2014 a new window prepares its own working copy"
+                                       : " \u2014 new windows work in the project root"));
     if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
         tui_.append_line(P_STATUS,
                          "warning: could not save to " + tui_.session_controller_->settings_path());
+    // The setting is the default for NEW windows, but turning it off is also
+    // the user's request for THIS one to stop sitting in a worktree. Ask, with
+    // the full leave flow (cancel, stash, branch) rather than yanking the
+    // directory out from under uncommitted work.
+    if (!on && !tui_.win().worktree.empty())
+        tui_.leave_window_workspace(tui_.win());
     tui_.draw();
 }
 
 void SlashDispatcher::cmd_get_worktree() {
     tui_.append_line(P_STATUS,
                      std::string("worktree: ") + (tui_.cfg_.worktree_auto ? "on" : "off"));
+}
+
+void SlashDispatcher::refresh_worktree_feed() {
+    tui_.refresh_worktree_feed();
+}
+
+// Parse "new [name] [at <ref>]". The optional name and the optional ref may
+// appear in either order, but only one of each; anything else is a usage error.
+bool SlashDispatcher::parse_worktree_new_arg(const std::string& arg, std::string& name,
+                                             std::string& ref) {
+    ref = "HEAD";
+    for (const auto& word : split_words(arg)) {
+        if (word == "at") {
+            ref.clear(); // the next word is the ref; a missing one is caught below
+        } else if (ref.empty()) {
+            ref = word;
+        } else if (name.empty()) {
+            name = word;
+        } else {
+            tui_.append_line(P_STATUS, "usage: /worktree new [name] [at <ref>]");
+            return false;
+        }
+    }
+    if (ref.empty()) {
+        tui_.append_line(P_STATUS, "usage: /worktree new [name] [at <ref>]");
+        return false;
+    }
+    return true;
+}
+
+// A name is the directory under the shared worktree base; validate it and
+// refuse a registry collision. Omitting the name derives one from the window.
+bool SlashDispatcher::resolve_worktree_name(const Window& w, const std::string& requested,
+                                            std::string& name) {
+    name = requested.empty() ? "w" + std::to_string(w.id) : requested;
+    if (!agent::valid_worktree_name(name)) {
+        tui_.append_line(P_STATUS, "worktree: invalid name: " + name);
+        return false;
+    }
+    const auto entries = agent::load_worktrees(agent::Workspace::state_dir());
+    const bool taken = std::any_of(entries.begin(), entries.end(),
+                                   [&](const auto& entry) { return entry.name == name; });
+    if (taken) {
+        std::string message = "worktree: ";
+        message += name;
+        message += " already exists - attach it with /worktree attach ";
+        message += name;
+        tui_.append_line(P_STATUS, message);
+        return false;
+    }
+    return true;
+}
+
+// Create the directory and its registry row, but leave the active window
+// alone. Attaching is a separate step, so a failed create cannot park the
+// workspace the window is already using.
+bool SlashDispatcher::create_worktree_record(const std::string& name, const std::string& path,
+                                             const std::string& base) {
+    const std::string project = agent::Workspace::project_root();
+    std::string err;
+    if (!agent::create_worktree(project, path, base, err)) {
+        tui_.append_line(P_STATUS, "worktree: could not create " + path + " - " + err);
+        return false;
+    }
+    if (!agent::registry_add(agent::Workspace::state_dir(),
+                             agent::make_worktree_entry(name, path, base, "")))
+        tui_.append_line(P_STATUS, "warning: the workspace registry could not be written");
+    return true;
+}
+
+// /worktree new [name] [at <ref>]: create a detached worktree and attach it.
+void SlashDispatcher::cmd_worktree_new(const std::string& arg) {
+    if (busy_reject("worktree"))
+        return;
+    std::string name;
+    std::string ref;
+    if (!parse_worktree_new_arg(arg, name, ref))
+        return;
+    const std::string project = agent::Workspace::project_root();
+    if (!agent::is_git_repo(project)) {
+        tui_.append_line(P_STATUS, "worktree: " + project + " is not a git repository");
+        return;
+    }
+    const std::string base = agent::git_resolve_commit(project, ref);
+    if (base.empty()) {
+        tui_.append_line(P_STATUS, "worktree: unknown ref: " + ref);
+        return;
+    }
+    Window& w = tui_.win();
+    if (!resolve_worktree_name(w, name, name))
+        return;
+    const std::string path = agent::worktree_base_dir(project) + "/" + name;
+    if (!create_worktree_record(name, path, base))
+        return;
+    const auto entries = agent::load_worktrees(agent::Workspace::state_dir());
+    const auto found = std::find_if(entries.begin(), entries.end(),
+                                    [&](const agent::WorktreeEntry& e) { return e.name == name; });
+    if (found == entries.end()) {
+        tui_.append_line(P_STATUS,
+                         "worktree: created " + path + " but its registry row is missing");
+        return;
+    }
+    // Only now, with the new directory safely on disk, release the window from
+    // its previous workspace and claim the new one.
+    if (!attach_workspace_to(w, *found, tui_.worktree_claim(w)))
+        return;
+    tui_.append_line(P_STATUS, "worktree: created " + name + " at " + path + " from " + ref +
+                                   " - detached; create a branch before the first commit");
+    refresh_worktree_feed();
+    tui_.draw();
+}
+
+// Whether the active window may claim this workspace. Everything that can
+// refuse is here, so the handler below only has to act.
+bool SlashDispatcher::workspace_attachable(const agent::WorktreeEntry& entry,
+                                           const agent::WorktreeStatus& status, const Window& w,
+                                           const std::string& claim) {
+    if (!status.exists) {
+        tui_.append_line(P_STATUS,
+                         "worktree: " + entry.name + " directory is gone (try /worktree prune)");
+        return false;
+    }
+    if (status.live && entry.session_id != claim) {
+        tui_.append_line(P_STATUS, "worktree: " + entry.name + " is in use by another window (" +
+                                       status.owner + ")");
+        return false;
+    }
+    if (w.worktree == entry.name) {
+        tui_.append_line(P_STATUS,
+                         "worktree: " + entry.name + " is already attached to this window");
+        return false;
+    }
+    return true;
+}
+
+bool SlashDispatcher::attach_workspace_to(Window& w, const agent::WorktreeEntry& entry,
+                                          const std::string& claim) {
+    if (!w.worktree.empty()) {
+        const std::string previous = w.worktree;
+        tui_.detach_window_from_workspace(w, /*park=*/true);
+        tui_.append_line(P_STATUS, "worktree: parked " + previous);
+    }
+    std::string err;
+    if (!agent::claim_worktree(agent::Workspace::state_dir(), entry.name, claim,
+                               tui_.live_worktree_claims(), err)) {
+        tui_.append_line(P_STATUS, "worktree: could not attach " + entry.name + " - " + err);
+        return false;
+    }
+    w.root = entry.path;
+    w.worktree = entry.name;
+    w.base_oid = entry.base_oid;
+    if (w.agent)
+        w.agent->set_workspace_root(entry.path);
+    tui_.session_controller_->save_window_sessions();
+    tui_.session_controller_->save_workspace_now();
+    return true;
+}
+
+// /worktree attach <name>: claim an existing workspace for this window.
+void SlashDispatcher::cmd_worktree_attach(const std::string& name) {
+    if (busy_reject("worktree"))
+        return;
+    const std::string state = agent::Workspace::state_dir();
+    const std::string project = agent::Workspace::project_root();
+    const auto entries = agent::load_worktrees(state);
+    if (name.empty()) {
+        std::string names;
+        for (const auto& e : entries)
+            names += (names.empty() ? "" : " ") + e.name;
+        tui_.append_line(P_STATUS, "usage: /worktree attach <name>" +
+                                       (names.empty() ? std::string(" - no workspaces")
+                                                      : " - available: " + names));
+        return;
+    }
+    const auto found = std::find_if(entries.begin(), entries.end(),
+                                    [&](const agent::WorktreeEntry& e) { return e.name == name; });
+    if (found == entries.end()) {
+        tui_.append_line(P_STATUS,
+                         "worktree: no workspace named " + name + " (try /worktree list)");
+        return;
+    }
+    Window& w = tui_.win();
+    const std::string claim = tui_.worktree_claim(w);
+    const agent::WorktreeStatus status = agent::worktree_status(
+        project, *found, tui_.live_worktree_claims(), tui_.live_worktree_paths());
+    if (!workspace_attachable(*found, status, w, claim))
+        return;
+    if (!attach_workspace_to(w, *found, claim))
+        return;
+    tui_.append_line(P_STATUS, "worktree: attached " + name + " at " + found->path + " (" +
+                                   status.branch + ")");
+    refresh_worktree_feed();
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_worktree_detach() {
+    if (busy_reject("worktree"))
+        return;
+    Window& w = tui_.win();
+    if (w.worktree.empty()) {
+        tui_.append_line(P_STATUS, "worktree: this window has none (it works in the project root)");
+        return;
+    }
+    const std::string name = w.worktree;
+    tui_.detach_window_from_workspace(w, /*park=*/true);
+    tui_.append_line(P_STATUS, "worktree: detached; " + name +
+                                   " parked (attach it again with /worktree attach " + name + ")");
+    refresh_worktree_feed();
+    tui_.draw();
+}
+
+// /worktree remove <name>: remove an unclaimed workspace when nothing is lost.
+void SlashDispatcher::cmd_worktree_remove(const std::string& name) {
+    const std::string state = agent::Workspace::state_dir();
+    const std::string project = agent::Workspace::project_root();
+    const auto entries = agent::load_worktrees(state);
+    if (name.empty()) {
+        std::string names;
+        for (const auto& e : entries)
+            names += (names.empty() ? "" : " ") + e.name;
+        tui_.append_line(P_STATUS, "usage: /worktree remove <name>" +
+                                       (names.empty() ? std::string(" - no workspaces")
+                                                      : " - available: " + names));
+        return;
+    }
+    const auto found = std::find_if(entries.begin(), entries.end(),
+                                    [&](const agent::WorktreeEntry& e) { return e.name == name; });
+    if (found == entries.end()) {
+        tui_.append_line(P_STATUS, "worktree: no workspace named " + name);
+        return;
+    }
+    const agent::WorktreeStatus status = agent::worktree_status(
+        project, *found, tui_.live_worktree_claims(), tui_.live_worktree_paths());
+    if (status.live) {
+        tui_.append_line(P_STATUS, "worktree: " + name +
+                                       " is in use; leave it from its window first "
+                                       "(/worktree detach or /set worktree off)");
+        return;
+    }
+    tui_.append_line(P_STATUS, agent::release_workspace(project, state, found->name, found->path));
+    refresh_worktree_feed();
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_worktree_status() {
+    Window& w = tui_.win();
+    const std::string project = agent::Workspace::project_root();
+    if (w.worktree.empty() && w.root.empty()) {
+        tui_.append_line(P_STATUS, "worktree: none - this window works in " + project);
+        return;
+    }
+    const auto entries = agent::load_worktrees(agent::Workspace::state_dir());
+    const auto found =
+        std::find_if(entries.begin(), entries.end(), [&](const agent::WorktreeEntry& e) {
+            return (!w.worktree.empty() && e.name == w.worktree) ||
+                   (!w.root.empty() && e.path == w.root);
+        });
+    if (found == entries.end()) {
+        tui_.append_line(P_STATUS, "worktree: " + (w.worktree.empty() ? w.root : w.worktree) +
+                                       " at " + w.root + " (not in the registry)");
+        return;
+    }
+    const agent::WorktreeStatus status = agent::worktree_status(
+        project, *found, tui_.live_worktree_claims(), tui_.live_worktree_paths());
+    tui_.append_line(P_STATUS,
+                     "worktree: " + status.name + " (" + worktree_state_label(status.state) + ")");
+    tui_.append_line(P_STATUS, "  path: " + status.path);
+    std::string branch = status.branch;
+    if (!status.head_oid.empty())
+        branch += " (" + status.head_oid.substr(0, 12) + ")";
+    tui_.append_line(P_STATUS, "  branch: " + branch);
+    tui_.append_line(P_STATUS, std::string("  tree: ") + (status.dirty ? status.problem : "clean"));
+    tui_.append_line(P_STATUS,
+                     std::string("  commits: ") +
+                         (status.reachable ? "reachable from a ref" : "reachable from no ref"));
+    if (!status.owner.empty())
+        tui_.append_line(P_STATUS, "  owner: " + status.owner);
+}
+
+void SlashDispatcher::cmd_worktree_list() {
+    const std::string project = agent::Workspace::project_root();
+    const auto entries = agent::load_worktrees(agent::Workspace::state_dir());
+    if (entries.empty()) {
+        tui_.append_line(P_STATUS, "worktree: none in this project");
+        return;
+    }
+    const auto statuses = agent::worktree_statuses(project, entries, tui_.live_worktree_claims(),
+                                                   tui_.live_worktree_paths());
+    for (const auto& s : statuses) {
+        std::string line = "  " + s.name + "  " + worktree_state_label(s.state) + "  " + s.branch;
+        if (!s.head_oid.empty())
+            line += " (" + s.head_oid.substr(0, 8) + ")";
+        line += "  " + s.path;
+        if (!s.problem.empty())
+            line += "  - " + s.problem;
+        else if (!s.owner.empty())
+            line += "  - " + s.owner;
+        tui_.append_line(P_STATUS, line);
+    }
+}
+
+void SlashDispatcher::cmd_worktree_prune() {
+    const std::string project = agent::Workspace::project_root();
+    const auto removed = agent::prune_registry(project, agent::Workspace::state_dir());
+    if (removed.empty()) {
+        tui_.append_line(P_STATUS, "worktree: nothing to prune");
+        return;
+    }
+    std::string names;
+    for (const auto& name : removed)
+        names += (names.empty() ? "" : " ") + name;
+    tui_.append_line(P_STATUS, "worktree: dropped registry entries: " + names);
+    refresh_worktree_feed();
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_worktree_main() {
+    if (tui_.win().worktree.empty()) {
+        tui_.append_line(P_STATUS, "worktree: this window is already at the project root");
+        return;
+    }
+    tui_.leave_window_workspace(tui_.win());
+}
+
+void SlashDispatcher::cmd_worktree(const std::string& arg) {
+    if (!arg.empty())
+        tui_.append_line(P_STATUS,
+                         "usage: /worktree new [name] [at <ref>] | attach <name> | detach | "
+                         "remove <name> | status | list | prune | main");
+    cmd_worktree_list();
 }
 
 void SlashDispatcher::cmd_window_new(bool noworkdir, const std::string& name) {
@@ -2646,8 +3023,7 @@ void Tui::apply_detected_context_window() {
         const auto acfg = w->agent->config_snapshot();
         if (acfg && acfg->model == cfg_.model) {
             w->agent->set_context_window(cfg_.context_size);
-            w->agent->set_model_capabilities(cfg_.model_max_output, cfg_.model_supports_reasoning,
-                                             cfg_.model_supported_parameters);
+            w->agent->set_model_capabilities(agent::capabilities_of(cfg_));
         }
     }
 }

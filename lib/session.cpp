@@ -18,6 +18,13 @@ long long now_ms() {
     return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
+// Optional fields: assign when the key is present and holds the expected type,
+// leave the default otherwise.
+void take_string(const json& j, const char* key, std::string& out) {
+    if (j.contains(key) && j[key].is_string())
+        out = j[key].get<std::string>();
+}
+
 // Serialize a single conversation Message to JSON (round-trips all fields the
 // agent loop depends on, including tool call plumbing).
 json msg_to_json(const Message& m) {
@@ -34,25 +41,26 @@ json msg_to_json(const Message& m) {
         j["tool_calls"] = m.tool_calls;
     if (m.harness)
         j["harness"] = true;
+    // Protocol blocks that cannot be reconstructed (Anthropic's signed thinking)
+    // must survive a restart: a tool-use turn replayed without them is a 400.
+    if (!m.raw_content.is_null())
+        j["raw_content"] = m.raw_content;
     return j;
 }
 
 Message msg_from_json(const json& j) {
     Message m;
-    if (j.contains("role") && j["role"].is_string())
-        m.role = j["role"].get<std::string>();
-    if (j.contains("content") && j["content"].is_string())
-        m.content = j["content"].get<std::string>();
-    if (j.contains("reasoning") && j["reasoning"].is_string())
-        m.reasoning = j["reasoning"].get<std::string>();
-    if (j.contains("tool_call_id") && j["tool_call_id"].is_string())
-        m.tool_call_id = j["tool_call_id"].get<std::string>();
-    if (j.contains("name") && j["name"].is_string())
-        m.name = j["name"].get<std::string>();
+    take_string(j, "role", m.role);
+    take_string(j, "content", m.content);
+    take_string(j, "reasoning", m.reasoning);
+    take_string(j, "tool_call_id", m.tool_call_id);
+    take_string(j, "name", m.name);
     if (j.contains("tool_calls"))
         m.tool_calls = j["tool_calls"];
     if (j.contains("harness") && j["harness"].is_boolean())
         m.harness = j["harness"].get<bool>();
+    if (j.contains("raw_content"))
+        m.raw_content = j["raw_content"];
     return m;
 }
 
@@ -86,13 +94,6 @@ json Session::to_json() const {
 }
 
 namespace {
-
-// Optional fields: assign when the key is present and holds the expected type,
-// leave the default otherwise.
-void take_string(const json& j, const char* key, std::string& out) {
-    if (j.contains(key) && j[key].is_string())
-        out = j[key].get<std::string>();
-}
 
 void take_ll(const json& j, const char* key, long long& out) {
     if (j.contains(key) && j[key].is_number_integer())

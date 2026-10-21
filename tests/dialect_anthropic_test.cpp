@@ -565,24 +565,225 @@ TEST(anthropic_known_family_fallback_is_bounded) {
 TEST(anthropic_request_respects_output_and_reasoning) {
     auto d = anthropic();
     agent::Config cfg;
-    cfg.model = "claude-3-5-sonnet";
+    cfg.model = "claude-sonnet-4-5";
     cfg.max_tokens = 16384;
     cfg.model_max_output = 8192;
+    cfg.model_supports_reasoning = true;
+    cfg.model_thinking_legacy = true;
+    cfg.reasoning_effort = "high";
     std::vector<agent::Message> msgs;
 
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["max_tokens"].get<int>(), 8192); // never above the model's ceiling
-    ASSERT(!body.contains("thinking"));
-
-    cfg.model_supports_reasoning = true;
-    cfg.reasoning_effort = "high";
-    body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(body.contains("thinking"));
+    ASSERT_EQ(body["thinking"]["type"], "enabled");
     ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 4096); // numeric budget, not a tag
 
     cfg.max_tokens = 2048; // the budget must stay below max_tokens
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 2047);
+
+    // A model whose listing said nothing about thinking gets no block, even
+    // when a previous model advertised reasoning: unknown is not a guess.
+    cfg.model_supports_reasoning = false;
+    cfg.model_thinking_legacy = false;
+    cfg.max_tokens = 16384;
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(!body.contains("thinking"));
+}
+
+// The Models API publishes the output ceiling as `max_tokens` (not
+// `max_output_tokens`), publishes the input window as `max_input_tokens`, and
+// says which thinking types it accepts. All of it must reach the capabilities
+// the request and the picker read.
+TEST(anthropic_model_list_reads_limits_capabilities_and_efforts) {
+    auto d = anthropic();
+    const std::string body = R"({"data":[
+        {"type":"model","id":"claude-sonnet-5","display_name":"Claude Sonnet 5",
+         "max_input_tokens":1000000,"max_tokens":128000,"line":"sonnet",
+         "capabilities":{"thinking":{"types":{
+            "disabled":{"supported":true},
+            "between_tools":{"supported":true}}}}},
+        {"type":"model","id":"claude-opus-5-5","max_input_tokens":1000000,"max_tokens":128000,
+         "capabilities":{"thinking":{"types":{"disabled":{"supported":false}}}}},
+        {"type":"model","id":"claude-haiku-4-5","max_output_tokens":32000},
+        {"type":"model","id":"claude-3-5-sonnet","max_tokens":8192}]})";
+
+    auto models = d->parse_model_list_response(body);
+    ASSERT_EQ(models.size(), 4u);
+
+    ASSERT_EQ(models[0].context, 1000000);
+    ASSERT_EQ(models[0].max_output, 128000);
+    ASSERT_TRUE(models[0].thinking_adaptive);
+    ASSERT_FALSE(models[0].thinking_legacy);
+    ASSERT_FALSE(models[0].thinking_always_on);
+    ASSERT_TRUE(models[0].thinking_disabled_ok);
+    ASSERT_TRUE(models[0].thinking_between_tools_ok);
+    ASSERT_EQ(models[0].line, "sonnet");
+    ASSERT_EQ(models[0].default_effort, "high");
+    ASSERT_EQ(models[0].efforts.size(), 5u); // low, medium, high, xhigh, max
+
+    // The 5.5 Opus is always-on; the listing's disabled:false wins over the
+    // family default.
+    ASSERT_TRUE(models[1].thinking_adaptive);
+    ASSERT_TRUE(models[1].thinking_always_on);
+    ASSERT_FALSE(models[1].thinking_disabled_ok);
+    ASSERT_EQ(models[1].default_effort, "medium");
+
+    // Old spelling still works when a gateway sends it.
+    ASSERT_EQ(models[2].max_output, 32000);
+    ASSERT_EQ(models[2].context, 200000);
+    ASSERT_TRUE(models[2].thinking_legacy);
+
+    // A pre-reasoning family stays non-reasoning.
+    ASSERT_FALSE(models[3].reasoning);
+    ASSERT_FALSE(models[3].thinking_adaptive);
+}
+
+// 4.6+ takes adaptive thinking plus output_config.effort. Sending a budget
+// there, or an effort the model does not list, is a 400.
+TEST(anthropic_request_uses_adaptive_thinking_and_effort) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-5";
+    cfg.max_tokens = 16384;
+    cfg.model_supports_reasoning = true;
+    cfg.model_thinking_adaptive = true;
+    cfg.model_thinking_disabled_ok = true;
+    cfg.model_efforts = {"low", "medium", "high", "xhigh", "max"};
+    cfg.model_default_effort = "high";
+    cfg.reasoning_effort = "xhigh";
+    std::vector<agent::Message> msgs;
+
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["type"], "adaptive");
+    ASSERT(!body["thinking"].contains("budget_tokens"));
+    ASSERT_EQ(body["output_config"]["effort"], "xhigh");
+    ASSERT(!body.contains("temperature"));
+
+    // The model does not list xhigh (4.6): send its documented default, not a
+    // level the API would reject.
+    cfg.model_efforts = {"low", "medium", "high", "max"};
+    cfg.model_default_effort = "high";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["output_config"]["effort"], "high");
+
+    // Off on a model that accepts disabled.
+    cfg.reasoning_effort = "off";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["type"], "disabled");
+    ASSERT(!body.contains("output_config"));
+}
+
+// An always-on model cannot be disabled. between_tools keeps the model's
+// default reasoning but stops it running between tool calls; when neither type
+// is advertised, the block is omitted rather than sent and rejected.
+TEST(anthropic_request_off_on_always_on_model_never_sends_disabled) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-opus-5-5";
+    cfg.max_tokens = 16384;
+    cfg.model_supports_reasoning = true;
+    cfg.model_thinking_adaptive = true;
+    cfg.model_thinking_always_on = true;
+    cfg.reasoning_effort = "off";
+    std::vector<agent::Message> msgs;
+
+    cfg.model_thinking_between_tools_ok = true;
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["type"], "between_tools");
+
+    cfg.model_thinking_between_tools_ok = false;
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(!body.contains("thinking"));
+}
+
+// Opus 4.5 accepts both the legacy budget and an effort. Sonnet/Haiku 4.5 have
+// no effort list, so they get a budget only.
+TEST(anthropic_request_legacy_budget_and_effort) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-opus-4-5";
+    cfg.max_tokens = 16384;
+    cfg.model_supports_reasoning = true;
+    cfg.model_thinking_legacy = true;
+    cfg.model_efforts = {"low", "medium", "high"};
+    cfg.model_default_effort = "high";
+    cfg.reasoning_effort = "high";
+    std::vector<agent::Message> msgs;
+
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["type"], "enabled");
+    ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 4096);
+    ASSERT_EQ(body["output_config"]["effort"], "high");
+
+    // An unsupported level clamps to the default instead of reaching the API.
+    cfg.reasoning_effort = "max";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["output_config"]["effort"], "high");
+    ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 4096);
+
+    // No effort list: budget from the configured level, no effort block.
+    cfg.model_efforts.clear();
+    cfg.reasoning_effort = "medium";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 2048);
+    ASSERT(!body.contains("output_config"));
+}
+
+// The API requires thinking blocks (with their signatures) back verbatim on the
+// next turn. Rebuilding the assistant message from text + tool_calls dropped
+// them, which is a 400 on the tool loop for every reasoning model.
+TEST(anthropic_thinking_blocks_survive_the_tool_round_trip) {
+    auto d = anthropic();
+    const std::string raw = R"({
+        "content": [
+            {"type":"thinking","thinking":"I should read it.","signature":"sig_abc"},
+            {"type":"text","text":"on it"},
+            {"type":"tool_use","id":"toolu_1","name":"read","input":{"path":"a.txt"}}
+        ],
+        "usage": {"input_tokens": 10, "output_tokens": 5}
+    })";
+    agent::Message assistant = d->parse_completion(raw);
+    ASSERT_EQ(assistant.tool_calls.size(), 1u);
+    ASSERT(assistant.raw_content.is_array());
+    ASSERT_EQ(assistant.raw_content.size(), 3u);
+    ASSERT_EQ(assistant.raw_content[0]["signature"], "sig_abc");
+
+    std::vector<agent::Message> msgs = {text_msg("user", "read a.txt"), assistant,
+                                        tool_result_msg("toolu_1", "file body")};
+    agent::json body = d->build_chat_body(agent::Config{}, msgs, {}, false);
+    const agent::json& sent = body["messages"];
+    ASSERT_EQ(sent.size(), 3u);
+    ASSERT_EQ(sent[1]["role"], "assistant");
+    ASSERT_EQ(sent[1]["content"].size(), 3u);
+    ASSERT_EQ(sent[1]["content"][0]["type"], "thinking");
+    ASSERT_EQ(sent[1]["content"][0]["signature"], "sig_abc");
+    ASSERT_EQ(sent[1]["content"][2]["type"], "tool_use");
+    ASSERT_EQ(sent[1]["content"][2]["input"]["path"], "a.txt");
+
+    // The streamed path keeps the same blocks: a signature arrives as its own
+    // delta and input as fragments.
+    agent::Message out;
+    auto decoder = d->make_decoder(out, [](const agent::StreamChunk&) {}, "");
+    const std::string sse =
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+        "{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+        "{\"type\":\"thinking_delta\",\"thinking\":\"plan\"}}\n\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+        "{\"type\":\"signature_delta\",\"signature\":\"sig_xyz\"}}\n\n"
+        "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":"
+        "{\"type\":\"tool_use\",\"id\":\"toolu_2\",\"name\":\"read\"}}\n\n"
+        "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":"
+        "{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\\\"b.txt\\\"}\"}}\n\n";
+    decoder->on_write(sse.c_str(), sse.size(), 1);
+    decoder->finalize();
+    ASSERT(out.raw_content.is_array());
+    ASSERT_EQ(out.raw_content.size(), 2u);
+    ASSERT_EQ(out.raw_content[0]["thinking"], "plan");
+    ASSERT_EQ(out.raw_content[0]["signature"], "sig_xyz");
+    ASSERT_EQ(out.raw_content[1]["input"]["path"], "b.txt");
 }
 
 TEST(anthropic_error_classification) {

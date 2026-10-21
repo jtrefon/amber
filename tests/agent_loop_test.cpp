@@ -36,6 +36,12 @@ std::string cwd() {
     return getcwd(buf, sizeof buf) ? buf : ".";
 }
 
+agent::ModelCapabilities caps(int context = 0) {
+    agent::ModelCapabilities c;
+    c.context = context;
+    return c;
+}
+
 agent::Config loop_cfg() {
     agent::Config cfg;
     cfg.stream = false;
@@ -434,7 +440,7 @@ TEST(agent_set_model_scopes_an_unpinned_window) {
     ASSERT_EQ(snapshot->context_size, 0);
     ASSERT_FALSE(snapshot->context_explicit);
 
-    ag.set_model("big", 524288);
+    ag.set_model("big", caps(524288));
     snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->context_size, 524288);
@@ -448,7 +454,11 @@ TEST(agent_set_model_carries_capabilities) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
-    ag.set_model("m", 1000, 8192, true, {"reasoning"});
+    agent::ModelCapabilities full = caps(1000);
+    full.max_output = 8192;
+    full.reasoning = true;
+    full.supported_parameters = {"reasoning"};
+    ag.set_model("m", full);
     auto snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->model_max_output, 8192);
@@ -480,7 +490,7 @@ TEST(agent_user_pin_survives_context_resolution) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
-    ag.set_model("big", 524288);
+    ag.set_model("big", caps(524288));
     auto snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->context_size, 200000);
@@ -539,14 +549,14 @@ TEST(agent_pin_and_clear_context_window) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
 
-    ag.set_model("first", 65536);
+    ag.set_model("first", caps(65536));
     ag.pin_context_window(200000);
     auto snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->context_size, 200000);
     ASSERT_TRUE(snapshot->context_explicit);
 
-    ag.set_model("second", 524288);
+    ag.set_model("second", caps(524288));
     snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->context_size, 200000);

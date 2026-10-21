@@ -206,7 +206,7 @@ TEST(model_picker_leaf_keys_are_composite_and_carry_action_and_ctx) {
     ASSERT_EQ(leaves["kilocode::kilo-auto/free"]["action"].get<std::string>(),
               std::string("core.config.set.model.kilocode::kilo-auto/free"));
     ASSERT_EQ(leaves["kilocode::kilo-auto/free"]["help"].get<std::string>(),
-              std::string("ctx 256000"));
+              std::string("in 256k"));
     // Unknown context must not render a bogus "ctx 0".
     ASSERT_FALSE(leaves["anthropic::no-ctx-model"].contains("help"));
 }
@@ -506,6 +506,44 @@ TEST(model_picker_reads_a_providers_cached_catalogue) {
     ASSERT(rows[0].context > 0);
 }
 
+TEST(model_picker_compacts_token_counts) {
+    ASSERT_EQ(tui::compact_tokens(2000000), std::string("2M"));
+    ASSERT_EQ(tui::compact_tokens(1000000), std::string("1M"));
+    ASSERT_EQ(tui::compact_tokens(1500000), std::string("1.5M"));
+    ASSERT_EQ(tui::compact_tokens(200000), std::string("200k"));
+    ASSERT_EQ(tui::compact_tokens(128000), std::string("128k"));
+    ASSERT_EQ(tui::compact_tokens(64000), std::string("64k"));
+    ASSERT_EQ(tui::compact_tokens(999), std::string("999"));
+    ASSERT_EQ(tui::compact_tokens(0), std::string());
+}
+
+// An Anthropic 5.x row gets the documented family limits and its adaptive
+// effort contract; the picker says which mode and default the model uses.
+TEST(model_picker_shows_adaptive_reasoning_mode) {
+    ScopedConfigHome home;
+    write_catalogue(home.dir, "https://api.anthropic.com", "anthropic",
+                    R"({"data":[{"id":"claude-sonnet-5","max_input_tokens":1000000,)"
+                    R"("max_tokens":128000}]})");
+    tui::ProviderEndpoint e;
+    e.name = "anthropic";
+    e.api_base = "https://api.anthropic.com";
+    e.flavor = "anthropic";
+    auto rows = tui::cached_models_for(e);
+    ASSERT_EQ(rows.size(), 1u);
+    ASSERT_EQ(rows[0].context, 1000000);
+    ASSERT_EQ(rows[0].max_output, 128000);
+    ASSERT(rows[0].thinking_adaptive);
+    ASSERT_EQ(rows[0].default_effort, std::string("high"));
+
+    const auto subtree = tui::model_subtree(rows, "core.config.set.model.");
+    const std::string help =
+        subtree["set"]["children"]["model"]["children"]["anthropic::claude-sonnet-5"]["help"]
+            .get<std::string>();
+    ASSERT(help.find("in 1M") != std::string::npos);
+    ASSERT(help.find("out 128k") != std::string::npos);
+    ASSERT(help.find("thinking adaptive high") != std::string::npos);
+}
+
 TEST(model_picker_carries_output_reasoning_and_modalities) {
     ScopedConfigHome home;
     write_catalogue(home.dir, "https://openrouter.ai/api/v1", "openai",
@@ -534,10 +572,14 @@ TEST(model_picker_carries_output_reasoning_and_modalities) {
     const auto subtree = tui::model_subtree(rows, "core.config.set.model.");
     const auto& leaves = subtree["set"]["children"]["model"]["children"];
     const std::string help = leaves["openrouter::vendor/model"]["help"].get<std::string>();
-    ASSERT(help.find("ctx 128000") != std::string::npos);
-    ASSERT(help.find("out 16384") != std::string::npos);
+    // Compact, ASCII, labelled: a wall of digits is unreadable in a drawer and
+    // a UTF-8 separator arrives as M-BM-7 on a non-UTF-8 locale.
+    ASSERT(help.find("in 128k") != std::string::npos);
+    ASSERT(help.find("out 16k") != std::string::npos);
     ASSERT(help.find("reasoning") != std::string::npos);
     ASSERT(help.find("image") != std::string::npos);
+    ASSERT(help.find("ctx ") == std::string::npos);
+    ASSERT(help.find(" \u00b7 ") == std::string::npos);
 }
 
 // The cache key is api_base+flavor, so a provider speaking a different dialect

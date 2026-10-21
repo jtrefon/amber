@@ -18,6 +18,10 @@ public:
     void refresh_provider_feed();
     void refresh_job_feed();
     void refresh_plugin_feed();
+    // The worktree registry as JSON leaves: every workspace name hangs under
+    // /worktree attach and /worktree remove with a host-derived action. No
+    // command path or choice list is hardcoded in C++.
+    void refresh_worktree_feed();
 
 private:
     // The policy-rule feed's three stages: gather the per-scope help text from

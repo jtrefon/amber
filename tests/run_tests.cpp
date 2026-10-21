@@ -2145,6 +2145,62 @@ TEST(probe_parse_model_list_malformed) {
     ASSERT(agent::make_dialect("openai")->parse_model_list_response(R"({"data":[]})").empty());
 }
 
+// A gateway that lists `anthropic/claude-*` often reports only the id. The
+// documented family fills limits and the thinking contract, so the picker and
+// the request are not left blank; a non-Claude id stays unknown.
+TEST(probe_parse_model_list_fills_documented_claude_families) {
+    const std::string body = R"({"data":[)"
+                             R"({"id":"anthropic/claude-sonnet-5"},)"
+                             R"({"id":"anthropic/claude-opus-4-5"},)"
+                             R"({"id":"anthropic/claude-haiku-4-5","context_length":200000},)"
+                             R"({"id":"openai/gpt-4o"}]})";
+    auto models = agent::make_dialect("openai")->parse_model_list_response(body);
+    ASSERT_EQ(models.size(), 4u);
+
+    ASSERT_EQ(models[0].context, 1000000);
+    ASSERT_EQ(models[0].max_output, 128000);
+    ASSERT_TRUE(models[0].reasoning);
+    ASSERT_TRUE(models[0].thinking_adaptive);
+    ASSERT_EQ(models[0].efforts.size(), 5u);
+    ASSERT_EQ(models[0].default_effort, std::string("high"));
+
+    ASSERT_EQ(models[1].context, 200000);
+    ASSERT_EQ(models[1].max_output, 64000);
+    ASSERT_TRUE(models[1].thinking_legacy);
+    ASSERT_FALSE(models[1].thinking_adaptive);
+    ASSERT_EQ(models[1].default_effort, std::string("high"));
+
+    // A reported limit still wins over the family fallback.
+    ASSERT_EQ(models[2].context, 200000);
+    ASSERT_EQ(models[2].max_output, 64000);
+
+    // The table is bounded to Claude ids: no invented limits elsewhere.
+    ASSERT_EQ(models[3].context, 0);
+    ASSERT_EQ(models[3].max_output, 0);
+    ASSERT_FALSE(models[3].reasoning);
+}
+
+// Claude 5.x/4.6+ reject a non-default sampling temperature with a 400. The
+// OpenAI-compatible dialect reaches them through gateways, so it applies the
+// same rule as the Messages dialect; every other model keeps amber's value.
+TEST(openai_request_omits_temperature_only_for_adaptive_claude) {
+    auto d = agent::make_dialect("openai");
+    agent::Config cfg;
+    cfg.temperature = 0.2;
+    cfg.model = "anthropic/claude-sonnet-5";
+    auto body = d->build_chat_body(cfg, {}, {}, false);
+    ASSERT(!body.contains("temperature"));
+
+    cfg.model = "anthropic/claude-sonnet-4-5";
+    body = d->build_chat_body(cfg, {}, {}, false);
+    ASSERT(body.contains("temperature"));
+    ASSERT_EQ(body["temperature"].get<double>(), 0.2);
+
+    cfg.model = "gpt-4o";
+    body = d->build_chat_body(cfg, {}, {}, false);
+    ASSERT(body.contains("temperature"));
+}
+
 TEST(probe_parse_model_list_ollama_shape) {
     // Ollama-ish {"models":[{name, n_ctx}]} fallback shape, two entries.
     std::string body = R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
@@ -3429,6 +3485,34 @@ TEST(session_json_roundtrip_preserves_messages) {
     ASSERT_EQ(back.messages[0].role, "system");
     ASSERT_EQ(back.messages[1].content, "hi\nthere");
     ASSERT_EQ(back.messages[2].reasoning, "think first");
+}
+
+// The Anthropic tool loop requires signed thinking blocks back verbatim. A
+// session saved between the assistant turn and its tool result must preserve
+// them, or the next start replays a turn the API rejects.
+TEST(session_json_roundtrip_preserves_protocol_blocks) {
+    agent::Session s;
+    agent::Message a;
+    a.role = "assistant";
+    a.content = "on it";
+    a.raw_content =
+        agent::json::array({{{"type", "thinking"}, {"thinking", "read it"}, {"signature", "sig_1"}},
+                            {{"type", "tool_use"},
+                             {"id", "toolu_1"},
+                             {"name", "read"},
+                             {"input", {{"path", "a.txt"}}}}});
+    a.tool_calls = agent::json::array(
+        {{{"id", "toolu_1"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
+    s.messages = {a};
+
+    const agent::Session back = agent::Session::from_json(s.to_json());
+    ASSERT_EQ(back.messages.size(), 1u);
+    ASSERT(back.messages[0].raw_content.is_array());
+    ASSERT_EQ(back.messages[0].raw_content.size(), 2u);
+    ASSERT_EQ(back.messages[0].raw_content[0]["signature"], "sig_1");
+    ASSERT_EQ(back.messages[0].raw_content[1]["input"]["path"], "a.txt");
 }
 
 TEST(session_store_save_load_list_delete) {
@@ -5435,7 +5519,9 @@ TEST(compress_uses_the_providers_window_not_a_stale_configured_one) {
     };
     agent::Agent ag(cfg, reg, {}, agent::make_compressor(cc), agent::make_compression_gate(cc), {},
                     {}, nullptr, factory);
-    ag.set_model("kilo-auto/free", 131072); // the selected provider's catalogue window
+    agent::ModelCapabilities kilo_caps;
+    kilo_caps.context = 131072;
+    ag.set_model("kilo-auto/free", kilo_caps); // the selected provider's catalogue window
 
     std::vector<agent::Message> msgs;
     agent::Message sys;

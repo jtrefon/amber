@@ -245,6 +245,12 @@ void Tui::restore_workspace() {
     if (ws.active < window_manager_->count())
         window_manager_->set_active(ws.active);
     lazy_load_active();
+    // Restored windows may have parked or re-claimed names after the feeds were
+    // first merged; the tree must match the registry the user is looking at.
+    refresh_worktree_feed();
+    // A window parked by `worktree off` needs its explanation visible now, not
+    // on the next window switch.
+    flush_workspace_notice();
 }
 
 Tui::~Tui() {
@@ -742,6 +748,10 @@ bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
         render_engine_->draw();
         break;
     case KeyAction::CloseDrawer:
+        // The command line owns drawer_open_; redrawing alone left it set, so
+        // the next Enter dispatched the highlighted row instead of the line
+        // the user had actually typed (arguments were silently dropped).
+        cl.on_escape();
         render_engine_->draw();
         break;
     case KeyAction::DeleteWord:
@@ -906,6 +916,16 @@ detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
             result = (cl.*b.handler)();
             return detail::PromptOutcome::Routed;
         }
+    }
+
+    // Ctrl-G: send the line as typed, bypassing the completion drawer. The
+    // help line has promised this key; without it, Enter while the drawer is
+    // open dispatches the highlighted row and a free-form argument never
+    // reaches the handler.
+    if (ch == 7) {
+        cl.on_escape();
+        result = cl.on_enter();
+        return detail::PromptOutcome::Routed;
     }
 
     if (ch == 10 || ch == 13 || ch == KEY_ENTER) {

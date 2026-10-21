@@ -97,6 +97,18 @@ bool claims(const WorktreeEntry& entry, const std::vector<std::string>& sessions
     return std::find(paths.begin(), paths.end(), entry.path) != paths.end();
 }
 
+// A parked row survives while it names a directory. Once the directory is
+// gone there is nothing to keep, so the row and git's stale worktree metadata
+// go together. Returns false when the entry was dropped.
+bool keep_parked_entry(const WorktreeEntry& entry, const std::string& repo, ReapReport& report) {
+    std::error_code ec;
+    if (fs::exists(entry.path, ec))
+        return true;
+    prune_worktrees(repo);
+    report.removed.push_back(entry.name);
+    return false;
+}
+
 std::string registry_path(const std::string& state_dir) {
     return state_dir + "/worktrees.json";
 }
@@ -305,6 +317,7 @@ std::vector<WorktreeEntry> load_worktrees(const std::string& state_dir) {
         e.pid = item.value("pid", 0L);
         e.start_ticks = item.value("start_ticks", 0LL);
         e.created_ms = item.value("created_ms", 0LL);
+        e.parked = item.value("parked", false);
         if (!e.name.empty() && !e.path.empty())
             entries.push_back(e);
     }
@@ -327,7 +340,8 @@ bool save_worktrees(const std::string& state_dir, const std::vector<WorktreeEntr
                                         {"session_id", e.session_id},
                                         {"pid", e.pid},
                                         {"start_ticks", e.start_ticks},
-                                        {"created_ms", e.created_ms}});
+                                        {"created_ms", e.created_ms},
+                                        {"parked", e.parked}});
     }
     const std::string path = registry_path(state_dir);
     const std::string tmp = path + ".tmp";
@@ -366,6 +380,181 @@ bool registry_add(const std::string& state_dir, const WorktreeEntry& entry) {
     return save_worktrees(state_dir, entries);
 }
 
+std::string worktree_dirty_reason(const std::string& path) {
+    const GitResult r = run_git(path, {"status", "--porcelain", "--untracked-files=normal"});
+    if (r.status != 0)
+        return "cannot inspect the working tree";
+    int modified = 0;
+    int untracked = 0;
+    std::istringstream lines(r.output);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (line.size() < 2)
+            continue;
+        if (line.rfind("??", 0) == 0)
+            ++untracked;
+        else
+            ++modified;
+    }
+    if (modified == 0 && untracked == 0)
+        return {};
+    std::string reason;
+    if (modified > 0)
+        reason = std::to_string(modified) + (modified == 1 ? " change" : " changes");
+    if (untracked > 0) {
+        if (!reason.empty())
+            reason += ", ";
+        reason +=
+            std::to_string(untracked) + (untracked == 1 ? " untracked file" : " untracked files");
+    }
+    return reason;
+}
+
+std::string worktree_branch(const std::string& path, std::string& head_oid) {
+    head_oid = git_head_oid(path);
+    const GitResult ref = run_git(path, {"symbolic-ref", "--short", "HEAD"});
+    return ref.status == 0 ? trimmed(ref.output) : std::string("detached");
+}
+
+bool worktree_head_reachable(const std::string& repo, const std::string& path) {
+    const std::string head = git_head_oid(path);
+    return !head.empty() && reachable_from_any_ref(repo, head);
+}
+
+WorktreeStatus worktree_status(const std::string& repo, const WorktreeEntry& entry,
+                               const std::vector<std::string>& live_sessions,
+                               const std::vector<std::string>& live_paths) {
+    WorktreeStatus status;
+    status.name = entry.name;
+    status.path = entry.path;
+    std::error_code ec;
+    status.exists = fs::exists(entry.path, ec);
+    status.parked = entry.parked;
+    status.live = claims(entry, live_sessions, live_paths);
+    status.owner = !entry.session_id.empty()
+                       ? entry.session_id
+                       : (entry.pid > 0 ? "pid " + std::to_string(entry.pid) : std::string());
+    if (status.exists) {
+        status.branch = worktree_branch(entry.path, status.head_oid);
+        const std::string dirty = worktree_dirty_reason(entry.path);
+        status.dirty = !dirty.empty();
+        status.reachable = worktree_head_reachable(repo, entry.path);
+        if (status.dirty)
+            status.problem = "uncommitted " + dirty;
+        else if (!status.reachable)
+            status.problem = "HEAD is on no branch";
+    } else {
+        status.problem = "directory is gone";
+    }
+    if (status.live)
+        status.state = WorktreeState::Live;
+    else if (status.parked)
+        status.state = WorktreeState::Parked;
+    else
+        status.state = WorktreeState::Kept;
+    return status;
+}
+
+std::vector<WorktreeStatus> worktree_statuses(const std::string& repo,
+                                              const std::vector<WorktreeEntry>& entries,
+                                              const std::vector<std::string>& live_sessions,
+                                              const std::vector<std::string>& live_paths) {
+    std::vector<WorktreeStatus> out;
+    out.reserve(entries.size());
+    for (const auto& entry : entries)
+        out.push_back(worktree_status(repo, entry, live_sessions, live_paths));
+    return out;
+}
+
+std::string git_resolve_commit(const std::string& repo, const std::string& ref) {
+    if (ref.empty() || ref.front() == '-')
+        return {};
+    const GitResult r = run_git(repo, {"rev-parse", "--verify", "--quiet", ref + "^{commit}"});
+    return r.status == 0 ? trimmed(r.output) : std::string();
+}
+
+bool create_branch_at_head(const std::string& path, const std::string& branch, std::string& error) {
+    if (!valid_worktree_name(branch) || branch.find('/') != std::string::npos) {
+        error = "invalid branch name: " + branch;
+        return false;
+    }
+    const GitResult r = run_git(path, {"branch", "--", branch, "HEAD"});
+    if (r.status != 0) {
+        error = trimmed(r.output).empty() ? "git could not create " + branch : trimmed(r.output);
+        return false;
+    }
+    return true;
+}
+
+bool stash_worktree(const std::string& path, const std::string& message, std::string& error) {
+    const GitResult r = run_git(path, {"stash", "push", "--include-untracked", "-m", message});
+    if (r.status != 0) {
+        error = trimmed(r.output).empty() ? "git stash failed" : trimmed(r.output);
+        return false;
+    }
+    return true;
+}
+
+bool claim_worktree(const std::string& state_dir, const std::string& name,
+                    const std::string& session_id, const std::vector<std::string>& live_sessions,
+                    std::string& error) {
+    std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
+    const auto it = std::find_if(entries.begin(), entries.end(),
+                                 [&](const WorktreeEntry& e) { return e.name == name; });
+    if (it == entries.end()) {
+        error = "no workspace named " + name;
+        return false;
+    }
+    if (!it->session_id.empty() && it->session_id != session_id &&
+        std::find(live_sessions.begin(), live_sessions.end(), it->session_id) !=
+            live_sessions.end()) {
+        error = "workspace " + name + " is in use by another window";
+        return false;
+    }
+    it->session_id = session_id;
+    it->parked = false;
+    it->pid = static_cast<long>(::getpid());
+    it->start_ticks = process_start_ticks(it->pid);
+    if (!save_worktrees(state_dir, entries)) {
+        error = "could not write the workspace registry";
+        return false;
+    }
+    return true;
+}
+
+bool park_worktree(const std::string& state_dir, const std::string& name) {
+    std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
+    const auto it = std::find_if(entries.begin(), entries.end(),
+                                 [&](const WorktreeEntry& e) { return e.name == name; });
+    if (it == entries.end())
+        return false;
+    it->session_id.clear();
+    it->parked = true;
+    it->pid = 0;
+    it->start_ticks = 0;
+    return save_worktrees(state_dir, entries);
+}
+
+std::vector<std::string> prune_registry(const std::string& repo, const std::string& state_dir) {
+    std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
+    std::vector<std::string> removed;
+    std::vector<WorktreeEntry> survivors;
+    survivors.reserve(entries.size());
+    for (const auto& entry : entries) {
+        std::error_code ec;
+        if (fs::exists(entry.path, ec)) {
+            survivors.push_back(entry);
+        } else {
+            removed.push_back(entry.name);
+        }
+    }
+    if (!removed.empty()) {
+        save_worktrees(state_dir, survivors);
+        prune_worktrees(repo);
+    }
+    return removed;
+}
+
 bool registry_remove(const std::string& state_dir, const std::string& name) {
     std::vector<WorktreeEntry> entries = load_worktrees(state_dir);
     const auto before = entries.size();
@@ -382,6 +571,14 @@ ReapReport reap_worktrees(const std::string& repo, const std::string& state_dir,
     ReapReport report;
     std::vector<WorktreeEntry> survivors;
     for (const auto& entry : load_worktrees(state_dir)) {
+        // Parked is an explicit "keep this": it survives every reap pass while
+        // there is something to keep. A vanished directory leaves metadata
+        // only, so the entry goes and git prunes its stale worktree record.
+        if (entry.parked) {
+            if (keep_parked_entry(entry, repo, report))
+                survivors.push_back(entry);
+            continue;
+        }
         // A restored window re-attaches before the reaper runs: its workspace
         // is spoken for however its owner pid looks.
         if (claims(entry, live_sessions, live_paths)) {

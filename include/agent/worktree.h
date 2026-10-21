@@ -13,11 +13,60 @@ struct WorktreeEntry {
     std::string path;          // where the working copy lives
     std::string base_oid;      // the commit it was created at
     std::string head_oid;      // last observed HEAD; informational
-    std::string session_id;    // the window session it belongs to
-    long pid = 0;              // the process that created it
+    std::string session_id;    // the live window that claims it; empty when parked
+    long pid = 0;              // the process that created/claimed it
     long long start_ticks = 0; // /proc/<pid>/stat starttime: guards pid reuse
     long long created_ms = 0;
+    // Parked is an explicit "kept, but nobody owns it". A parked workspace is
+    // never reaped: its contents are what the user chose to keep. It can be
+    // claimed again by name.
+    bool parked = false;
 };
+
+// What the user sees for one workspace. `state` is live (claimed by a window),
+// parked (kept, unclaimed), or kept (unclaimed and unsafe to remove, because it
+// is dirty or its HEAD is reachable from no ref).
+enum class WorktreeState { Live, Parked, Kept };
+
+struct WorktreeStatus {
+    std::string name;
+    std::string path;
+    std::string branch;   // current branch, or "detached"
+    std::string head_oid; // short or full HEAD
+    std::string owner;    // claiming session id, or the pid that created it
+    std::string problem;  // why it cannot be removed; empty when safe
+    bool exists = false;
+    bool dirty = false;
+    bool reachable = true;
+    bool parked = false;
+    bool live = false;
+    WorktreeState state = WorktreeState::Kept;
+};
+
+// Branch, cleanliness and reachability of one workspace. The dirtiness reason
+// is a short human sentence ("3 modified, 1 untracked"), never a raw diff.
+std::string worktree_dirty_reason(const std::string& path);
+std::string worktree_branch(const std::string& path, std::string& head_oid);
+bool worktree_head_reachable(const std::string& repo, const std::string& path);
+WorktreeStatus worktree_status(const std::string& repo, const WorktreeEntry& entry,
+                               const std::vector<std::string>& live_sessions,
+                               const std::vector<std::string>& live_paths);
+std::vector<WorktreeStatus> worktree_statuses(const std::string& repo,
+                                              const std::vector<WorktreeEntry>& entries,
+                                              const std::vector<std::string>& live_sessions,
+                                              const std::vector<std::string>& live_paths);
+
+// Resolve a ref (branch, tag, HEAD~2) to the commit it names, or "".
+std::string git_resolve_commit(const std::string& repo, const std::string& ref);
+
+// Give a detached HEAD a branch so its commits survive removal. Used only by
+// the explicit leave dialog; amber never invents a branch on its own.
+bool create_branch_at_head(const std::string& path, const std::string& branch, std::string& error);
+
+// Preserve uncommitted work in the repository's stash before leaving. The
+// message names the workspace so `git stash list` still says where it came
+// from. A tree with nothing to save is a success.
+bool stash_worktree(const std::string& path, const std::string& message, std::string& error);
 
 // A worktree is usable as a workspace only for a name that stays a single,
 // visible path component: separators, traversal and hidden names are refused
@@ -90,6 +139,22 @@ WorktreeEntry make_worktree_entry(const std::string& name, const std::string& pa
 // and reports whether it was there.
 bool registry_add(const std::string& state_dir, const WorktreeEntry& entry);
 bool registry_remove(const std::string& state_dir, const std::string& name);
+
+// Claim a workspace for `session_id`. A session that is still live in another
+// window owns it: claiming refuses rather than stealing ("no silent attach").
+// A stale session id (the process that wrote it is gone) is reclaimable.
+bool claim_worktree(const std::string& state_dir, const std::string& name,
+                    const std::string& session_id, const std::vector<std::string>& live_sessions,
+                    std::string& error);
+
+// Release the claim without touching the directory: the workspace becomes
+// parked and is never reaped.
+bool park_worktree(const std::string& state_dir, const std::string& name);
+
+// Drop registry entries whose directories have vanished. Parked entries whose
+// directory still exists are kept; a vanished directory leaves nothing to keep.
+// Returns the names removed, so the caller can report them.
+std::vector<std::string> prune_registry(const std::string& repo, const std::string& state_dir);
 
 // What a reap pass did, in the terms the UI reports to the user.
 struct ReapReport {

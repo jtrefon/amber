@@ -318,6 +318,26 @@ private:
     // Remove the window's workspace when that can lose nothing; otherwise keep
     // it and say why. The notice is flushed after the window is erased.
     void release_window_workspace(Window& w);
+    // The explicit leave flow: inspect the workspace, offer stash/branch where
+    // removal would lose work, then remove it and return the window to the
+    // project root. Cancelling changes nothing. False when the user cancelled
+    // or a guard (a running window, a failed git operation) kept the workspace.
+    bool leave_window_workspace(Window& w);
+    // The guards and the "directory already vanished" case, split out so the
+    // leave flow itself reads as the sequence of decisions it is.
+    bool workspace_leave_allowed(Window& w);
+    void leave_vanished_workspace(Window& w, const std::string& name, const std::string& path,
+                                  const std::string& project, const std::string& state);
+    // Release the window from its workspace without touching the directory.
+    // `park` records an explicit keep (the workspace survives the reaper and
+    // can be attached again); false is for a workspace that was just removed.
+    void detach_window_from_workspace(Window& w, bool park);
+    // The claims the registry compares against: a saved session id, or a
+    // stable per-window id before the first save.
+    std::string worktree_claim(const Window& w) const;
+    std::vector<std::string> live_worktree_claims() const;
+    std::vector<std::string> live_worktree_paths() const;
+    void refresh_worktree_feed();
     void flush_workspace_notice();
     // The tree the ACTIVE window's tools, prompts and status bar refer to: its
     // workspace when it has one, else the project root.
@@ -326,6 +346,13 @@ private:
     // first paint must never wait on a subprocess, so anything that needs git
     // (reaping, rebuilding a wiped workspace) is queued for start_workspace_pass.
     void adopt_recorded_workspace(Window& w, const agent::WorkspaceState::WindowEntry& entry);
+    // The three cases adopt_recorded_workspace resolves, each small enough to
+    // read on its own: park it because worktrees are off, queue a rebuild
+    // because /tmp was wiped, or re-claim it for the restored window.
+    void park_restored_workspace(const std::string& name);
+    void queue_restored_rebuild(Window& w, const agent::WorkspaceState::WindowEntry& entry,
+                                const std::string& name);
+    bool claim_restored_workspace(Window& w, const std::string& name, const std::string& worktree);
     // The git half of the workspace lifecycle, off the UI thread: reap what no
     // window claims, rebuild workspaces whose directory is gone, and record
     // where each live workspace stopped. Results are posted back.

@@ -8,10 +8,13 @@
 #include <agent/policy.h>
 #include <agent/providers.h>
 #include <agent/shell_classify.h>
+#include <agent/workspace.h>
+#include <agent/worktree.h>
 
 #include "tui/model_picker.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <map>
 #include <set>
 
@@ -186,6 +189,69 @@ void FeedManager::refresh_plugin_feed() {
         tui_.register_action(plugin_action("set.plugin.off", id),
                              [this, id](const std::string&) { tui_.set_plugin(id, false); });
     }
+}
+
+namespace {
+
+// Registry-only state: this feed runs at startup and on every command-tree
+// rebuild, so it must not fork git. Branch, cleanliness and reachability are
+// what the explicit `status`/`list` verbs inspect.
+std::string worktree_feed_help(const agent::WorktreeEntry& entry, bool live, bool exists) {
+    std::string state;
+    if (!exists)
+        state = "missing";
+    else if (entry.parked)
+        state = "parked";
+    else if (live)
+        state = "live";
+    else
+        state = "kept";
+    std::string help = state;
+    if (live)
+        help += " | attached";
+    else if (entry.parked)
+        help += " | attachable";
+    help += " | " + entry.path;
+    return help;
+}
+
+} // namespace
+
+// The registry as a JSON subtree: each workspace hangs under the verb it can
+// be used with. Actions are host-derived (`core.worktree.attach.<name>`), so
+// the tree, the drawer and completion all learn the names from the registry,
+// never from a C++ list.
+void FeedManager::refresh_worktree_feed() {
+    const std::string state_dir = agent::Workspace::state_dir();
+    const auto entries = agent::load_worktrees(state_dir);
+    const auto claims = tui_.live_worktree_claims();
+    const auto live_paths = tui_.live_worktree_paths();
+    nlohmann::json subtree = nlohmann::json::object();
+    for (const auto& entry : entries) {
+        std::error_code ec;
+        const bool exists = std::filesystem::exists(entry.path, ec);
+        const bool live =
+            (!entry.session_id.empty() &&
+             std::find(claims.begin(), claims.end(), entry.session_id) != claims.end()) ||
+            std::find(live_paths.begin(), live_paths.end(), entry.path) != live_paths.end();
+        const std::string help = worktree_feed_help(entry, live, exists);
+        const std::string attach_action = "core.worktree.attach." + entry.name;
+        nlohmann::json& attach = subtree["worktree"]["children"]["attach"]["children"][entry.name];
+        attach["action"] = attach_action;
+        attach["help"] = help;
+        tui_.register_action(attach_action, [this, name = entry.name](const std::string&) {
+            tui_.slash_dispatcher_->cmd_worktree_attach(name);
+        });
+
+        const std::string remove_action = "core.worktree.remove." + entry.name;
+        nlohmann::json& remove = subtree["worktree"]["children"]["remove"]["children"][entry.name];
+        remove["action"] = remove_action;
+        remove["help"] = help + (live ? " | in use" : "");
+        tui_.register_action(remove_action, [this, name = entry.name](const std::string&) {
+            tui_.slash_dispatcher_->cmd_worktree_remove(name);
+        });
+    }
+    tui_.settings_.merge_completions_json(subtree);
 }
 
 void FeedManager::refresh_job_feed() {

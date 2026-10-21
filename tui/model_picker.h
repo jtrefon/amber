@@ -25,8 +25,17 @@ struct ProviderModel {
     int context = 0;      // context window, 0 when unknown
     int max_output = 0;   // completion/output limit, 0 when unknown
     bool reasoning = false;
+    bool thinking_adaptive = false;
+    bool thinking_legacy = false;
+    bool thinking_always_on = false;
+    std::string default_effort;
     std::vector<std::string> input_modalities;
 };
+
+// Human-readable token counts for picker/readout lines: 2000000 -> "2M",
+// 200000 -> "200k", 128000 -> "128k". A non-round value keeps one decimal
+// ("1.5M") rather than a wall of digits. 0/negative is empty.
+std::string compact_tokens(int tokens);
 
 // The separator between provider and model in a leaf key.
 //

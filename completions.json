@@ -102,6 +102,55 @@
     "w"
    ]
   },
+  "worktree": {
+   "action": "core.worktree",
+   "help": "Manage this project's workspaces (git worktrees).",
+   "man": "A workspace is a git worktree under $TMPDIR/amber-wt. One window may own a workspace at a time; a second window cannot silently steal it. Commands: '/worktree new [name] [at <ref>]' creates a detached workspace and attaches it to the active window; '/worktree attach <name>' claims an existing one; '/worktree detach' parks the active window's workspace and returns it to the project root; '/worktree remove <name>' removes an unclaimed workspace only when nothing can be lost; '/worktree status' describes the active window's workspace; '/worktree list' shows every registry-owned workspace; '/worktree prune' drops entries whose directory vanished; '/worktree main' returns the active window to the project root, offering to stash or branch where removal would lose work. The attach and remove name lists are live registry leaves, not hardcoded choices. '/set worktree off' makes new windows start at the project root and asks the active window to leave its workspace.",
+   "children": {
+    "new": {
+     "action": "core.worktree.new",
+     "help": "Create a workspace and attach it to this window.",
+     "man": "Creates a DETACHED worktree at the current HEAD (or at the ref after 'at') under $TMPDIR/amber-wt/<project>/<name>, attaches it to the active window, and returns the path. Branch policy belongs to the workflow: create a branch before the first commit. '/worktree new fix-auth' names it; '/worktree new w2 at origin/main' starts it from another ref. An existing workspace of the active window is parked first, never discarded."
+    },
+    "attach": {
+     "action": "core.worktree.attach",
+     "help": "Attach an existing workspace by name.",
+     "man": "Claims a workspace for the active window and points its tools, prompts and status bar at that directory. A workspace another live window owns is refused rather than stolen. The child names under this node are the registry's current workspaces.",
+     "children": {}
+    },
+    "detach": {
+     "action": "core.worktree.detach",
+     "help": "Park this window's workspace and work in the project root.",
+     "man": "Releases the claim without deleting the directory: the workspace becomes parked (kept, never reaped) and can be attached again by name. The window keeps its conversation and scrollback; only its tool root changes."
+    },
+    "remove": {
+     "action": "core.worktree.remove",
+     "help": "Remove an unclaimed workspace.",
+     "man": "Removes a registry-owned workspace only when nothing can be lost: git refuses a dirty tree and amber refuses a HEAD no branch reaches. A workspace a live window claims is refused; use '/worktree detach' or '/set worktree off' there. The child names under this node are the registry's current workspaces.",
+     "children": {}
+    },
+    "status": {
+     "action": "core.worktree.status",
+     "help": "Describe this window's workspace.",
+     "man": "Prints the active window's workspace path, branch or detached HEAD, cleanliness, whether its commits are reachable from a branch, and whether it is live, parked or kept."
+    },
+    "list": {
+     "action": "core.worktree.list",
+     "help": "List every workspace in this project's registry.",
+     "man": "One row per registry-owned workspace: name, state (live/parked/kept), branch or detached HEAD, path, and the reason a kept one cannot be removed."
+    },
+    "prune": {
+     "action": "core.worktree.prune",
+     "help": "Drop registry entries whose directory vanished.",
+     "man": "Removes registry entries (and git's stale worktree metadata) for directories that no longer exist, such as after a reboot wipes $TMPDIR. Existing parked workspaces are kept: parking is an explicit 'keep this'."
+    },
+    "main": {
+     "action": "core.worktree.main",
+     "help": "Return this window to the project root.",
+     "man": "Leaves the active window's workspace and points it back at the project root. When the workspace can be removed safely it is removed and its commits stay in the repository; when it is dirty you are offered a stash, and when its HEAD is on no branch you are offered an explicit branch. Cancelling leaves everything as it was."
+    }
+   }
+  },
   "get": {
    "action": "core.config.get",
    "help": "Retrieve system and app state information.",

@@ -228,14 +228,11 @@ public:
     // resolution never becomes a user pin: when the model changes and the
     // window is unknown the previous model's value is cleared rather than
     // reused. A user pin (context_explicit) survives.
-    void set_model(const std::string& model, int window = 0, int max_output = 0,
-                   bool reasoning = false,
-                   const std::vector<std::string>& supported_parameters = {});
+    void set_model(const std::string& model, const ModelCapabilities& caps = {});
 
     // Apply the active model's advertised capabilities after a catalogue
     // refresh. Rebuilds the client (it holds a Config snapshot) and publishes.
-    void set_model_capabilities(int max_output, bool reasoning,
-                                const std::vector<std::string>& supported_parameters);
+    void set_model_capabilities(const ModelCapabilities& caps);
 
     // Apply a probed window (or a provider default) to the current model
     // without rebuilding the client. Used when a catalogue arrives after the
