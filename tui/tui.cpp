@@ -918,6 +918,16 @@ detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
         }
     }
 
+    // Ctrl-G: send the line as typed, bypassing the completion drawer. The
+    // help line has promised this key; without it, Enter while the drawer is
+    // open dispatches the highlighted row and a free-form argument never
+    // reaches the handler.
+    if (ch == 7) {
+        cl.on_escape();
+        result = cl.on_enter();
+        return detail::PromptOutcome::Routed;
+    }
+
     if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
         if (render_engine_->scroll_mode()) {
             render_engine_->set_scroll_mode(false);

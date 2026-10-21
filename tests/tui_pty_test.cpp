@@ -1732,6 +1732,63 @@ TEST(worktree_detach_parks_and_attach_reclaims) {
     agent::registry_remove(child_state_dir(repo.workspace), "w1");
 }
 
+// The full manager on its documented verbs. Ctrl-G sends the line as typed
+// (bypassing the completion drawer), which is the only reliable way to test a
+// command with a free-form argument through the real prompt.
+TEST(worktree_manager_round_trip) {
+    RepoFixture repo;
+    ASSERT(!repo.workspace.empty());
+    const std::string prepared = agent::worktree_base_dir(repo.workspace) + "/feature-x";
+    fs::remove_all(prepared);
+
+    Tui tui;
+    tui.name = "worktree_manager_round_trip";
+    ASSERT(tui.start(fixture().binary, repo.workspace));
+    if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted", tui))
+        return;
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+    };
+
+    // A chat window, not the welcome mural: status lines are painted in a
+    // window's scrollback, and the mural renders art instead.
+    run("/window new noworkdir");
+    tui.pump(600);
+    run("/worktree new feature-x");
+    if (!require(tui.wait_for("created feature-x", 10000), "new did not create the workspace", tui))
+        return;
+    ASSERT(fs::exists(prepared));
+    const auto created = agent::load_worktrees(child_state_dir(repo.workspace));
+    ASSERT_EQ(created.size(), 1u);
+    ASSERT_EQ(created[0].name, "feature-x");
+
+    run("/worktree status");
+    if (!require(tui.wait_for("branch: detached", 8000), "status did not describe the workspace",
+                 tui))
+        return;
+    run("/worktree list");
+    if (!require(tui.wait_for("feature-x live", 8000), "list did not show the live workspace", tui))
+        return;
+
+    run("/worktree detach");
+    if (!require(tui.wait_for("parked", 8000), "detach did not park the workspace", tui))
+        return;
+    ASSERT(fs::exists(prepared));
+    run("/worktree list");
+    if (!require(tui.wait_for("feature-x parked", 8000), "list did not show it as parked", tui))
+        return;
+
+    run("/worktree prune");
+    if (!require(tui.wait_for("nothing to prune", 8000), "prune should have nothing to do", tui))
+        return;
+    run("/worktree remove feature-x");
+    require(tui.wait_for("workspace removed", 10000), "remove did not delete the workspace", tui);
+    ASSERT(!fs::exists(prepared));
+    ASSERT(agent::load_worktrees(child_state_dir(repo.workspace)).empty());
+}
+
 // The second half of the bug: a restart ignored `worktree off` and re-attached
 // the recorded root. It must restore at the project root and park the
 // workspace, which keeps its contents and its name for an explicit attach.
@@ -1824,6 +1881,7 @@ int main(int argc, char** argv) {
     window_workspace_survives_a_restart_and_is_reattached();
     worktree_off_leaves_and_removes_the_directory();
     worktree_detach_parks_and_attach_reclaims();
+    worktree_manager_round_trip();
     worktree_off_survives_a_restart_and_parks_instead_of_reattaching();
 
     // The TUI must terminate through its own quit path: a force-killed session
