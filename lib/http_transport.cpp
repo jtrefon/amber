@@ -2,8 +2,9 @@
 #include "http_transport.h"
 #include "agent/debug_log.h"
 #include "agent/dialect.h"
+#include "agent/llm.h"
 #include "agent/process.h"
-#include "agent/rate_limit.h"
+#include "agent/rate_governor.h"
 
 #include <algorithm>
 #include <cctype>
@@ -25,68 +26,17 @@ size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
 
 namespace agent {
 
-long parse_retry_after_ms(const std::string& value) {
-    const auto begin = value.find_first_not_of(" \t\r\n");
-    const auto end = value.find_last_not_of(" \t\r\n");
-    if (begin == std::string::npos || end == std::string::npos || end < begin)
-        return 0;
-    const std::string text = value.substr(begin, end - begin + 1);
-    errno = 0;
-    char* stop = nullptr;
-    const long seconds = std::strtol(text.c_str(), &stop, 10);
-    if (errno != 0 || stop == text.c_str() || *stop != '\0' || seconds < 0)
-        return 0; // an HTTP-date or garbage: the policy's exponential fallback
-    return std::min(seconds * 1000L, 300000L);
-}
-
-RequestPacer& RequestPacer::global() {
-    static RequestPacer pacer;
-    return pacer;
-}
-
-bool RequestPacer::before_request(const CancellationToken& token) {
-    std::unique_lock lock(mutex_);
-    for (;;) {
-        if (token.is_requested())
-            return false;
-        const auto now = std::chrono::steady_clock::now();
-        const auto until = std::max(last_start_ + policy_.interval, cooldown_until_);
-        if (now >= until) {
-            last_start_ = now;
-            return true;
-        }
-        cv_.wait_for(lock, std::min<std::chrono::steady_clock::duration>(
-                               until - now, std::chrono::milliseconds(200)));
-    }
-}
-
-void RequestPacer::on_rate_limit(std::chrono::milliseconds retry_after) {
-    std::lock_guard lock(mutex_);
-    policy_.note_rate_limit(retry_after);
-    cooldown_until_ = std::chrono::steady_clock::now() + policy_.cooldown;
-    cv_.notify_all();
-}
-
-void RequestPacer::on_success() {
-    std::lock_guard lock(mutex_);
-    policy_.note_success();
-    cv_.notify_all();
-}
-
-RateLimitPolicy RequestPacer::policy() const {
-    std::lock_guard lock(mutex_);
-    return policy_;
-}
-
 namespace {
 
-// Retry-After capture from the response headers; numeric seconds only.
-struct RetryCapture {
+// Response headers the governor consumes: Retry-After plus the provider's
+// published request/token budgets, when it sends them.
+struct RateCapture {
     long retry_after_ms = 0;
+    RateHeaders headers;
 };
 
 size_t retry_header_cb(char* ptr, size_t size, size_t nmemb, void* user) {
-    auto* capture = static_cast<RetryCapture*>(user);
+    auto* capture = static_cast<RateCapture*>(user);
     const std::string line(ptr, size * nmemb);
     const auto colon = line.find(':');
     if (colon == std::string::npos)
@@ -94,8 +44,11 @@ size_t retry_header_cb(char* ptr, size_t size, size_t nmemb, void* user) {
     std::string name = line.substr(0, colon);
     for (char& c : name)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string value = line.substr(colon + 1);
     if (name == "retry-after")
-        capture->retry_after_ms = parse_retry_after_ms(line.substr(colon + 1));
+        capture->retry_after_ms = parse_retry_after_ms(value);
+    else
+        capture_rate_header(name, value, capture->headers);
     return size * nmemb;
 }
 
@@ -143,7 +96,7 @@ void configure_write(CURL* c, curl_write_callback fn, void* data) {
 }
 
 void configure_headers(CURL* c, const Config& cfg, const Dialect& dialect, bool accept_sse,
-                       HeaderList& headers, RetryCapture& retry) {
+                       HeaderList& headers, RateCapture& retry) {
     headers.add("Content-Type: application/json");
     if (accept_sse)
         headers.add("Accept: text/event-stream");
@@ -168,28 +121,42 @@ void configure_stream_buffers(CURL* c) {
     curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 60L);
 }
 
-// Every caller shares one adaptive gate: a 429 sets a cooldown and widens the
-// spacing; a success lets it decay. The cooldown is what stops a retrying agent
-// or a sibling subagent from re-firing immediately.
-void note_response(const CurlOutcome& out) {
-    if (out.status == 429)
-        RequestPacer::global().on_rate_limit(std::chrono::milliseconds(out.retry_after_ms));
-    else if (out.status >= 200 && out.status < 300)
-        RequestPacer::global().on_success();
+// The request's admission cost: the last measured prompt when there is one,
+// otherwise a 4-bytes-per-token estimate, plus the output reservation.
+long governed_token_cost(const Config& cfg, const std::string& payload) {
+    const long prompt =
+        cfg.prompt_tokens_used > 0 ? cfg.prompt_tokens_used : static_cast<long>(payload.size() / 4);
+    return prompt + static_cast<long>(request_max_tokens(cfg));
+}
+
+void fill_rate_wait(ProviderGovernor& governor, CurlOutcome& out) {
+    if (out.status != 429 && out.status != 529)
+        return;
+    if (out.retry_after_ms > 0)
+        return;
+    const auto wait = governor.retry_wait().count();
+    if (wait > 0)
+        out.retry_after_ms = static_cast<long>(wait);
 }
 
 // Shared curl request execution: sets up the dialect's URL and auth headers,
 // the POST body, write callback, timeout, and cancel wiring, then performs the
-// request and collects timing + status. Throws on transport error.
+// request and collects timing + status. Every request first passes the
+// provider's governor; the response teaches it what the provider allows.
 void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& payload,
                bool accept_sse, curl_write_callback write_fn, void* write_data, CurlOutcome& out,
                const char* debug_tag) {
-    if (!RequestPacer::global().before_request(cfg.cancel_token))
+    auto& governor = RateGovernorRegistry::global().for_config(cfg);
+    const long token_cost = governed_token_cost(cfg, payload);
+    if (!governor.acquire(token_cost, cfg.cancel_token))
         throw CancelledError("cancelled while waiting for the provider rate limit");
+
     auto c = make_curl();
-    if (!c)
+    if (!c) {
+        governor.on_response(0, 0, {}, token_cost);
         throw std::runtime_error("curl_easy_init failed");
-    RetryCapture retry;
+    }
+    RateCapture retry;
     HeaderList headers;
     configure_target(c.get(), cfg, dialect, payload);
     configure_write(c.get(), write_fn, write_data);
@@ -204,7 +171,8 @@ void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& pay
     curl_easy_getinfo(c.get(), CURLINFO_STARTTRANSFER_TIME, &out.ttfb);
     curl_easy_getinfo(c.get(), CURLINFO_TOTAL_TIME, &out.total);
     out.retry_after_ms = retry.retry_after_ms;
-    note_response(out);
+    governor.on_response(out.status, out.retry_after_ms, retry.headers, token_cost);
+    fill_rate_wait(governor, out);
     if (rc != CURLE_OK) {
         debug_log(cfg.debug_dump_path(), debug_tag, std::string(curl_easy_strerror(rc)));
         if (cfg.cancel_token.is_requested())

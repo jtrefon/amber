@@ -25,6 +25,7 @@ enum class ToolRole : std::uint8_t {
     Execute,  // runs a process or command
     Plan,     // records intent for the session
     Delegate, // hands work to a sub-agent
+    Control,  // changes harness pacing/control state, not workspace content
 };
 
 std::string to_string(ToolRole role);

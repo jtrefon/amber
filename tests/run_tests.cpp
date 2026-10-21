@@ -1042,7 +1042,7 @@ TEST(registry_register_and_find) {
     ASSERT_FALSE(r.empty());
     // The nine tool-plugin tools plus the three skill tools, which arrive
     // through the same install path (one definition, two paths).
-    ASSERT_EQ(r.snapshot_tools().size(), 12u);
+    ASSERT_EQ(r.snapshot_tools().size(), 14u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -1456,7 +1456,7 @@ TEST(dialect_openai_builds_tool_payload) {
         agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 12u);
+    ASSERT_EQ(s.size(), 14u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -2497,6 +2497,31 @@ int spawn_mock_http(int port, std::string& body_out, const std::string& status,
     return fd;
 }
 
+// Serve a scripted sequence of fully-formed HTTP responses, one per accepted
+// connection. The first request is captured for wire assertions.
+int spawn_mock_http_sequence(int port, std::string& first_request,
+                             const std::vector<std::string>& responses) {
+    int fd = bind_listener(port);
+    if (fd < 0)
+        return -1;
+    first_request.clear();
+    std::thread t([fd, responses, &first_request]() {
+        for (std::size_t i = 0; i < responses.size(); ++i) {
+            int c = accept(fd, nullptr, nullptr);
+            if (c < 0)
+                return;
+            std::string request = drain_request(c);
+            if (i == 0)
+                first_request = std::move(request);
+            send(c, responses[i].data(), responses[i].size(), 0);
+            usleep(50000);
+            close(c);
+        }
+    });
+    t.detach();
+    return fd;
+}
+
 // Serve one canned SSE response (a streamed tool call in two fragments by
 // default), then close. Lets us exercise LLMClient::chat_stream including
 // fragment merging without any external dependency.
@@ -2931,6 +2956,48 @@ TEST(llm_streaming_parser_accepts_auto_lambda_sink) {
     p->on_write(body.c_str(), body.size(), 1);
     p->finalize();
     ASSERT_EQ(m.content, "hello");
+}
+
+// A 429 with Retry-After is a pause at the transport, not a terminal reply:
+// the governor waits the header and the retry loop probes once. This is the
+// bridge the per-turn unit tests cannot cover on their own.
+TEST(http_429_honours_retry_after_and_retries_once) {
+    std::string request;
+    const std::string body =
+        R"({"choices":[{"message":{"role":"assistant","content":"recovered"}}],)"
+        R"("usage":{"prompt_tokens":1,"completion_tokens":1}})";
+    std::vector<std::string> responses = {
+        "HTTP/1.1 429 Too Many Requests\r\nRetry-After: 1\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+            std::to_string(body.size()) + "\r\n\r\n" + body};
+    int srv = spawn_mock_http_sequence(8962, request, responses);
+    ASSERT(srv >= 0);
+    usleep(100000); // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8962/v1";
+    cfg.model = "mock";
+    cfg.flavor = "openai";
+    cfg.stream = false;
+    agent::HttpLLMClient client(cfg);
+    std::vector<agent::Message> msgs;
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+
+    agent::AgentHooks hooks;
+    agent::ConversationLog log;
+    agent::CancellationToken token;
+    auto chat = [&]() { return client.chat(msgs, {}, nullptr); };
+    const auto begin = std::chrono::steady_clock::now();
+    const agent::Message reply = agent::chat_with_retry(hooks, log, chat, "test", token, 3, {});
+    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - begin);
+    ASSERT_EQ(reply.content, "recovered");
+    ASSERT(waited.count() >= 900);
+    ASSERT(request.find("POST /v1/chat/completions") != std::string::npos);
+    close(srv);
 }
 
 TEST(llm_streaming_merges_tool_call_fragments) {

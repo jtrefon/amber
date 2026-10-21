@@ -652,7 +652,9 @@ The other bundled plugins are not providers. The tool set is one plugin per
 tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
 `plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/`,
-`plugins/tool_task/` and `plugins/tool_skills/` (read_skill, list_skills and
+`plugins/tool_task/`, `plugins/tool_skills/` and `plugins/tool_rate/` (the
+`wait` and `throttle` tools, which expose the provider governor's one-off pause
+and its interval/ceiling controls) (read_skill, list_skills and
 write_skill, plus the prose that documents them — the tools resolve the running
 agent's catalog through the run scope, so the plugin holds no host state). The
 search backends follow the same rule, one plugin each:

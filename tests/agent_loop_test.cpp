@@ -18,7 +18,7 @@
 
 #include "agent.h"
 #include "agent/agent_helpers.h"
-#include "agent/rate_limit.h"
+#include "agent/rate_governor.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_runtime.h"
@@ -339,27 +339,6 @@ TEST(agent_loop_compression_trigger) {
     (void)ag.context().get_all();
 }
 
-// The mode is read from the published snapshot by the status bar. set_mode
-// used to mutate cfg_ without publishing, so the bar (and any other reader)
-// kept the old mode while the next turn used the new one.
-TEST(rate_limit_policy_escalates_then_decays) {
-    agent::RateLimitPolicy p;
-    p.note_rate_limit(std::chrono::milliseconds(0));
-    ASSERT_EQ(p.strikes, 1);
-    ASSERT_EQ(p.interval.count(), 500);
-    ASSERT_EQ(p.cooldown.count(), 1000);
-    p.note_rate_limit(std::chrono::milliseconds(30000));
-    ASSERT_EQ(p.strikes, 2);
-    ASSERT_EQ(p.interval.count(), 1000);
-    ASSERT_EQ(p.cooldown.count(), 30000);
-    p.note_success();
-    ASSERT_EQ(p.strikes, 0);
-    ASSERT_EQ(p.cooldown.count(), 0);
-    for (int i = 0; i < 4; ++i)
-        p.note_success();
-    ASSERT_EQ(p.interval.count(), 750); // one 250 ms decay after four successes
-}
-
 TEST(retry_after_parses_seconds_not_dates) {
     ASSERT_EQ(agent::parse_retry_after_ms("30"), 30000);
     ASSERT_EQ(agent::parse_retry_after_ms(" 7 \r\n"), 7000);
@@ -368,39 +347,77 @@ TEST(retry_after_parses_seconds_not_dates) {
     ASSERT_EQ(agent::parse_retry_after_ms(""), 0);
 }
 
-// A 429 is a pause, not a retryable bug: one request, no ladder, and the
-// failure carries the status/Retry-After so the turn can stop.
-TEST(chat_with_retry_stops_on_rate_limit) {
+// A 429 is a pause, not a dead request: the next attempt is made after the
+// governor's wait and can succeed. The old behavior stopped after one.
+TEST(chat_with_retry_retries_a_rate_limit) {
     agent::ConversationLog log;
     agent::AgentHooks hooks;
     agent::CancellationToken token;
     int calls = 0;
     auto chat = [&calls]() -> agent::Message {
-        ++calls;
-        throw agent::ApiError(429, true, "HTTP 429: rate limited", 30000);
+        if (++calls == 1)
+            throw agent::ApiError(429, true, "HTTP 429: rate limited", 100);
+        agent::Message m;
+        m.role = "assistant";
+        m.content = "ok";
+        return m;
     };
     const agent::Message reply = agent::chat_with_retry(hooks, log, chat, "test", token, 3, {});
-    ASSERT_EQ(calls, 1);
-    ASSERT_EQ(reply.failure_status, 429L);
-    ASSERT_EQ(reply.failure_retry_after_ms, 30000L);
-    ASSERT(reply.content.find("rate limited") != std::string::npos);
+    ASSERT_EQ(calls, 2);
+    ASSERT_EQ(reply.content, "ok");
+    ASSERT_EQ(reply.failure_status, 0L);
 }
 
-TEST(agent_turn_stops_on_rate_limit) {
+TEST(agent_turn_recovers_from_a_rate_limit) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     auto* raw = fake.get();
-    agent_test::FakeReply r;
-    r.error = "HTTP 429: rate limited";
-    r.status = 429;
-    r.retry_after_ms = 30000;
-    raw->script.push_back(std::move(r));
+    agent_test::FakeReply limited;
+    limited.error = "HTTP 429: rate limited";
+    limited.status = 429;
+    limited.retry_after_ms = 100;
+    raw->script.push_back(std::move(limited));
+    agent_test::FakeReply recovered;
+    recovered.content = "recovered";
+    raw->script.push_back(std::move(recovered));
     agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
     const std::string out = ag.run("hello");
-    ASSERT_EQ(raw->chat_calls, 1);
-    ASSERT(out.find("rate limited") != std::string::npos);
+    ASSERT_EQ(raw->chat_calls, 2);
+    ASSERT_EQ(out, "recovered");
+}
+
+// Even after the rate-limit retry budget, the turn continues: the model sees
+// the harness notice and can keep working with wait/throttle. It never becomes
+// a final answer that drops the session.
+TEST(agent_turn_survives_exhausted_rate_limits) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    auto* raw = fake.get();
+    for (int i = 0; i < 3; ++i) {
+        agent_test::FakeReply limited;
+        limited.error = "HTTP 429: rate limited";
+        limited.status = 429;
+        limited.retry_after_ms = 0;
+        raw->script.push_back(std::move(limited));
+    }
+    agent_test::FakeReply finished;
+    finished.content = "waited and finished";
+    raw->script.push_back(std::move(finished));
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    const std::string out = ag.run("hello");
+    ASSERT_EQ(raw->chat_calls, 4);
+    ASSERT_EQ(out, "waited and finished");
+
+    bool saw_notice = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.harness && m.content.find("rate limited") != std::string::npos)
+            saw_notice = true;
+    ASSERT(saw_notice);
 }
 
 TEST(agent_set_mode_publishes_the_status_snapshot) {
@@ -1596,6 +1613,48 @@ TEST(agent_loop_todowrite_state_persists) {
     ASSERT(todos.items()[0].status == agent::TodoStatus::Completed);
     ASSERT_EQ(todos.items()[1].text, "write tests");
     ASSERT(raw->chat_calls >= 3);
+}
+
+// The governor's model-facing controls: status/set/reset on the active
+// provider, and a bounded one-off wait. They are tools, not hardcoded prompt
+// incantations, so the model discovers them with the rest of the set.
+TEST(rate_tools_are_registered_and_bounded) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
+    const auto wait_tool = reg.find("wait");
+    const auto throttle_tool = reg.find("throttle");
+    ASSERT(wait_tool != nullptr);
+    ASSERT(throttle_tool != nullptr);
+
+    agent::Config cfg;
+    cfg.provider_name = "rate-tool-test";
+    cfg.api_base = "https://rate-tool.example/v1";
+    cfg.api_key = "rate-tool-key";
+    agent::RunScope leaf;
+    leaf.config = &cfg;
+    agent::ScopedRunScope scope(leaf);
+
+    const agent::ToolResult too_long = wait_tool->execute({{"seconds", 301}});
+    ASSERT_FALSE(too_long.ok);
+    const agent::ToolResult zero = wait_tool->execute({{"seconds", 0}});
+    ASSERT_TRUE(zero.ok);
+
+    const agent::ToolResult status = throttle_tool->execute({{"action", "status"}});
+    ASSERT_TRUE(status.ok);
+    ASSERT(status.output.find("provider pacing") != std::string::npos);
+
+    const agent::ToolResult set = throttle_tool->execute(
+        {{"action", "set"}, {"interval_ms", 1000}, {"concurrency", 1}, {"ttl_seconds", 5}});
+    ASSERT_TRUE(set.ok);
+    ASSERT(set.output.find("interval=1000ms") != std::string::npos);
+    ASSERT(set.output.find("concurrency=1") != std::string::npos);
+
+    const agent::ToolResult reset = throttle_tool->execute({{"action", "reset"}});
+    ASSERT_TRUE(reset.ok);
+    ASSERT(reset.output.find("manual") == std::string::npos);
 }
 
 // [P2] The result envelope must not re-echo the full args JSON (write calls

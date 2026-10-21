@@ -33,6 +33,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
               $(BUILD_DIR)/lib/dialect_anthropic.o \
               $(BUILD_DIR)/lib/dialect_gemini.o \
             $(BUILD_DIR)/lib/http_transport.o \
+            $(BUILD_DIR)/lib/rate_governor.o \
             $(BUILD_DIR)/lib/model_probe.o \
 $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/registry.o \
@@ -92,6 +93,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/tool_search/tool_search_plugin.o \
               $(BUILD_DIR)/plugins/tool_read/tool_read_plugin.o \
+              $(BUILD_DIR)/plugins/tool_rate/tool_rate_plugin.o \
               $(BUILD_DIR)/plugins/tool_write/tool_write_plugin.o \
               $(BUILD_DIR)/plugins/tool_bash/tool_bash_plugin.o \
               $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
@@ -220,6 +222,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/mcp_tools_test.o \
                $(BUILD_DIR)/tests/learn_commands_test.o \
                $(BUILD_DIR)/tests/agent_loop_test.o \
+               $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
                $(BUILD_DIR)/tests/event_bus_test.o \
                $(BUILD_DIR)/tests/plugin_core_test.o \

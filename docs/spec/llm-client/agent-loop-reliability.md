@@ -125,11 +125,13 @@ reply to drive the compression gate, and a cancellation-aware delay option.
   `on_status` per attempt (naming the real wait), and the exhaustion produces a
   `[harness]` notice naming the attempt count. The retried request is the
   identical `prompt_copy` snapshot — no context change, no prefix invalidation.
-- **`Retry-After` is not honoured yet.** The transport has no response-header
-  seam (adding one widens an already eleven-parameter `curl_exec`), and the
-  measured failures this ladder exists for carried none: 59 upstream 503s in
-  session `1792189515823-0`, zero 429s, no `Retry-After`, no quota wording.
-  Deferred until a provider demonstrates it.
+- **A 429 is paced, not retried blindly.** The transport captures `Retry-After`
+  and the provider's request/token headers; the provider-scoped governor
+  (`llm-client/rate-governor.md`) owns the wait and the AIMD control law. The
+  retry loop retries one probe after that pause; it never sleeps for a rate
+  limit itself and never treats one as a turn-ending failure. On exhaustion the
+  notice is folded and the model can use `wait`/`throttle`; the session stays.
+  A cold start has no artificial interval: the first request goes immediately.
 - The retry loop is the only thing that sees a failure (the old
   `safe_chat_once` wrapper is gone): a request that cannot be answered ends as a
   `[harness]` notice naming the attempt count, never as a fabricated reply in

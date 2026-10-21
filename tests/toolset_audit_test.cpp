@@ -56,8 +56,9 @@ std::size_t count_of(const std::vector<AuditFinding>& findings, AuditFinding::Ki
 } // namespace
 
 TEST(audit_role_names_round_trip) {
-    for (ToolRole role : {ToolRole::Other, ToolRole::Read, ToolRole::Write, ToolRole::Search,
-                          ToolRole::Execute, ToolRole::Plan, ToolRole::Delegate}) {
+    for (ToolRole role :
+         {ToolRole::Other, ToolRole::Read, ToolRole::Write, ToolRole::Search, ToolRole::Execute,
+          ToolRole::Plan, ToolRole::Delegate, ToolRole::Control}) {
         ASSERT_EQ(parse_tool_role(to_string(role)), role);
     }
     ASSERT_EQ(parse_tool_role("nonsense"), ToolRole::Other);
