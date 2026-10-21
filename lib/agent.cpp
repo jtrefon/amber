@@ -695,6 +695,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
     scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
+    scope.config = &cfg_;
     ScopedRunScope scope_guard(scope);
 
     // Snapshot BEFORE compression — immutable, never mutate live stack.
@@ -1212,8 +1213,6 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     const std::string content = reply.content;
     const bool notice = reply.harness;
     const std::string failure = reply.failure_detail;
-    const long failure_status = reply.failure_status;
-    const long failure_retry = reply.failure_retry_after_ms;
     push_reply(std::move(reply));
 
     if (!tc.is_null() && !tc.empty())
@@ -1221,19 +1220,10 @@ bool Agent::advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>
     if (notice) {
         if (!failure.empty())
             st.last_failure = failure;
-        if (failure_status == 429 || failure_retry > 0) {
-            // A rate limit is the provider asking for time. Asking the model to
-            // "adjust the request" would re-fire the same full context; end the
-            // turn with the reason instead.
-            st.final_reply = "[rate limited by the provider; stopped this turn instead of retrying";
-            if (failure_retry > 0)
-                st.final_reply +=
-                    " (retry after " + std::to_string((failure_retry + 999) / 1000) + "s)";
-            st.final_reply += "]";
-            if (!failure.empty())
-                st.final_reply += " " + failure;
-            return true;
-        }
+        // A rate-limit notice is the harness speaking, exactly like a retry
+        // report: the model gets the next word, not a dead turn. The governor
+        // has already waited; if it is still limited, wait/throttle are the
+        // model's tools, not a reason to drop the session.
         return fold_harness_notice(st);
     }
     if (content.empty())
@@ -1372,6 +1362,7 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
     scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
+    scope.config = &cfg_;
     ScopedRunScope scope_guard(scope);
     open_turn(user_prompt);
 

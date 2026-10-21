@@ -10,6 +10,7 @@
 #include "plugins/tool_bash/tool_bash_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
+#include "plugins/tool_rate/tool_rate_plugin.h"
 #include "plugins/tool_read/tool_read_plugin.h"
 #include "plugins/tool_search/tool_search_plugin.h"
 #include "plugins/tool_skills/tool_skills_plugin.h"
@@ -85,6 +86,7 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
 
     install_capabilities(bare, plugins::make_search_tool_capabilities());
     install_capabilities(bare, plugins::make_read_tool_capabilities());
+    install_capabilities(bare, plugins::make_rate_tool_capabilities());
     install_capabilities(bare, plugins::make_write_tool_capabilities());
     install_capabilities(bare, plugins::make_bash_tool_capabilities());
     install_capabilities(bare, plugins::make_process_tool_capabilities());

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "agent/activation_sink.h"
+#include "agent/config.h"
 #include "agent/process.h"
 #include "agent/skill_catalog.h"
 
@@ -20,6 +21,10 @@ struct RunScope {
     // means the project root. The pointee must outlive every scope installed
     // from this frame — the agent owns the string, the frame only borrows it.
     const std::string* workspace_root = nullptr;
+    // The active provider's config, so a rate-control tool reaches the same
+    // governor the transport is using. The agent owns the Config and outlives
+    // the run; tools only read it.
+    const Config* config = nullptr;
 };
 
 // The active scope for a thread, flattened into a value: the leaf frame plus

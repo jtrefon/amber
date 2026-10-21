@@ -7,8 +7,8 @@ namespace agent {
 
 namespace {
 
-constexpr const char* kRoleNames[] = {"other",   "read", "write",   "search",
-                                      "execute", "plan", "delegate"};
+constexpr const char* kRoleNames[] = {"other",   "read", "write",    "search",
+                                      "execute", "plan", "delegate", "control"};
 
 } // namespace
 

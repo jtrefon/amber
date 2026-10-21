@@ -92,6 +92,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `llm-client/dialect.md` | Provider wire-protocol port: flavor registry + fallback, request/response translation, streaming decode, usage mapping, error classification per protocol; adding a provider is one dialect file + one registry row |
 | `llm-client/streaming.md` | SSE parser, token events, cancel during stream, buffering |
 | `llm-client/agent-loop-reliability.md` | Chat port + scripted fake for hermetic loop tests, typed retry policy (backoff/cancel), n_ctx fallback budget; context immutability is non-negotiable |
+| `llm-client/rate-governor.md` | Provider-scoped flow control: cold start, Retry-After pause vs AIMD interval/concurrency, published token/request budgets, fast recovery, provider isolation, `wait`/`throttle` tools |
 | `llm-client/http-transport.md` | libcurl setup, retry, timeout, cancel-check callback |
 | `llm-client/model-probe.md` | `/v1/models`, capability detection, fallback chain |
 | `llm-client/error-handling.md` | HTTP 4xx/5xx, JSON parse errors, malformed response recovery |

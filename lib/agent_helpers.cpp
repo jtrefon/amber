@@ -295,12 +295,15 @@ Message chat_error_reply(const char* stage, const std::string& last_error, int a
     err.failure_detail = last_error;
     err.failure_status = status;
     err.failure_retry_after_ms = retry_after_ms;
-    if (status == 429 || retry_after_ms > 0) {
+    if (status == 429 || status == 529 || retry_after_ms > 0) {
         err.content = "[harness] the " + std::string(stage) +
-                      " request was rate limited by the provider. It was not retried";
+                      " request is still rate limited after " + std::to_string(attempts) +
+                      " attempt" + (attempts == 1 ? "" : "s");
         if (retry_after_ms > 0)
-            err.content += "; retry after " + std::to_string((retry_after_ms + 999) / 1000) + "s";
-        err.content += ". Wait for the provider window before continuing.";
+            err.content +=
+                " (the provider asked for " + std::to_string((retry_after_ms + 999) / 1000) + "s)";
+        err.content += ". The governor will pace the next request. You can call wait or throttle, "
+                       "or tell the user what is blocked.";
         return err;
     }
     err.content = "[harness] the " + std::string(stage) + " request failed after " +
@@ -322,20 +325,7 @@ struct LastFailure {
     long retry_after_ms = 0;
 };
 
-// A rate limit is a pause, not a retryable bug: one request, no ladder. The
-// shared pacer already set its cooldown in the transport; retrying here is
-// exactly the flood. Returns true with the stop notice when it applies.
-bool stop_on_rate_limit(const char* stage, const LastFailure& last, const AgentHooks& hooks,
-                        Message& out) {
-    if (last.status != 429 && last.retry_after_ms <= 0)
-        return false;
-    if (hooks.on_status)
-        hooks.on_status("provider rate limit; stopping instead of retrying");
-    out = chat_error_reply(stage, last.error, last.attempt, last.status, last.retry_after_ms);
-    return true;
-}
-
-enum class RetryDecision { Stop, Retry, Return };
+enum class RetryDecision { Stop, Retry };
 
 struct RetryContext {
     const AgentHooks& hooks;
@@ -352,10 +342,33 @@ struct RetryContext {
         : hooks(h), log(l), stage(s), cancel_token(c), adapt(a), chat(ch) {}
 };
 
+bool is_rate_limit(const LastFailure& last) {
+    return last.status == 429 || last.status == 529 || last.retry_after_ms > 0;
+}
+
+// A 429 is a pause, not a dead turn. The governor has already set the pause and
+// interval from the provider's Retry-After; the next attempt waits in the
+// transport and probes once. Only a wait beyond the turn's patience, or an
+// exhausted ladder, leaves the notice for the model to act on with wait/throttle.
+RetryDecision rate_limit_decision(const RetryContext& ctx, int attempt, int max_attempts) {
+    constexpr long kMaxRateWaitMs = 120000;
+    if (attempt >= max_attempts || ctx.last.retry_after_ms > kMaxRateWaitMs)
+        return RetryDecision::Stop;
+    if (ctx.hooks.on_status) {
+        std::string waiting = "provider rate limited - waiting for the pause";
+        if (ctx.last.retry_after_ms > 0)
+            waiting +=
+                " (retry after " + std::to_string((ctx.last.retry_after_ms + 999) / 1000) + "s)";
+        waiting += " before retry " + std::to_string(attempt) + "/" + std::to_string(max_attempts);
+        ctx.hooks.on_status(waiting);
+    }
+    return RetryDecision::Retry;
+}
+
 // One failed attempt's policy: rate limit -> stop with a reply; a repairable
 // non-retryable error -> repair and retry; otherwise the shared backoff decides.
 RetryDecision handle_failure(RetryContext& ctx, const std::exception& e, int attempt,
-                             int max_attempts, Message& out) {
+                             int max_attempts) {
     const auto* api = dynamic_cast<const ApiError*>(&e);
     ctx.last = {e.what(), retryable_error(e), attempt, api ? api->status : 0,
                 api ? api->retry_after_ms : 0};
@@ -363,8 +376,8 @@ RetryDecision handle_failure(RetryContext& ctx, const std::exception& e, int att
                   {{"stage", ctx.stage}, {"error", ctx.last.error}, {"attempt", attempt}});
     if (ctx.hooks.on_debug)
         ctx.hooks.on_debug("chat error " + std::to_string(attempt) + ": " + ctx.last.error);
-    if (stop_on_rate_limit(ctx.stage, ctx.last, ctx.hooks, out))
-        return RetryDecision::Return;
+    if (is_rate_limit(ctx.last))
+        return rate_limit_decision(ctx, attempt, max_attempts);
     if (!ctx.adapted && !ctx.last.retryable &&
         try_repair(ctx.hooks, ctx.log, ctx.stage, ctx.last.error, ctx.adapt, ctx.chat)) {
         ctx.adapted = true;
@@ -385,10 +398,7 @@ Message chat_with_retry_impl(const AgentHooks& hooks, ConversationLog& log,
         try {
             return attempt_chat(chat);
         } catch (const std::exception& e) {
-            Message reply;
-            const RetryDecision decision = handle_failure(ctx, e, attempt, max_attempts, reply);
-            if (decision == RetryDecision::Return)
-                return reply;
+            const RetryDecision decision = handle_failure(ctx, e, attempt, max_attempts);
             if (decision == RetryDecision::Stop)
                 break;
         }

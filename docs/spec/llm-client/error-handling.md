@@ -29,10 +29,14 @@ error messages the agent can forward to the model for self-recovery.
 3. `chat_with_retry` retries transient failures up to 3 attempts with
    1s→2s exponential backoff (cancellable, 100 ms slices polling the shared
    CancellationToken). Retryable: transport/curl errors, timeouts, empty
-   bodies, HTTP 429/502/503/504. Non-retryable (auth/misconfig 4xx, malformed
-   bodies): fail fast. On exhaustion the standard `"[error during"` message
-   is returned and the loop degrades gracefully (see
-   `llm-client/agent-loop-reliability.md`).
+   bodies, HTTP 429/502/503/504. A 429 is a provider pause: the governor waits
+   its `Retry-After` (or its AIMD fallback) and the loop retries one probe; a
+   first 429 never raises the sustained interval. Non-retryable
+   (auth/misconfig 4xx, malformed bodies): fail fast. On exhaustion the
+   standard `"[error during"`/harness notice is returned and the loop degrades
+   gracefully; a rate-limit notice is folded into the turn, never a final
+   answer. See `llm-client/agent-loop-reliability.md` and
+   `llm-client/rate-governor.md`.
 4. Malformed JSON responses return `"[error: malformed LLM response]"` with raw body — not a throw.
 5. Tool calls with non-JSON arguments are silently discarded (with debug log) — not an error.
 
@@ -111,7 +115,7 @@ error messages the agent can forward to the model for self-recovery.
 
 ### Known gaps
 
-1. **No transport-level retry** — Retry is only at the agent loop level (one attempt). Transport layer never retries.
-2. **No exponential backoff** — Retry is immediate. No backoff for rate-limited (HTTP 429) responses.
-3. **No circuit breaker** — Repeated connection failures keep retrying until `max_tool_iterations`.
+1. **No transport-level retry** — Retry is only at the agent loop level; the transport owns the pacing/wait, not a second retry ladder.
+2. **No circuit breaker yet** — repeated connection failures keep retrying until `max_tool_iterations`; the rate governor handles 429 throttle, not a provider outage.
+3. **Rate state is process-local** — two amber processes sharing one account do not share a governor; each paces itself.
 4. **`raw_body_` overhead** — Large error responses are fully buffered but only 400 bytes are used for diagnostics.

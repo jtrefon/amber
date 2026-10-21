@@ -23,6 +23,7 @@
 #include "plugins/tool_bash/tool_bash_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
+#include "plugins/tool_rate/tool_rate_plugin.h"
 #include "plugins/tool_read/tool_read_plugin.h"
 #include "plugins/tool_search/tool_search_plugin.h"
 #include "plugins/tool_skills/tool_skills_plugin.h"
@@ -59,6 +60,7 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // (attach_host_services) to construct their tools.
     plugins.push_back(std::make_shared<plugins::ToolSearchPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolReadPlugin>());
+    plugins.push_back(std::make_shared<plugins::ToolRatePlugin>());
     plugins.push_back(std::make_shared<plugins::ToolWritePlugin>());
     plugins.push_back(std::make_shared<plugins::ToolBashPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolProcessPlugin>());
