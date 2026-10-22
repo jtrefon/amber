@@ -8,6 +8,8 @@
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "tui/widgets.h"
+#include "tui/dialog.h"
+#include "tui/drawer_rows.h"
 #include "plugins/watch/watch_plugin.h"
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
@@ -2414,21 +2416,225 @@ void print_command_list(const std::vector<palette::Command>& commands,
 
 } // namespace
 
-void SlashDispatcher::cmd_work_board() {
-    const auto items = collect_work_items(*tui_.window_manager_, tui_.jobs_, tui_.subagents_,
-                                          tui_.plugin_runtime_);
-    if (items.empty()) {
-        tui_.append_line(P_STATUS, "no sessions, jobs, agents or watches");
-        return;
+namespace {
+
+bool work_in_section(const WorkItem& item, int section) {
+    if (section == 0)
+        return true;
+    if (section == 1)
+        return item.kind == "session";
+    if (section == 2)
+        return item.kind == "job";
+    if (section == 3)
+        return item.kind == "agent";
+    return item.kind == "watch";
+}
+
+std::vector<WorkItem> visible_work(const std::vector<WorkItem>& items, int section,
+                                   const std::string& filter) {
+    std::vector<WorkItem> out;
+    for (const auto& item : items) {
+        if (!work_in_section(item, section))
+            continue;
+        if (!filter.empty() && !tui::drawer_row_matches(work_label(item), filter))
+            continue;
+        out.push_back(item);
     }
-    std::vector<std::string> labels;
-    for (const auto& item : items)
-        labels.push_back(work_label(item));
-    const int selected = menu_select("Work", labels);
-    if (selected < 0 || selected >= static_cast<int>(items.size()))
-        return;
-    const WorkItem& item = items[static_cast<std::size_t>(selected)];
-    apply_work_item(item.kind, item.id, item.window_index);
+    return out;
+}
+
+std::string work_key(const WorkItem& item) {
+    return item.kind + ":" + item.id;
+}
+
+struct WorkBoardState {
+    std::vector<WorkItem> all;
+    std::vector<WorkItem> items;
+    int section = 0;
+    int sel = 0;
+    std::string filter;
+    std::string selected_key;
+    bool filtering = false;
+
+    void sync(const std::vector<WorkItem>& fresh) {
+        all = fresh;
+        items = visible_work(all, section, filter);
+        if (!selected_key.empty()) {
+            sel = 0;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                if (work_key(items[i]) == selected_key) {
+                    sel = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (items.empty())
+            sel = 0;
+        else
+            sel = std::min(std::max(0, sel), static_cast<int>(items.size()) - 1);
+    }
+
+    const WorkItem* current() const {
+        return items.empty() ? nullptr : &items[static_cast<std::size_t>(sel)];
+    }
+
+    void cycle(int delta) {
+        section = (section + delta + 5) % 5;
+        sel = 0;
+        selected_key.clear();
+    }
+
+    void move(int delta) { sel = std::max(0, sel + delta); }
+};
+
+void draw_work_board(WINDOW* w, int height, int width, const WorkBoardState& state) {
+    werase(w);
+    const std::string tabs = std::string(state.section == 0 ? "[" : " ") + "All" +
+                             (state.section == 0 ? "]" : " ") + "  " +
+                             (state.section == 1 ? "[Sessions]" : " Sessions ") + "  " +
+                             (state.section == 2 ? "[Jobs]" : " Jobs ") + "  " +
+                             (state.section == 3 ? "[Agents]" : " Agents ") + "  " +
+                             (state.section == 4 ? "[Watches]" : " Watches ");
+    wattron(w, COLOR_PAIR(P_BANNER) | A_BOLD);
+    mvwaddnstr(w, 0, 0, tabs.c_str(), width);
+    wattroff(w, COLOR_PAIR(P_BANNER) | A_BOLD);
+    int row = 1;
+    const int list_h = height - 2;
+    const int first = std::max(0, state.sel - list_h + 1);
+    for (int i = first; i < static_cast<int>(state.items.size()) && row < list_h; ++i, ++row) {
+        const bool current = i == state.sel;
+        if (current)
+            wattron(w, A_REVERSE);
+        mvwaddnstr(w, row, 0, work_label(state.items[static_cast<std::size_t>(i)]).c_str(), width);
+        if (current)
+            wattroff(w, A_REVERSE);
+    }
+    if (state.items.empty())
+        mvwaddnstr(w, 1, 0, "(no matching work)", width);
+    wattron(w, COLOR_PAIR(P_STATUS));
+    const std::string line = state.filtering ? "/" + state.filter : "Press / to filter";
+    mvwaddnstr(w, height - 1, 0, line.c_str(), width);
+    wattroff(w, COLOR_PAIR(P_STATUS));
+    wnoutrefresh(w);
+}
+
+bool work_board_filter_key(int ch, WorkBoardState& state) {
+    if (ch == 27 || ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+        state.filtering = false;
+    } else if (ch == 127 || ch == KEY_BACKSPACE) {
+        if (!state.filter.empty())
+            state.filter.pop_back();
+    } else if (ch >= 32 && ch <= 126) {
+        state.filter.push_back(static_cast<char>(ch));
+    }
+    return true;
+}
+
+bool work_board_nav_key(int ch, WorkBoardState& state) {
+    switch (ch) {
+    case '\t':
+        state.cycle(1);
+        return true;
+    case KEY_BTAB:
+        state.cycle(-1);
+        return true;
+    case KEY_UP:
+        state.move(-1);
+        return true;
+    case KEY_DOWN:
+        state.move(1);
+        return true;
+    case KEY_PPAGE:
+        state.move(-10);
+        return true;
+    case KEY_NPAGE:
+        state.move(10);
+        return true;
+    case '/':
+        state.filtering = true;
+        state.filter.clear();
+        return true;
+    default:
+        return false;
+    }
+}
+
+enum class WorkBoardAction { None, Close, Open, Stop, NewSession };
+
+WorkBoardAction work_board_command_key(int ch, const WorkBoardState& state) {
+    switch (ch) {
+    case 27:
+        return WorkBoardAction::Close;
+    case '\n':
+    case '\r':
+    case KEY_ENTER:
+    case 'a':
+    case 'r':
+        return state.current() ? WorkBoardAction::Open : WorkBoardAction::None;
+    case 'x': {
+        const WorkItem* item = state.current();
+        return item && (item->kind == "job" || item->kind == "watch") ? WorkBoardAction::Stop
+                                                                      : WorkBoardAction::None;
+    }
+    case 'n':
+        return WorkBoardAction::NewSession;
+    default:
+        return WorkBoardAction::None;
+    }
+}
+
+WorkBoardAction work_board_key(int ch, WorkBoardState& state) {
+    if (state.filtering) {
+        work_board_filter_key(ch, state);
+        return WorkBoardAction::None;
+    }
+    if (work_board_nav_key(ch, state))
+        return WorkBoardAction::None;
+    return work_board_command_key(ch, state);
+}
+
+} // namespace
+
+void SlashDispatcher::cmd_work_board() {
+    Dialog dlg(std::min(26, std::max(8, LINES - 2)), std::min(120, std::max(40, COLS - 4)), "Work");
+    dlg.set_footer({{"Enter", "open"},
+                    {"a", "attach"},
+                    {"x", "stop"},
+                    {"Tab", "section"},
+                    {"/", "filter"},
+                    {"Esc", "close"}});
+    WINDOW* w = dlg.content();
+    const int height = dlg.rows() - 2;
+    const int width = dlg.cols() - 2;
+    wtimeout(w, 250);
+    WorkBoardState state;
+
+    bool done = false;
+    while (!done) {
+        state.sync(collect_work_items(*tui_.window_manager_, tui_.jobs_, tui_.subagents_,
+                                      tui_.plugin_runtime_));
+        draw_work_board(w, height, width, state);
+        update_panels();
+        doupdate();
+
+        const int ch = wgetch(w);
+        if (ch == ERR || ch == KEY_RESIZE)
+            continue;
+        const WorkBoardAction action = work_board_key(ch, state);
+        if (action == WorkBoardAction::Close) {
+            done = true;
+        } else if (action == WorkBoardAction::NewSession) {
+            tui_.new_window("chat");
+            done = true;
+        } else if (action == WorkBoardAction::Open || action == WorkBoardAction::Stop) {
+            if (const WorkItem* item = state.current()) {
+                apply_work_item(item->kind, item->id, item->window_index);
+                done = true;
+            }
+        }
+    }
+    dlg.hide();
+    tui_.draw();
 }
 
 void SlashDispatcher::open_resource(const std::string& kind, const std::string& id) {

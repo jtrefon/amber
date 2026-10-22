@@ -4,8 +4,9 @@
   project root, run-scope propagation, per-project session stores/settings/
   policy/instructions, `/project list|open|show|close`, missing-project restore
   validation, and a project-scoped worktree rebuild/reap pass. `workspace.json`
-  remains a host-level window manifest (entries carry `project_root`); moving
-  it per project is a follow-up. The Work board remains a snapshot modal v1.
+  is intentionally a host-level window manifest (every entry carries
+  `project_root`); sessions, settings, policy, instructions and worktree
+  registries remain per project. The Work board is live.
 - **Tracking:** #321; scoped roots #329; project UX #330; release #331.
 - **Related:** `command-namespace.md`, `work-surfaces.md`, `../plugins/plugin-framework.md`,
   `docs/fix-proposal/window-worktrees-2026-10-16.md`.

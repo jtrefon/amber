@@ -1,9 +1,9 @@
 # Spec: Work surfaces for jobs, subagents, watches and sessions
 
-- **Status:** Implemented slice in the working tree (2026-10-22): job/subagent
-  metadata, status cells, `/work`, and resource viewers. The board is a host
-  modal snapshot in v1; a live tick is the next refinement. Project-session
-  slices remain separate.
+- **Status:** Implemented in the working tree (2026-10-22): job/subagent
+  metadata, status cells, `/work` (live timed modal with tabs/filter/selection
+  preservation), and resource viewers. Project sessions are implemented in
+  their own spec.
 - **Contract:** Build contract for 0.6.0. Decisions locked 2026-10-22.
 - **Tracking:** #320; metadata #326; board #327; viewers #328; release #331.
 - **Related:** `command-namespace.md`, `command-shortcuts.md`,
@@ -72,7 +72,8 @@ Target:
 - Row fields: kind/id, label or title, state, elapsed, owner/window, attention,
   last activity/headline.
 - Actions:
-  - `Enter` focus/switch a session; open a viewer for a job/agent/watch.
+  - `Enter` focus/switch a session; open a viewer for a job/agent/watch. The
+    board refreshes from live snapshots on a timed tick.
   - `a` attach/open a viewer.
   - `d` detach/close a viewer; resource continues.
   - `x`/`Del` stop the focused resource (confirm; resource-specific).
