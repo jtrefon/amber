@@ -340,6 +340,47 @@ TEST(capability_install_reports_the_contribution) {
     ASSERT_EQ(r.contribution.name, std::string("greet"));
 }
 
+TEST(settings_registry_validates_lists_and_unwinds) {
+    SettingsRegistry registry;
+    PluginSettingSpec choice;
+    choice.key = "mode";
+    choice.help = "Mode";
+    choice.type = "choice";
+    choice.choices = {"on", "off"};
+    choice.value = "on";
+    PluginSettingSpec flag;
+    flag.key = "gate";
+    flag.help = "Gate";
+    flag.type = "bool";
+    flag.value = "on";
+    PluginSettingSpec count;
+    count.key = "count";
+    count.help = "Count";
+    count.type = "int";
+    count.value = "3";
+
+    const Contribution contribution = registry.add("acme", {choice, flag, count});
+    ASSERT_EQ(registry.size(), 3u);
+    ASSERT_EQ(registry.all().size(), 3u);
+    ASSERT_EQ(registry.items().size(), 3u);
+    ASSERT_EQ(registry.get("acme", "mode"), std::string("on"));
+    ASSERT_FALSE(registry.set("acme", "mode", "maybe"));
+    ASSERT_FALSE(registry.set("acme", "gate", "maybe"));
+    ASSERT_TRUE(registry.set("acme", "gate", "off"));
+    ASSERT_EQ(registry.get("acme", "gate"), std::string("off"));
+    ASSERT_FALSE(registry.set("acme", "missing", "x"));
+    ASSERT_TRUE(registry.find("acme", "count") != nullptr);
+    ASSERT_TRUE(registry.find("other", "count") == nullptr);
+
+    SettingsCapability empty({});
+    TestHarness h;
+    InstallResult declined = empty.install(h.services);
+    ASSERT(declined.declined);
+
+    contribution.remove();
+    ASSERT_EQ(registry.size(), 0u);
+}
+
 TEST(settings_capability_round_trips_and_unwinds) {
     TestHarness h;
     h.services.set_owner("watch");

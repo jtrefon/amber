@@ -40,6 +40,8 @@ WatchPlugin::WatchPlugin(std::shared_ptr<CommandRunner> runner,
 
 bool WatchPlugin::initialize(const agent::PluginContext& ctx) {
     tools_ = &ctx.tools;
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — fixed watch.conf under the
+    // user's own sanitized XDG config root, not a caller-supplied path.
     settings_ = load_watch_settings(agent::global_config_dir() + "/plugins/watch/watch.conf");
     return true;
 }

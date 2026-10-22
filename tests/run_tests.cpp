@@ -1720,6 +1720,30 @@ TEST(workspace_scoped_project_root_drives_state_and_tools) {
               agent::Workspace::state_dir_for("/tmp/amber_project_default"));
 }
 
+TEST(workspace_project_settings_and_policy_adopt_local_files) {
+    namespace fs = std::filesystem;
+    const std::string root = "/tmp/amber_project_settings";
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root + "/.amber", ec);
+    {
+        std::ofstream f(root + "/.amber/settings", std::ios::trunc);
+        f << "compression_threshold=0.5\n";
+    }
+    {
+        std::ofstream f(root + "/.amber/policy.json", std::ios::trunc);
+        f << "{}\n";
+    }
+    const std::string settings = agent::Workspace::settings_path_for(root);
+    const std::string policy = agent::Workspace::policy_path_for(root);
+    ASSERT_TRUE(fs::exists(settings));
+    ASSERT_TRUE(fs::exists(policy));
+    ASSERT_EQ(settings, agent::Workspace::state_dir_for(root) + "/settings");
+    ASSERT_EQ(policy, agent::Workspace::state_dir_for(root) + "/policy.json");
+    ASSERT_EQ(agent::Workspace::local_dir_for(root), root + "/.amber");
+    fs::remove_all(root, ec);
+}
+
 TEST(workspace_state_slug_is_stable_and_collision_free) {
     const std::string a = agent::workspace_state_slug("/home/jack/Projects/amber");
     ASSERT_EQ(a, agent::workspace_state_slug("/home/jack/Projects/amber"));

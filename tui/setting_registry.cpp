@@ -272,12 +272,12 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
                 if (!it.value().is_string())
                     continue;
                 std::istringstream in(it.value().get<std::string>());
-                std::vector<std::string> path;
+                std::vector<std::string> tokens;
                 std::string tok;
                 while (in >> tok)
-                    path.push_back(tok);
-                if (!path.empty())
-                    legacy_paths_[it.key()] = std::move(path);
+                    tokens.push_back(tok);
+                if (!tokens.empty())
+                    legacy_paths_[it.key()] = std::move(tokens);
             }
         }
         reindex();
