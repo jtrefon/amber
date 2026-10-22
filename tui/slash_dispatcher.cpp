@@ -42,8 +42,12 @@ void SlashDispatcher::append_output(const std::string& text) {
 // registry merge enforces that and counts a field collision.
 void SlashDispatcher::merge_plugin_completions() {
     for (const auto& p : tui_.plugins_.plugins()) {
-        if (p.state == agent::PluginState::Enabled && p.manifest.completion.is_object())
-            tui_.settings_.merge_completions_json(p.manifest.completion);
+        if (p.state != agent::PluginState::Enabled || !p.manifest.completion.is_object())
+            continue;
+        nlohmann::json mounted = nlohmann::json::object();
+        nlohmann::json& workspace = mounted["plugin"]["children"][p.id];
+        workspace["children"] = p.manifest.completion;
+        tui_.settings_.merge_completions_json(mounted);
     }
 }
 

@@ -45,13 +45,17 @@ std::string dotted_path(const std::string& space_separated) {
 }
 
 std::string child_row(const std::string& name, const std::string& full_key,
-                      const SettingRegistry& settings) {
+                      const SettingRegistry& settings, bool show_short) {
+    std::string label = name;
+    const std::string short_name = show_short ? settings.short_for(full_key) : std::string();
+    if (!short_name.empty())
+        label += " (" + short_name + ")";
     std::string line = "  ";
-    line += name;
+    line += label;
     std::string h = settings.help_for(full_key);
     if (!h.empty()) {
-        if (name.size() < 34)
-            line.append(34 - name.size(), ' ');
+        if (label.size() < 34)
+            line.append(34 - label.size(), ' ');
         line += "  ";
         line += h;
     }
@@ -146,7 +150,7 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
     for (const auto& k : keys) {
         if (!drawer_row_in_provider(k, provider))
             continue;
-        rows.push_back(child_row(k, full_prefix + k, settings));
+        rows.push_back(child_row(k, full_prefix + k, settings, q.ns.empty()));
     }
     if (rows.empty())
         rows.emplace_back("  (no matching option  -  Esc to cancel)");

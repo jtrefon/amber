@@ -32,6 +32,12 @@ std::unique_ptr<Job> Job::start(const std::string& id, const std::string& comman
     return job;
 }
 
+void Job::set_origin(JobOrigin origin) {
+    std::scoped_lock lk(mtx_);
+    owner_id_ = std::move(origin.owner_id);
+    label_ = origin.label.empty() ? command_ : std::move(origin.label);
+}
+
 // Non-static half of start(): spawn the process and launch the reader thread.
 bool Job::begin(std::string& err) {
     int fd = -1;
@@ -62,6 +68,8 @@ JobInfo Job::info() const {
     std::scoped_lock lk(mtx_);
     JobInfo i;
     i.id = id_;
+    i.owner_id = owner_id_;
+    i.label = label_;
     i.command = command_;
     i.pid = static_cast<int>(pid_);
     i.state = state_;
@@ -233,7 +241,7 @@ long Job::sec_since(const std::chrono::steady_clock::time_point& tp) const {
 // ---- JobService -----------------------------------------------------------
 
 std::string JobService::start(const std::string& command, const std::string& cwd,
-                              long hard_timeout_s, long idle_timeout_s) {
+                              long hard_timeout_s, long idle_timeout_s, JobOrigin origin) {
     // Confine the working directory to the workspace: an unconfined cwd would
     // let the model root a background shell anywhere on disk.
     std::string dir = cwd.empty() ? Workspace::workspace_root() : cwd;
@@ -246,6 +254,7 @@ std::string JobService::start(const std::string& command, const std::string& cwd
     auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s, spawn_err);
     if (!job)
         return ""; // spawn failed; empty id signals error
+    job->set_origin(std::move(origin));
     std::scoped_lock lk(mtx_);
     jobs_[id] = std::move(job);
     return id;

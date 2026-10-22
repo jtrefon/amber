@@ -17,6 +17,9 @@ struct RunScope {
     const CancellationToken* cancel_token = nullptr;
     SkillCatalog* skills = nullptr;
     ActivationSink* activated = nullptr;
+    // The project this run belongs to. Null means the host's process default.
+    // The pointee must outlive every scope installed from this frame.
+    const std::string* project_root = nullptr;
     // The root this run's tools are confined to (a window's worktree). Null
     // means the project root. The pointee must outlive every scope installed
     // from this frame — the agent owns the string, the frame only borrows it.
@@ -25,6 +28,10 @@ struct RunScope {
     // governor the transport is using. The agent owns the Config and outlives
     // the run; tools only read it.
     const Config* config = nullptr;
+    // The host's stable identity for the run's window/session. Tools that
+    // start work outliving the turn (a watch) store it so a completion can be
+    // routed to the window that asked for it. Null outside a host session.
+    const std::string* owner_id = nullptr;
 };
 
 // The active scope for a thread, flattened into a value: the leaf frame plus
@@ -40,7 +47,8 @@ struct RunScopeChain {
 
     bool empty() const noexcept {
         return cancel_chain.empty() && leaf.skills == nullptr && leaf.activated == nullptr &&
-               leaf.workspace_root == nullptr;
+               leaf.project_root == nullptr && leaf.workspace_root == nullptr &&
+               leaf.owner_id == nullptr;
     }
 };
 
@@ -75,6 +83,12 @@ class ScopedRunScope {
 public:
     explicit ScopedRunScope(const RunScope& leaf) : prev_(t_run_scope), installed_(&owned_) {
         owned_.leaf = leaf;
+        // A nested run (a sub-agent, a compression worker) keeps the host
+        // owner it inherited; only the host installs the identity.
+        if (!owned_.leaf.owner_id && prev_)
+            owned_.leaf.owner_id = prev_->leaf.owner_id;
+        if (!owned_.leaf.project_root && prev_)
+            owned_.leaf.project_root = prev_->leaf.project_root;
         if (prev_)
             owned_.cancel_chain = prev_->cancel_chain;
         if (leaf.cancel_token)

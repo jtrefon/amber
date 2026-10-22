@@ -8,10 +8,13 @@
 #include "tui/session_usage.h"
 #include "tui/window_ops.h"
 #include "tool_display.h"
+#include "tui/widgets.h"
+#include "plugins/watch/watch_plugin.h"
 
 #include <algorithm>
 #include <ctime>
 #include <cstdlib>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -129,7 +132,7 @@ void SessionController::autosave(Window& w) {
     // never mid-run. The single-owner rule is respected by the callers: the
     // context is only snapshotted here when the worker is not mutating it.
     agent::Session s = snapshot(w);
-    if (store_.save(s)) {
+    if (store_for(w.project_root).save(s)) {
         w.session_id = s.id;
         if (w.title == "chat" && !s.title.empty())
             w.title = s.title;
@@ -151,12 +154,12 @@ void SessionController::save_session() {
         return;
     }
     agent::Session s = snapshot(w);
-    if (store_.save(s)) {
+    if (store().save(s)) {
         w.session_id = s.id;
         w.dirty = false;
         tui_.append_line(P_STATUS, "saved session " + s.id + " (\"" + s.title + "\")");
     } else {
-        tui_.append_line(P_STATUS, "save failed (could not write " + store_.dir() + ")");
+        tui_.append_line(P_STATUS, "save failed (could not write " + store().dir() + ")");
     }
 }
 
@@ -245,7 +248,7 @@ void SessionController::restore_into(Window& w, const agent::Session& s) {
 
 void SessionController::load_session(const std::string& id) {
     agent::Session s;
-    if (!store_.load(id, s)) {
+    if (!store().load(id, s)) {
         tui_.append_line(P_STATUS, "load failed: no session " + id);
         return;
     }
@@ -311,7 +314,7 @@ static void draw_search_bar(WINDOW* w, int ah, int aw, const std::string& filter
 static void draw_scroll_indicators(WINDOW* w, int aw, const SessionBrowserCore& core);
 
 void SessionController::session_browser() {
-    auto all = store_.list();
+    auto all = store().list();
     if (all.empty()) {
         tui_.append_line(P_STATUS, "no saved sessions");
         return;
@@ -453,7 +456,7 @@ bool SessionController::confirm_delete_session(SessionBrowserCore& core) {
     tui::ConfirmPanel confirm("Delete Session", msg);
     if (!confirm.run())
         return false;
-    store_.remove(core.item(idx).id);
+    store().remove(core.item(idx).id);
     core.erase_current();
     if (core.display_count() == 0) {
         tui_.append_line(P_STATUS, "no saved sessions");
@@ -473,7 +476,7 @@ void SessionController::save_window_sessions() {
         std::fprintf(stderr, "\rsaving session '%s'...", w.title.c_str());
         std::fflush(stderr);
         agent::Session s = snapshot(w);
-        if (store_.save(s))
+        if (store_for(w.project_root).save(s))
             w.session_id = s.id;
     }
     std::fprintf(stderr, "\rsession save complete\n");
@@ -503,9 +506,18 @@ void Tui::close_window() {
 
 void SessionController::save_workspace_now() {
     agent::WorkspaceState ws;
-    for (const auto& w : tui_.window_manager_->all()) {
+    const size_t live_active = tui_.window_manager_->active();
+    size_t saved_active = 0;
+    for (size_t i = 0; i < tui_.window_manager_->all().size(); ++i) {
+        const auto& w = tui_.window_manager_->all()[i];
+        if (w->kind == Window::Kind::Resource)
+            continue;
+        if (i == live_active)
+            saved_active = ws.windows.size();
         agent::WorkspaceState::WindowEntry we;
         we.session_id = w->session_id;
+        we.owner_id = w->owner_id;
+        we.project_root = w->project_root;
         we.title = w->title;
         we.prompt_history = w->prompt_history;
         // The window's workspace travels with it: a restart re-attaches to the
@@ -517,8 +529,8 @@ void SessionController::save_workspace_now() {
         we.base_oid = w->base_oid;
         ws.windows.push_back(we);
     }
-    ws.active = tui_.window_manager_->active();
-    store_.save_workspace(ws);
+    ws.active = saved_active;
+    store_for(agent::Workspace::project_root()).save_workspace(ws);
 }
 void SessionController::redraw_after_modal() {
     tui_.modal_open_ = false;
@@ -539,6 +551,117 @@ void SessionController::redraw_after_modal() {
     tui_.draw();
     tui_.render_engine_->draw_input("");
     tui_.flush();
+}
+
+namespace {
+
+std::string job_state_label(agent::JobState state) {
+    switch (state) {
+    case agent::JobState::Starting:
+        return "starting";
+    case agent::JobState::Running:
+        return "running";
+    case agent::JobState::Done:
+        return "done";
+    case agent::JobState::Killed:
+        return "stopped";
+    case agent::JobState::Failed:
+        return "failed";
+    }
+    return "?";
+}
+
+void split_lines(const std::string& text, std::vector<std::string>& out, std::size_t max_lines) {
+    std::size_t start = 0;
+    while (start <= text.size() && out.size() < max_lines) {
+        const std::size_t nl = text.find('\n', start);
+        out.push_back(text.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
+        if (nl == std::string::npos)
+            break;
+        start = nl + 1;
+    }
+}
+
+std::vector<std::string> job_resource_lines(agent::JobService& jobs, const std::string& id) {
+    std::vector<std::string> lines;
+    auto job = jobs.get(id);
+    if (!job) {
+        lines = {"job " + id + " is no longer available"};
+        return lines;
+    }
+    const agent::JobInfo info = job->info();
+    lines.push_back("[job " + info.id + "] " + job_state_label(info.state) + "  " + info.label);
+    if (!info.owner_id.empty())
+        lines.push_back("owner: " + info.owner_id);
+    lines.push_back("pid " + std::to_string(info.pid) + "  elapsed " +
+                    std::to_string(info.seconds_since_start) + "s  " + std::to_string(info.bytes) +
+                    " bytes");
+    lines.emplace_back();
+    split_lines(job->output(), lines, 400);
+    return lines;
+}
+
+std::vector<std::string> agent_resource_lines(agent::SubAgentExecutor& subagents,
+                                              const std::string& id) {
+    std::vector<std::string> lines;
+    const auto tasks = subagents.tasks();
+    const auto it =
+        std::find_if(tasks.begin(), tasks.end(), [&](const auto& task) { return task.id == id; });
+    if (it == tasks.end()) {
+        lines = {"agent " + id + " is no longer available"};
+        return lines;
+    }
+    lines.push_back("[agent " + it->id + "] " + it->state + "  " + it->prompt_head);
+    if (!it->owner_id.empty())
+        lines.push_back("owner: " + it->owner_id);
+    if (!it->current_tool.empty())
+        lines.push_back("tool: " + it->current_tool);
+    lines.push_back("elapsed: " + std::to_string(it->elapsed_s) + "s");
+    if (!it->result.empty()) {
+        lines.emplace_back();
+        split_lines(it->result, lines, 200);
+    }
+    return lines;
+}
+
+std::vector<std::string> watch_resource_lines(agent::PluginRuntime& runtime,
+                                              const std::string& id) {
+    std::vector<std::string> lines;
+    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(runtime.find("watch")))
+        split_lines(watch->show_text(id), lines, 300);
+    else
+        lines = {"watch plugin is not active"};
+    return lines;
+}
+
+} // namespace
+
+void Tui::refresh_active_resource() {
+    Window& w = win();
+    if (w.kind != Window::Kind::Resource)
+        return;
+
+    std::vector<std::string> lines;
+    if (w.resource_kind == "job")
+        lines = job_resource_lines(jobs_, w.resource_id);
+    else if (w.resource_kind == "agent")
+        lines = agent_resource_lines(subagents_, w.resource_id);
+    else if (w.resource_kind == "watch")
+        lines = watch_resource_lines(plugin_runtime_, w.resource_id);
+    else
+        lines = {"unknown resource: " + w.resource_kind + " " + w.resource_id};
+
+    w.lines.clear();
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        rich::Line line;
+        if (!lines[i].empty()) {
+            rich::Run run;
+            run.text = lines[i];
+            run.pair = i == 0 ? P_BANNER : P_ASSISTANT;
+            line.runs.push_back(std::move(run));
+        }
+        w.lines.push_back(std::move(line));
+    }
 }
 
 } // namespace tui

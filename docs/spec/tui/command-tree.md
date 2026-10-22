@@ -47,8 +47,30 @@ registered by `register_action`, referenced by an `action` string in the tree.
 - A second metadata source in code (help/placeholder/type/range, a parallel
   command table, a `std::map` of commands).
 - Writing `tree_` directly, renaming nodes, or overlaying fields after load.
-- Patching an existing namespace from a plugin; a plugin owns a new root.
+- Patching an existing namespace from a plugin; a plugin choosing or adding a
+  root. Plugin commands mount under the host-owned `/plugin/<id>` workspace.
 - A second mapper file or a code-generated tree that bypasses the loader.
+
+### Placement and root policy
+
+Every root is a **domain**, not a feature. The standard is
+`docs/spec/tui/command-namespace.md`; this file is the mapper contract that
+implements it.
+
+| Need | Placement |
+|---|---|
+| Plugin setting/state | `SettingsCapability` → `/get plugin settings <id> <key>`, `/set plugin settings <id> <key> <value>` |
+| Plugin action | `/plugin <id> <verb>` |
+| Plugin tool | registered tool; no command surface |
+| Panel/status/prompt | its capability; no command root |
+| First-class daily domain | host-owned root allowlist; never plugin-chosen |
+| Core feature/action | child of its domain, never a new root |
+
+Roots such as `session`, `window`, `job`, `agent`, `watch`, `project`,
+`worktree`, `work`, `plugin`, `get`, `set`, `settings`, `provider`, `files`,
+`system`, `panel`, `help` and `quit` are the closed domain set. Action roots
+(`new`, `close`, `save`, `stop`, `compress`, `sessions`) are legacy aliases and
+are not documented as peers.
 
 ---
 
@@ -85,8 +107,8 @@ and `/worktree list`, so a startup feed never forks git.
 `merge_completions_json()` is additive and collision-checked:
 
 1. **Documented fields are immutable.** A node path that `completions.json`
-   supplied may not have `action`, `help`, `man`, `aliases`, `choices` or
-   `range` rewritten. The documented value wins and the attempt increments
+   supplied may not have `action`, `help`, `man`, `aliases`, `short`, `choices`
+   or `range` rewritten. The documented value wins and the attempt increments
    `merge_collisions()`.
 2. **Children are concatenated.** A documented node may gain new children; a
    documented command may also be a namespace (`/set model` is the switch and
@@ -104,15 +126,17 @@ non-zero when a contribution tried to rewrite documented material.
 
 - **External plugins** supply `completion` in `manifest.json`; **bundled
   plugins** supply `CommandSpec::subtree`. Both are JSON subtrees, not code
-  lists.
+  lists, and both are mounted under the host-owned `/plugin/<id>` workspace.
+- A plugin does not name or add a root. It may request a root alias; the host
+  grants one only through the documented root allowlist. The plugin's commands
+  remain reachable under `/plugin/<id>`.
 - The host derives every leaf action as `plugin.<id>.<path>`, so a plugin
   cannot name (or overwrite) a core action.
 - A contribution merges **additively**, like a feed. It may extend a documented
   namespace with new children (the MCP plugin's `/get mcp` is the precedent)
-  and may add a new root. It may not rewrite a documented
-  `action`/`help`/`man`/`aliases`/`choices`/`range`: the documented value wins
-  and the attempt increments `merge_collisions()`. A plugin's root metadata is
-  therefore advice for a new namespace, not a replacement for a documented one.
+  and may add children inside its workspace. It may not rewrite a documented
+  `action`/`help`/`man`/`aliases`/`short`/`choices`/`range`: the documented
+  value wins and the attempt increments `merge_collisions()`.
 - Handlers are code, but they bind only the leaves their subtree declares. A
   leaf with no handler is documented and inert.
 
@@ -121,7 +145,8 @@ non-zero when a contribution tried to rewrite documented material.
 ### Adding a command
 
 1. Add the node to `completions.json` (nested under `children`), with `action`,
-   `help`, and `man`; add `choices`/`range`/`aliases` where they apply.
+   `help`, and `man`; add `choices`/`range`/`aliases`/`short` where they apply.
+   `short` is the compact glued-path token; `aliases` are full alternate names.
 2. Register the action handler (`register_action`) with a pure `(action, arg)`
    closure. Do not parse the command name in the handler.
 3. If the leaf comes from runtime state, add a feed that builds the JSON
@@ -140,9 +165,10 @@ non-zero when a contribution tried to rewrite documented material.
   documented fields survive, its new child is added, `merge_collisions()`
   reports the attempts.
 - **CT-04**: a dynamic node's state help refreshes between merges.
-- **CT-05**: a plugin contribution extends a documented namespace with new
-  children; its attempted root help/man writes are refused and counted, and its
-  host-derived leaf action dispatches. A new root merges whole.
+- **CT-05**: a plugin contribution mounts under `/plugin/<id>`; its attempted
+  root/help/man/short writes are refused and counted, and its host-derived leaf
+  action dispatches. A root is only the host's documented alias, never a plugin
+  contribution.
 - **CT-06**: `/settings`-style surfaces expose their children through the tree,
   not through a code-side list (see #289).
 
@@ -157,4 +183,5 @@ non-zero when a contribution tried to rewrite documented material.
 
 | Date | Reason |
 |------|--------|
-| 2026-10-20 | Mapper-only contract: documented fields immutable, children concatenated, collision counting, plugin roots must be new; code binds behaviour only |
+| 2026-10-20 | Mapper-only contract: documented fields immutable, children concatenated, collision counting, plugin roots must be new; code binds behaviour only (root rule superseded 2026-10-22) |
+| 2026-10-22 | 0.6.0 placement/root policy: domains only, plugins mount under `/plugin/<id>`, settings before commands, `short` is an immutable shortcut field |

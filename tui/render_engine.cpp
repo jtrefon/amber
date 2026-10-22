@@ -261,6 +261,12 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.usage = w.usage;
     snapshot.running_jobs = tui_.jobs_.running_count();
     snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
+    if (tui_.reg_.find("task")) {
+        snapshot.subagents_available = true;
+        snapshot.active_agents = tui_.subagents_.active();
+        snapshot.waiting_agents = tui_.subagents_.waiting();
+        snapshot.max_agents = tui_.subagents_.max();
+    }
     snapshot.running_tool = w.running_tool;
     return snapshot;
 }

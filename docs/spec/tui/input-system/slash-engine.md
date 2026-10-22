@@ -18,6 +18,12 @@ key to show remaining options at any depth.
 - **Source files**: `tui/tui_input.cpp` (command definitions, handler functions), `tui/palette.h`, `tui/palette.cpp` (`Command`, `Subcommand`, `Completer`, free helpers), `tui/tui_render.cpp` (draw_drawer)
 - **Test files**: `tests/tui_tests.cpp` (palette helpers, Completer), `completion/tests/completion_test.cpp` (standalone tree-based completion library — unused by TUI)
 
+> **Implementation status (2026-10-22).** The current dispatcher walks the
+> command tree by **exact child name only**. Aliases are displayed but are not
+> resolved at dispatch; prefix acceptance and SE-17..SE-26 are 0.6.0 acceptance
+> criteria, not current behavior. The canonical contract is
+> [`docs/spec/tui/command-shortcuts.md`](../command-shortcuts.md).
+
 ---
 
 ### Contract
@@ -272,9 +278,10 @@ key to show remaining options at any depth.
 
 - **Given**: Two commands have the same alias by mistake
 - **Input**: Alias `s` matches both `save` and `session`
-- **Expected**: The alias should never be added if it conflicts. If it does,
-  the FIRST match in the tree wins. A warning is logged at registration time.
-- **On failure**: Silent conflict causes unpredictable dispatch.
+- **Expected**: The alias is never installed. The loader reports a collision;
+  the host resolves it with a longer `short` or an explicit alias. No first
+  match is dispatched.
+- **On failure**: Silent first-match dispatch or an unreported collision.
 
 ---
 
@@ -332,6 +339,10 @@ added to the `Tui::run()` key dispatch in `tui/tui.cpp`.
 - **Test coverage**: `tests/tui_tests.cpp` — palette helpers. `completion/tests/completion_test.cpp` — standalone tree-based completion (unused by TUI).
 
 ### Known gaps
+
+> This list predates the JSON command mapper. The 2026-10-22 status note above
+> supersedes the command-shape gaps; shortcuts/aliases/prefixes are tracked by
+> `docs/spec/tui/command-shortcuts.md` (#323/#324).
 
 1. **Flat command struct (current)** — `Command` has no `subcommands` vector. Deep nesting uses `complete_arg` lambdas + string splitting. Must migrate to `CommandNode` tree model.
 2. **No `?` key handling (current)** — `?` treated as literal printable. Must be intercepted as help trigger at any depth.

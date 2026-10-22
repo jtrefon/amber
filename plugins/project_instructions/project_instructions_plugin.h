@@ -4,6 +4,7 @@
 
 #include "agent/plugin_core.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -47,8 +48,7 @@ private:
     // project has none.
     std::string load_once();
 
-    mutable std::string block_;
-    mutable bool loaded_ = false;
+    mutable std::map<std::string, std::string> blocks_;
 };
 
 } // namespace agent::plugins

@@ -2,6 +2,7 @@
 #define AMBER_TUI_TUI_H
 
 #include <agent.h>
+#include <agent/events.h>
 #include <agent/learn_commands.h>
 #include <agent/plugin.h>
 #include <agent/plugin_registry.h>
@@ -77,6 +78,14 @@ class KeyBinder;
 // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
 // function creates it and calls run().
+struct PendingRebuild {
+    size_t window_id = 0;
+    std::string name;
+    std::string base;
+    std::string path;
+    std::string project;
+};
+
 class Tui {
     friend class FeedManager;
     friend class WindowManager;
@@ -100,7 +109,8 @@ public:
     // `workspace_name` (or after the window). Preparation never blocks the
     // window: a failure opens it on the project root and says why.
     Window& new_window(const std::string& title, bool prepare_workspace = true,
-                       const std::string& workspace_name = "");
+                       const std::string& workspace_name = "",
+                       const std::string& project_root = "");
     Window& open_welcome_window();
     Window& ensure_chat_window();
     void run();
@@ -136,9 +146,15 @@ private:
     bool drain_events();
     void send_async(const std::string& raw_prompt);
     // Dispatch (or queue) a prompt on a specific window's run slot.
-    void send_async_to(Window& w, const std::string& raw_prompt);
+    void send_async_to(Window& w, const std::string& raw_prompt, bool harness = false);
     // Dequeue prompts on windows whose agents finished (UI thread, per tick).
-    void drain_pending_prompts();
+    // Background reports go after user prompts and only when the active input
+    // is empty, so a report never starts a turn under a draft.
+    void drain_pending_prompts(bool input_empty);
+    void on_watch_report(const agent::WatchReportEvent& ev);
+    void ack_watch_report(const std::string& watch_id);
+    void reemit_watch_reports();
+    agent::Subscription watch_report_sub_;
 
     // Run a shell command through the job service and report its output when it
     // finishes. The UI thread starts the job and returns; a per-tick drain
@@ -196,6 +212,7 @@ private:
     void fold_reasoning(Window& w);
     void flush_stream(Window& w);
     void flush();
+    void refresh_active_resource();
 
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
@@ -349,7 +366,7 @@ private:
     // The three cases adopt_recorded_workspace resolves, each small enough to
     // read on its own: park it because worktrees are off, queue a rebuild
     // because /tmp was wiped, or re-claim it for the restored window.
-    void park_restored_workspace(const std::string& name);
+    void park_restored_workspace(const std::string& name, const std::string& project);
     void queue_restored_rebuild(Window& w, const agent::WorkspaceState::WindowEntry& entry,
                                 const std::string& name);
     bool claim_restored_workspace(Window& w, const std::string& name, const std::string& worktree);
@@ -360,12 +377,6 @@ private:
     // Apply what the pass found, on the UI thread.
     void apply_workspace_result(const std::vector<std::pair<size_t, std::string>>& rebuilt,
                                 const std::vector<std::string>& notices);
-    struct PendingRebuild {
-        size_t window_id = 0;
-        std::string name;
-        std::string base;
-        std::string path;
-    };
     std::vector<PendingRebuild> pending_rebuild_;
 
     // --- Event loop. run() is a facade over these steps, one per thing the

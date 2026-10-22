@@ -16,6 +16,8 @@ namespace {
 // without renumbering them.
 enum Priority {
     kWindow = 100,
+    kJobs = 150,
+    kAgents = 175,
     kModel = 200,
     kMode = 300,
     kScroll = 400,
@@ -37,6 +39,8 @@ enum Priority {
 enum Drop {
     kScrollDrop = 0,
     kActivityDrop = 1,
+    kJobsDrop = 2,
+    kAgentsDrop = 2,
     kModeDrop = 2,
     kWindowDrop = 3,
     kModelDrop = 4,
@@ -57,9 +61,25 @@ std::unique_ptr<Capability> segment(const char* id, int priority, int drop_prior
 }
 
 StatusText render_window(const StatusSnapshot& s) {
-    return StatusText{"[" + compact::count(s.window_index) + "/" + compact::count(s.window_count) +
+    return StatusText{"[s" + compact::count(s.window_index) + "/" + compact::count(s.window_count) +
                           "]",
                       StatusTone::Banner};
+}
+
+StatusText render_jobs(const StatusSnapshot& s) {
+    if (s.running_jobs <= 0)
+        return StatusText{};
+    return StatusText{"[j" + compact::count(s.running_jobs) + "]", StatusTone::Warn};
+}
+
+StatusText render_agents(const StatusSnapshot& s) {
+    if (!s.subagents_available || (s.active_agents <= 0 && s.waiting_agents <= 0))
+        return StatusText{};
+    std::string text = "[a" + compact::count(s.active_agents) + "/" + compact::count(s.max_agents);
+    if (s.waiting_agents > 0)
+        text += "+" + compact::count(s.waiting_agents);
+    text += "]";
+    return StatusText{std::move(text), StatusTone::Good};
 }
 
 // One cell: provider, model, reasoning badge. The provider sits INSIDE the model
@@ -141,13 +161,6 @@ StatusText render_tokens(const StatusSnapshot& s) {
 }
 
 StatusText render_activity(const StatusSnapshot& s) {
-    if (s.running_jobs > 0) {
-        std::string text =
-            "  " + compact::count(s.running_jobs) + " job" + (s.running_jobs > 1 ? "s" : "");
-        if (s.job_seconds_left >= 0)
-            text += " " + compact::duration_ms(static_cast<long>(s.job_seconds_left) * 1000);
-        return StatusText{std::move(text), StatusTone::Warn};
-    }
     if (!s.running_tool.empty())
         return StatusText{"  " + s.running_tool + "\u2026", StatusTone::Warn};
     return StatusText{};
@@ -158,6 +171,8 @@ StatusText render_activity(const StatusSnapshot& s) {
 std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
     caps.push_back(segment("window", kWindow, kWindowDrop, render_window));
+    caps.push_back(segment("jobs", kJobs, kJobsDrop, render_jobs));
+    caps.push_back(segment("agents", kAgents, kAgentsDrop, render_agents));
     caps.push_back(segment("model", kModel, kModelDrop, render_model));
     caps.push_back(segment("mode", kMode, kModeDrop, render_mode));
     caps.push_back(segment("scroll", kScroll, kScrollDrop, render_scroll));

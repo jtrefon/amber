@@ -3,6 +3,7 @@
 
 #include <agent.h>
 #include <agent/compressor.h>
+#include <agent/session.h>
 #include <agent/plugin_runtime.h>
 #include <agent/experience.h>
 #include <agent/skill_catalog.h>
@@ -16,18 +17,27 @@ WindowManager::WindowManager(agent::Config& cfg, agent::ToolRegistry& reg,
                              agent::PluginRuntime* plugin_runtime)
     : cfg_(cfg), reg_(reg), plugin_runtime_(plugin_runtime) {}
 
-Window& WindowManager::new_window(const std::string& title) {
+Window& WindowManager::new_window(const std::string& title, const std::string& project_root) {
     auto w = std::make_unique<Window>();
+    w->kind = Window::Kind::Chat;
     w->id = next_id_++;
+    w->owner_id = agent::SessionStore::new_id();
+    w->project_root = project_root;
     w->title = title;
+    agent::ScopedProjectRoot project_guard(project_root);
+    auto agent_cfg = cfg_;
+    if (!project_root.empty()) {
+        agent_cfg.load_workspace_defaults(project_root + "/amber.conf");
+        agent_cfg.load(agent::Workspace::settings_path_for(project_root));
+    }
     // The gate reads the LIVE config on every check (threshold_exceeded uses
     // agent_cfg.context_size), so it is safe to build from the current cfg:
     // a late /set model or an autodetect window reaches the gate through the
     // agent's cfg_ the next time Agent::resolve_window runs.
-    auto comp_cfg = agent::load_compression_config(cfg_);
+    auto comp_cfg = agent::load_compression_config(agent_cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
     auto compressor = agent::make_compressor(comp_cfg);
-    auto exp_cfg = agent::load_experience_config(cfg_);
+    auto exp_cfg = agent::load_experience_config(agent_cfg);
     // Skills and learned memories are per-project data shared across every
     // window on this project (see shared_skills/shared_store).
     auto mem_store = shared_store(exp_cfg);
@@ -35,13 +45,19 @@ Window& WindowManager::new_window(const std::string& title) {
     // cfg_ is the shared template — its cancel_token flag is shared too.
     // Give this window's agent a fresh flag so cancelling one run can
     // never cancel a sibling's.
-    auto agent_cfg = cfg_;
     agent_cfg.cancel_token = agent::CancellationToken{};
     agent::Agent a(std::move(agent_cfg), reg_, agent::AgentHooks{}, std::move(compressor),
                    std::move(gate), std::move(mem_store), std::move(retriever), {}, {},
                    shared_skills());
     w->agent = std::make_unique<agent::Agent>(std::move(a));
-    w->agent->policy().init(agent::Workspace::policy_path());
+    // The watch plugin routes a background report back to the window that
+    // started it. The owner id is persisted with the window and survives a
+    // restart, unlike the in-process window index.
+    if (!project_root.empty())
+        w->agent->set_project_root(project_root);
+    w->agent->set_owner_id(w->owner_id);
+    w->agent->policy().init(agent::Workspace::policy_path_for(
+        project_root.empty() ? agent::Workspace::project_root() : project_root));
     // Attach the harness bus so plugins observe this window's turns. Without a
     // runtime (tests, headless hosts) the agent simply publishes nothing.
     if (plugin_runtime_) {
@@ -51,6 +67,31 @@ Window& WindowManager::new_window(const std::string& title) {
     windows_.push_back(std::move(w));
     active_ = windows_.size() - 1;
     return *windows_.back();
+}
+
+Window& WindowManager::new_resource_window(const std::string& kind, const std::string& id,
+                                           const std::string& title) {
+    auto w = std::make_unique<Window>();
+    w->kind = Window::Kind::Resource;
+    w->id = next_id_++;
+    w->title = title;
+    w->read_only = true;
+    w->resource_kind = kind;
+    w->resource_id = id;
+    windows_.push_back(std::move(w));
+    active_ = windows_.size() - 1;
+    return *windows_.back();
+}
+
+bool WindowManager::focus_resource(const std::string& kind, const std::string& id) {
+    for (size_t i = 0; i < windows_.size(); ++i) {
+        if (windows_[i]->kind == Window::Kind::Resource && windows_[i]->resource_kind == kind &&
+            windows_[i]->resource_id == id) {
+            active_ = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 Window& WindowManager::open_welcome_window() {

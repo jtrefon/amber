@@ -32,10 +32,20 @@ public:
         std::string man;
         std::string action;
         std::vector<std::string> aliases;
+        std::string short_name;
         std::vector<std::string> choices;
         double range_lo = 0;
         double range_hi = 0;
         bool has_range = false;
+    };
+
+    // A resolved slash-command path. `consumed` counts the original tokens
+    // belonging to the command; the rest are the handler argument.
+    struct CommandMatch {
+        const nlohmann::json* node = nullptr;
+        std::size_t consumed = 0;
+        bool ambiguous = false;
+        std::vector<std::string> candidates;
     };
 
     void add(Setting s);
@@ -83,6 +93,19 @@ public:
     // slash-command dispatcher to resolve actions from input tokens.
     const nlohmann::json& command_tree() const { return tree_; }
 
+    // Resolve a slash-command path: exact name, exact alias, exact short,
+    // glued short path, then a unique prefix of any of those. Ambiguity is
+    // reported, never resolved to a first match. `legacy` maps removed action
+    // roots to canonical paths without reintroducing those roots.
+    CommandMatch resolve_command(const std::vector<std::string>& tokens) const;
+
+    // The documented short for a path, or empty when it has none. Used by the
+    // drawer/help; dispatch derives a first-letter short when this is empty.
+    std::string short_for(const std::string& path) const;
+
+    // Sibling nodes that declare the same short. Zero for the shipped tree.
+    std::size_t shortcut_collisions() const { return shortcut_collisions_; }
+
     // Get help text for a setting key (from JSON). Dotted keys resolve to the
     // canonical full path: exact match, then "get.<key>", then "set.<key>"
     // (e.g. "policy.mode" → "set.policy.mode").
@@ -118,6 +141,7 @@ private:
     void index_node(const nlohmann::json& node, const std::string& display_path);
     void clear_index();
     void reindex();
+    void rebuild_shortcut_collisions();
     void record_static_paths(const nlohmann::json& node, const std::string& path);
     void merge_tree_node(nlohmann::json& dst, const nlohmann::json& src, const std::string& path);
     void merge_children(nlohmann::json& dst, const nlohmann::json& children,
@@ -143,8 +167,11 @@ private:
     // Per-command completion lists (from JSON).
     std::map<std::string, std::vector<std::string>> command_choices_;
     std::map<std::string, std::vector<std::string>> command_aliases_;
+    std::map<std::string, std::string> command_shorts_;
+    std::map<std::string, std::vector<std::string>> legacy_paths_;
     std::map<std::string, std::pair<double, double>> command_ranges_;
     std::map<std::string, std::vector<std::string>> command_subcommands_;
+    std::size_t shortcut_collisions_ = 0;
 };
 
 } // namespace tui

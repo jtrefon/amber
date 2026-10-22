@@ -187,7 +187,7 @@ is observable.
 | **Prompt blocks** | `PromptBlock{id, priority, render(snapshot) -> std::string}` | ascending priority | Core memory/skills/brief blocks migrate onto this registry (see §5) |
 | **Status segments** | `StatusSegment{id, priority, drop_priority, text, tone}` against a host-published `StatusSnapshot` | ascending priority; `drop_priority` decides overflow | Composed by `StatusRegistry`; amber's own segments register the same way (`lib/core_segments.cpp`), so a plugin's segment is indistinguishable from a core one. Rendering stays a pure read, time-driven work goes in `IPlugin::tick()` | **Alignment:** a segment declares the edge it attaches to (`StatusAlign::Left`/`Right`) and its order within that edge; it never addresses a column, and the right zone is reserved from what is registered, so switching a right-aligned segment off returns its columns to the left side. The clock is the first plugin to use it.
 | **Panels** | `PanelSpec{id, title, lines(width), on_key}` | registration order | Host owns framing, scrolling, cycling and key routing; a focused panel gets first refusal on keys. The registry console (Alt+0/`/panel`) is core UI built on this API |
-| **Commands** | `CommandSpec{root, help, man, subtree, handlers}` | registration order | The host merges the subtree into the command tree and binds each executable leaf's derived action (`plugin.<id>.<path>`) to its handler. Handlers return the text to display, so the plugin stays UI-free. TUI-only: the headless CLI has no command tree |
+| **Commands** | `CommandSpec{name, help, man, subtree, handlers}` | registration order | The host mounts the subtree under `/plugin/<id>` and binds each executable leaf's derived action (`plugin.<id>.<path>`) to its handler. `name` is a workspace-relative namespace; a plugin never names a root. Handlers return the text to display, so the plugin stays UI-free. TUI-only: the headless CLI has no command tree |
 | **Wallets** | `WalletRegistry::Fetch = optional<WalletSnapshot>(const Config&)` | keyed by provider id | One mechanism for one question, "what is left?", because a prepaid balance and a set of quota windows are the same idea in two shapes, and two registries for it cost two flags, two status segments and two command pairs that drift. A provider supplies only the *fetch*. The runtime owns when to refresh (turn end, provider switch, startup), the cache, and the rendering, so every provider's readout behaves identically and no plugin carries a poll loop or a cache. One core status segment: the balance when the snapshot has one, otherwise the window closest to reset; `-` when the provider declares none or the fetch failed. `/get provider wallet` carries the whole picture; `/set provider wallet on\|off` is the display switch |
 | **Search backends** | `SearchBackendCapability{mode, factory}` into `SearchBackendRegistry` | mode-named, owner-tagged | The search tool resolves its `mode` argument through a provider over this table, so the tool names no backend. Disabled modes follow the flavor rule (D19): a mode whose plugin is switched off fails loudly naming the plugin and the fix, a mode nobody provides is unknown with the enabled list. The mode list is rendered into the tool schema per request, so schema and registry cannot disagree. One plugin per backend (`plugins/search_grep/`, `plugins/search_semantic/`) |
 
@@ -202,31 +202,38 @@ under `/get` and `/set`, D17/D18):
 | `/set plugin on <id>` \| `off <id>` | The single write path for enable/disable; persists to the plugin's `plugin.conf` and applies immediately |
 | `/set plugin install <path\|url>` | Stage an archive into the user plugin directory, left disabled |
 | `/set plugin uninstall <id>` | Deactivate and delete an installed plugin |
-| `/set plugin settings <id> <key>=<value>` | Per-plugin settings, stored next to the state |
+| `/set plugin settings <id> <key> <value>` | Per-plugin settings, stored next to the state |
 
 The ids are **feed values under their verb** (`get.plugin.info.<id>`,
 `set.plugin.on.<id>`), never siblings of the commands, so the drawer of
 `/get plugin` or `/set plugin` stays a command list however many plugins
-register. The root `/plugin` namespace is retired (D18): packaging verbs moved
-under `/set plugin`, so there is one surface where there used to be two.
+register. Administration stays under `/get plugin` and `/set plugin`.
+
+`/plugin` is a separate **extension workspace** in the 0.6.0 namespace
+contract: `/plugin <id> <verb>` hosts a plugin's actions. It is not the retired
+packaging root; install/uninstall/on/off remain `/set plugin`, and discovery
+remains `/get plugin`.
 
 **Toggling re-publishes the surfaces the plugin fed.** Enabling or disabling
 refreshes the provider feed (`refresh_provider_feed`) and the command tree, so
 `/get provider list` and the drawer reflect the change immediately, a disabled
 provider plugin's rows are gone, an enabled one's appear, without a restart.
 
-**Commands (re-added).** A `CommandCapability` contributes a slash-command
-namespace: a root, its help/man, the child nodes (completions.json shape), and
-one handler per executable leaf. The host merges the subtree and binds each
-leaf's derived action (`plugin.<id>.<path>`) to its handler. Handlers return the
-text to display, so a command plugin stays UI-free. The bundled
-`plugins/hello/` is the worked example (`/hello greet <name>`). The TUI owns the
-slash engine, so a command contribution is TUI-only today.
+**Commands.** A `CommandCapability` contributes a slash-command workspace: its
+help/man, the child nodes (completions.json shape), and one handler per
+executable leaf. The host mounts the subtree at `/plugin/<id>` and binds each
+leaf's derived action (`plugin.<id>.<path>`) to its handler. `CommandSpec.name`
+is relative to that workspace; a legacy `root` field is gone. Handlers return
+the text to display, so a command plugin stays UI-free. The bundled
+`plugins/hello/` is the worked example (`/plugin hello greet <name>`). The TUI
+owns the slash engine, so a command contribution is TUI-only today.
 
-**Removed extension points.** **Per-plugin settings** was cut before landing,
-because nothing produced and nothing consumed it; the `CapabilityKind` enum does
-not carry it and no plugin may register one. It reopens when a real consumer
-exists.
+**Settings capability (implemented).** Per-plugin settings are a typed
+capability rather than a command root. The host generates
+`/get plugin settings <id> <key>` and `/set plugin settings <id> <key> <value>`
+and the settings-screen group. A plugin supplies schema, choices, current value
+and setter; the host supplies shape and persistence. This is the preferred
+surface for configuration, ahead of a command workspace or a root.
 
 **Deferred extension points** (not in this framework version, with reasons):
 themes, raw key interception, window geometry/z-order, per-token stream events,
@@ -558,9 +565,10 @@ exists until PF-6 admits code that was built elsewhere (D10).
 - **External plugins are untrusted**: separate process, workspace-confined
   paths, 64 KiB output cap, tools only, `plugin_<id>_<name>` namespace. No
   change to that model.
-- **Namespacing**: contributed commands live under the plugin's declared root;
-  tools contributed by plugins keep an owner tag so the console and the ledger
-  can attribute them. Nothing a plugin contributes is anonymous.
+- **Namespacing**: contributed commands live under the host-owned
+  `/plugin/<id>` workspace; a plugin cannot claim a root. Tools contributed by
+  plugins keep an owner tag so the console and the ledger can attribute them.
+  Nothing a plugin contributes is anonymous.
 - **Capability audit**: the console lists every contribution with its owner, so
   "what did this plugin add to my harness" is answerable without reading code.
 
@@ -788,3 +796,4 @@ These hold always. A test that cannot express one of them is a design smell.
 | 2026-09-09 | Initial framework draft (aspirational: `void*` capabilities, untyped bus, capability routing, theme/UI hijack, Phase 1 only) |
 | 2026-09-10 | Rebuilt as the agreed architecture: typed capabilities + ledger, typed events with real fire sites, three-mechanism model, declared UI regions, host services, composition root, provider capability as first consumer, performance invariants, deferred register |
 | 2026-09-12 | Aligned with the shipped API: commands and settings removed, host services marked not implemented, `PluginRuntime` named, external tier renamed, "v2" dropped in favour of amber's own versioning |
+| 2026-10-22 | 0.6.0 placement: commands mount under `/plugin/<id>`, plugins cannot add roots; typed settings capability returns as the preferred configuration surface |

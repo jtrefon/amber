@@ -1,6 +1,7 @@
 #ifndef AMBER_TUI_SESSION_CONTROLLER_H
 #define AMBER_TUI_SESSION_CONTROLLER_H
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,8 +35,9 @@ public:
     void save_workspace_now();
     void redraw_after_modal();
     agent::WorkspaceState load_workspace();
-    agent::SessionStore& store() noexcept { return store_; }
-    std::string settings_path() const { return settings_path_; }
+    agent::SessionStore& store();
+    agent::SessionStore& store_for(const std::string& project_root);
+    std::string settings_path() const;
     struct RestoredCall {
         std::string name;
         nlohmann::json args;
@@ -66,8 +68,7 @@ private:
     bool confirm_delete_session(SessionBrowserCore& core);
 
     Tui& tui_;
-    agent::SessionStore store_;
-    std::string settings_path_;
+    std::map<std::string, agent::SessionStore> stores_;
 };
 
 } // namespace tui

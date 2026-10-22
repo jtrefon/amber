@@ -332,7 +332,9 @@ The items this plan listed, with their outcome:
   contribution shape: `ToolSourceCapability` + the owner-scoped `ToolPort`
   (tracker D25) let a plugin register a set it discovers while it is active, and
   `plugins/mcp/` is the worked example — the client, its discovered tools, its
-  status segment, its prompt block and its `/mcp`, `/prompt` and `/get mcp`
+  status segment, its prompt block and its `/plugin mcp` command/settings
+  workspace (current legacy `/mcp`, `/prompt` and `/get mcp` roots migrate under
+  the 0.6.0 namespace contract)
   namespaces all arrive and leave together, so `/set plugin mcp off` is a
   complete footprint switch. The *feed* half stays for what a feed is for: the
   live `<server>.<tool>` leaves in the command tree, derived from the registry

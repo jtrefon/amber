@@ -356,11 +356,86 @@ std::vector<ExtensionItem> PanelRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+Contribution SettingsRegistry::add(const std::string& owner, std::vector<PluginSettingSpec> specs) {
+    for (auto& spec : specs) {
+        if (spec.key.empty())
+            continue;
+        entries_.push_back({owner, std::move(spec)});
+    }
+    Contribution c;
+    c.kind = CapabilityKind::Settings;
+    c.name = "settings";
+    c.remove = [this, owner] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const Entry& e) { return e.owner == owner; }),
+                       entries_.end());
+    };
+    return c;
+}
+
+const SettingsRegistry::Entry* SettingsRegistry::find(const std::string& owner,
+                                                      const std::string& key) const {
+    for (const auto& e : entries_)
+        if (e.owner == owner && e.spec.key == key)
+            return &e;
+    return nullptr;
+}
+
+std::string SettingsRegistry::get(const std::string& owner, const std::string& key) const {
+    const Entry* e = find(owner, key);
+    if (!e)
+        return {};
+    return e->spec.get ? e->spec.get() : e->spec.value;
+}
+
+namespace {
+bool setting_value_allowed(const PluginSettingSpec& spec, const std::string& value) {
+    if (!spec.choices.empty())
+        return std::find(spec.choices.begin(), spec.choices.end(), value) != spec.choices.end();
+    if (spec.type == "bool")
+        return value == "1" || value == "true" || value == "on" || value == "0" ||
+               value == "false" || value == "off";
+    return true;
+}
+} // namespace
+
+bool SettingsRegistry::set(const std::string& owner, const std::string& key,
+                           const std::string& value) {
+    for (auto& e : entries_) {
+        if (e.owner != owner || e.spec.key != key)
+            continue;
+        if (!setting_value_allowed(e.spec, value))
+            return false;
+        if (e.spec.set && !e.spec.set(value))
+            return false;
+        e.spec.value = value;
+        return true;
+    }
+    return false;
+}
+
+std::vector<SettingsRegistry::Entry> SettingsRegistry::all() const {
+    return entries_;
+}
+
+std::vector<ExtensionItem> SettingsRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& e : entries_)
+        out.push_back(
+            {CapabilityKind::Settings, e.owner, e.spec.key, e.spec.type + "  " + e.spec.help});
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
 Contribution CommandRegistry::add(const std::string& owner, CommandSpec spec) {
-    const std::string root = spec.root;
+    const std::string name = spec.name;
     Entry entry;
     entry.owner = owner;
     entry.spec = std::move(spec);
@@ -368,11 +443,11 @@ Contribution CommandRegistry::add(const std::string& owner, CommandSpec spec) {
 
     Contribution c;
     c.kind = CapabilityKind::Command;
-    c.name = root;
-    c.remove = [this, owner, root] {
+    c.name = name;
+    c.remove = [this, owner, name] {
         entries_.erase(
             std::remove_if(entries_.begin(), entries_.end(),
-                           [&](const Entry& e) { return e.owner == owner && e.spec.root == root; }),
+                           [&](const Entry& e) { return e.owner == owner && e.spec.name == name; }),
             entries_.end());
     };
     return c;
@@ -382,9 +457,9 @@ std::vector<ExtensionItem> CommandRegistry::items() const {
     std::vector<ExtensionItem> out;
     out.reserve(entries_.size());
     for (const auto& entry : entries_)
-        out.push_back({CapabilityKind::Command, entry.owner, entry.spec.root,
-                       "/" + entry.spec.root + "  (" + std::to_string(entry.spec.handlers.size()) +
-                           " handler(s))"});
+        out.push_back({CapabilityKind::Command, entry.owner, entry.spec.name,
+                       "/plugin " + entry.owner + "  (" +
+                           std::to_string(entry.spec.handlers.size()) + " handler(s))"});
     return out;
 }
 
@@ -649,11 +724,23 @@ InstallResult PanelCapability::install(PluginServices& services) {
     return r;
 }
 
+SettingsCapability::SettingsCapability(std::vector<PluginSettingSpec> specs)
+    : specs_(std::move(specs)) {}
+
+InstallResult SettingsCapability::install(PluginServices& services) {
+    if (specs_.empty())
+        return {false, true, {}, {}};
+    InstallResult r;
+    r.ok = true;
+    r.contribution = services.settings().add(services.owner(), specs_);
+    return r;
+}
+
 CommandCapability::CommandCapability(CommandSpec spec) : spec_(std::move(spec)) {}
 
 InstallResult CommandCapability::install(PluginServices& services) {
     InstallResult r;
-    if (spec_.root.empty() || !spec_.subtree.is_object()) {
+    if (spec_.name.empty() || !spec_.subtree.is_object()) {
         r.error = "command capability needs a root and an object subtree";
         return r;
     }

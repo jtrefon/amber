@@ -21,11 +21,21 @@ namespace tui {
 // streaming state, persistent (stateful) Agent, and session identity. Windows
 // are switchable IRC-style; the active one is drawn.
 struct Window {
+    enum class Kind { Chat, Resource };
+    Kind kind = Kind::Chat;
+    std::string resource_kind;
+    std::string resource_id;
     // Stable identity: assigned monotonically by the Tui at creation and
     // never reused. AgentEvent::window_id and PendingToolLine::window_id
     // carry this value so events follow their window across windows_ erasures
     // (a vector index would shift when another window is closed).
     size_t id = std::string::npos; // unassigned until the Tui sets it
+    // Stable identity for background report routing. Unlike id, this is
+    // persisted with the workspace and survives a restart; unlike session_id,
+    // it exists before the first save.
+    std::string owner_id;
+    // The project this window belongs to. Empty means the process default.
+    std::string project_root;
     std::string title = "chat";
     std::string session_id;         // set once persisted / loaded
     std::atomic<bool> dirty{false}; // has unsaved changes since last save

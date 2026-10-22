@@ -292,6 +292,12 @@ std::string mode_prompt(agent::AgentMode mode) {
     return "";
 }
 
+void Agent::set_project_root(std::string root) {
+    project_root_ = std::move(root);
+    workspace_note_ = worktree_session_note(workspace_root_.empty() ? Workspace::project_root()
+                                                                    : workspace_root_);
+}
+
 void Agent::set_workspace_root(std::string root) {
     workspace_root_ = std::move(root);
     workspace_note_ = worktree_session_note(workspace_root_.empty() ? Workspace::project_root()
@@ -694,8 +700,10 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
+    scope.project_root = project_root_.empty() ? nullptr : &project_root_;
     scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
     scope.config = &cfg_;
+    scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
     ScopedRunScope scope_guard(scope);
 
     // Snapshot BEFORE compression — immutable, never mutate live stack.
@@ -1361,8 +1369,10 @@ std::string Agent::run(const std::string& user_prompt) {
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
     scope.activated = &activated_skills_;
+    scope.project_root = project_root_.empty() ? nullptr : &project_root_;
     scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
     scope.config = &cfg_;
+    scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
     ScopedRunScope scope_guard(scope);
     open_turn(user_prompt);
 

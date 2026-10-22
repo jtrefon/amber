@@ -62,15 +62,8 @@ the core.
   "main": "cdp-plugin",
   "settings": { "endpoint": "ws://127.0.0.1:9222" },
   "completion": {
-    "cdp": {
-      "action": "plugin.cdp",
-      "help": "one-line drawer description",
-      "man": "Manual page: use case, usage, examples.",
-      "children": {
-        "navigate": { "action": "plugin.cdp.navigate",
-                      "help": "…", "man": "…" }
-      }
-    }
+    "navigate": { "action": "plugin.cdp.navigate",
+                  "help": "…", "man": "…" }
   },
   "tools": [
     { "name": "navigate", "description": "…",
@@ -81,15 +74,15 @@ the core.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
-| `id` | yes | Slug, `[a-z0-9_]+`, used for the directory name, tool prefix and namespace root. |
+| `id` | yes | Slug, `[a-z0-9_]+`, used for the directory name, tool prefix and `/plugin/<id>` workspace. |
 | `name` | yes | Display name. |
 | `version` | yes | Semver, e.g. `1.2.0`. Used for package management. |
 | `protocol_version` | yes | Integer. Harness rejects plugins with a different value (`incompatible`). |
 | `author` / `url` / `license` | no | Attribution metadata. |
 | `description` | yes | Prompt advertisement: how/when to use the plugin's tools. Rendered into the agent's system prompt while enabled. |
 | `main` | yes | Executable path relative to the plugin directory. |
-| `settings` | no | Default key/value settings; overridden via `/set plugin settings <id> <key>=<value>` and persisted next to the manifest. |
-| `completion` | no | A completions.json subtree (same node shape: `action`, `help`, `man`, `children`, `choices`, `range`). Merged into the command tree on enable. The `action` paths use the `plugin.<id>…` namespace. |
+| `settings` | no | Default key/value settings; exposed through `/get plugin settings <id> <key>` and `/set plugin settings <id> <key> <value>`, persisted next to the manifest. |
+| `completion` | no | A completions.json subtree (same node shape: `action`, `help`, `man`, `children`, `choices`, `range`). Mounted under `/plugin/<id>` on enable; it does not name a root. The `action` paths use the `plugin.<id>…` namespace. |
 | `tools` | no | Tool definitions. Each: `name` (registered as `plugin_<id>_<name>`), `description` (agent-facing), `schema` (JSON Schema object for `parameters`). |
 
 ## 3. Protocol (JSON-RPC 2.0, newline-delimited, UTF-8)

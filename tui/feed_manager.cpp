@@ -258,13 +258,13 @@ void FeedManager::refresh_job_feed() {
     nlohmann::json subtree = nlohmann::json::object();
     for (const auto& j : tui_.jobs_.list()) {
         std::string id = j.id;
-        nlohmann::json& kill_leaf = subtree["job"]["children"]["kill"]["children"][id];
-        kill_leaf["action"] = "core.job.kill." + id;
-        kill_leaf["help"] = tui::job_state_name(j.state);
+        nlohmann::json& stop_leaf = subtree["job"]["children"]["stop"]["children"][id];
+        stop_leaf["action"] = "core.job.stop." + id;
+        stop_leaf["help"] = tui::job_state_name(j.state);
         nlohmann::json& read_leaf = subtree["job"]["children"]["read"]["children"][id];
         read_leaf["action"] = "core.job.read." + id;
         read_leaf["help"] = tui::job_state_name(j.state);
-        tui_.register_action("core.job.kill." + id,
+        tui_.register_action("core.job.stop." + id,
                              [this, id](const std::string&) { tui_.job_kill(id); });
         tui_.register_action("core.job.read." + id,
                              [this, id](const std::string&) { tui_.job_read(id); });

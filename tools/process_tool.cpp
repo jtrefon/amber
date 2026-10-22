@@ -2,6 +2,7 @@
 #include "agent/tool.h"
 #include "agent/tools.h"
 #include "agent/job.h"
+#include "agent/run_scope.h"
 
 #include <sstream>
 #include <string>
@@ -112,7 +113,15 @@ public:
         long hard = static_cast<long>(read_int(a, "timeout", 600));
         long idle = static_cast<long>(read_int(a, "idle_timeout", 30));
         std::string cwd = read_string(a, "cwd", "");
-        std::string id = jobs_.start(cmd, cwd, hard, idle);
+        std::string owner;
+        if (const auto* scope = current_run_scope();
+            scope && scope->leaf.owner_id && !scope->leaf.owner_id->empty())
+            owner = *scope->leaf.owner_id;
+        std::string label = cmd.size() > 80 ? cmd.substr(0, 77) + "..." : cmd;
+        JobOrigin origin;
+        origin.owner_id = std::move(owner);
+        origin.label = std::move(label);
+        std::string id = jobs_.start(cmd, cwd, hard, idle, std::move(origin));
         if (id.empty()) {
             r.ok = false;
             r.error = "failed to start background process";

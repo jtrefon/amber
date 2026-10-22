@@ -20,15 +20,16 @@ void bind_handler(const agent::CommandRegistry::Entry& entry, nlohmann::json& no
                   const std::string& path, ActionRegistry& actions,
                   const std::function<const Entries&()>& entries,
                   const std::function<void(const std::string&)>& output) {
-    const std::string root = entry.spec.root;
-    // The root binds under its own name (a namespace whose arguments are not
-    // child commands); every other leaf uses its dotted path.
+    const std::string owner = entry.owner;
+    const std::string name = entry.spec.name;
+    // The workspace node binds under its own name (a namespace whose arguments
+    // are not child commands); every other leaf uses its dotted path.
     const std::string action =
-        path.empty() ? "plugin." + entry.owner + "." + root : "plugin." + entry.owner + "." + path;
+        path.empty() ? "plugin." + owner + "." + name : "plugin." + owner + "." + path;
     node["action"] = action;
-    actions.register_action(action, [root, path, entries, output](const std::string& arg) {
+    actions.register_action(action, [owner, name, path, entries, output](const std::string& arg) {
         for (const auto& live : entries()) {
-            if (live.spec.root != root)
+            if (live.owner != owner || live.spec.name != name)
                 continue;
             auto h = live.spec.handlers.find(path);
             if (h == live.spec.handlers.end())
@@ -38,7 +39,9 @@ void bind_handler(const agent::CommandRegistry::Entry& entry, nlohmann::json& no
                 output(out);
             return;
         }
-        output("/" + root + ": command unavailable");
+        const std::string target =
+            name == owner ? "/plugin " + owner : "/plugin " + owner + " " + name;
+        output(target + ": command unavailable");
     });
 }
 
@@ -90,8 +93,15 @@ std::size_t install_plugin_commands(const std::function<const Entries&()>& entri
 
         bound += bind_leaves(entry, node["children"], "", actions, entries, output);
 
+        // The host owns the mount: a plugin never names a root. A command
+        // whose spec.name equals its plugin id mounts at the workspace
+        // itself; a second namespace from the same plugin hangs beneath it.
         nlohmann::json merge = nlohmann::json::object();
-        merge[entry.spec.root] = std::move(node);
+        nlohmann::json& workspace = merge["plugin"]["children"][entry.owner];
+        if (entry.spec.name == entry.owner)
+            workspace = std::move(node);
+        else
+            workspace["children"][entry.spec.name] = std::move(node);
         settings.merge_completions_json(merge);
     }
     return bound;

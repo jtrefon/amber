@@ -312,6 +312,8 @@ json WorkspaceState::to_json() const {
         for (const auto& h : w.prompt_history)
             ph.push_back(h);
         arr.push_back({{"session_id", w.session_id},
+                       {"owner_id", w.owner_id},
+                       {"project_root", w.project_root},
                        {"title", w.title},
                        {"prompt_history", ph},
                        {"root", w.root},
@@ -328,6 +330,8 @@ WorkspaceState WorkspaceState::from_json(const json& j) {
     for (const auto& e : j.value("windows", json::array())) {
         WindowEntry we;
         we.session_id = e.value("session_id", "");
+        we.owner_id = e.value("owner_id", "");
+        we.project_root = e.value("project_root", "");
         we.title = e.value("title", "");
         for (const auto& h : e.value("prompt_history", json::array()))
             we.prompt_history.push_back(h.get<std::string>());

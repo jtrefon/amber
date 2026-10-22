@@ -42,9 +42,11 @@ StatusRegistry core_registry() {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     auto search_backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services(tools, prompts, registry, panels, wallets, search_backends, bus,
                             commands);
+    services.set_settings(settings);
     services.set_owner("core");
     for (auto& capability : core_status_capabilities()) {
         InstallResult r = capability->install(services);
@@ -137,7 +139,7 @@ TEST(core_segments_render_the_expected_bar) {
     auto registry = core_registry();
     auto out = registry.render(base_snapshot());
 
-    ASSERT_EQ(text_of(out, "window"), std::string("[2/3]"));
+    ASSERT_EQ(text_of(out, "window"), std::string("[s2/3]"));
     // One cell: the provider is INSIDE it, separated by "|". "kilo-auto" is the
     // model id's VENDOR segment, so the bar naming no provider made it read as
     // if the vendor were the provider.
@@ -188,6 +190,7 @@ TEST(core_segments_drop_the_transients_before_the_token_meter) {
     s.scroll_mode = true;
     s.scroll_pct = 42;
     s.running_jobs = 1;
+    s.running_tool = "search";
     auto out = registry.render(s);
     ASSERT(drop_of(out, "lag") > drop_of(out, "tps"));
     ASSERT(drop_of(out, "tps") > drop_of(out, "position"));
@@ -309,17 +312,27 @@ TEST(core_segments_omit_what_is_not_known) {
     ASSERT_TRUE(text_of(out, "mcp").empty());
 }
 
-TEST(core_segments_show_one_job_singular_and_seconds) {
+TEST(core_segments_show_jobs_and_agents_as_separate_cells) {
     auto registry = core_registry();
     StatusSnapshot one = base_snapshot();
     one.running_jobs = 1;
-    one.job_seconds_left = 42;
-    ASSERT_EQ(text_of(registry.render(one), "activity"), std::string("  1 job 42s"));
+    one.subagents_available = true;
+    one.active_agents = 1;
+    one.max_agents = 2;
+    auto out = registry.render(one);
+    ASSERT_EQ(text_of(out, "jobs"), std::string("[j1]"));
+    ASSERT_EQ(text_of(out, "agents"), std::string("[a1/2]"));
+    ASSERT_TRUE(text_of(out, "activity").empty());
 
     StatusSnapshot many = base_snapshot();
     many.running_jobs = 3;
-    many.job_seconds_left = -1;
-    ASSERT_EQ(text_of(registry.render(many), "activity"), std::string("  3 jobs"));
+    many.subagents_available = true;
+    many.active_agents = 1;
+    many.max_agents = 4;
+    many.waiting_agents = 2;
+    out = registry.render(many);
+    ASSERT_EQ(text_of(out, "jobs"), std::string("[j3]"));
+    ASSERT_EQ(text_of(out, "agents"), std::string("[a1/4+2]"));
 }
 
 TEST(core_segments_prefer_a_running_tool_over_idle) {
@@ -436,9 +449,11 @@ TEST(panel_capability_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     auto search_backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
                             commands);
+    services.set_settings(settings);
     services.set_owner("gemini");
 
     PanelCapability cap(PanelSpec{
@@ -598,9 +613,11 @@ TEST(status_segment_capability_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     auto search_backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
                             commands);
+    services.set_settings(settings);
     services.set_owner("gemini");
 
     StatusSegmentCapability cap("balance", 850, 4, [](const StatusSnapshot&) {

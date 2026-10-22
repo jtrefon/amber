@@ -118,6 +118,50 @@ bool RunRegistry::has_pending(size_t window_id) const {
     return !it->second->pending.empty();
 }
 
+void RunRegistry::register_owner(std::string owner_id, size_t window_id) {
+    if (owner_id.empty())
+        return;
+    std::scoped_lock lk(map_mtx_);
+    owners_[std::move(owner_id)] = window_id;
+}
+
+void RunRegistry::enqueue_report(const std::string& owner_id, PendingReport report) {
+    // Do not resurrect a slot for a window that has already closed: a late
+    // report is still in the plugin store, but the host has no window to wake.
+    std::scoped_lock lk(map_mtx_);
+    auto owner = owners_.find(owner_id);
+    if (owner == owners_.end())
+        return;
+    auto it = slots_.find(owner->second);
+    if (it == slots_.end())
+        return;
+    std::scoped_lock slk(it->second->mtx);
+    it->second->reports.push_back(std::move(report));
+}
+
+std::optional<PendingReport> RunRegistry::pop_report(size_t window_id) {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return std::nullopt;
+    RunSlot& s = *it->second;
+    std::scoped_lock slk(s.mtx);
+    if (s.reports.empty())
+        return std::nullopt;
+    PendingReport out = std::move(s.reports.front());
+    s.reports.pop_front();
+    return out;
+}
+
+bool RunRegistry::has_pending_report(size_t window_id) const {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return false;
+    std::scoped_lock slk(it->second->mtx);
+    return !it->second->reports.empty();
+}
+
 void RunRegistry::erase(size_t window_id) {
     // busy==false does not mean the thread has returned — the worker clears
     // its flag as its last slot access, then unwinds. A joinable thread here
@@ -136,6 +180,12 @@ void RunRegistry::erase(size_t window_id) {
     if (t.joinable())
         t.join();
     std::scoped_lock lk(map_mtx_);
+    for (auto it = owners_.begin(); it != owners_.end();) {
+        if (it->second == window_id)
+            it = owners_.erase(it);
+        else
+            ++it;
+    }
     slots_.erase(window_id);
 }
 

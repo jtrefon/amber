@@ -113,9 +113,11 @@ LeaveOutcome prepare_leave(const agent::WorktreeStatus& status, const std::strin
 // for an explicit request (window creation), where the user is waiting for the
 // window itself. Everything a restart needs happens in start_workspace_pass.
 void Tui::prepare_window_workspace(Window& w, const std::string& requested_name) {
-    if (!cfg_.worktree_auto)
+    if (!cfg_.worktree_auto && requested_name.empty())
         return;
-    const std::string project = agent::Workspace::project_root();
+    const std::string project =
+        w.project_root.empty() ? agent::Workspace::project_root() : w.project_root;
+    agent::ScopedProjectRoot project_guard(project);
     if (!agent::is_git_repo(project))
         return; // not a repository: the project root is the only workspace there is
     const std::string base = agent::git_head_oid(project);
@@ -136,7 +138,7 @@ void Tui::prepare_window_workspace(Window& w, const std::string& requested_name)
     w.base_oid = base;
     if (w.agent)
         w.agent->set_workspace_root(path);
-    agent::registry_add(agent::Workspace::state_dir(),
+    agent::registry_add(agent::Workspace::state_dir_for(project),
                         agent::make_worktree_entry(name, path, base, worktree_claim(w)));
     append_line(P_STATUS,
                 "workspace: " + path + " — detached; commit to a branch before closing the window");
@@ -148,7 +150,8 @@ void Tui::prepare_window_workspace(Window& w, const std::string& requested_name)
     refresh_worktree_feed();
 }
 
-void Tui::park_restored_workspace(const std::string& name) {
+void Tui::park_restored_workspace(const std::string& name, const std::string& project) {
+    agent::ScopedProjectRoot project_guard(project);
     agent::park_worktree(agent::Workspace::state_dir(), name);
     pending_workspace_notice_ = "worktree: off — window at the project root; workspace " + name +
                                 " parked (attach with /worktree attach " + name + ")";
@@ -161,7 +164,9 @@ void Tui::queue_restored_rebuild(Window& w, const agent::WorkspaceState::WindowE
     // knows where the window last stopped; the workspace file only knows where
     // the worktree was created.
     std::string base = entry.head_oid.empty() ? entry.base_oid : entry.head_oid;
-    for (const auto& known : agent::load_worktrees(agent::Workspace::state_dir()))
+    const std::string project =
+        entry.project_root.empty() ? agent::Workspace::project_root() : entry.project_root;
+    for (const auto& known : agent::load_worktrees(agent::Workspace::state_dir_for(project)))
         if (known.path == entry.root && !known.head_oid.empty())
             base = known.head_oid;
     if (base.empty()) {
@@ -170,13 +175,14 @@ void Tui::queue_restored_rebuild(Window& w, const agent::WorkspaceState::WindowE
         return;
     }
     pending_rebuild_.push_back(
-        {w.id, name, base, join(agent::worktree_base_dir(agent::Workspace::project_root()), name)});
+        {w.id, name, base, join(agent::worktree_base_dir(project), name), project});
 }
 
 bool Tui::claim_restored_workspace(Window& w, const std::string& name,
                                    const std::string& worktree) {
     if (worktree.empty())
         return true;
+    agent::ScopedProjectRoot project_guard(w.project_root);
     std::string err;
     if (agent::claim_worktree(agent::Workspace::state_dir(), name, worktree_claim(w),
                               live_worktree_claims(), err))
@@ -196,7 +202,7 @@ void Tui::adopt_recorded_workspace(Window& w, const agent::WorkspaceState::Windo
     // an explicit `/worktree attach`.
     if (!cfg_.worktree_auto) {
         if (!entry.worktree.empty())
-            park_restored_workspace(name);
+            park_restored_workspace(name, entry.project_root);
         return;
     }
     if (!fs::exists(entry.root)) {
@@ -223,19 +229,43 @@ void Tui::adopt_recorded_workspace(Window& w, const agent::WorkspaceState::Windo
 }
 
 void Tui::start_workspace_pass() {
-    agent::WorkspacePass pass;
-    pass.project = agent::Workspace::project_root();
-    pass.state_dir = agent::Workspace::state_dir();
-    pass.live_sessions = live_worktree_claims();
-    pass.live_paths = live_worktree_paths();
+    std::set<std::string> projects;
+    projects.insert(agent::Workspace::project_root());
+    for (const auto& window : window_manager_->all()) {
+        if (window->kind == Window::Kind::Resource)
+            continue;
+        projects.insert(window->project_root.empty() ? agent::Workspace::project_root()
+                                                     : window->project_root);
+    }
     for (const auto& pending : pending_rebuild_)
-        pass.rebuilds.push_back({pending.window_id, pending.name, pending.base, pending.path});
+        projects.insert(pending.project.empty() ? agent::Workspace::project_root()
+                                                : pending.project);
+
+    std::vector<agent::WorkspacePass> passes;
+    for (const auto& project : projects) {
+        agent::WorkspacePass pass;
+        pass.project = project;
+        pass.state_dir = agent::Workspace::state_dir_for(project);
+        pass.live_sessions = live_worktree_claims();
+        pass.live_paths = live_worktree_paths();
+        for (const auto& pending : pending_rebuild_)
+            if (pending.project == project ||
+                (pending.project.empty() && project == agent::Workspace::project_root()))
+                pass.rebuilds.push_back(
+                    {pending.window_id, pending.name, pending.base, pending.path});
+        passes.push_back(std::move(pass));
+    }
     pending_rebuild_.clear();
 
     auto poster = ui_poster(); // dropped once destruction begins: never a torn Tui
-    std::thread([this, pass, poster] {
-        const agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
-        poster([this, rebuilt = result.rebuilt, notices = result.notices] {
+    std::thread([this, passes = std::move(passes), poster] {
+        agent::WorkspacePassResult all;
+        for (const auto& pass : passes) {
+            agent::WorkspacePassResult result = agent::run_workspace_pass(pass);
+            all.notices.insert(all.notices.end(), result.notices.begin(), result.notices.end());
+            all.rebuilt.insert(all.rebuilt.end(), result.rebuilt.begin(), result.rebuilt.end());
+        }
+        poster([this, rebuilt = std::move(all.rebuilt), notices = std::move(all.notices)] {
             apply_workspace_result(rebuilt, notices);
         });
     }).detach();
@@ -247,6 +277,7 @@ void Tui::apply_workspace_result(const std::vector<std::pair<size_t, std::string
         Window* w = window_manager_->by_id(entry.first);
         if (!w)
             continue;
+        agent::ScopedProjectRoot project_guard(w->project_root);
         w->root = entry.second;
         // The registry row the background pass just wrote carries no session;
         // claim it now, or the workspace reads as unowned until the next run.

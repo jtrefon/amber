@@ -24,7 +24,10 @@ class WindowManager {
 public:
     WindowManager(agent::Config& cfg, agent::ToolRegistry& reg,
                   agent::PluginRuntime* plugin_runtime = nullptr);
-    Window& new_window(const std::string& title);
+    Window& new_window(const std::string& title, const std::string& project_root = "");
+    Window& new_resource_window(const std::string& kind, const std::string& id,
+                                const std::string& title);
+    bool focus_resource(const std::string& kind, const std::string& id);
     Window& open_welcome_window();
     Window& ensure_chat_window();
     Window& win();

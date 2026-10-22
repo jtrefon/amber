@@ -251,14 +251,18 @@ TEST(test_complete_nonexistent_namespace) {
 TEST(test_complete_depth1_namespace_matches_at_top) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    // Top-level "compress" command is a root key...
+    // The action root is gone; "session" is the domain and compression is a
+    // child of it.
     auto top = reg.complete("");
-    bool found_compress = false;
+    bool found_session = false;
     for (const auto& s : top)
-        if (s == "compress")
-            found_compress = true;
-    ASSERT(found_compress);
-    // ...and the compression namespace lives under get/set.
+        if (s == "session")
+            found_session = true;
+    ASSERT(found_session);
+    auto session_kids = reg.complete("session");
+    ASSERT(std::find(session_kids.begin(), session_kids.end(), "session.compress") !=
+           session_kids.end());
+    // The compression settings namespace still lives under get/set.
     auto get_kids = reg.complete("get");
     bool found_compression = false;
     for (const auto& s : get_kids)
@@ -824,40 +828,38 @@ TEST(test_bare_slash_drawer_entry_names) {
     ASSERT(has_set);
 }
 
-// ── Regression: first-token partial ("/c") must filter the top-level
-// command list — the drawer entry names feed CommandLine::set_completions,
-// which computes the Tab shadow. Previously the no-space branch treated "/c"
-// as a namespace to resolve exactly (children_of("c") is never indexed), so
-// it returned empty and no shadow appeared for /compress. ──
+// ── Regression: a first-token partial must filter the top-level command
+// list — the drawer entry names feed CommandLine::set_completions, which
+// computes the Tab shadow. ──
 
-TEST(test_partial_first_token_entry_names_include_compress) {
+TEST(test_partial_first_token_entry_names_include_session) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto names = tui::drawer_entry_names("/c", reg);
+    auto names = tui::drawer_entry_names("/se", reg);
     REQUIRE_NONEMPTY(names);
-    bool has_compress = false;
+    bool has_session = false;
     for (const auto& n : names) {
-        if (n == "compress")
-            has_compress = true;
-        if (n == "set") {
-            std::cerr << "FAIL: partial /c must not return non-c* command\n";
+        if (n == "session")
+            has_session = true;
+        if (n == "files") {
+            std::cerr << "FAIL: partial /se must not return non-se* command\n";
             failed++;
             return;
         }
     }
-    ASSERT(has_compress);
+    ASSERT(has_session);
 }
 
-TEST(test_partial_first_token_drawer_rows_include_compress) {
+TEST(test_partial_first_token_drawer_rows_include_session) {
     tui::SettingRegistry reg;
     reg.load_completions_json("completions.json");
-    auto rows = tui::drawer_rows("/c", reg, "");
+    auto rows = tui::drawer_rows("/se", reg, "");
     REQUIRE_NONEMPTY(rows);
-    bool saw_compress = false;
+    bool saw_session = false;
     for (const auto& r : rows)
-        if (r.find("compress") != std::string::npos)
-            saw_compress = true;
-    ASSERT(saw_compress);
+        if (r.find("session") != std::string::npos)
+            saw_session = true;
+    ASSERT(saw_session);
 }
 
 // ── Regression guard: an exact top-level command that is ALSO a namespace
@@ -902,14 +904,16 @@ TEST(test_json_documents_plugin_surface) {
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
 
-    // The plugin control surface is get/set only: the root /plugin namespace
-    // is retired, its verbs served by /get plugin and /set plugin.
+    // Administration is get/set; /plugin is the extension workspace, not a
+    // place to install or enable a plugin.
     auto top = reg.complete("");
     bool has_root_plugin = false;
     for (const auto& k : top)
         if (k == "plugin")
             has_root_plugin = true;
-    ASSERT(!has_root_plugin);
+    ASSERT(has_root_plugin);
+    ASSERT(!reg.help_for("plugin").empty());
+    ASSERT(reg.children_of("plugin").empty());
 
     auto get_kids = reg.children_of("get.plugin");
     bool saw_list = false, saw_info = false, saw_settings = false;
@@ -1075,8 +1079,7 @@ TEST(test_worktree_command_tree_nodes) {
     reg.load_completions_json("completions.json");
     auto verbs = reg.children_of("worktree");
     ASSERT_EQ(verbs.size(), 8u);
-    const char* expected[] = {"new",    "attach", "detach", "remove",
-                              "status", "list",   "prune",  "main"};
+    const char* expected[] = {"new", "attach", "detach", "remove", "show", "list", "prune", "main"};
     for (const char* verb : expected) {
         ASSERT(std::find(verbs.begin(), verbs.end(), std::string(verb)) != verbs.end());
         const std::string path = std::string("worktree.") + verb;
@@ -1518,6 +1521,157 @@ TEST(test_dynamic_merge_is_additive_under_a_documented_root) {
     ASSERT_EQ(reg.help_for("set.model"), help);
 }
 
+// ── Command resolver: canonical roots, legacy paths, aliases and shorts ──
+
+TEST(test_command_tree_has_domain_roots_not_action_roots) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto top = reg.complete("");
+    for (const char* gone : {"new", "close", "stop", "compress", "save", "sessions"}) {
+        ASSERT(std::find(top.begin(), top.end(), std::string(gone)) == top.end());
+    }
+    for (const char* present : {"session", "window", "job", "worktree"}) {
+        ASSERT(std::find(top.begin(), top.end(), std::string(present)) != top.end());
+    }
+}
+
+TEST(test_resolver_legacy_action_roots_expand_without_tree_roots) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    auto m = reg.resolve_command({"new"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 1u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.reset"));
+
+    m = reg.resolve_command({"save", "title"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 1u); // the legacy token is all that was consumed
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.save"));
+
+    m = reg.resolve_command({"sessions"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.list"));
+
+    m = reg.resolve_command({"close"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.window.close"));
+}
+
+TEST(test_resolver_glued_shorts_and_path_aliases) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    auto m = reg.resolve_command({"wc"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 1u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.window.close"));
+
+    m = reg.resolve_command({"w", "c"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 2u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.window.close"));
+
+    m = reg.resolve_command({"win"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.window"));
+
+    m = reg.resolve_command({"q"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.quit"));
+
+    m = reg.resolve_command({"sl"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.list"));
+
+    m = reg.resolve_command({"job", "kill", "7"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 2u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.job.stop"));
+
+    m = reg.resolve_command({"session", "delete", "id"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.remove"));
+
+    m = reg.resolve_command({"worktree", "status"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.worktree.status"));
+}
+
+TEST(test_resolver_reports_ambiguous_shortcut) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    auto m = reg.resolve_command({"w"});
+    ASSERT(!m.node);
+    ASSERT(m.ambiguous);
+    ASSERT(std::find(m.candidates.begin(), m.candidates.end(), "window") != m.candidates.end());
+    ASSERT(std::find(m.candidates.begin(), m.candidates.end(), "worktree") != m.candidates.end());
+}
+
+TEST(test_resolver_unique_prefix_and_glued_set_path) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    auto m = reg.resolve_command({"sess"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session"));
+
+    m = reg.resolve_command({"smc"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(),
+              std::string("core.config.set.model.context"));
+}
+
+TEST(test_short_index_and_collisions) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT_EQ(reg.shortcut_collisions(), 0u);
+    ASSERT_EQ(reg.short_for("window"), std::string("w"));
+    ASSERT_EQ(reg.short_for("session.list"), std::string("l"));
+    ASSERT_EQ(reg.short_for("missing"), std::string());
+}
+
+TEST(test_drawer_root_rows_show_shortcut_hints) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    auto rows = tui::drawer_rows("/", reg, "");
+    bool window_hint = false;
+    bool session_hint = false;
+    for (const auto& r : rows) {
+        if (r.find("window (w)") != std::string::npos)
+            window_hint = true;
+        if (r.find("session (se)") != std::string::npos)
+            session_hint = true;
+    }
+    ASSERT(window_hint);
+    ASSERT(session_hint);
+}
+
+TEST(test_completion_rows_do_not_duplicate_aliases) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto ctx = tui::completion_context::for_input("", reg);
+    for (const auto& row : ctx.rows) {
+        ASSERT(row != "win");
+        ASSERT(row != "exit");
+        ASSERT(row != "q");
+    }
+}
+
+TEST(test_work_board_and_viewer_commands) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    auto work = reg.resolve_command({"work"});
+    ASSERT(work.node);
+    ASSERT_EQ(work.node->at("action").get<std::string>(), std::string("core.work"));
+    auto attach = reg.resolve_command({"window", "attach", "job", "3"});
+    ASSERT(attach.node);
+    ASSERT_EQ(attach.consumed, 2u);
+    ASSERT_EQ(attach.node->at("action").get<std::string>(), std::string("core.window.attach"));
+    auto detach = reg.resolve_command({"window", "detach"});
+    ASSERT(detach.node);
+    ASSERT_EQ(detach.node->at("action").get<std::string>(), std::string("core.window.detach"));
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1566,8 +1720,8 @@ int main() {
         test_bare_slash_children_of();
         test_bare_slash_drawer_rows();
         test_bare_slash_drawer_entry_names();
-        test_partial_first_token_entry_names_include_compress();
-        test_partial_first_token_drawer_rows_include_compress();
+        test_partial_first_token_entry_names_include_session();
+        test_partial_first_token_drawer_rows_include_session();
         test_exact_top_level_namespace_still_descends();
         test_json_documents_skills_under_set_and_get();
         test_json_documents_plugin_surface();
@@ -1594,6 +1748,15 @@ int main() {
         test_completion_context_non_slash_uses_top_level_names();
         test_top_level_completion_lists_get_and_set();
         test_feeds_never_clobber_documented_verbs();
+        test_short_index_and_collisions();
+        test_work_board_and_viewer_commands();
+        test_drawer_root_rows_show_shortcut_hints();
+        test_completion_rows_do_not_duplicate_aliases();
+        test_resolver_unique_prefix_and_glued_set_path();
+        test_resolver_reports_ambiguous_shortcut();
+        test_resolver_glued_shorts_and_path_aliases();
+        test_resolver_legacy_action_roots_expand_without_tree_roots();
+        test_command_tree_has_domain_roots_not_action_roots();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;

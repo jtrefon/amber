@@ -319,12 +319,15 @@ struct TestHarness {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> search_backends =
         std::make_shared<SearchBackendRegistry>();
     PluginServices services;
 
     TestHarness()
-        : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {}
+        : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {
+        services.set_settings(settings);
+    }
 };
 
 } // namespace
@@ -335,6 +338,83 @@ TEST(capability_install_reports_the_contribution) {
     InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(r.contribution.name, std::string("greet"));
+}
+
+TEST(settings_registry_validates_lists_and_unwinds) {
+    SettingsRegistry registry;
+    PluginSettingSpec choice;
+    choice.key = "mode";
+    choice.help = "Mode";
+    choice.type = "choice";
+    choice.choices = {"on", "off"};
+    choice.value = "on";
+    PluginSettingSpec flag;
+    flag.key = "gate";
+    flag.help = "Gate";
+    flag.type = "bool";
+    flag.value = "on";
+    PluginSettingSpec count;
+    count.key = "count";
+    count.help = "Count";
+    count.type = "int";
+    count.value = "3";
+
+    const Contribution contribution = registry.add("acme", {choice, flag, count});
+    ASSERT_EQ(registry.size(), 3u);
+    ASSERT_EQ(registry.all().size(), 3u);
+    ASSERT_EQ(registry.items().size(), 3u);
+    ASSERT_EQ(registry.get("acme", "mode"), std::string("on"));
+    ASSERT_EQ(registry.get("other", "mode"), std::string());
+    ASSERT_FALSE(registry.set("acme", "mode", "maybe"));
+    ASSERT_FALSE(registry.set("acme", "gate", "maybe"));
+    ASSERT_TRUE(registry.set("acme", "gate", "off"));
+    ASSERT_EQ(registry.get("acme", "gate"), std::string("off"));
+    ASSERT_FALSE(registry.set("acme", "missing", "x"));
+    PluginSettingSpec reject;
+    reject.key = "reject";
+    reject.type = "string";
+    reject.set = [](const std::string&) { return false; };
+    registry.add("acme", {reject});
+    ASSERT_FALSE(registry.set("acme", "reject", "x"));
+    ASSERT_TRUE(registry.find("acme", "count") != nullptr);
+    ASSERT_TRUE(registry.find("other", "count") == nullptr);
+
+    SettingsCapability empty({});
+    TestHarness h;
+    InstallResult declined = empty.install(h.services);
+    ASSERT(declined.declined);
+
+    contribution.remove();
+    ASSERT_EQ(registry.size(), 0u);
+}
+
+TEST(settings_capability_round_trips_and_unwinds) {
+    TestHarness h;
+    h.services.set_owner("watch");
+
+    std::string observer = "on";
+    PluginSettingSpec spec;
+    spec.key = "observer";
+    spec.help = "Observer switch";
+    spec.type = "choice";
+    spec.choices = {"on", "off"};
+    spec.get = [&observer] { return observer; };
+    spec.set = [&observer](const std::string& value) {
+        observer = value;
+        return true;
+    };
+    SettingsCapability cap({spec});
+    InstallResult r = cap.install(h.services);
+    ASSERT(r.ok);
+    ASSERT_EQ(h.settings.size(), 1u);
+    ASSERT_EQ(h.settings.get("watch", "observer"), std::string("on"));
+    ASSERT_TRUE(h.settings.set("watch", "observer", "off"));
+    ASSERT_EQ(observer, std::string("off"));
+    ASSERT_FALSE(h.settings.set("watch", "observer", "invalid"));
+    ASSERT_EQ(h.settings.get("watch", "observer"), std::string("off"));
+
+    r.contribution.remove();
+    ASSERT_EQ(h.settings.size(), 0u);
 }
 
 TEST(capability_install_can_fail_with_a_reason) {

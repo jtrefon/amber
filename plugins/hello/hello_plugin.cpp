@@ -14,7 +14,7 @@ std::vector<std::unique_ptr<Capability>> HelloPlugin::capabilities() {
     // The namespace: one root ("hello") and its child nodes, in the same shape
     // completions.json uses. The host merges this into the command tree.
     CommandSpec spec;
-    spec.root = "hello";
+    spec.name = "hello";
     spec.help = "Say hello (example plugin command)";
     spec.man = "Usage: /hello greet <name>, returns a greeting string.";
     spec.subtree = nlohmann::json::parse(R"({

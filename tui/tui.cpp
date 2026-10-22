@@ -26,6 +26,8 @@
 #include <agent/data_path.h>
 #include <agent/plugin.h>
 
+#include "plugins/watch/watch_plugin.h"
+
 #include <array>
 #include <cstdio>
 #include <memory>
@@ -192,6 +194,12 @@ void Tui::wire_plugin_runtime() {
             return true;
         });
     plugin_runtime_.attach_ui_services(ui_services_.get());
+    // Subscribe before activation: the watch plugin can finish a short watch
+    // during startup. The handler only queues (thread-safe) and posts a
+    // repaint; the idle tick starts the report's turn.
+    watch_report_sub_ = agent::Events(plugin_runtime_.events())
+                            .subscribe<agent::WatchReportEvent>(
+                                [this](const agent::WatchReportEvent& ev) { on_watch_report(ev); });
     plugin_runtime_.start();
     feed_manager_ = std::make_unique<FeedManager>(*this);
 }
@@ -236,15 +244,38 @@ void Tui::restore_workspace() {
         return;
     }
     for (const auto& we : ws.windows) {
-        Window& w = new_window(we.title.empty() ? "chat" : we.title, /*prepare_workspace=*/false);
+        if (!we.project_root.empty()) {
+            std::error_code ec;
+            if (!std::filesystem::is_directory(we.project_root, ec)) {
+                pending_workspace_notice_ =
+                    "project no longer exists; window not restored: " + we.project_root;
+                continue;
+            }
+        }
+        Window& w = new_window(we.title.empty() ? "chat" : we.title, /*prepare_workspace=*/false,
+                               "", we.project_root);
         w.session_id = we.session_id;
+        // The generated owner id is for this process; a saved owner id is the
+        // one watches from the previous session were routed to.
+        if (!we.owner_id.empty()) {
+            w.owner_id = we.owner_id;
+            w.agent->set_owner_id(w.owner_id);
+            runs_.register_owner(w.owner_id, w.id);
+        }
         w.prompt_history = we.prompt_history;
         w.history_pos = w.prompt_history.size();
         adopt_recorded_workspace(w, we);
     }
+    if (window_manager_->count() == 0) {
+        open_welcome_window();
+        return;
+    }
     if (ws.active < window_manager_->count())
         window_manager_->set_active(ws.active);
     lazy_load_active();
+    // Pending reports are re-emitted only after the windows exist and their
+    // owner ids are registered; the event handler routes by owner id.
+    reemit_watch_reports();
     // Restored windows may have parked or re-claimed names after the feeds were
     // first merged; the tree must match the registry the user is looking at.
     refresh_worktree_feed();
@@ -254,6 +285,7 @@ void Tui::restore_workspace() {
 }
 
 Tui::~Tui() {
+    watch_report_sub_.release();
     // Detached catalog workers post results through ui_poster(); closing the
     // gate under the queue lock guarantees no post can interleave with the
     // member teardown below. The queue itself is shared, so a late worker
@@ -277,8 +309,17 @@ Tui::~Tui() {
 }
 
 Window& Tui::new_window(const std::string& title, bool prepare_workspace,
-                        const std::string& workspace_name) {
-    Window& w = window_manager_->new_window(title);
+                        const std::string& workspace_name, const std::string& project_root) {
+    std::string project = project_root;
+    if (project.empty() && window_manager_->count() > 0)
+        project = win().project_root;
+    Window& w = window_manager_->new_window(title, project);
+    // Register before the agent can start a watch: the report handler resolves
+    // an owner id through this map, not through the UI-thread window list. The
+    // slot must exist too: a re-emitted report can arrive before this window's
+    // first turn.
+    runs_.register_owner(w.owner_id, w.id);
+    (void)runs_.slot(w.id);
     if (prepare_workspace)
         prepare_window_workspace(w, workspace_name);
     return w;
@@ -327,7 +368,8 @@ void Tui::send_async(const std::string& raw_prompt) {
     send_async_to(ensure_chat_window(), raw_prompt);
 }
 
-void Tui::send_async_to(Window& w, const std::string& raw_prompt) {
+void Tui::send_async_to(Window& w, const std::string& raw_prompt, bool harness) {
+    agent::ScopedProjectRoot project_guard(w.project_root);
     // Per-window gate: a busy window queues its own prompt; sibling windows
     // dispatch immediately — "agent is running" is a per-window fact.
     if (runs_.busy(w.id)) {
@@ -341,7 +383,7 @@ void Tui::send_async_to(Window& w, const std::string& raw_prompt) {
     slot->busy = true;
     render_engine_->mark_working();
 
-    append_line_to(w, P_USER, "> " + raw_prompt);
+    append_line_to(w, harness ? P_STATUS : P_USER, harness ? raw_prompt : "> " + raw_prompt);
     w.reason.begin();
     render_engine_->set_show_reasoning(cfg_.show_reasoning);
     w.stream_ts = timestamp();
@@ -364,21 +406,60 @@ void Tui::send_async_to(Window& w, const std::string& raw_prompt) {
 // Dispatch prompts queued while their window's agent was busy. Runs on the
 // UI thread each idle tick; a window only dequeues when its own slot is
 // free, so queued prompts never jump the line onto a running window.
-void Tui::drain_pending_prompts() {
+void Tui::drain_pending_prompts(bool input_empty) {
     for (auto& w : window_manager_->all()) {
         if (!w || !w->agent || runs_.busy(w->id))
             continue;
-        auto p = runs_.pop_pending(w->id);
-        if (p)
+        // A user prompt always beats a report.
+        if (auto p = runs_.pop_pending(w->id)) {
             send_async_to(*w, *p);
+            continue;
+        }
+        // A report never starts underneath an unsent draft in the ACTIVE
+        // window. Inactive windows have no draft in front of the user, so their
+        // reports may wake them without stealing focus.
+        if (!input_empty && w->id == win().id)
+            continue;
+        if (auto r = runs_.pop_report(w->id)) {
+            // The host has accepted the report into a turn: mark it delivered
+            // before starting, so a crash cannot re-emit it after it ran.
+            ack_watch_report(r->watch_id);
+            send_async_to(*w, r->prompt, /*harness=*/true);
+        }
     }
 }
 
+void Tui::on_watch_report(const agent::WatchReportEvent& ev) {
+    // Runs on the watch worker. Only thread-safe queues and a posted repaint
+    // happen here; the UI thread owns the run slot. Owner ids are stable
+    // workspace identities, not the in-process window index.
+    std::string prompt = "[harness] background watch " + ev.watch_id + " " + ev.state + ": " +
+                         ev.headline + " — use `watch report " + ev.watch_id +
+                         "` for the evidence and the artifact path.";
+    runs_.enqueue_report(ev.owner_id, {std::move(prompt), ev.watch_id, ev.report_id});
+    post_to_ui_thread([this] {
+        if (render_engine_)
+            render_engine_->draw();
+    });
+}
+
+void Tui::ack_watch_report(const std::string& watch_id) {
+    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch")))
+        watch->ack(watch_id);
+}
+
+void Tui::reemit_watch_reports() {
+    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch")))
+        watch->reemit_pending();
+}
+
 void Tui::run_command_async(const std::string& label, const std::string& cmd) {
+    agent::ScopedProjectRoot project_guard(win().project_root);
     // The job service owns execution: timeout-bounded, output-capped, visible in
     // /jobs and killable. This returns immediately — the UI thread must never
     // wait on a subprocess.
-    std::string id = jobs_.start(cmd, agent::Workspace::project_root(), 60, 30);
+    std::string id = jobs_.start(cmd, agent::Workspace::project_root(), 60, 30,
+                                 agent::JobOrigin{win().owner_id, label});
     if (id.empty()) {
         append_line(P_STATUS, label + ": failed to start: " + cmd);
         return;
@@ -658,7 +739,7 @@ void Tui::idle_tick(bool had_events, CommandLine& cl) {
         }
     }
     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-    drain_pending_prompts();
+    drain_pending_prompts(cl.text().empty());
     if (render_engine_->dirty())
         render_engine_->flush();
 }
@@ -978,6 +1059,11 @@ void Tui::run_prompt_action(const CommandLine::Result& result, CommandLine& cl) 
 
 // Remember the prompt, then run it: a slash command, or an agent turn.
 void Tui::dispatch_prompt(const std::string& text, CommandLine& cl) {
+    if (win().kind == Window::Kind::Resource && !text.empty() && text[0] != '/') {
+        append_line(P_STATUS, "resource view is read-only; /window close to detach");
+        draw();
+        return;
+    }
     auto& ph = win().prompt_history;
     if (!text.empty() && (ph.empty() || ph.back() != text)) {
         ph.push_back(text);
@@ -1004,6 +1090,7 @@ void Tui::show_prompt_popup(CommandLine& cl) {
 
 void Tui::pick_reference_file(CommandLine& cl) {
     namespace fs = std::filesystem;
+    agent::ScopedProjectRoot project_guard(win().project_root);
     const std::string root = agent::Workspace::project_root();
     std::vector<std::string> items;
     for (const auto& e : fs::directory_iterator(root)) {
@@ -1090,6 +1177,7 @@ void Tui::draw() {
     // a window that shows scrollback; this is where every path ends up, so it
     // lands on the first paint that can show it.
     flush_workspace_notice();
+    refresh_active_resource();
     render_engine_->draw();
 }
 void Tui::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
@@ -1105,6 +1193,7 @@ const std::vector<tui::Command>& Tui::commands() {
     return slash_dispatcher_->commands();
 }
 bool Tui::handle_slash(const std::string& line) {
+    agent::ScopedProjectRoot project_guard(win().project_root);
     return slash_dispatcher_->handle_slash(line);
 }
 void Tui::register_action(const std::string& action,
@@ -1180,7 +1269,8 @@ void Tui::notify_from_plugin(agent::UiLevel level, const std::string& message) {
 
 void Tui::post_to_ui_thread(std::function<void()> work) {
     std::scoped_lock lk(ui_posts_->mtx);
-    ui_posts_->queue.push_back(std::move(work));
+    if (ui_posts_->alive)
+        ui_posts_->queue.push_back(std::move(work));
 }
 
 std::function<void(std::function<void()>)> Tui::ui_poster() {

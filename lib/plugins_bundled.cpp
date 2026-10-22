@@ -29,6 +29,7 @@
 #include "plugins/tool_skills/tool_skills_plugin.h"
 #include "plugins/tool_task/tool_task_plugin.h"
 #include "plugins/tool_write/tool_write_plugin.h"
+#include "plugins/watch/watch_plugin.h"
 
 namespace agent {
 
@@ -48,6 +49,11 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // developer guide and arrive the same way when they are built.
     plugins.push_back(std::make_shared<plugins::CodingPlugin>());
     plugins.push_back(std::make_shared<plugins::MetricsPlugin>());
+    // Watch: background command/PR watches with a one-shot read-only observer.
+    // A separate plugin so a user can switch off the observability layer while
+    // keeping the tool set, and so its prompt/status/command surfaces unwind
+    // together.
+    plugins.push_back(std::make_shared<plugins::WatchPlugin>());
     // Interface: the bar's right edge is a registered region, so the clock is
     // a contribution like any other rather than a reservation the renderer
     // makes before it knows what else the bar holds.

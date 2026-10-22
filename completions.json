@@ -7,57 +7,91 @@
    "aliases": [
     "?",
     "h"
-   ]
+   ],
+   "short": "h"
   },
   "settings": {
    "action": "core.settings",
    "help": "Browse settings groups; edit with /set <group>.",
-   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think and worktree. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/."
+   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think and worktree. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/.",
+   "short": "st"
   },
-  "new": {
-   "action": "core.session.reset",
-   "help": "Clear the current conversation and start fresh.",
-   "man": "Resets the current chat window: clears all conversation history, stream buffers, and session-level tool approvals. The next message you send starts a brand new conversation. Use '/window new' if you want to open an additional window instead.",
-   "aliases": [
-    "clear",
-    "reset"
-   ]
-  },
-  "close": {
-   "action": "core.window.close",
-   "help": "Close the current chat window.",
-   "man": "Closes the currently active chat window. If only one window remains it is cleared rather than closed. Unsaved conversation history is lost."
-  },
-  "stop": {
-   "action": "core.stop",
-   "help": "Terminate the running agent and cancel any in-flight tool calls.",
-   "man": "Sends a cancellation signal to the running agent. Any in-flight HTTP request or tool execution is aborted cooperatively. The agent stops sending new tool calls and returns control to the prompt.",
-   "aliases": [
-    "cancel",
-    "kill"
-   ]
-  },
-  "compress": {
-   "action": "core.compress",
-   "help": "Compress conversation history to free context space while preserving task state.",
-   "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation.",
-   "aliases": [
-    "compact"
-   ]
-  },
-  "save": {
-   "action": "core.session.save",
-   "help": "Save the current conversation session to disk.",
-   "man": "Persists the current conversation history and metadata to the session store. Sessions are saved to .amber/sessions/ and can be browsed and reloaded via '/sessions' or '/session load'."
-  },
-  "quit": {
-   "action": "core.quit",
-   "help": "Save all windows and exit.",
-   "man": "Saves all open windows to the session store, cleans up background jobs, and exits the application. Unsaved conversation data is persisted before shutdown.",
-   "aliases": [
-    "exit",
-    "q"
-   ]
+  "session": {
+   "action": "core.session",
+   "help": "Manage saved sessions.",
+   "man": "The session command manages conversation persistence. Sessions are saved to .amber/sessions/ and store the full conversation history plus metadata. Use '/session new' to start fresh, '/session save' to persist, '/session list' to browse, and '/session remove' to delete.",
+   "children": {
+    "new": {
+     "action": "core.session.reset",
+     "help": "Start a fresh conversation.",
+     "man": "Resets the current chat window: clears all conversation history, stream buffers, and session-level tool approvals. The next message you send starts a brand new conversation. Use '/window new' if you want to open an additional window instead.",
+     "aliases": [
+      "clear",
+      "reset"
+     ],
+     "short": "n"
+    },
+    "list": {
+     "action": "core.session.list",
+     "help": "Browse saved sessions in the session browser.",
+     "man": "Opens a session browser dialog showing all saved sessions with their titles, timestamps, and message counts.",
+     "short": "l"
+    },
+    "load": {
+     "action": "core.session.load",
+     "help": "Load a session by ID.",
+     "man": "Restores a previously saved session by its ID, replacing the current conversation.",
+     "short": "ld"
+    },
+    "save": {
+     "action": "core.session.save",
+     "help": "Save the current conversation as a named session.",
+     "man": "Saves the current conversation to the session store with an optional title. Uses '/save' as a shortcut.",
+     "short": "sv"
+    },
+    "remove": {
+     "action": "core.session.remove",
+     "help": "Remove a saved session by ID.",
+     "man": "Permanently removes a saved session from disk after confirmation.",
+     "aliases": [
+      "delete",
+      "rm"
+     ],
+     "short": "rm"
+    },
+    "rename": {
+     "action": "core.session.rename",
+     "help": "Rename a saved session.",
+     "man": "Changes the display title of a saved session without modifying its content.",
+     "short": "rn"
+    },
+    "fork": {
+     "action": "core.session.fork",
+     "help": "Fork this session into a new window.",
+     "man": "Splits the current session: a new window opens with an identical copy of the full conversation history, then both branches continue independently. The shared prefix is preserved so the fork's first request reuses the model's KV cache. Requires the agent to be idle.",
+     "short": "fk"
+    },
+    "stop": {
+     "action": "core.stop",
+     "help": "Terminate the running agent and cancel any in-flight tool calls.",
+     "man": "Sends a cancellation signal to the running agent. Any in-flight HTTP request or tool execution is aborted cooperatively. The agent stops sending new tool calls and returns control to the prompt.",
+     "aliases": [
+      "cancel",
+      "kill"
+     ],
+     "short": "sp"
+    },
+    "compress": {
+     "action": "core.compress",
+     "help": "Compress conversation history to free context space while preserving task state.",
+     "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation.",
+     "aliases": [
+      "compact"
+     ],
+     "short": "cp"
+    }
+   },
+   "short": "se"
   },
   "window": {
    "action": "core.window",
@@ -74,82 +108,111 @@
        "help": "Open a new window on the project root.",
        "man": "Opens a chat window without preparing a git worktree: its tools operate in the project root, as every window did before worktrees existed. Useful for a quick question, or for a window you do not intend to build in."
       }
-     }
+     },
+     "short": "n"
     },
     "close": {
      "action": "core.window.close",
      "help": "Close the current window.",
-     "man": "Closes the active window. The last window is cleared rather than closed. Use '/close' as a shortcut."
+     "man": "Closes the active window. The last window is cleared rather than closed. '/close' remains a legacy alias for this command.",
+     "short": "c"
     },
     "list": {
      "action": "core.window.list",
      "help": "List all open windows.",
-     "man": "Displays a numbered list of all open windows with their titles and session state. Switch to a window by number or clicking."
+     "man": "Displays a numbered list of all open windows with their titles and session state. Switch to a window by number or clicking.",
+     "short": "l"
     },
     "rename": {
      "action": "core.window.rename",
      "help": "Rename the current window.",
-     "man": "Prompts for a new title for the current chat window. The title is displayed in the window tab bar."
+     "man": "Prompts for a new title for the current chat window. The title is displayed in the window tab bar.",
+     "short": "rn"
     },
     "set": {
      "action": "core.window.set",
      "help": "Switch to a window by number (1-based).",
-     "man": "Switches to the window at the given 1-based index as shown by /window list. Example: /window set 2 switches to the second window. Out-of-range and non-numeric values are rejected."
+     "man": "Switches to the window at the given 1-based index as shown by /window list. Example: /window set 2 switches to the second window. Out-of-range and non-numeric values are rejected.",
+     "short": "sw"
+    },
+    "attach": {
+     "action": "core.window.attach",
+     "help": "Open a read-only viewer for a job, agent or watch.",
+     "man": "Usage: /window attach <job|agent|watch> <id>. Closing the viewer detaches it; the resource keeps running. Use the resource command (/job stop, /plugin watch stop) to stop it.",
+     "short": "a"
+    },
+    "detach": {
+     "action": "core.window.detach",
+     "help": "Close the active resource viewer without stopping it.",
+     "man": "Closes a resource viewer and returns to the previous chat window. The job, agent or watch continues; stopping it is an explicit command.",
+     "short": "d"
     }
    },
    "aliases": [
-    "win",
-    "w"
-   ]
+    "win"
+   ],
+   "short": "w"
   },
   "worktree": {
    "action": "core.worktree",
    "help": "Manage this project's workspaces (git worktrees).",
-   "man": "A workspace is a git worktree under $TMPDIR/amber-wt. One window may own a workspace at a time; a second window cannot silently steal it. Commands: '/worktree new [name] [at <ref>]' creates a detached workspace and attaches it to the active window; '/worktree attach <name>' claims an existing one; '/worktree detach' parks the active window's workspace and returns it to the project root; '/worktree remove <name>' removes an unclaimed workspace only when nothing can be lost; '/worktree status' describes the active window's workspace; '/worktree list' shows every registry-owned workspace; '/worktree prune' drops entries whose directory vanished; '/worktree main' returns the active window to the project root, offering to stash or branch where removal would lose work. The attach and remove name lists are live registry leaves, not hardcoded choices. '/set worktree off' makes new windows start at the project root and asks the active window to leave its workspace.",
+   "man": "A workspace is a git worktree under $TMPDIR/amber-wt. One window may own a workspace at a time; a second window cannot silently steal it. Commands: '/worktree new [name] [at <ref>]' creates a detached workspace and attaches it to the active window; '/worktree attach <name>' claims an existing one; '/worktree detach' parks the active window's workspace and returns it to the project root; '/worktree remove <name>' removes an unclaimed workspace only when nothing can be lost; '/worktree show' describes the active window's workspace; '/worktree list' shows every registry-owned workspace; '/worktree prune' drops entries whose directory vanished; '/worktree main' returns the active window to the project root, offering to stash or branch where removal would lose work. The attach and remove name lists are live registry leaves, not hardcoded choices. '/set worktree off' makes new windows start at the project root and asks the active window to leave its workspace.",
    "children": {
     "new": {
      "action": "core.worktree.new",
      "help": "Create a workspace and attach it to this window.",
-     "man": "Creates a DETACHED worktree at the current HEAD (or at the ref after 'at') under $TMPDIR/amber-wt/<project>/<name>, attaches it to the active window, and returns the path. Branch policy belongs to the workflow: create a branch before the first commit. '/worktree new fix-auth' names it; '/worktree new w2 at origin/main' starts it from another ref. An existing workspace of the active window is parked first, never discarded."
+     "man": "Creates a DETACHED worktree at the current HEAD (or at the ref after 'at') under $TMPDIR/amber-wt/<project>/<name>, attaches it to the active window, and returns the path. Branch policy belongs to the workflow: create a branch before the first commit. '/worktree new fix-auth' names it; '/worktree new w2 at origin/main' starts it from another ref. An existing workspace of the active window is parked first, never discarded.",
+     "short": "n"
     },
     "attach": {
      "action": "core.worktree.attach",
      "help": "Attach an existing workspace by name.",
      "man": "Claims a workspace for the active window and points its tools, prompts and status bar at that directory. A workspace another live window owns is refused rather than stolen. The child names under this node are the registry's current workspaces.",
-     "children": {}
+     "children": {},
+     "short": "a"
     },
     "detach": {
      "action": "core.worktree.detach",
      "help": "Park this window's workspace and work in the project root.",
-     "man": "Releases the claim without deleting the directory: the workspace becomes parked (kept, never reaped) and can be attached again by name. The window keeps its conversation and scrollback; only its tool root changes."
+     "man": "Releases the claim without deleting the directory: the workspace becomes parked (kept, never reaped) and can be attached again by name. The window keeps its conversation and scrollback; only its tool root changes.",
+     "short": "d"
     },
     "remove": {
      "action": "core.worktree.remove",
      "help": "Remove an unclaimed workspace.",
      "man": "Removes a registry-owned workspace only when nothing can be lost: git refuses a dirty tree and amber refuses a HEAD no branch reaches. A workspace a live window claims is refused; use '/worktree detach' or '/set worktree off' there. The child names under this node are the registry's current workspaces.",
-     "children": {}
+     "children": {},
+     "short": "rm"
     },
-    "status": {
+    "show": {
      "action": "core.worktree.status",
      "help": "Describe this window's workspace.",
-     "man": "Prints the active window's workspace path, branch or detached HEAD, cleanliness, whether its commits are reachable from a branch, and whether it is live, parked or kept."
+     "man": "Prints the active window's workspace path, branch or detached HEAD, cleanliness, whether its commits are reachable from a branch, and whether it is live, parked or kept.",
+     "aliases": [
+      "status"
+     ],
+     "short": "sh"
     },
     "list": {
      "action": "core.worktree.list",
      "help": "List every workspace in this project's registry.",
-     "man": "One row per registry-owned workspace: name, state (live/parked/kept), branch or detached HEAD, path, and the reason a kept one cannot be removed."
+     "man": "One row per registry-owned workspace: name, state (live/parked/kept), branch or detached HEAD, path, and the reason a kept one cannot be removed.",
+     "short": "l"
     },
     "prune": {
      "action": "core.worktree.prune",
      "help": "Drop registry entries whose directory vanished.",
-     "man": "Removes registry entries (and git's stale worktree metadata) for directories that no longer exist, such as after a reboot wipes $TMPDIR. Existing parked workspaces are kept: parking is an explicit 'keep this'."
+     "man": "Removes registry entries (and git's stale worktree metadata) for directories that no longer exist, such as after a reboot wipes $TMPDIR. Existing parked workspaces are kept: parking is an explicit 'keep this'.",
+     "short": "p"
     },
     "main": {
      "action": "core.worktree.main",
      "help": "Return this window to the project root.",
-     "man": "Leaves the active window's workspace and points it back at the project root. When the workspace can be removed safely it is removed and its commits stay in the repository; when it is dirty you are offered a stash, and when its HEAD is on no branch you are offered an explicit branch. Cancelling leaves everything as it was."
+     "man": "Leaves the active window's workspace and points it back at the project root. When the workspace can be removed safely it is removed and its commits stay in the repository; when it is dirty you are offered a stash, and when its HEAD is on no branch you are offered an explicit branch. Cancelling leaves everything as it was.",
+     "short": "m"
     }
-   }
+   },
+   "short": "wr"
   },
   "get": {
    "action": "core.config.get",
@@ -199,7 +262,7 @@
        "action": "core.config.get.provider.wallet",
        "help": "Show the wallet (balance and quota windows) state for the active provider.",
        "man": "Reports whether the wallet readout is on, and what the active provider reports about the account behind the key: a prepaid balance, its quota or subscription windows (label, percent used, remaining, entitlement, reset time), or both. A provider that offers no wallet, or whose state could not be read, reports that instead of a number. The status bar shows the balance when there is one and otherwise the window closest to reset; this command shows the whole picture. Toggle the readout with '/set provider wallet on|off'."
-       }
+      }
      }
     },
     "policy": {
@@ -220,7 +283,7 @@
       "timeout": {
        "action": "core.config.get.policy.timeout",
        "help": "Approval dialog timeout in seconds.",
-       "man": "The countdown timer for the approval dialog. When the timer expires the request is DENIED (fail-safe \u2014 never auto-confirmed). Set to 0 to disable the timeout (wait indefinitely for user input)."
+       "man": "The countdown timer for the approval dialog. When the timer expires the request is DENIED (fail-safe — never auto-confirmed). Set to 0 to disable the timeout (wait indefinitely for user input)."
       },
       "rule": {
        "action": "core.config.get.policy.rule",
@@ -377,7 +440,8 @@
       }
      }
     }
-   }
+   },
+   "short": "g"
   },
   "set": {
    "action": "core.config.set",
@@ -428,7 +492,7 @@
       "timeout": {
        "action": "core.config.set.policy.timeout",
        "help": "Approval dialog timeout in seconds.",
-       "man": "Sets how many seconds the approval dialog waits before DENYING (the fail-safe default; it never auto-confirms). 0 means no timeout \u2014 the dialog waits indefinitely for user input.",
+       "man": "Sets how many seconds the approval dialog waits before DENYING (the fail-safe default; it never auto-confirms). 0 means no timeout — the dialog waits indefinitely for user input.",
        "type": "int",
        "range": [
         0,
@@ -590,7 +654,7 @@
     "model": {
      "action": "core.config.set.model",
      "help": "Switch the active AI model.",
-     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer \u2014 every CONFIGURED provider's catalogue is listed, each row labelled 'provider::model' with its context window, grouped by provider with the active provider first, selectable with Up/Down and Enter; selecting a row switches to that provider and sets the model, so a model only another provider carries is one keystroke away instead of invisible. A provider that is enabled but not configured has no catalogue and appears nowhere -- '/get provider list' reports it. Bare '/set model' reports the current model.",
+     "man": "The set-model branch switches the active model. Type '/set model' followed by a model id from the provider's model list, or Tab/space to open the picker drawer — every CONFIGURED provider's catalogue is listed, each row labelled 'provider::model' with its context window, grouped by provider with the active provider first, selectable with Up/Down and Enter; selecting a row switches to that provider and sets the model, so a model only another provider carries is one keystroke away instead of invisible. A provider that is enabled but not configured has no catalogue and appears nowhere -- '/get provider list' reports it. Bare '/set model' reports the current model.",
      "children": {
       "context": {
        "action": "core.config.set.model.context",
@@ -602,12 +666,12 @@
     "subagent": {
      "action": "core.config.set.subagent",
      "help": "Sub-agent (task tool) execution settings.",
-     "man": "Controls how the task tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm \u2014 important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
+     "man": "Controls how the task tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm — important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
      "children": {
       "parallel": {
        "action": "core.config.set.subagent.parallel",
        "help": "Run sub-agents concurrently (on) or serially (off).",
-       "man": "When on, task calls run in parallel up to the max cap. When off, task calls run one at a time in request order \u2014 cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
+       "man": "When on, task calls run in parallel up to the max cap. When off, task calls run one at a time in request order — cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
        "choices": [
         "on",
         "off",
@@ -687,7 +751,8 @@
       }
      }
     }
-   }
+   },
+   "short": "s"
   },
   "files": {
    "action": "os.files",
@@ -717,7 +782,8 @@
    },
    "aliases": [
     "f"
-   ]
+   ],
+   "short": "f"
   },
   "system": {
    "action": "os.system",
@@ -787,7 +853,8 @@
    },
    "aliases": [
     "sy"
-   ]
+   ],
+   "short": "sy"
   },
   "provider": {
    "action": "core.provider",
@@ -812,85 +879,125 @@
    },
    "aliases": [
     "p"
-   ]
-  },
-  "session": {
-   "action": "core.session",
-   "help": "Manage saved sessions.",
-   "man": "The session command manages conversation persistence. Sessions are saved to .amber/sessions/ and store the full conversation history plus metadata. Use '/session save' to persist, '/session load' to restore, and '/session delete' to remove.",
-   "children": {
-    "list": {
-     "action": "core.session.list",
-     "help": "Browse saved sessions in the session browser.",
-     "man": "Opens a session browser dialog showing all saved sessions with their titles, timestamps, and message counts."
-    },
-    "save": {
-     "action": "core.session.save",
-     "help": "Save the current conversation as a named session.",
-     "man": "Saves the current conversation to the session store with an optional title. Uses '/save' as a shortcut."
-    },
-    "load": {
-     "action": "core.session.load",
-     "help": "Load a session by ID.",
-     "man": "Restores a previously saved session by its ID, replacing the current conversation."
-    },
-    "delete": {
-     "action": "core.session.delete",
-     "help": "Delete a saved session by ID.",
-     "man": "Permanently removes a saved session from disk after confirmation."
-    },
-    "rename": {
-     "action": "core.session.rename",
-     "help": "Rename a saved session.",
-     "man": "Changes the display title of a saved session without modifying its content."
-    },
-    "fork": {
-     "action": "core.session.fork",
-     "help": "Fork this session into a new window.",
-     "man": "Splits the current session: a new window opens with an identical copy of the full conversation history, then both branches continue independently. The shared prefix is preserved so the fork's first request reuses the model's KV cache. Requires the agent to be idle."
-    }
-   }
+   ],
+   "short": "p"
   },
   "job": {
    "action": "core.job",
    "help": "Manage background jobs.",
-   "man": "The job command manages long-running background processes started by the agent (e.g. dev servers, builds). Jobs run independently of the agent and can be monitored via '/job read'. Use '/job kill' to stop a running job and '/job list' to see all jobs.",
+   "man": "The job command manages long-running background processes started by the agent (e.g. dev servers, builds). Jobs run independently of the agent and can be monitored via '/job read'. Use '/job stop' to stop a running job and '/job list' to see all jobs.",
    "children": {
     "list": {
      "action": "core.job.list",
      "help": "List all running and finished background jobs.",
-     "man": "Lists all jobs with their ID, command, state (running/done/killed/failed), and timeout information."
+     "man": "Lists all jobs with their ID, command, state (running/done/killed/failed), and timeout information.",
+     "short": "l"
     },
     "start": {
      "action": "core.job.start",
      "help": "Start a new background job with a shell command.",
-     "man": "Starts a new background process from a shell command. The job runs independently with configurable hard and idle timeouts."
+     "man": "Starts a new background process from a shell command. The job runs independently with configurable hard and idle timeouts.",
+     "short": "st"
     },
     "read": {
      "action": "core.job.read",
      "help": "Read a job's output (all output or since last read).",
-     "man": "Reads the output of a running or finished job. Returns all output since the last read call."
+     "man": "Reads the output of a running or finished job. Returns all output since the last read call.",
+     "short": "rd"
     },
-    "kill": {
-     "action": "core.job.kill",
+    "stop": {
+     "action": "core.job.stop",
      "help": "Stop a running job by ID.",
-     "man": "Sends SIGKILL to a running job's process group and cleans up its resources."
+     "man": "Sends SIGKILL to a running job's process group and cleans up its resources.",
+     "aliases": [
+      "kill",
+      "cancel"
+     ],
+     "short": "sp"
+    }
+   },
+   "short": "j"
+  },
+  "project": {
+   "action": "core.project",
+   "help": "Open and inspect project sessions.",
+   "man": "/project list | open <path> | show | close. A project session is a chat window whose tools, state, sessions, instructions and worktrees belong to that project. Provider and credential settings remain global.",
+   "short": "pj",
+   "children": {
+    "list": {
+     "action": "core.project.list",
+     "help": "List open project sessions.",
+     "man": "Lists every open window and the project root it belongs to.",
+     "short": "l"
+    },
+    "open": {
+     "action": "core.project.open",
+     "help": "Open a project in a new window.",
+     "man": "Usage: /project open <path>. The path must be an existing directory. The new window gets its own project root, session store and worktree registry; credentials stay global.",
+     "short": "o"
+    },
+    "show": {
+     "action": "core.project.show",
+     "help": "Show the active project root.",
+     "man": "Prints the project root of the active window, or the process default when the window has none.",
+     "short": "s"
+    },
+    "close": {
+     "action": "core.project.close",
+     "help": "Close the active project window.",
+     "man": "Closes the active window; the project remains on disk and can be reopened with /project open.",
+     "short": "c"
     }
    }
   },
-  "sessions": {
-   "action": "core.session.list",
-   "help": "Browse and load a saved session.",
-   "man": "Alias for '/session list': opens the session browser showing all saved conversations with titles, timestamps, and message counts.",
-   "aliases": [
-    "load",
-    "open"
-   ]
+  "work": {
+   "action": "core.work",
+   "help": "Show sessions, jobs, agents and watches in one board.",
+   "man": "Opens the Work board. Enter focuses a session or opens a resource viewer; stop is explicit and confirmed by selection.",
+   "short": "wk"
+  },
+  "plugin": {
+   "action": "core.plugin",
+   "help": "Run a plugin command workspace.",
+   "man": "/plugin <id> <command> runs the commands contributed by one plugin. Installation, enable/disable, discovery and settings stay under /set plugin and /get plugin. A plugin cannot register a root.",
+   "short": "pl"
   },
   "panel": {
    "action": "core.panel",
    "help": "Open a contributed panel (registry console first).",
-   "man": "Opens the contributed-panel view. Press Alt+0 from anywhere, or '/panel' from the prompt. The first panel is the plugin registry, which lists every registered plugin with its tier, on/off state and contributions. Tab cycles between panels, Up/Down scroll, Esc closes. A plugin that contributes a panel adds it to this cycle."
+   "man": "Opens the contributed-panel view. Press Alt+0 from anywhere, or '/panel' from the prompt. The first panel is the plugin registry, which lists every registered plugin with its tier, on/off state and contributions. Tab cycles between panels, Up/Down scroll, Esc closes. A plugin that contributes a panel adds it to this cycle.",
+   "short": "pa"
+  },
+  "quit": {
+   "action": "core.quit",
+   "help": "Save all windows and exit.",
+   "man": "Saves all open windows to the session store, cleans up background jobs, and exits the application. Unsaved conversation data is persisted before shutdown.",
+   "aliases": [
+    "exit",
+    "q"
+   ],
+   "short": "q"
   }
+ },
+ "legacy": {
+  "new": "session new",
+  "clear": "session new",
+  "reset": "session new",
+  "close": "window close",
+  "stop": "session stop",
+  "cancel": "session stop",
+  "kill": "session stop",
+  "compress": "session compress",
+  "compact": "session compress",
+  "save": "session save",
+  "sessions": "session list",
+  "load": "session list",
+  "open": "session list",
+  "sl": "session list",
+  "watch": "plugin watch",
+  "mcp": "plugin mcp",
+  "prompt": "plugin mcp prompt",
+  "index": "plugin project_index index",
+  "hello": "plugin hello"
  }
 }

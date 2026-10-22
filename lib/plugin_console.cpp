@@ -26,6 +26,8 @@ const char* capability_kind_name(CapabilityKind kind) {
         return "search";
     case CapabilityKind::Skill:
         return "skill";
+    case CapabilityKind::Settings:
+        return "settings";
     }
     return "?";
 }

@@ -159,6 +159,13 @@ public:
     std::string usage(const palette::Command& c) const;
     void cmd_help(const std::string& arg);
     void cmd_session_reset();
+    void cmd_work_board();
+    void cmd_project_list();
+    void cmd_project_open(const std::string& args);
+    void cmd_project_show();
+    void cmd_project_close();
+    void open_resource(const std::string& kind, const std::string& id);
+    void apply_work_item(const std::string& kind, const std::string& id, std::size_t window_index);
     void cmd_window(const std::string& arg);
     void cmd_job(const std::string& rest);
     void cmd_compress(const std::string& arg);
@@ -189,6 +196,7 @@ private:
     // The core and config groups are themselves facades over these, so one
     // domain's actions are registered in one place.
     void register_core_session_actions();
+    void register_window_actions();
     void register_core_job_actions();
     void register_set_engine_actions();
     void register_set_policy_actions();

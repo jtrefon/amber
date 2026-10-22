@@ -95,7 +95,7 @@ bool segment_owned_by(const StatusRegistry& status, const std::string& owner) {
 
 bool command_root_present(const CommandRegistry& commands, const std::string& root) {
     for (const auto& entry : commands.all())
-        if (entry.spec.root == root)
+        if (entry.spec.name == root)
             return true;
     return false;
 }
@@ -746,9 +746,9 @@ TEST(mcp_command_surface_is_documented_and_executable) {
     const CommandRegistry::Entry* mcp = nullptr;
     const CommandRegistry::Entry* prompt = nullptr;
     for (const auto& e : runtime.commands().all()) {
-        if (e.spec.root == "mcp")
+        if (e.spec.name == "mcp")
             mcp = &e;
-        if (e.spec.root == "prompt")
+        if (e.spec.name == "prompt")
             prompt = &e;
     }
     ASSERT_TRUE(mcp != nullptr);
@@ -843,7 +843,7 @@ public:
 std::string run_verb(PluginRuntime& rt, const std::string& root, const std::string& verb,
                      const std::string& arg) {
     for (const auto& entry : rt.commands().all())
-        if (entry.spec.root == root) {
+        if (entry.spec.name == root) {
             const auto it = entry.spec.handlers.find(verb);
             return it == entry.spec.handlers.end() ? "<no handler>" : it->second(arg);
         }
@@ -1015,6 +1015,16 @@ TEST(project_instructions_digest_names_omitted_sections) {
 
 TEST(project_instructions_absent_leaves_no_block) {
     ScratchWorkspace ws("instructions-none");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(instructions_block(runtime).empty());
+}
+
+TEST(project_instructions_whitespace_only_is_not_a_block) {
+    ScratchWorkspace ws("instructions-blank");
+    write_text(ws.root() / "AGENTS.md", " \n\t\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
@@ -1629,7 +1639,7 @@ TEST(index_tools_travel_with_the_plugin) {
     ASSERT(f.tools.find("index_show") == nullptr);
     bool command_gone = true;
     for (const auto& entry : runtime.commands().all())
-        if (entry.spec.root == "index")
+        if (entry.spec.name == "index")
             command_gone = false;
     ASSERT_TRUE(command_gone);
 }
@@ -2501,9 +2511,11 @@ TEST(wallet_registry_installs_and_unwinds) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     auto search_backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
                             commands);
+    services.set_settings(settings);
     services.set_owner("acme");
 
     WalletCapability cap([](const Config&) -> std::optional<WalletSnapshot> {
@@ -3242,7 +3254,7 @@ public:
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
         CommandSpec spec;
-        spec.root = "hello";
+        spec.name = "hello";
         spec.help = "Say hello";
         spec.man = "Usage: /hello greet <name>";
         spec.subtree = json::parse(R"({"greet":{"help":"Greet someone"}})");
@@ -3274,7 +3286,7 @@ TEST(runtime_command_capability_installs_and_unwinds) {
 
     const auto& all = runtime.commands().all();
     ASSERT_EQ(all[0].owner, std::string("cmd"));
-    ASSERT_EQ(all[0].spec.root, std::string("hello"));
+    ASSERT_EQ(all[0].spec.name, std::string("hello"));
     ASSERT_EQ(all[0].spec.handlers.count("greet"), 1u);
     ASSERT_EQ(all[0].spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
 
@@ -3326,13 +3338,13 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    // The bundled set contributes five namespaces: hello, the project index's
-    // index, and the mcp plugin's mcp / prompt / get.
-    ASSERT_EQ(runtime.commands().size(), 5u);
+    // The bundled set contributes six namespaces: hello, the project index's
+    // index, the mcp plugin's mcp / prompt / get, and watch.
+    ASSERT_EQ(runtime.commands().size(), 6u);
     const auto& all = runtime.commands().all();
     const auto hello =
         std::find_if(all.begin(), all.end(),
-                     [](const agent::CommandRegistry::Entry& e) { return e.spec.root == "hello"; });
+                     [](const agent::CommandRegistry::Entry& e) { return e.spec.name == "hello"; });
     ASSERT(hello != all.end());
     ASSERT_EQ(hello->spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
 
@@ -3340,10 +3352,10 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     // capability must come back with the same binding.
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 4u); // the mcp plugin's three and the index survive
+    ASSERT_EQ(runtime.commands().size(), 5u); // the mcp plugin's three, watch and the index survive
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 5u);
+    ASSERT_EQ(runtime.commands().size(), 6u);
 }
 
 // The registry console groups contributions by kind, so every kind needs a

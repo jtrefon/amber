@@ -25,8 +25,15 @@ enum class JobState : std::uint8_t {
 
 // Point-in-time, host-friendly snapshot of a job. All times are relative
 // seconds; negative "remaining" values mean "no limit".
+struct JobOrigin {
+    std::string owner_id;
+    std::string label;
+};
+
 struct JobInfo {
     std::string id;
+    std::string owner_id;
+    std::string label;
     std::string command;
     int pid = 0;
     JobState state = JobState::Starting;
@@ -50,6 +57,7 @@ public:
     static std::unique_ptr<Job> start(const std::string& id, const std::string& command,
                                       const std::string& cwd, long hard_timeout_s,
                                       long idle_timeout_s, std::string& err);
+    void set_origin(JobOrigin origin);
 
     ~Job();
 
@@ -94,6 +102,8 @@ private:
     long sec_since(const std::chrono::steady_clock::time_point& tp) const;
 
     std::string id_;
+    std::string owner_id_;
+    std::string label_;
     std::string command_;
     std::string cwd_;         // resolved (confined) working directory
     std::string initial_cwd_; // cwd before confinement, for error reporting
@@ -129,7 +139,7 @@ public:
     // Start a background job. `cwd` defaults to the confined workspace root.
     // `idle_timeout_s`/`hard_timeout_s` are seconds (0 disables that limit).
     std::string start(const std::string& command, const std::string& cwd = "",
-                      long hard_timeout_s = 600, long idle_timeout_s = 30);
+                      long hard_timeout_s = 600, long idle_timeout_s = 30, JobOrigin origin = {});
 
     // Kill a job by id; returns true if it existed.
     bool stop(const std::string& id);

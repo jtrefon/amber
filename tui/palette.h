@@ -20,6 +20,7 @@ struct Command {
     std::vector<std::string> aliases;
     std::string args;
     std::string help;
+    std::string short_name;
 };
 
 // Text before the first space (command name without '/').
