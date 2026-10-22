@@ -9,6 +9,7 @@
 #include "agent/workspace.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <nlohmann/json.hpp>
@@ -40,9 +41,15 @@ WatchPlugin::WatchPlugin(std::shared_ptr<CommandRunner> runner,
 
 bool WatchPlugin::initialize(const agent::PluginContext& ctx) {
     tools_ = &ctx.tools;
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — fixed watch.conf under the
-    // user's own sanitized XDG config root, not a caller-supplied path.
-    settings_ = load_watch_settings(agent::global_config_dir() + "/plugins/watch/watch.conf");
+    // Resolve the fixed child against the canonical config root; a path that
+    // somehow escapes that root is ignored rather than opened.
+    const std::filesystem::path config =
+        std::filesystem::weakly_canonical(agent::global_config_dir());
+    const std::filesystem::path settings =
+        std::filesystem::weakly_canonical(config / "plugins" / "watch" / "watch.conf");
+    const std::string prefix = config.generic_string() + "/";
+    if (settings.generic_string().rfind(prefix, 0) == 0)
+        settings_ = load_watch_settings(settings.string());
     return true;
 }
 
