@@ -291,8 +291,8 @@ bool Workspace::confine(const std::string& path, std::string& resolved, std::str
     return true;
 }
 
-ScopedProjectRoot::ScopedProjectRoot(const std::string& root)
-    : root_(root), prev_(ui_project_root()) {
+ScopedProjectRoot::ScopedProjectRoot(std::string root)
+    : root_(std::move(root)), prev_(ui_project_root()) {
     ui_project_root() = root_.empty() ? nullptr : &root_;
 }
 

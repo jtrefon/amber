@@ -95,7 +95,7 @@ public:
 // management and session paths resolve against it; a nested run scope wins.
 class ScopedProjectRoot {
 public:
-    explicit ScopedProjectRoot(const std::string& root);
+    explicit ScopedProjectRoot(std::string root);
     ~ScopedProjectRoot();
     ScopedProjectRoot(const ScopedProjectRoot&) = delete;
     ScopedProjectRoot& operator=(const ScopedProjectRoot&) = delete;

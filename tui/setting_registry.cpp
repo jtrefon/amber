@@ -383,7 +383,9 @@ void SettingRegistry::rebuild_shortcut_collisions() {
     for (const auto& [path, short_name] : command_shorts_) {
         const std::size_t dot = path.rfind('.');
         const std::string parent = dot == std::string::npos ? std::string() : path.substr(0, dot);
-        const std::string key = parent + "\x1f" + short_name;
+        std::string key = parent;
+        key.push_back('\x1f');
+        key.append(short_name);
         if (!seen.insert(key).second)
             ++shortcut_collisions_;
     }

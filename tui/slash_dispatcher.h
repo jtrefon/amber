@@ -161,7 +161,7 @@ public:
     void cmd_session_reset();
     void cmd_work_board();
     void cmd_project_list();
-    void cmd_project_open(const std::string& path);
+    void cmd_project_open(const std::string& args);
     void cmd_project_show();
     void cmd_project_close();
     void open_resource(const std::string& kind, const std::string& id);

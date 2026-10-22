@@ -423,6 +423,7 @@ std::vector<SettingsRegistry::Entry> SettingsRegistry::all() const {
 
 std::vector<ExtensionItem> SettingsRegistry::items() const {
     std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
     for (const auto& e : entries_)
         out.push_back(
             {CapabilityKind::Settings, e.owner, e.spec.key, e.spec.type + "  " + e.spec.help});

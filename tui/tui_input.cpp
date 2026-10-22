@@ -2656,7 +2656,7 @@ void SlashDispatcher::apply_work_item(const std::string& kind, const std::string
     }
     std::vector<std::string> actions = {"open viewer"};
     if (kind == "job" || kind == "watch")
-        actions.push_back("stop");
+        actions.emplace_back("stop");
     const int action = menu_select(kind + " " + id, actions);
     if (action == 0) {
         open_resource(kind, id);
