@@ -1022,6 +1022,16 @@ TEST(project_instructions_absent_leaves_no_block) {
     ASSERT(instructions_block(runtime).empty());
 }
 
+TEST(project_instructions_whitespace_only_is_not_a_block) {
+    ScratchWorkspace ws("instructions-blank");
+    write_text(ws.root() / "AGENTS.md", " \n\t\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+    ASSERT(instructions_block(runtime).empty());
+}
+
 // In a repository the scan asks git: tracked plus untracked-not-ignored, and git
 // does not descend into a nested repository or linked worktree. That is what
 // keeps a gitignored tree and a developer's sibling checkout out of the prompt.
