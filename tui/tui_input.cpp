@@ -2361,7 +2361,7 @@ std::vector<WorkItem> collect_work_items(tui::WindowManager& windows, agent::Job
     }
     const auto project_for = [&](const std::string& owner) {
         const auto it = owner_project.find(owner);
-        return it == owner_project.end() ? agent::Workspace::project_root() : it->second;
+        return it == owner_project.end() ? agent::Workspace::process_project_root() : it->second;
     };
     for (const auto& job : jobs.list())
         items.push_back({"job", job.id, job.label, project_for(job.owner_id), 0});

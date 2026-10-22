@@ -113,6 +113,10 @@ std::string Workspace::project_root() {
     return ensure_project_root();
 }
 
+std::string Workspace::process_project_root() {
+    return ensure_project_root();
+}
+
 std::string Workspace::workspace_root() {
     if (const std::string* scoped = scoped_workspace_root())
         return *scoped;

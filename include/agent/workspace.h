@@ -34,6 +34,10 @@ public:
     // worktree override when one is installed, else project_root().
     static std::string workspace_root();
 
+    // The process default, ignoring UI/run scopes. Used when a window has no
+    // project root of its own.
+    static std::string process_project_root();
+
     // Override the process-default project root (tests and startup).
     static void set_root(const std::string& path);
 
