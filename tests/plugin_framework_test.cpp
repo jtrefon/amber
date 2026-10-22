@@ -364,11 +364,18 @@ TEST(settings_registry_validates_lists_and_unwinds) {
     ASSERT_EQ(registry.all().size(), 3u);
     ASSERT_EQ(registry.items().size(), 3u);
     ASSERT_EQ(registry.get("acme", "mode"), std::string("on"));
+    ASSERT_EQ(registry.get("other", "mode"), std::string());
     ASSERT_FALSE(registry.set("acme", "mode", "maybe"));
     ASSERT_FALSE(registry.set("acme", "gate", "maybe"));
     ASSERT_TRUE(registry.set("acme", "gate", "off"));
     ASSERT_EQ(registry.get("acme", "gate"), std::string("off"));
     ASSERT_FALSE(registry.set("acme", "missing", "x"));
+    PluginSettingSpec reject;
+    reject.key = "reject";
+    reject.type = "string";
+    reject.set = [](const std::string&) { return false; };
+    registry.add("acme", {reject});
+    ASSERT_FALSE(registry.set("acme", "reject", "x"));
     ASSERT_TRUE(registry.find("acme", "count") != nullptr);
     ASSERT_TRUE(registry.find("other", "count") == nullptr);
 

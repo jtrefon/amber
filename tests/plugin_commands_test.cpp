@@ -32,6 +32,24 @@ std::vector<CommandRegistry::Entry> make_entries() {
 
 } // namespace
 
+TEST(command_registry_items_describe_the_workspace) {
+    CommandRegistry registry;
+    CommandSpec spec;
+    spec.name = "demo";
+    spec.help = "Demo";
+    spec.subtree = nlohmann::json::parse(R"({"go": {"help": "go"}})");
+    spec.handlers["go"] = [](const std::string&) { return "ok"; };
+    const Contribution contribution = registry.add("acme", std::move(spec));
+    const auto items = registry.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT_EQ(items[0].owner, std::string("acme"));
+    ASSERT_EQ(items[0].name, std::string("demo"));
+    ASSERT(items[0].detail.find("/plugin acme") != std::string::npos);
+    ASSERT(items[0].detail.find("1 handler") != std::string::npos);
+    contribution.remove();
+    ASSERT(registry.items().empty());
+}
+
 TEST(plugin_command_binds_leaf_and_dispatches) {
     auto entries = make_entries();
     tui::SettingRegistry settings;

@@ -1716,6 +1716,7 @@ TEST(workspace_scoped_project_root_drives_state_and_tools) {
         ASSERT_EQ(agent::Workspace::workspace_root(), run_project);
     }
     ASSERT_EQ(agent::Workspace::project_root(), "/tmp/amber_project_default");
+    ASSERT_EQ(agent::Workspace::process_project_root(), "/tmp/amber_project_default");
     ASSERT_EQ(agent::Workspace::state_dir(),
               agent::Workspace::state_dir_for("/tmp/amber_project_default"));
 }
