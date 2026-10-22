@@ -593,34 +593,10 @@ TEST(markdown_task_list_items_render) {
 
 static std::vector<tui::palette::Command> palette_fixture() {
     return {
-        {
-            "help",
-            "core.help",
-            {"?", "h"},
-            "[command]",
-            "list commands",
-        },
-        {
-            "window",
-            "core.window",
-            {"win", "w"},
-            "new|close",
-            "manage windows",
-        },
-        {
-            "save",
-            "core.session.save",
-            {},
-            "",
-            "persist conversation",
-        },
-        {
-            "quit",
-            "core.quit",
-            {"exit", "q"},
-            "",
-            "exit",
-        },
+        {"help", "core.help", {"?", "h"}, "[command]", "list commands", ""},
+        {"window", "core.window", {"win", "w"}, "new|close", "manage windows", ""},
+        {"save", "core.session.save", {}, "", "persist conversation", ""},
+        {"quit", "core.quit", {"exit", "q"}, "", "exit", ""},
     };
 }
 
@@ -677,13 +653,9 @@ TEST(palette_find_by_name_or_alias) {
 }
 
 TEST(palette_usage_and_common_prefix) {
-    tui::palette::Command c{
-        "window", "core.window", {}, "new|close", "manage",
-    };
+    tui::palette::Command c{"window", "core.window", {}, "new|close", "manage", ""};
     ASSERT_EQ(tui::palette::usage(c), "/window new|close");
-    tui::palette::Command bare{
-        "save", "core.session.save", {}, "", "persist",
-    };
+    tui::palette::Command bare{"save", "core.session.save", {}, "", "persist", ""};
     ASSERT_EQ(tui::palette::usage(bare), "/save");
     ASSERT_EQ(tui::palette::common_prefix({"send", "set", "sever"}), "se");
     ASSERT_EQ(tui::palette::common_prefix({}), "");
@@ -1626,6 +1598,31 @@ TEST(macos_option_digit_rejects_other_codepoints) {
 }
 
 // --- WindowOps tests (11) ---
+
+TEST(window_manager_binds_a_window_to_its_project) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    tui::Window& project = wm.new_window("project", "/tmp/amber_project_window");
+    ASSERT_EQ(project.project_root, std::string("/tmp/amber_project_window"));
+    ASSERT(project.agent);
+    ASSERT_EQ(wm.win().project_root, std::string("/tmp/amber_project_window"));
+}
+
+TEST(window_manager_creates_and_focuses_resource_viewers) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    tui::Window& viewer = wm.new_resource_window("job", "3", "job 3");
+    ASSERT(viewer.kind == tui::Window::Kind::Resource);
+    ASSERT(viewer.read_only);
+    ASSERT(!viewer.agent);
+    ASSERT_EQ(viewer.resource_kind, std::string("job"));
+    ASSERT_EQ(viewer.resource_id, std::string("3"));
+    ASSERT_EQ(wm.count(), 1u);
+    ASSERT(wm.focus_resource("job", "3"));
+    ASSERT(!wm.focus_resource("job", "4"));
+}
 
 TEST(windowops_switch_to_valid_index) {
     agent::Config cfg;

@@ -20,6 +20,15 @@ user-controlled half.
 
 ---
 
+### 0.6.0 namespace placement
+
+The command names below are the current/legacy MCP roots. Under
+`docs/spec/tui/command-namespace.md`, MCP's action workspace moves to
+`/plugin mcp`; its configuration moves to the typed plugin-settings surface
+(`/get plugin settings mcp …`, `/set plugin settings mcp …`). `/mcp` and
+`/prompt` are host-owned aliases only if explicitly granted, not plugin roots.
+The MCP tool adapters, transport and approval model are unchanged.
+
 ### Command tree
 
 `/mcp` — MCP server management. Follows the `CommandNode` model of

@@ -205,7 +205,7 @@ std::vector<std::unique_ptr<Capability>> ProjectIndexPlugin::capabilities() {
                               {"index_show", {"reading", ToolRole::Other}}}}));
 
     CommandSpec spec;
-    spec.root = "index";
+    spec.name = "index";
     spec.help = "The project index: amber's own notes about this project";
     spec.man = "Usage: /index show — print the index file. /index refresh — re-read it now; the "
                "block in the system prompt is frozen for the session, and this is what moves it.";

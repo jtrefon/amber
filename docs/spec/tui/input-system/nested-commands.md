@@ -139,78 +139,19 @@ config <key>... <value>                 — Arbitrary config key chain
 
 ### Shortcut aliases (BitchX / IrcII glued shorts)
 
-Every command node has an optional `aliases` vector for shortcuts. The alias
-scheme follows BitchX (single-letter for top-level) and IrcII (glued two-letter
-for nested commands):
+**Superseded for 0.6.0.** The historical alias table described a flat command
+model and referenced roots that no longer exist. The canonical contract
+is now [`docs/spec/tui/command-shortcuts.md`](../command-shortcuts.md):
 
-| Alias | Expands to | Rationale |
-|-------|-----------|-----------|
-| `/h` | `/help` | Single letter, obvious |
-| `/q` | `/quit` | BitchX standard |
-| `/s` | `/save` | Single letter, common |
-| `/c` | `/compress` | Single letter |
-| `/st` | `/stop` | Glued, `s` taken by save |
-| `/sl` | `/session list` | Glued, `session l` without space |
-| `/ss` | `/session save` | Glued |
-| `/sd` | `/session delete` | Glued |
-| `/sr` | `/session rename` | Glued |
-| `/j` | `/job` | Top-level shortcut |
-| `/jl` | `/job list` | Glued |
-| `/jk` | `/job kill` | Glued |
-| `/jr` | `/job read` | Glued |
-| `/js` | `/job start` | Glued |
-| `/f` | `/files` | Top-level shortcut |
-| `/fl` | `/files list` | Glued |
-| `/ft` | `/files tree` | Glued |
-| `/fo` | `/files open` | Glued |
-| `/ff` | `/files find` | Glued |
-| `/m` | `/model` | Top-level shortcut |
-| `/ml` | `/model list` | Glued |
-| `/p` | `/provider` | Top-level shortcut |
-| `/pl` | `/provider list` | Glued |
-| `/pa` | `/provider add` | Glued |
-| `/pe` | `/provider edit` | Glued |
-| `/pd` | `/provider delete` | Glued |
-| `/pt` | `/provider test` | Glued |
-| `/sy` | `/system` | Top-level shortcut (`s` taken) |
-| `/sye` | `/system exec` | Glued |
-| `/syd` | `/system delete` | Glued |
-| `/syr` | `/system rmdir` | Glued |
-| `/sym` | `/system mkdir` | Glued |
-| `/syv` | `/system mv` | Glued |
-| `/syc` | `/system cp` | Glued |
-| `/syi` | `/system info` | Glued |
-| `/sys` | `/system ps` | Glued (`sy` + `s` for processes) |
-| `/syk` | `/system kill` | Glued |
-| `/syu` | `/system uptime` | Glued |
-| `/syn` | `/system uname` | Glued |
+- `aliases` are full alternate names; `short` is the compact glued-path token.
+- Shorts are derived per sibling and validated globally; collisions fail rather
+  than first-match.
+- The resolver supports exact names, exact aliases, exact glued shorts, and
+  unique prefixes; ambiguity opens the drawer.
+- Plugin shortcuts are scoped under `/plugin/<id>`; they cannot claim a root.
 
-**Design rules for aliases:**
-
-1. Top-level commands with unique first letter get a single-letter alias
-   (e.g., `/q` for `quit`, `/s` for `save`, `/c` for `compress`).
-2. Top-level commands without a unique first letter use a unique two-letter
-   prefix (e.g., `/st` for `stop`, `/sy` for `system`).
-3. Nested commands use glued shortcuts: first letter of parent + first letter
-   of child (e.g., `/sl` = `s`ession + `l`ist, `/fl` = `f`iles + `l`s).
-4. If the glued pair conflicts, use the next unique letter from the child
-   (e.g., `/fo` = `f`iles + `o`pen, since `/fl` is taken by list).
-5. The alias resolution is depth-first in the tree — `/st` resolves to `stop`,
-   not to some hypothetical `s` subcommand with `t` sub-subcommand.
-6. Aliases appear in the autosuggest shadow and drawer alongside the full name.
-   The shadow prefers the full name for clarity; Tab accepts the full expansion.
-7. Users can type the alias OR the full name interchangeably.
-
-**Implementation:** In the `CommandNode` struct, `aliases` stores the shortcut
-strings. The tree walker checks aliases at each depth level.
-```cpp
-CommandNode quit = {
-    .name = "quit",
-    .aliases = {"q", "exit"},
-    .description = "Exit the application",
-    .run = cmd_quit
-};
-```
+Do not copy the old table. Generate shortcuts from the canonical tree after the
+namespace migration.
 
 ### Node Model
 

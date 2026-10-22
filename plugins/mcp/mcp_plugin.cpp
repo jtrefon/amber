@@ -182,7 +182,7 @@ std::string McpPlugin::prompt_text(const std::string& server, const std::string&
 
 CommandSpec McpPlugin::build_mcp_spec() {
     CommandSpec spec;
-    spec.root = "mcp";
+    spec.name = "mcp";
     spec.help = "Manage MCP servers.";
     spec.man =
         "The mcp command manages MCP (Model Context Protocol) servers. Servers are configured "
@@ -292,7 +292,7 @@ std::string McpPlugin::trust_handler(const std::string& arg) {
 
 CommandSpec McpPlugin::build_prompt_spec() {
     CommandSpec spec;
-    spec.root = "prompt";
+    spec.name = "prompt";
     spec.help = "Invoke an MCP prompt template (fills the input line).";
     spec.man =
         "The prompt command invokes a prompt template exposed by an MCP server. The template's "
@@ -338,7 +338,7 @@ CommandSpec McpPlugin::build_get_spec() {
     // No help/man on the root: the static `get` node already documents itself,
     // and the merge takes non-children fields from the source (an empty field
     // is not written, so the documented text survives).
-    spec.root = "get";
+    spec.name = "get";
     spec.subtree = json::parse(R"({
         "mcp": {"help": "Show MCP server status and prompts.",
                 "man": "Summarizes the configured MCP servers and their exposed prompts."}

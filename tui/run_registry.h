@@ -13,6 +13,14 @@
 
 namespace tui {
 
+// A report waiting for its owner window's next safe boundary. The ids travel
+// with the prompt so the host can acknowledge delivery in the plugin store.
+struct PendingReport {
+    std::string prompt;
+    std::string watch_id;
+    std::string report_id;
+};
+
 // One window's run machinery: the agent worker thread, its busy flag, its
 // cancel flag, and its queue of prompts typed while a run was in flight.
 // Owned by RunRegistry, keyed by the window's stable id — a slot's address
@@ -22,7 +30,11 @@ struct RunSlot {
     std::atomic<bool> busy{false};
     std::atomic<bool> cancel{false};
     std::deque<std::string> pending;
-    mutable std::mutex mtx; // guards pending only; flags are atomic
+    // Background reports wait behind user prompts. A report wakes its window
+    // only when the input line is empty, so it never starts a turn underneath
+    // an unsent draft.
+    std::deque<PendingReport> reports;
+    mutable std::mutex mtx; // guards pending/reports; flags are atomic
 };
 
 // Per-window run slots. "Agent is running" is a per-window fact, not a
@@ -56,6 +68,14 @@ public:
     std::optional<std::string> pop_pending(size_t window_id);
     bool has_pending(size_t window_id) const;
 
+    // A stable host owner id (persisted with the window) maps to its current
+    // window slot. Event handlers run off the UI thread, so this map is the
+    // only safe way to route a report to the window that started the watch.
+    void register_owner(std::string owner_id, size_t window_id);
+    void enqueue_report(const std::string& owner_id, PendingReport report);
+    std::optional<PendingReport> pop_report(size_t window_id);
+    bool has_pending_report(size_t window_id) const;
+
     // Drop a slot when its window closes. Callers guarantee the slot is
     // idle (close is rejected while the window's agent runs).
     void erase(size_t window_id);
@@ -63,6 +83,7 @@ public:
 private:
     mutable std::mutex map_mtx_;
     std::unordered_map<size_t, std::unique_ptr<RunSlot>> slots_;
+    std::unordered_map<std::string, size_t> owners_;
 };
 
 } // namespace tui

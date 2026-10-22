@@ -41,6 +41,11 @@ struct SessionMeta {
 struct WorkspaceState {
     struct WindowEntry {
         std::string session_id;
+        // Stable host identity used to route background reports back to this
+        // window across restarts. Persisted separately from the session id
+        // because a brand-new window has no saved session yet.
+        std::string owner_id;
+        std::string project_root;
         std::string title;
         std::vector<std::string> prompt_history;
         // Per-window workspace. `root` is the tree this window's tools operate

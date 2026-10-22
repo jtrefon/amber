@@ -102,7 +102,7 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
 std::string SettingRegistry::resolve_key(const std::string& key) const {
     auto indexed = [&](const std::string& k) {
         return key_help_.count(k) || key_man_.count(k) || key_children_.count(k) ||
-               command_choices_.count(k) || command_ranges_.count(k);
+               command_choices_.count(k) || command_shorts_.count(k) || command_ranges_.count(k);
     };
     if (indexed(key))
         return key;
@@ -167,6 +167,8 @@ SettingRegistry::NodeFields read_node_fields(const nlohmann::json& node) {
     if (node.contains("action") && node["action"].is_string())
         f.action = node["action"].get<std::string>();
     f.aliases = string_array(node, "aliases");
+    if (node.contains("short") && node["short"].is_string())
+        f.short_name = node["short"].get<std::string>();
     f.choices = string_array(node, "choices");
     if (node.contains("range") && node["range"].is_array() && node["range"].size() == 2) {
         f.range_lo = node["range"][0].get<double>();
@@ -232,6 +234,8 @@ void SettingRegistry::index_node(const nlohmann::json& node, const std::string& 
         if (!f.aliases.empty())
             command_aliases_[key_path] = f.aliases;
     }
+    if (!key_path.empty() && !f.short_name.empty())
+        command_shorts_[key_path] = f.short_name;
     index_children(display_path, key_path, node);
 
     if (!node.contains("children") || !node["children"].is_object())
@@ -259,9 +263,23 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
     if (root.contains("commands") && root["commands"].is_object()) {
         tree_["commands"] = root["commands"];
         static_paths_.clear();
+        legacy_paths_.clear();
         merge_collisions_ = 0;
         for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
             record_static_paths(it.value(), it.key());
+        if (root.contains("legacy") && root["legacy"].is_object()) {
+            for (auto it = root["legacy"].begin(); it != root["legacy"].end(); ++it) {
+                if (!it.value().is_string())
+                    continue;
+                std::istringstream in(it.value().get<std::string>());
+                std::vector<std::string> path;
+                std::string tok;
+                while (in >> tok)
+                    path.push_back(tok);
+                if (!path.empty())
+                    legacy_paths_[it.key()] = std::move(path);
+            }
+        }
         reindex();
     }
     return true;
@@ -345,7 +363,9 @@ void SettingRegistry::clear_index() {
     command_choices_.clear();
     command_ranges_.clear();
     command_aliases_.clear();
+    command_shorts_.clear();
     command_subcommands_.clear();
+    shortcut_collisions_ = 0;
 }
 
 void SettingRegistry::reindex() {
@@ -354,13 +374,224 @@ void SettingRegistry::reindex() {
         return;
     for (auto it = tree_["commands"].begin(); it != tree_["commands"].end(); ++it)
         index_node(it.value(), it.key());
+    rebuild_shortcut_collisions();
 }
+
+void SettingRegistry::rebuild_shortcut_collisions() {
+    shortcut_collisions_ = 0;
+    std::set<std::string> seen;
+    for (const auto& [path, short_name] : command_shorts_) {
+        const std::size_t dot = path.rfind('.');
+        const std::string parent = dot == std::string::npos ? std::string() : path.substr(0, dot);
+        const std::string key = parent + "\x1f" + short_name;
+        if (!seen.insert(key).second)
+            ++shortcut_collisions_;
+    }
+}
+
+namespace {
+
+struct ChildMatch {
+    const nlohmann::json* node = nullptr;
+    std::string name;
+};
+
+std::string node_short(const nlohmann::json& node, const std::string& name) {
+    if (node.contains("short") && node["short"].is_string())
+        return node["short"].get<std::string>();
+    return name.empty() ? std::string() : name.substr(0, 1);
+}
+
+void add_child_match(std::vector<ChildMatch>& out, const nlohmann::json& node,
+                     const std::string& name) {
+    for (const auto& m : out)
+        if (m.node == &node)
+            return;
+    out.push_back({&node, name});
+}
+
+void collect_glued(const nlohmann::json& children, const std::string& token, std::size_t depth,
+                   std::vector<ChildMatch>& out) {
+    for (auto it = children.begin(); it != children.end(); ++it) {
+        if (!it.value().is_object())
+            continue;
+        const std::string short_name = node_short(it.value(), it.key());
+        if (short_name.empty() || token.rfind(short_name, 0) != 0)
+            continue;
+        const std::string rest = token.substr(short_name.size());
+        if (rest.empty()) {
+            if (depth + 1 >= 2)
+                add_child_match(out, it.value(), it.key());
+            continue;
+        }
+        if (it.value().contains("children") && it.value()["children"].is_object())
+            collect_glued(it.value()["children"], rest, depth + 1, out);
+    }
+}
+
+void collect_prefix(const nlohmann::json& children, const std::string& token,
+                    std::vector<ChildMatch>& out) {
+    for (auto it = children.begin(); it != children.end(); ++it) {
+        if (!it.value().is_object())
+            continue;
+        bool match = it.key().rfind(token, 0) == 0;
+        const std::string short_name = node_short(it.value(), it.key());
+        match = match || short_name.rfind(token, 0) == 0;
+        if (!match && it.value().contains("aliases") && it.value()["aliases"].is_array()) {
+            for (const auto& alias : it.value()["aliases"]) {
+                if (alias.is_string() && alias.get<std::string>().rfind(token, 0) == 0) {
+                    match = true;
+                    break;
+                }
+            }
+        }
+        if (match)
+            add_child_match(out, it.value(), it.key());
+    }
+}
+
+std::vector<std::string> names_of(const std::vector<ChildMatch>& matches) {
+    std::vector<std::string> out;
+    for (const auto& m : matches)
+        if (std::find(out.begin(), out.end(), m.name) == out.end())
+            out.push_back(m.name);
+    return out;
+}
+
+void collect_alias_matches(const nlohmann::json& children, const std::string& token,
+                           std::vector<ChildMatch>& out) {
+    for (auto it = children.begin(); it != children.end(); ++it) {
+        if (!it.value().is_object() || !it.value().contains("aliases") ||
+            !it.value()["aliases"].is_array())
+            continue;
+        for (const auto& alias : it.value()["aliases"])
+            if (alias.is_string() && alias.get<std::string>() == token)
+                add_child_match(out, it.value(), it.key());
+    }
+}
+
+void collect_short_matches(const nlohmann::json& children, const std::string& token,
+                           std::vector<ChildMatch>& out) {
+    for (auto it = children.begin(); it != children.end(); ++it)
+        if (it.value().is_object() && node_short(it.value(), it.key()) == token)
+            add_child_match(out, it.value(), it.key());
+}
+
+const nlohmann::json* pick_child(const std::vector<ChildMatch>& matches,
+                                 std::vector<std::string>& candidates) {
+    if (matches.size() == 1)
+        return matches.front().node;
+    if (matches.size() > 1)
+        candidates = names_of(matches);
+    return nullptr;
+}
+
+const nlohmann::json* match_child(const nlohmann::json& children, const std::string& token,
+                                  bool allow_single_short, std::vector<std::string>& candidates) {
+    auto by_name = children.find(token);
+    if (by_name != children.end() && by_name->is_object())
+        return &*by_name;
+
+    std::vector<ChildMatch> alias_matches;
+    collect_alias_matches(children, token, alias_matches);
+    if (!alias_matches.empty())
+        return pick_child(alias_matches, candidates);
+
+    if (token.size() > 1 || allow_single_short) {
+        std::vector<ChildMatch> short_matches;
+        collect_short_matches(children, token, short_matches);
+        if (!short_matches.empty())
+            return pick_child(short_matches, candidates);
+    }
+
+    std::vector<ChildMatch> glued_matches;
+    collect_glued(children, token, 0, glued_matches);
+    if (!glued_matches.empty())
+        return pick_child(glued_matches, candidates);
+
+    std::vector<ChildMatch> prefix_matches;
+    collect_prefix(children, token, prefix_matches);
+    return pick_child(prefix_matches, candidates);
+}
+
+} // namespace
 
 void SettingRegistry::reset_completion_index() {
     tree_ = nlohmann::json::object();
     static_paths_.clear();
+    legacy_paths_.clear();
     merge_collisions_ = 0;
     clear_index();
+}
+
+namespace {
+
+struct LegacyExpansion {
+    std::vector<std::string> tokens;
+    bool applied = false;
+    std::size_t target_len = 0;
+};
+
+LegacyExpansion expand_legacy(const std::map<std::string, std::vector<std::string>>& legacy,
+                              const std::vector<std::string>& tokens) {
+    LegacyExpansion out;
+    out.tokens = tokens;
+    const auto it = legacy.find(tokens.front());
+    if (it == legacy.end())
+        return out;
+    out.applied = true;
+    out.target_len = it->second.size();
+    out.tokens = it->second;
+    out.tokens.insert(out.tokens.end(), tokens.begin() + 1, tokens.end());
+    return out;
+}
+
+std::size_t walk_command(const nlohmann::json& tree, const std::vector<std::string>& tokens,
+                         SettingRegistry::CommandMatch& out) {
+    const nlohmann::json* children = &tree["commands"];
+    std::size_t walked = 0;
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+        std::vector<std::string> candidates;
+        const nlohmann::json* node =
+            match_child(*children, tokens[i], i + 1 < tokens.size(), candidates);
+        if (!node) {
+            if (!candidates.empty()) {
+                out.ambiguous = true;
+                out.candidates = std::move(candidates);
+            }
+            break;
+        }
+        out.node = node;
+        walked = i + 1;
+        if (node->contains("children") && (*node)["children"].is_object())
+            children = &(*node)["children"];
+        else
+            break;
+    }
+    return walked;
+}
+
+} // namespace
+
+SettingRegistry::CommandMatch
+SettingRegistry::resolve_command(const std::vector<std::string>& tokens) const {
+    CommandMatch out;
+    if (tokens.empty() || !tree_.contains("commands") || !tree_["commands"].is_object())
+        return out;
+
+    const LegacyExpansion expanded = expand_legacy(legacy_paths_, tokens);
+    const std::size_t walked = walk_command(tree_, expanded.tokens, out);
+    if (expanded.applied && walked < expanded.target_len)
+        out.node = nullptr; // the alias target is not installed
+    if (out.node && !out.ambiguous)
+        out.consumed = expanded.applied ? 1 : walked;
+    return out;
+}
+
+std::string SettingRegistry::short_for(const std::string& path) const {
+    const std::string rk = resolve_key(path);
+    const auto it = command_shorts_.find(rk);
+    return it == command_shorts_.end() ? std::string() : it->second;
 }
 
 const std::vector<std::string>& SettingRegistry::aliases_for(const std::string& key) const {

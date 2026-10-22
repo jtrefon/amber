@@ -7,6 +7,8 @@
 #include "tui/path_confine.h"
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
+#include "tui/widgets.h"
+#include "plugins/watch/watch_plugin.h"
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
 #include "agent/config_paths.h"
@@ -21,6 +23,7 @@
 #include <csignal>
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <sstream>
@@ -731,49 +734,107 @@ void SlashDispatcher::cmd_plugin_state_usage(const std::string& verb) {
                                    " <id>  [plugins: " + plugin_ids(tui_.plugin_runtime_) + "]");
 }
 
-// External plugins read their settings at startup; these read and write the
-// manager's persisted key/value store.
+// Plugin settings are a typed host surface, not a command root. Bundled
+// plugins register a SettingsCapability; external plugins keep their manifest
+// store until they adopt it.
+namespace {
+
+bool print_runtime_settings(const agent::SettingsRegistry& settings, const std::string& id,
+                            const std::string& key,
+                            const std::function<void(const std::string&)>& out) {
+    bool any = false;
+    bool key_found = false;
+    std::string values;
+    std::string selected;
+    for (const auto& entry : settings.all()) {
+        if (entry.owner != id)
+            continue;
+        any = true;
+        if (key.empty())
+            values += entry.spec.key + "=" + settings.get(id, entry.spec.key) + " ";
+        else if (entry.spec.key == key) {
+            key_found = true;
+            selected = settings.get(id, key);
+        }
+    }
+    if (!any)
+        return false;
+    if (key.empty())
+        out("settings " + id + ": " + (values.empty() ? "(none)" : values));
+    else if (!key_found)
+        out("unknown setting: " + id + " " + key);
+    else
+        out(id + " " + key + " = " + selected);
+    return true;
+}
+
+bool print_external_settings(const agent::PluginManager& plugins, const std::string& id,
+                             const std::string& key,
+                             const std::function<void(const std::string&)>& out) {
+    const agent::PluginInfo* plugin = plugins.find(id);
+    if (!plugin)
+        return false;
+    if (key.empty()) {
+        std::string values;
+        for (auto it = plugin->settings.begin(); it != plugin->settings.end(); ++it)
+            values += it.key() + "=" + it.value().dump() + " ";
+        out("settings " + id + ": " + (values.empty() ? "(none)" : values));
+    } else {
+        out(id + " " + key + " = " + plugins.get_setting(id, key));
+    }
+    return true;
+}
+
+} // namespace
+
 void SlashDispatcher::cmd_plugin_settings_get(const std::string& args) {
-    size_t sp = args.find(' ');
-    std::string id = (sp == std::string::npos) ? args : args.substr(0, sp);
+    const std::size_t sp = args.find(' ');
+    const std::string id = (sp == std::string::npos) ? args : args.substr(0, sp);
     if (id.empty()) {
         tui_.append_line(P_STATUS, "usage: /get plugin settings <id> [key]  [plugins: " +
                                        plugin_ids(tui_.plugin_runtime_) + "]");
         return;
     }
-    std::string key = (sp == std::string::npos) ? "" : args.substr(sp + 1);
-    const agent::PluginInfo* p = tui_.plugins_.find(id);
-    if (!p) {
-        tui_.append_line(P_STATUS, "unknown plugin: " + id);
+    const std::string key = (sp == std::string::npos) ? "" : args.substr(sp + 1);
+    const auto out = [this](const std::string& line) { tui_.append_line(P_STATUS, line); };
+    if (print_runtime_settings(tui_.plugin_runtime_.settings(), id, key, out))
         return;
-    }
-    if (key.empty()) {
-        std::string all;
-        for (auto it = p->settings.begin(); it != p->settings.end(); ++it)
-            all += it.key() + "=" + it.value().dump() + " ";
-        tui_.append_line(P_STATUS, "settings " + id + ": " + (all.empty() ? "(none)" : all));
+    if (print_external_settings(tui_.plugins_, id, key, out))
         return;
-    }
-    tui_.append_line(P_STATUS, id + " " + key + " = " + tui_.plugins_.get_setting(id, key));
+    tui_.append_line(P_STATUS, "unknown plugin: " + id);
 }
 
 void SlashDispatcher::cmd_plugin_settings_set(const std::string& args) {
-    size_t sp = args.find(' ');
+    std::size_t sp = args.find(' ');
     if (sp == std::string::npos) {
-        tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key>=<value>");
+        tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key> <value>");
         return;
     }
-    std::string id = args.substr(0, sp);
-    std::string kv = args.substr(sp + 1);
-    size_t eq = kv.find('=');
-    if (eq == std::string::npos) {
-        tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key>=<value>");
+    const std::string id = args.substr(0, sp);
+    std::string rest = args.substr(sp + 1);
+    std::size_t sp2 = rest.find(' ');
+    std::string key;
+    std::string value;
+    if (sp2 == std::string::npos) {
+        const std::size_t eq = rest.find('=');
+        if (eq == std::string::npos) {
+            tui_.append_line(P_STATUS, "usage: /set plugin settings <id> <key> <value>");
+            return;
+        }
+        key = rest.substr(0, eq);
+        value = rest.substr(eq + 1);
+    } else {
+        key = rest.substr(0, sp2);
+        value = rest.substr(sp2 + 1);
+    }
+    if (tui_.plugin_runtime_.settings().set(id, key, value)) {
+        tui_.append_line(P_STATUS, "set " + id + " " + key + " = " + value);
         return;
     }
-    if (tui_.plugins_.set_setting(id, kv.substr(0, eq), kv.substr(eq + 1)))
-        tui_.append_line(P_STATUS, "set " + id + " " + kv);
+    if (tui_.plugins_.set_setting(id, key, value))
+        tui_.append_line(P_STATUS, "set " + id + " " + key + " = " + value);
     else
-        tui_.append_line(P_STATUS, "unknown plugin: " + id);
+        tui_.append_line(P_STATUS, "unknown plugin or setting: " + id + " " + key);
 }
 
 // Installing stages the archive and leaves the plugin off: activation is a
@@ -833,6 +894,7 @@ void SlashDispatcher::build_commands() {
         c.name = name;
         c.help = tui_.settings_.help_for(name);
         c.aliases = tui_.settings_.aliases_for(name);
+        c.short_name = tui_.settings_.short_for(name);
         const auto kids = tui_.settings_.children_of(name);
         if (!kids.empty()) {
             std::string args;
@@ -863,6 +925,39 @@ void SlashDispatcher::register_builtin_actions() {
     register_config_get_actions();
 }
 
+// /window*: screen lifecycle and resource attachment.
+void SlashDispatcher::register_window_actions() {
+    register_action("core.window.close", [this](const std::string&) { tui_.close_window(); });
+    register_action("core.window.new", [this](const std::string& a) { cmd_window_new(false, a); });
+    register_action("core.window.new.noworkdir",
+                    [this](const std::string& a) { cmd_window_new(true, a); });
+    register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
+    register_action("core.window.rename", [this](const std::string& a) { cmd_window_rename(a); });
+    register_action("core.window.set", [this](const std::string& a) { cmd_window_set(a); });
+    register_action("core.window.attach", [this](const std::string& a) {
+        const std::size_t sp = a.find(' ');
+        if (sp == std::string::npos) {
+            tui_.append_line(P_STATUS, "usage: /window attach <job|agent|watch> <id>");
+            return;
+        }
+        open_resource(a.substr(0, sp), a.substr(sp + 1));
+    });
+    register_action("core.window.detach", [this](const std::string&) {
+        if (tui_.win().kind != Window::Kind::Resource) {
+            tui_.append_line(P_STATUS, "detach: active window is not a resource viewer");
+            return;
+        }
+        tui_.close_window();
+    });
+    register_action("core.window", [this](const std::string& a) {
+        if (!a.empty())
+            tui_.append_line(P_STATUS,
+                             "usage: /window new [name] | new noworkdir [name] | close | list | "
+                             "rename | set <number> | attach <kind> <id> | detach");
+        cmd_window_list();
+    });
+}
+
 // /help, /settings, /prompt, /session reset, /window*, /stop.
 void SlashDispatcher::register_core_session_actions() {
     register_action("core.help", [this](const std::string& a) { cmd_help(a); });
@@ -872,20 +967,7 @@ void SlashDispatcher::register_core_session_actions() {
         tui_.redraw_after_modal();
     });
     register_action("core.session.reset", [this](const std::string&) { cmd_session_reset(); });
-    register_action("core.window.close", [this](const std::string&) { tui_.close_window(); });
-    register_action("core.window.new", [this](const std::string& a) { cmd_window_new(false, a); });
-    register_action("core.window.new.noworkdir",
-                    [this](const std::string& a) { cmd_window_new(true, a); });
-    register_action("core.window.list", [this](const std::string&) { cmd_window_list(); });
-    register_action("core.window.rename", [this](const std::string& a) { cmd_window_rename(a); });
-    register_action("core.window.set", [this](const std::string& a) { cmd_window_set(a); });
-    register_action("core.window", [this](const std::string& a) {
-        if (!a.empty())
-            tui_.append_line(P_STATUS,
-                             "usage: /window new [name] | new noworkdir [name] | close | list | "
-                             "rename | set <number>");
-        cmd_window_list();
-    });
+    register_window_actions();
     register_action("core.stop", [this](const std::string&) {
         // /stop cancels the ACTIVE window's run only.
         if (tui_.win().agent)
@@ -900,7 +982,7 @@ void SlashDispatcher::register_core_job_actions() {
     register_action("core.compress", [this](const std::string&) { cmd_compress(""); });
     register_action("core.job", [this](const std::string& a) { cmd_job(a); });
     register_action("core.job.list", [this](const std::string&) { job_ls(); });
-    register_action("core.job.kill", [this](const std::string& a) { job_kill(a); });
+    register_action("core.job.stop", [this](const std::string& a) { job_kill(a); });
     register_action("core.job.read", [this](const std::string& a) { job_read(a); });
     register_action("core.job.start", [this](const std::string& a) { job_start(a); });
     register_action("core.session.save",
@@ -908,13 +990,14 @@ void SlashDispatcher::register_core_job_actions() {
     register_action("core.session.list",
                     [this](const std::string&) { tui_.session_controller_->session_browser(); });
     register_action("core.session.load", [this](const std::string& a) { cmd_session_load(a); });
-    register_action("core.session.delete", [this](const std::string& a) { cmd_session_delete(a); });
+    register_action("core.session.remove", [this](const std::string& a) { cmd_session_delete(a); });
     register_action("core.session.rename", [this](const std::string& a) { cmd_session_rename(a); });
     register_action("core.session.fork",
                     [this](const std::string&) { tui_.session_controller_->fork_session(); });
     register_action("core.session", [this](const std::string& a) {
         if (!a.empty())
-            tui_.append_line(P_STATUS, "usage: /session list|save|load|delete|rename <id> <title>");
+            tui_.append_line(P_STATUS,
+                             "usage: /session new|list|save|load|remove|rename|fork|stop");
         tui_.session_controller_->session_browser();
     });
     register_action("core.quit", [this](const std::string&) { request_quit(); });
@@ -1138,6 +1221,17 @@ void SlashDispatcher::register_plugin_actions() {
                     [this](const std::string& a) { cmd_plugin_uninstall(a); });
     register_action("core.config.set.plugin.settings",
                     [this](const std::string& a) { cmd_plugin_settings_set(a); });
+    register_action("core.work", [this](const std::string&) { cmd_work_board(); });
+    register_action("core.project", [this](const std::string&) { cmd_project_list(); });
+    register_action("core.project.list", [this](const std::string&) { cmd_project_list(); });
+    register_action("core.project.open", [this](const std::string& a) { cmd_project_open(a); });
+    register_action("core.project.show", [this](const std::string&) { cmd_project_show(); });
+    register_action("core.project.close", [this](const std::string&) { cmd_project_close(); });
+    register_action("core.plugin", [this](const std::string& a) {
+        if (!a.empty())
+            tui_.append_line(P_STATUS, "usage: /plugin <id> <command>  [see /get plugin list]");
+        cmd_runtime_plugin_list();
+    });
 }
 
 // /get provider*, and the wallet pair under provider.
@@ -1258,29 +1352,6 @@ std::vector<std::string> tokenize_slash(const std::string& text) {
     return tokens;
 }
 
-// Walk the command tree, consuming every token that names a documented child.
-// The deepest node with a registered action handler receives the remaining text
-// — command structure lives in the tree, not in handlers.
-const json* descend_command_tree(const json& tree, const std::vector<std::string>& tokens,
-                                 size_t& consumed) {
-    const json* node = nullptr;
-    const json* children = nullptr;
-    if (tree.contains("commands") && tree["commands"].is_object())
-        children = &tree["commands"];
-    consumed = 0;
-    while (consumed < tokens.size() && children && children->is_object()) {
-        auto it = children->find(tokens[consumed]);
-        if (it == children->end() || !it->is_object())
-            break;
-        node = &*it;
-        ++consumed;
-        children = (node->contains("children") && (*node)["children"].is_object())
-                       ? &(*node)["children"]
-                       : nullptr;
-    }
-    return node;
-}
-
 // The unclaimed tokens, joined back into the handler's argument string.
 std::string join_tokens(const std::vector<std::string>& tokens, size_t from) {
     std::string arg;
@@ -1307,22 +1378,33 @@ bool SlashDispatcher::handle_slash(const std::string& line) {
     if (tokens.empty())
         return true;
 
-    size_t consumed = 0;
-    const json* node = descend_command_tree(tui_.settings_.command_tree(), tokens, consumed);
-    if (!node) {
+    const tui::SettingRegistry::CommandMatch match = tui_.settings_.resolve_command(tokens);
+    if (match.ambiguous) {
+        std::string candidates;
+        for (const auto& c : match.candidates) {
+            if (!candidates.empty())
+                candidates += ", ";
+            candidates += "/" + c;
+        }
+        tui_.append_line(P_STATUS, "ambiguous command: /" + tokens[0] + " matches " + candidates +
+                                       "  (type more)");
+        return true;
+    }
+    if (!match.node) {
         tui_.append_line(P_STATUS, "unknown command: /" + tokens[0] + "  (try /help)");
         return true;
     }
 
-    const std::string action = (node->contains("action") && (*node)["action"].is_string())
-                                   ? (*node)["action"].get<std::string>()
-                                   : std::string();
+    const std::string action =
+        (match.node->contains("action") && (*match.node)["action"].is_string())
+            ? (*match.node)["action"].get<std::string>()
+            : std::string();
     if (!action_registry_.has(action)) {
-        report_missing_handler(node, tokens[0]);
+        report_missing_handler(match.node, tokens[0]);
         return true;
     }
     try {
-        action_registry_.dispatch(action, join_tokens(tokens, consumed));
+        action_registry_.dispatch(action, join_tokens(tokens, match.consumed));
     } catch (const std::exception& e) {
         // No slash command may crash the TUI (uncaught exceptions from setters
         // used to abort() with the terminal left in raw mode).
@@ -1984,7 +2066,7 @@ void SlashDispatcher::cmd_session_load(const std::string& id) {
 
 void SlashDispatcher::cmd_session_delete(const std::string& id) {
     if (id.empty()) {
-        tui_.append_line(P_STATUS, "usage: /session delete <id>");
+        tui_.append_line(P_STATUS, "usage: /session remove <id>");
         return;
     }
     tui_.session_controller_->store().remove(id);
@@ -2250,17 +2332,211 @@ void SlashDispatcher::cmd_system_uname() {
     tui_.run_command_async("uname", "uname -a");
 }
 
+namespace {
+
+struct WorkItem {
+    std::string kind;
+    std::string id;
+    std::string label;
+    std::string project;
+    std::size_t window_index = 0;
+};
+
+std::vector<WorkItem> collect_work_items(tui::WindowManager& windows, agent::JobService& jobs,
+                                         agent::SubAgentExecutor& subagents,
+                                         agent::PluginRuntime& runtime) {
+    std::vector<WorkItem> items;
+    std::map<std::string, std::string> owner_project;
+    const auto& all = windows.all();
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        const tui::Window& w = *all[i];
+        if (w.kind == tui::Window::Kind::Resource || w.welcome_art)
+            continue;
+        const std::string project =
+            w.project_root.empty() ? agent::Workspace::project_root() : w.project_root;
+        owner_project[w.owner_id] = project;
+        items.push_back({"session", std::to_string(w.id), w.title, project, i});
+    }
+    const auto project_for = [&](const std::string& owner) {
+        const auto it = owner_project.find(owner);
+        return it == owner_project.end() ? agent::Workspace::project_root() : it->second;
+    };
+    for (const auto& job : jobs.list())
+        items.push_back({"job", job.id, job.label, project_for(job.owner_id), 0});
+    for (const auto& task : subagents.tasks())
+        items.push_back({"agent", task.id, task.prompt_head, project_for(task.owner_id), 0});
+    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(runtime.find("watch")))
+        for (const auto& record : watch->list_records())
+            items.push_back({"watch", record.id, record.label, project_for(record.owner_id), 0});
+    return items;
+}
+
+std::string work_label(const WorkItem& item) {
+    const std::string project = item.project.empty() ? "" : "  [" + item.project + "]";
+    if (item.kind == "session")
+        return "session  " + item.label + project;
+    if (item.kind == "job")
+        return "job      " + item.id + "  " + item.label + project;
+    if (item.kind == "agent")
+        return "agent    " + item.id + "  " + item.label + project;
+    return "watch    " + item.id + "  " + item.label + project;
+}
+
+} // namespace
+
+namespace {
+
+void print_command_list(const std::vector<palette::Command>& commands,
+                        const std::function<void(const std::string&)>& out) {
+    size_t width = 0;
+    for (const auto& c : commands)
+        width = std::max(width, palette::usage(c).size());
+    for (const auto& c : commands) {
+        std::string usage_line = palette::usage(c);
+        usage_line.append(width - usage_line.size() + 2, ' ');
+        std::string line = "  " + usage_line + c.help;
+        if (!c.short_name.empty())
+            line += "  (/" + c.short_name + ")";
+        out(line);
+    }
+    std::string shortcuts;
+    for (const auto& c : commands) {
+        if (c.short_name.empty())
+            continue;
+        if (!shortcuts.empty())
+            shortcuts += "  ";
+        shortcuts += "/" + c.short_name + "=" + c.name;
+    }
+    if (!shortcuts.empty())
+        out("Shortcuts: " + shortcuts);
+    out("Glued paths: /wc = /window close, /sl = /session list");
+}
+
+} // namespace
+
+void SlashDispatcher::cmd_work_board() {
+    const auto items = collect_work_items(*tui_.window_manager_, tui_.jobs_, tui_.subagents_,
+                                          tui_.plugin_runtime_);
+    if (items.empty()) {
+        tui_.append_line(P_STATUS, "no sessions, jobs, agents or watches");
+        return;
+    }
+    std::vector<std::string> labels;
+    for (const auto& item : items)
+        labels.push_back(work_label(item));
+    const int selected = menu_select("Work", labels);
+    if (selected < 0 || selected >= static_cast<int>(items.size()))
+        return;
+    const WorkItem& item = items[static_cast<std::size_t>(selected)];
+    apply_work_item(item.kind, item.id, item.window_index);
+}
+
+void SlashDispatcher::open_resource(const std::string& kind, const std::string& id) {
+    if (kind.empty() || id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /window attach <job|agent|watch> <id>");
+        return;
+    }
+    if (!tui_.window_manager_->focus_resource(kind, id))
+        tui_.window_manager_->new_resource_window(kind, id, kind + " " + id);
+    tui_.refresh_active_resource();
+    tui_.draw();
+}
+
+void SlashDispatcher::apply_work_item(const std::string& kind, const std::string& id,
+                                      std::size_t window_index) {
+    if (kind == "session") {
+        tui_.switch_to(window_index);
+        return;
+    }
+    std::vector<std::string> actions = {"open viewer"};
+    if (kind == "job" || kind == "watch")
+        actions.push_back("stop");
+    const int action = menu_select(kind + " " + id, actions);
+    if (action == 0) {
+        open_resource(kind, id);
+    } else if (action == 1 && kind == "job") {
+        tui_.jobs_.stop(id);
+        tui_.append_line(P_STATUS, "stopped job " + id);
+        tui_.draw();
+    } else if (action == 1 && kind == "watch") {
+        if (auto* watch =
+                dynamic_cast<agent::plugins::WatchPlugin*>(tui_.plugin_runtime_.find("watch"))) {
+            watch->stop_watch(id);
+            tui_.append_line(P_STATUS, "stopped watch " + id);
+        }
+        tui_.draw();
+    }
+}
+
+void SlashDispatcher::cmd_project_list() {
+    tui_.banner("Open projects:");
+    for (const auto& window : tui_.window_manager_->all()) {
+        if (window->kind == Window::Kind::Resource)
+            continue;
+        const std::string root =
+            window->project_root.empty() ? agent::Workspace::project_root() : window->project_root;
+        tui_.append_line(P_STATUS, "  " + window->title + "  ->  " + root);
+    }
+}
+
+void SlashDispatcher::cmd_project_open(const std::string& args) {
+    if (args.empty()) {
+        tui_.append_line(P_STATUS,
+                         "usage: /project open <path> [--worktree <name>] [--no-worktree]");
+        return;
+    }
+    const std::size_t sp = args.find(' ');
+    const std::string path = sp == std::string::npos ? args : args.substr(0, sp);
+    bool prepare_workspace = tui_.cfg_.worktree_auto;
+    std::string worktree_name;
+    if (sp != std::string::npos) {
+        const std::string flags = args.substr(sp + 1);
+        if (flags == "--no-worktree") {
+            prepare_workspace = false;
+        } else if (flags.rfind("--worktree ", 0) == 0) {
+            prepare_workspace = true;
+            worktree_name = flags.substr(11);
+        } else if (!flags.empty()) {
+            tui_.append_line(P_STATUS, "usage: /project open <path> [--worktree <name>] "
+                                       "[--no-worktree]");
+            return;
+        }
+    }
+    std::error_code ec;
+    std::filesystem::path requested(path);
+    if (requested.is_relative())
+        requested = std::filesystem::absolute(requested, ec);
+    const std::filesystem::path canonical = std::filesystem::weakly_canonical(requested, ec);
+    const std::string root = (ec ? requested : canonical).generic_string();
+    if (!std::filesystem::is_directory(root, ec)) {
+        tui_.append_line(P_STATUS, "project: not a directory: " + root);
+        return;
+    }
+    Window& w = tui_.new_window("project", prepare_workspace, worktree_name, root);
+    w.title = std::filesystem::path(root).filename().string();
+    tui_.append_line(P_STATUS, "project opened: " + root);
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_project_show() {
+    const std::string root = tui_.win().project_root.empty() ? agent::Workspace::project_root()
+                                                             : tui_.win().project_root;
+    tui_.append_line(P_STATUS, "project: " + root);
+}
+
+void SlashDispatcher::cmd_project_close() {
+    if (tui_.win().kind == Window::Kind::Resource) {
+        tui_.append_line(P_STATUS, "project close: active window is a resource viewer");
+        return;
+    }
+    tui_.close_window();
+}
+
 void SlashDispatcher::cmd_help(const std::string& arg) {
     if (arg.empty()) {
         tui_.banner("Slash commands (type /help <command> for detail):");
-        size_t w = 0;
-        for (const auto& c : commands())
-            w = std::max(w, usage(c).size());
-        for (const auto& c : commands()) {
-            std::string u = usage(c);
-            u.append(w - u.size() + 2, ' ');
-            tui_.append_line(P_STATUS, "  " + u + c.help);
-        }
+        print_command_list(commands(),
+                           [this](const std::string& line) { tui_.append_line(P_STATUS, line); });
         tui_.append_line(P_STATUS, "");
         tui_.append_line(P_STATUS,
                          "Keys:  Enter/Ctrl-G send   PgUp/PgDn scroll   Ctrl+P/N history");
@@ -2644,7 +2920,7 @@ void SlashDispatcher::cmd_worktree(const std::string& arg) {
     if (!arg.empty())
         tui_.append_line(P_STATUS,
                          "usage: /worktree new [name] [at <ref>] | attach <name> | detach | "
-                         "remove <name> | status | list | prune | main");
+                         "remove <name> | show | list | prune | main");
     cmd_worktree_list();
 }
 
@@ -2758,7 +3034,7 @@ void SlashDispatcher::cmd_compress(const std::string&) {
 
 void SlashDispatcher::cmd_job(const std::string& rest) {
     if (!rest.empty())
-        tui_.append_line(P_STATUS, "usage: /job [ls|kill <id>|read <id>|start <cmd>]");
+        tui_.append_line(P_STATUS, "usage: /job [list|stop <id>|read <id>|start <cmd>]");
     job_ls();
 }
 
@@ -2779,11 +3055,11 @@ void SlashDispatcher::refresh_job_feed() {
 
 void SlashDispatcher::job_kill(const std::string& id) {
     if (id.empty()) {
-        tui_.append_line(P_STATUS, "usage: /job kill <id>");
+        tui_.append_line(P_STATUS, "usage: /job stop <id>");
         return;
     }
     bool ok = tui_.jobs_.stop(id);
-    tui_.append_line(P_STATUS, ok ? ("killed " + id) : ("no such job: " + id));
+    tui_.append_line(P_STATUS, ok ? ("stopped " + id) : ("no such job: " + id));
     refresh_job_feed();
     tui_.draw();
 }
@@ -2812,7 +3088,8 @@ void SlashDispatcher::job_start(const std::string& cmd) {
         tui_.append_line(P_STATUS, "usage: /job start <command>");
         return;
     }
-    std::string id = tui_.jobs_.start(cmd, agent::Workspace::project_root());
+    std::string id = tui_.jobs_.start(cmd, agent::Workspace::project_root(), 600, 30,
+                                      agent::JobOrigin{tui_.win().owner_id, cmd});
     if (id.empty()) {
         tui_.append_line(P_STATUS, "failed to start: " + cmd);
         return;

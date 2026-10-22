@@ -7,11 +7,9 @@ namespace tui::completion_context {
 Context for_input(const std::string& input, const SettingRegistry& settings) {
     Context ctx;
     if (input.empty() || input[0] != '/') {
-        // Non-slash text: top-level command names from the tree, including
-        // JSON-declared aliases — never a hardcoded list.
+        // Non-slash text: canonical top-level command names from the tree.
+        // Aliases are dispatch hints, not duplicate completion rows.
         ctx.rows = settings.complete("");
-        for (const auto& a : settings.top_level_aliases())
-            ctx.rows.push_back(a);
         return ctx;
     }
 

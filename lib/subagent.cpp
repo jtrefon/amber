@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "agent/agent.h"
+#include "agent/run_scope.h"
 
 namespace agent {
 
@@ -52,6 +53,76 @@ void SubAgentExecutor::release_slot() noexcept {
         --active_;
     }
     slot_cv_.notify_one();
+}
+
+int SubAgentExecutor::active() const noexcept {
+    std::scoped_lock lk(slot_mutex_);
+    return active_;
+}
+
+std::string SubAgentExecutor::add_task(const std::string& prompt) {
+    TaskRecord record;
+    record.id = "task-" + std::to_string(++next_task_);
+    if (const auto* scope = current_run_scope();
+        scope && scope->leaf.owner_id && !scope->leaf.owner_id->empty())
+        record.owner_id = *scope->leaf.owner_id;
+    record.prompt_head = prompt.size() > 100 ? prompt.substr(0, 97) + "..." : prompt;
+    record.state = "queued";
+    record.started = std::chrono::steady_clock::now();
+    std::scoped_lock lk(tasks_mutex_);
+    if (tasks_.size() >= 64) {
+        const auto done = std::find_if(tasks_.begin(), tasks_.end(), [](const TaskRecord& r) {
+            return r.state != "running" && r.state != "queued";
+        });
+        if (done != tasks_.end())
+            tasks_.erase(done);
+        else
+            tasks_.erase(tasks_.begin());
+    }
+    tasks_.push_back(std::move(record));
+    return tasks_.back().id;
+}
+
+void SubAgentExecutor::update_task(const std::string& id, const std::string& state,
+                                   const std::string& current_tool, const std::string& result) {
+    std::scoped_lock lk(tasks_mutex_);
+    for (auto& record : tasks_) {
+        if (record.id != id)
+            continue;
+        record.state = state;
+        if (!current_tool.empty())
+            record.current_tool = current_tool;
+        else if (state == "running")
+            record.current_tool.clear();
+        if (!result.empty())
+            record.result = result.size() > 400 ? result.substr(0, 397) + "..." : result;
+        return;
+    }
+}
+
+void SubAgentExecutor::fail_task(const std::string& id, const std::string& error) {
+    waiting_.fetch_sub(1);
+    update_task(id, "failed", {}, error);
+}
+
+std::vector<SubAgentTaskInfo> SubAgentExecutor::tasks() const {
+    std::scoped_lock lk(tasks_mutex_);
+    std::vector<SubAgentTaskInfo> out;
+    const auto now = std::chrono::steady_clock::now();
+    for (const auto& record : tasks_) {
+        SubAgentTaskInfo info;
+        info.id = record.id;
+        info.owner_id = record.owner_id;
+        info.prompt_head = record.prompt_head;
+        info.state = record.state;
+        info.current_tool = record.current_tool;
+        info.result = record.result;
+        info.elapsed_s =
+            std::chrono::duration_cast<std::chrono::seconds>(now - record.started).count();
+        info.slot = record.slot;
+        out.push_back(std::move(info));
+    }
+    return out;
 }
 
 // Sub-agent hooks: approval and status passthrough only — tool calls, tokens and
@@ -114,25 +185,39 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
         return "";
     }
 
+    const std::string task_id = add_task(prompt);
+    waiting_.fetch_add(1);
     std::unique_lock<std::timed_mutex> serial_guard(serial_mutex_, std::defer_lock);
-    if (!enter_serial_mode(serial_guard, err))
-        return "";
-    if (!acquire_slot()) {
-        err = "all sub-agent slots are busy; retry shortly";
+    if (!enter_serial_mode(serial_guard, err)) {
+        fail_task(task_id, err);
         return "";
     }
+    if (!acquire_slot()) {
+        err = "all sub-agent slots are busy; retry shortly";
+        fail_task(task_id, err);
+        return "";
+    }
+    waiting_.fetch_sub(1);
     struct SlotGuard {
         SubAgentExecutor* self;
         ~SlotGuard() { self->release_slot(); }
     } slot_guard{this};
 
-    const AgentHooks sub_hooks = sub_hooks_of();
+    update_task(task_id, "running");
+    AgentHooks sub_hooks = sub_hooks_of();
+    sub_hooks.on_tool_call = [this, task_id](const std::string& name, const json&) {
+        update_task(task_id, "running", name);
+    };
+    sub_hooks.on_tool_result = [this, task_id](const std::string&, const ToolResult&, const json&) {
+        update_task(task_id, "running");
+    };
     const Config sub_cfg = sub_config();
 
     launched_.fetch_add(1);
     t_in_subagent = true;
     const std::string result = run_sub_agent(prompt, reg, sub_cfg, sub_hooks, err);
     t_in_subagent = false;
+    update_task(task_id, err.empty() ? "done" : "failed", {}, result);
     return result;
 }
 

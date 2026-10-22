@@ -218,22 +218,27 @@ std::string render_block(const CappedText& text, const std::vector<std::string>&
 } // namespace
 
 void ProjectInstructionsPlugin::shutdown() {
-    block_.clear();
-    loaded_ = false;
+    blocks_.clear();
 }
 
 std::string ProjectInstructionsPlugin::load_once() {
-    if (loaded_)
-        return block_;
-    loaded_ = true;
+    const std::string root = Workspace::workspace_root();
+    auto cached = blocks_.find(root);
+    if (cached != blocks_.end())
+        return cached->second;
     const fs::path file = root_file();
-    if (file.empty() || !fs::exists(file))
-        return block_;
+    if (file.empty() || !fs::exists(file)) {
+        blocks_[root] = "";
+        return "";
+    }
     const CappedText text = read_capped(file);
-    if (text.body.find_first_not_of(" \t\r\n") == std::string::npos)
-        return block_; // whitespace only is not an instruction
-    block_ = render_block(text, nested_files(file.parent_path()));
-    return block_;
+    if (text.body.find_first_not_of(" \t\r\n") == std::string::npos) {
+        blocks_[root] = "";
+        return "";
+    }
+    std::string block = render_block(text, nested_files(file.parent_path()));
+    blocks_[root] = block;
+    return block;
 }
 
 std::vector<std::string> ProjectInstructionsPlugin::report_lines() const {

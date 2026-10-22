@@ -127,6 +127,7 @@ PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace
     : config_(std::move(config)), workspace_(&workspace) {
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
                                                  search_backends_, bus_, commands_);
+    services_->set_settings(settings_);
     context_ = std::make_unique<PluginContext>(PluginContext{bus_, tools, &config_, *workspace_});
     services_->config = &config_;
     registry_.set_context(context_.get());

@@ -1696,6 +1696,30 @@ TEST(workspace_run_scope_survives_the_chain_hop) {
 
 // The slug is what keeps two projects' state apart, so it must be stable,
 // readable, and collision-free even for paths that sanitize to the same name.
+
+TEST(workspace_scoped_project_root_drives_state_and_tools) {
+    agent::Workspace::set_root("/tmp/amber_project_default");
+    const std::string scoped = "/tmp/amber_project_other";
+    {
+        agent::ScopedProjectRoot guard(scoped);
+        ASSERT_EQ(agent::Workspace::project_root(), scoped);
+        ASSERT_EQ(agent::Workspace::workspace_root(), scoped);
+        ASSERT_EQ(agent::Workspace::state_dir(), agent::Workspace::state_dir_for(scoped));
+        ASSERT_EQ(agent::Workspace::settings_path(), agent::Workspace::settings_path_for(scoped));
+        ASSERT_EQ(agent::Workspace::local_dir(), scoped + "/.amber");
+
+        std::string run_project = "/tmp/amber_project_run";
+        agent::RunScope scope;
+        scope.project_root = &run_project;
+        agent::ScopedRunScope run_guard(scope);
+        ASSERT_EQ(agent::Workspace::project_root(), run_project);
+        ASSERT_EQ(agent::Workspace::workspace_root(), run_project);
+    }
+    ASSERT_EQ(agent::Workspace::project_root(), "/tmp/amber_project_default");
+    ASSERT_EQ(agent::Workspace::state_dir(),
+              agent::Workspace::state_dir_for("/tmp/amber_project_default"));
+}
+
 TEST(workspace_state_slug_is_stable_and_collision_free) {
     const std::string a = agent::workspace_state_slug("/home/jack/Projects/amber");
     ASSERT_EQ(a, agent::workspace_state_slug("/home/jack/Projects/amber"));
@@ -4600,6 +4624,22 @@ TEST(job_service_start_read_stop) {
 // it holds (a half-written file, a lock, a report line), and SIGKILL is only for
 // the ones that will not go. Before this, every stop was a SIGKILL — the child
 // never got to say what it was doing.
+
+TEST(job_info_carries_owner_and_label) {
+    agent::Workspace::set_root("/tmp/amber_job_ws");
+    run_cmd("mkdir -p /tmp/amber_job_ws");
+    agent::JobService jobs;
+    const std::string id = jobs.start("sleep 5", "/tmp/amber_job_ws", 60, 30,
+                                      agent::JobOrigin{"window-3", "the label"});
+    ASSERT_FALSE(id.empty());
+    auto job = jobs.get(id);
+    ASSERT(job != nullptr);
+    const agent::JobInfo info = job->info();
+    ASSERT_EQ(info.owner_id, std::string("window-3"));
+    ASSERT_EQ(info.label, std::string("the label"));
+    ASSERT(jobs.stop(id));
+}
+
 TEST(job_service_stop_asks_before_it_kills) {
     agent::Workspace::set_root("/tmp/amber_job_ws");
     run_cmd("mkdir -p /tmp/amber_job_ws");

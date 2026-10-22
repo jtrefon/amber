@@ -1908,6 +1908,57 @@ TEST(subagent_slot_pool_reports_instead_of_hanging) {
     ASSERT(waited < std::chrono::seconds(10));
 }
 
+TEST(subagent_task_record_tracks_owner_state_and_progress) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(1000);
+    executor.set_config(loop_cfg());
+    std::promise<void> release;
+    const auto shared = release.get_future().share();
+    executor.set_factory(
+        [shared](const agent::Config&) { return std::make_unique<WedgedClient>(shared); });
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
+
+    std::string owner = "window-7";
+    std::string err;
+    std::thread task([&] {
+        agent::RunScope scope;
+        scope.owner_id = &owner;
+        agent::ScopedRunScope guard(scope);
+        executor.run_task("a long focused task", reg, err);
+    });
+
+    bool running = false;
+    for (int i = 0; i < 200 && !running; ++i) {
+        const auto tasks = executor.tasks();
+        running = !tasks.empty() && tasks.back().state == "running";
+        if (!running)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    const int active_while_running = executor.active();
+    const auto tasks = executor.tasks();
+
+    // Release and join before any assertion: a failed assertion returns from
+    // the test, and a still-running std::thread would terminate the process.
+    release.set_value();
+    task.join();
+
+    ASSERT(running);
+    ASSERT_EQ(active_while_running, 1);
+    ASSERT_EQ(tasks.size(), 1u);
+    ASSERT_EQ(tasks[0].owner_id, owner);
+    ASSERT_EQ(tasks[0].prompt_head, std::string("a long focused task"));
+    ASSERT(tasks[0].elapsed_s >= 0);
+    ASSERT_EQ(executor.active(), 0);
+    const auto finished = executor.tasks();
+    ASSERT_EQ(finished.size(), 1u);
+    ASSERT_EQ(finished[0].state, std::string("done"));
+}
+
 TEST(agent_loop_subagent_focused_task) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();

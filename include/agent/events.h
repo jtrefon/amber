@@ -77,6 +77,19 @@ struct ErrorRaisedEvent {
     bool retryable = false;
 };
 
+// A background watch finished and has a report ready. The host routes it to
+// the window/session named by owner_id; the plugin owns the report itself.
+// This is a notification, not a Context mutation: the host decides when to
+// wake or queue the report for the agent.
+struct WatchReportEvent {
+    std::string owner_id;
+    std::string watch_id;
+    std::string report_id;
+    std::string state;    // succeeded, failed, timed_out, unknown
+    std::string headline; // one line, safe to show in a prompt
+    bool needs_attention = false;
+};
+
 struct PluginLoadedEvent {
     std::string plugin_id;
 };
@@ -122,6 +135,9 @@ template <> struct EventTraits<CompressionCompletedEvent> {
 };
 template <> struct EventTraits<ErrorRaisedEvent> {
     static constexpr EventType type = EventType::ErrorRaised;
+};
+template <> struct EventTraits<WatchReportEvent> {
+    static constexpr EventType type = EventType::WatchReport;
 };
 template <> struct EventTraits<PluginLoadedEvent> {
     static constexpr EventType type = EventType::PluginLoaded;

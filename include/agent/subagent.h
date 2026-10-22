@@ -14,13 +14,28 @@
 //       executes parallel tool calls), capped by max().
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "agent/agent.h"
 
 namespace agent {
+
+// Point-in-time view of one task run. The executor owns the records; this is a
+// copy so a viewer can render without holding the executor lock.
+struct SubAgentTaskInfo {
+    std::string id;
+    std::string owner_id;
+    std::string prompt_head;
+    std::string state; // queued | running | done | failed | cancelled
+    std::string current_tool;
+    std::string result;
+    long elapsed_s = 0;
+    int slot = -1;
+};
 
 class SubAgentExecutor {
 public:
@@ -38,6 +53,9 @@ public:
     int max_iterations() const noexcept { return max_iterations_.load(); }
 
     int launched() const noexcept { return launched_.load(); }
+    int active() const noexcept;
+    int waiting() const noexcept { return waiting_.load(); }
+    std::vector<SubAgentTaskInfo> tasks() const;
 
     void set_config(const Config& cfg) { cfg_ = cfg; }
     void set_hooks(const AgentHooks& hooks) { hooks_ = hooks; }
@@ -57,6 +75,20 @@ private:
     std::string run_sub_agent(const std::string& prompt, ToolRegistry& reg, const Config& sub_cfg,
                               const AgentHooks& sub_hooks, std::string& err);
     void release_slot() noexcept;
+    std::string add_task(const std::string& prompt);
+    void update_task(const std::string& id, const std::string& state,
+                     const std::string& current_tool = {}, const std::string& result = {});
+    void fail_task(const std::string& id, const std::string& error);
+    struct TaskRecord {
+        std::string id;
+        std::string owner_id;
+        std::string prompt_head;
+        std::string state;
+        std::string current_tool;
+        std::string result;
+        int slot = -1;
+        std::chrono::steady_clock::time_point started;
+    };
 
     std::atomic<bool> parallel_{true};
     std::atomic<int> max_{4};
@@ -67,11 +99,15 @@ private:
     // that the configurable timeout left behind as a fossil.
     std::atomic<int> slot_wait_ms_{120 * 1000}; // 2 min; see set_slot_wait_ms
     std::atomic<int> launched_{0};
+    std::atomic<int> waiting_{0};
+    std::atomic<long> next_task_{0};
+    mutable std::mutex tasks_mutex_;
+    std::vector<TaskRecord> tasks_;
     Config cfg_;
     AgentHooks hooks_;
     LLMClientFactory factory_;
     std::timed_mutex serial_mutex_;
-    std::mutex slot_mutex_;
+    mutable std::mutex slot_mutex_;
     std::condition_variable slot_cv_;
     int active_ = 0;
 };

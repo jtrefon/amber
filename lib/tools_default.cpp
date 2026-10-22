@@ -33,6 +33,7 @@ struct BareHost {
     WalletRegistry wallets;
     EventBus events;
     CommandRegistry commands;
+    SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> search_backends =
         std::make_shared<SearchBackendRegistry>();
     PluginServices services;
@@ -41,7 +42,9 @@ struct BareHost {
     // installed nowhere, which is what a bare unit test wants.
     explicit BareHost(ToolRegistry& tools, PromptRegistry* prompt_sink = nullptr)
         : services(tools, prompt_sink ? *prompt_sink : prompts, status, panels, wallets,
-                   search_backends, events, commands) {}
+                   search_backends, events, commands) {
+        services.set_settings(settings);
+    }
 };
 
 // Install a set of capabilities through the same path the runtime uses. A failed

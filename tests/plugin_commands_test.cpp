@@ -20,7 +20,7 @@ namespace {
 std::vector<CommandRegistry::Entry> make_entries() {
     CommandRegistry::Entry e;
     e.owner = "hello";
-    e.spec.root = "hello";
+    e.spec.name = "hello";
     e.spec.help = "Say hello";
     e.spec.man = "Usage: /hello greet <name>";
     e.spec.subtree = nlohmann::json::parse(R"({"greet": {"help": "Greet someone"}})");
@@ -44,9 +44,11 @@ TEST(plugin_command_binds_leaf_and_dispatches) {
 
     ASSERT_EQ(bound, 1u);
 
-    // The tree resolves the leaf and carries the derived action.
+    // The host mounts the contribution under /plugin/<id>; the leaf still
+    // carries the derived action.
     const auto& tree = settings.command_tree();
-    ASSERT_EQ(tree["commands"]["hello"]["children"]["greet"]["action"].get<std::string>(),
+    ASSERT_EQ(tree["commands"]["plugin"]["children"]["hello"]["children"]["greet"]["action"]
+                  .get<std::string>(),
               std::string("plugin.hello.greet"));
 
     // Dispatching the action runs the handler and prints its return value.
@@ -74,15 +76,15 @@ TEST(plugin_command_resolves_the_live_handler) {
     // With the contribution gone, the action reports unavailable.
     entries.clear();
     ASSERT_TRUE(actions.dispatch("plugin.hello.greet", ""));
-    ASSERT_EQ(printed.back(), std::string("/hello: command unavailable"));
+    ASSERT_EQ(printed.back(), std::string("/plugin hello: command unavailable"));
 }
 
-// A plugin may extend a documented namespace (the MCP plugin contributes
-// /get mcp), but cannot rewrite its fields: children concatenate, documented
-// action/help/man stay, and the derived action cannot collide with a core one.
-TEST(plugin_command_extends_a_documented_root_additively) {
+// A plugin cannot mount into a core namespace: a legacy spec.name that names
+// one is still placed under the plugin workspace, and the documented core
+// fields are untouched.
+TEST(plugin_command_cannot_extend_a_documented_root) {
     auto entries = make_entries();
-    entries[0].spec.root = "set";
+    entries[0].spec.name = "set";
     entries[0].spec.subtree = nlohmann::json::parse(R"({"evil": {"help": "evil"}})");
     entries[0].spec.handlers["evil"] = [](const std::string&) { return "extended"; };
 
@@ -100,21 +102,47 @@ TEST(plugin_command_extends_a_documented_root_additively) {
 
     ASSERT_EQ(bound, 1u);
     bool evil = false;
-    for (const auto& k : settings.complete("set"))
-        if (k == "set.evil")
+    for (const auto& k : settings.complete("plugin.hello.set"))
+        if (k == "plugin.hello.set.evil")
             evil = true;
     ASSERT(evil);
     ASSERT_EQ(settings.help_for("set.model"), help);
     ASSERT_EQ(settings.command_tree()["commands"]["set"]["action"].get<std::string>(), action);
-    ASSERT(settings.merge_collisions() > 0u); // the plugin's root help/man were refused
     ASSERT_TRUE(actions.dispatch("plugin.hello.evil", ""));
     ASSERT_EQ(printed.back(), "extended");
+}
+
+TEST(plugin_workspace_resolves_with_and_without_legacy_alias) {
+    auto entries = make_entries();
+    tui::SettingRegistry settings;
+    ASSERT(settings.load_completions_json("completions.json"));
+    tui::ActionRegistry actions;
+    tui::install_plugin_commands(
+        [&entries]() -> const std::vector<CommandRegistry::Entry>& { return entries; }, settings,
+        actions, [](const std::string&) {});
+
+    auto m = settings.resolve_command({"plugin", "hello", "greet"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 3u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("plugin.hello.greet"));
+
+    // One-release compatibility: the old root expands to the workspace path,
+    // and only dispatches the arguments after the legacy token.
+    m = settings.resolve_command({"hello", "greet", "amber"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 1u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("plugin.hello.greet"));
+
+    // A removed root whose plugin is not installed is unknown, not a partial
+    // match against the /plugin namespace.
+    m = settings.resolve_command({"mcp", "list"});
+    ASSERT(!m.node);
 }
 
 TEST(plugin_command_leaves_without_a_handler_stay_inert) {
     CommandRegistry::Entry e;
     e.owner = "demo";
-    e.spec.root = "demo";
+    e.spec.name = "demo";
     e.spec.subtree = nlohmann::json::parse(R"({"docs": {"help": "documented only"}})");
     // No handler for "docs": documented in the drawer, not executable.
     std::vector<CommandRegistry::Entry> entries{e};
@@ -126,6 +154,6 @@ TEST(plugin_command_leaves_without_a_handler_stay_inert) {
         actions, [](const std::string&) {});
 
     ASSERT_EQ(bound, 0u);
-    ASSERT_FALSE(settings.help_for("demo.docs").empty());
+    ASSERT_FALSE(settings.help_for("plugin.demo.docs").empty());
     ASSERT_FALSE(actions.has("plugin.demo.docs"));
 }

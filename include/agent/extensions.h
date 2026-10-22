@@ -163,6 +163,10 @@ struct StatusSnapshot {
     UsageTotals usage;    // session spend; `measured` false until reported
     int running_jobs = 0;
     int job_seconds_left = -1;
+    int active_agents = 0;
+    int waiting_agents = 0;
+    int max_agents = 0;
+    bool subagents_available = false;
     std::string running_tool;
 };
 
@@ -382,6 +386,46 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Plugin settings (typed properties, not command roots)
+// ---------------------------------------------------------------------------
+
+// One setting a plugin exposes through the host's settings surface. The plugin
+// supplies the type, current value and setter; the host owns the command shape,
+// help, completion and persistence. A setting is not a slash-command root.
+struct PluginSettingSpec {
+    std::string key;
+    std::string help;
+    std::string type = "string"; // string | bool | int | choice | path
+    std::string value;
+    std::vector<std::string> choices;
+    std::function<std::string()> get;
+    std::function<bool(const std::string&)> set;
+};
+
+// Owner-tagged settings from every active plugin. The TUI reads this for
+// /get plugin settings and writes it for /set plugin settings; external plugins
+// keep their existing manifest store until they adopt the capability.
+class SettingsRegistry {
+public:
+    struct Entry {
+        std::string owner;
+        PluginSettingSpec spec;
+    };
+
+    Contribution add(const std::string& owner, std::vector<PluginSettingSpec> specs);
+
+    const Entry* find(const std::string& owner, const std::string& key) const;
+    std::string get(const std::string& owner, const std::string& key) const;
+    bool set(const std::string& owner, const std::string& key, const std::string& value);
+    std::vector<Entry> all() const;
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+
+private:
+    std::vector<Entry> entries_;
+};
+
+// ---------------------------------------------------------------------------
 // Commands (slash-command namespaces)
 // ---------------------------------------------------------------------------
 
@@ -397,7 +441,7 @@ private:
 // Handlers return the text to display and the host prints it. That keeps the
 // plugin UI-free (no tui/ includes), which is the framework's core rule.
 struct CommandSpec {
-    std::string root;       // namespace root, e.g. "hello"
+    std::string name;       // workspace-relative namespace, e.g. "prompt"
     std::string help;       // drawer one-liner for the root
     std::string man;        // manual page for the root
     nlohmann::json subtree; // children nodes (completions.json shape)
@@ -454,6 +498,8 @@ public:
     SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     EventBus& events() noexcept { return *events_; }
     CommandRegistry& commands() noexcept { return *commands_; }
+    void set_settings(SettingsRegistry& settings) noexcept { settings_ = &settings; }
+    SettingsRegistry& settings() noexcept { return *settings_; }
 
     // The tool-facing seam over the registry: a resolver that keeps it alive,
     // so a tool built here can never outlive its backends (search_backend.h).
@@ -495,6 +541,7 @@ private:
     std::shared_ptr<SearchBackendRegistry> search_backends_;
     EventBus* events_;
     CommandRegistry* commands_;
+    SettingsRegistry* settings_ = nullptr;
     std::string owner_;
     ToolPort* tool_port_ = nullptr;
 };
@@ -733,12 +780,25 @@ private:
 class CommandCapability : public Capability {
 public:
     explicit CommandCapability(CommandSpec spec);
-    std::string name() const override { return spec_.root; }
+    std::string name() const override { return spec_.name; }
     CapabilityKind kind() const override { return CapabilityKind::Command; }
     InstallResult install(PluginServices& services) override;
 
 private:
     CommandSpec spec_;
+};
+
+// Contributes typed settings. The host generates /get plugin settings,
+// /set plugin settings and the settings-screen group from the schema.
+class SettingsCapability : public Capability {
+public:
+    explicit SettingsCapability(std::vector<PluginSettingSpec> specs);
+    std::string name() const override { return "settings"; }
+    CapabilityKind kind() const override { return CapabilityKind::Settings; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    std::vector<PluginSettingSpec> specs_;
 };
 
 } // namespace agent

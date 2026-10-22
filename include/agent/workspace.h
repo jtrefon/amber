@@ -26,15 +26,23 @@ namespace agent {
 class Workspace {
 public:
     // The PROJECT root as an absolute, normalized path: what state_dir(),
-    // local_dir(), settings, policy and the shared pools are keyed to.
+    // local_dir(), settings, policy and the shared pools are keyed to. A run
+    // scope or a UI ScopedProjectRoot overrides the process default.
     static std::string project_root();
 
     // The root the running agent's tools are confined to: the active run's
     // worktree override when one is installed, else project_root().
     static std::string workspace_root();
 
-    // Override the project root (used by tests and by the harness at startup).
+    // Override the process-default project root (tests and startup).
     static void set_root(const std::string& path);
+
+    // Project-scoped path resolvers. The no-argument forms above use the
+    // current scope; these let a host address a window's project explicitly.
+    static std::string local_dir_for(const std::string& project_root);
+    static std::string state_dir_for(const std::string& project_root);
+    static std::string settings_path_for(const std::string& project_root);
+    static std::string policy_path_for(const std::string& project_root);
 
     // The project-local CONFIG directory: "<project root>/.amber". Holds what a
     // project shares with its collaborators (skills, MCP servers, plugins) --
@@ -77,6 +85,20 @@ public:
     // Strip the workspace root prefix from `path`, returning a relative path.
     // If `path` is not under the root, returns it unchanged.
     static std::string relative(const std::string& path);
+};
+
+// Install a project root for the current thread's UI work. Commands, worktree
+// management and session paths resolve against it; a nested run scope wins.
+class ScopedProjectRoot {
+public:
+    explicit ScopedProjectRoot(const std::string& root);
+    ~ScopedProjectRoot();
+    ScopedProjectRoot(const ScopedProjectRoot&) = delete;
+    ScopedProjectRoot& operator=(const ScopedProjectRoot&) = delete;
+
+private:
+    std::string root_;
+    const std::string* prev_ = nullptr;
 };
 
 // The stable, filesystem-safe directory name for one workspace path.

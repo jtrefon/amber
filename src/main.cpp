@@ -7,9 +7,11 @@
 #include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
 #include "plugins/mcp/mcp_plugin.h"
+#include "plugins/watch/watch_plugin.h"
 
 #include <agent/mcp_commands.h>
 #include <cctype>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -18,6 +20,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unistd.h>
 
 namespace {
@@ -28,6 +31,8 @@ void print_usage(const char* prog) {
               << "  --api-key KEY      API key (env AMBER_API_KEY)\n"
               << "  --model NAME       Model name (env AMBER_MODEL)\n"
               << "  --no-plugins       Run without the bundled plugins\n"
+              << "  --watch-wake       After the turn, join running watches (up to 30s) and\n"
+              << "                     run one follow-up turn with their reports\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
@@ -133,6 +138,7 @@ struct CliArgs {
     bool auto_approve = false;
     bool mcp_list_only = false;
     bool no_plugins = false;
+    bool watch_wake = false;
     std::string mcp_connect_name;
     std::string mcp_prompt_server;
     std::string mcp_prompt_name;
@@ -169,12 +175,16 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
 bool apply_switch_flag(const std::string& a, agent::Config& cfg, CliArgs& out) {
     if (a == "--no-plugins")
         out.no_plugins = true;
+    else if (a == "--watch-wake")
+        out.watch_wake = true;
     else if (a == "--yes")
         out.auto_approve = true;
     else if (a == "--yolo") {
         cfg.mode = agent::AgentMode::Yolo;
         out.auto_approve = true;
-    } else if (a == "--mcp-list")
+    } else if (a == "--no-stream")
+        cfg.stream = false;
+    else if (a == "--mcp-list")
         out.mcp_list_only = true;
     else
         return false;
@@ -591,10 +601,73 @@ agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool a
     return hooks;
 }
 
+// One turn on the persistent headless agent. Streamed tokens already reached
+// stdout; a buffered reply (or a harness stop) is printed once here.
+void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
+    host.streamed = false;
+    const std::string reply = agent.run(prompt);
+    if (host.streamed)
+        std::cout << "\n";
+    else
+        std::cout << "\n" << reply << "\n";
+}
+
+std::string report_prompt(const std::vector<agent::plugins::WatchReport>& reports) {
+    std::string prompt;
+    for (const auto& report : reports) {
+        if (!prompt.empty())
+            prompt += "\n";
+        prompt += "[harness] background watch " + report.watch_id + " " +
+                  agent::plugins::watch_state_name(report.state) + ": " + report.headline +
+                  ". Use watch report " + report.watch_id + " for evidence and the artifact.";
+    }
+    return prompt;
+}
+
+// One-shot delivery contract: no wake by default; print and persist. With
+// --watch-wake, join running watches for bounded time, then run one follow-up
+// turn on the SAME agent context and acknowledge only after that turn succeeds.
+int finish_watches(CliHost& host, agent::Agent& agent, bool wake) {
+    auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(host.plugin_runtime.find("watch"));
+    if (!watch)
+        return 0;
+    // One-shot joins what is already running so its report is persisted, even
+    // without --watch-wake. The opt-in only controls the follow-up turn.
+    const int join_seconds = wake ? 30 : 5;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(join_seconds);
+    while (watch->running_count() > 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    auto pending = watch->pending_reports();
+    if (!wake) {
+        for (const auto& report : pending)
+            std::cerr << "[watch] report " << report.watch_id << " pending: " << report.headline
+                      << " (run with --watch-wake to follow up)\n";
+        if (watch->running_count() > 0)
+            std::cerr << "[watch] " << watch->running_count()
+                      << " watch(es) still running; report persisted\n";
+        return 0;
+    }
+    if (pending.empty()) {
+        if (watch->running_count() > 0)
+            std::cerr << "[watch] " << watch->running_count()
+                      << " watch(es) still running after the join window; report persisted\n";
+        return 0;
+    }
+    try {
+        run_turn(agent, host, report_prompt(pending));
+    } catch (const std::exception& e) {
+        std::cerr << "error: watch follow-up: " << e.what() << "\n";
+        return 1;
+    }
+    for (const auto& report : pending)
+        watch->ack(report.watch_id);
+    return 0;
+}
+
 // One headless run: the agent gets the plugin runtime's events and prompt
 // registry, streams its reply to stdout, and reports failure as an exit code.
 int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
-                   const std::string& prompt) {
+                   const std::string& prompt, bool watch_wake) {
     try {
         agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
                            std::move(host.gate), std::move(host.mem_store),
@@ -602,20 +675,13 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.policy().init(agent::Workspace::policy_path());
         agent.set_events(host.plugin_runtime.events());
         agent.set_prompt_registry(host.plugin_runtime.prompts());
-        const std::string reply = agent.run(prompt);
-        // Streamed tokens reached stdout as they arrived; repeating the reply
-        // here doubled the answer on every streamed run. A buffered run prints
-        // it once — and so does a stop the model did not write (the harness's
-        // own reason for ending the turn), which the stream never carried.
-        if (host.streamed)
-            std::cout << "\n";
-        else
-            std::cout << "\n" << reply << "\n";
+        agent.set_owner_id("cli");
+        run_turn(agent, host, prompt);
+        return finish_watches(host, agent, watch_wake);
     } catch (const std::exception& e) {
         std::cerr << "error: " << e.what() << "\n";
         return 1;
     }
-    return 0;
 }
 
 } // namespace
@@ -666,7 +732,7 @@ int main(int argc, char** argv) try {
             return 1;
         }
     }
-    return run_agent_once(cfg, host, hooks, args.prompt);
+    return run_agent_once(cfg, host, hooks, args.prompt, args.watch_wake);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";
     return 1;

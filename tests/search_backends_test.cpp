@@ -50,11 +50,13 @@ struct RegistryFixture {
     WalletRegistry wallets;
     EventBus events;
     CommandRegistry commands;
+    SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services;
 
     RegistryFixture()
         : services(tools, prompts, status, panels, wallets, backends, events, commands) {
+        services.set_settings(settings);
         services.set_owner("test");
     }
 };

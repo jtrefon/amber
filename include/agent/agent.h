@@ -216,10 +216,20 @@ public:
     void set_detection_loop(bool on) { cfg_.detection_loop = on; }
     void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
 
+    // The project this agent belongs to. Empty means the process default.
+    // Installed into every run scope so state, instructions and tools resolve
+    // against the window's project rather than the one amber was started in.
+    void set_project_root(std::string root);
+
     // Confine this agent's tools to `root` (a window's worktree). Empty means
-    // the process's project root. Installed into every run scope, so tools
-    // running on dispatch workers confine to the same tree as the agent.
+    // the project root. Installed into every run scope, so tools running on
+    // dispatch workers confine to the same tree as the agent.
     void set_workspace_root(std::string root);
+
+    // The host's stable identity for this agent's window/session. It travels
+    // in the run scope so a tool that starts work outliving the turn can route
+    // its completion back to the right window.
+    void set_owner_id(std::string id) { owner_id_ = std::move(id); }
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
@@ -367,7 +377,9 @@ private:
     // The root this agent's tools are confined to, when it is not the project
     // root: a window working in its own worktree sets it at creation, and every
     // run installs it into the run scope so dispatch workers inherit it.
+    std::string project_root_;
     std::string workspace_root_;
+    std::string owner_id_;
     // Environment note for the prompt when that root is a detached worktree
     // (see worktree_session_note). Computed when the root is set, never per
     // turn: rendering the system prompt must not shell out.

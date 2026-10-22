@@ -32,6 +32,11 @@ std::string& root_storage() {
     return root;
 }
 
+const std::string*& ui_project_root() {
+    static thread_local const std::string* root = nullptr;
+    return root;
+}
+
 std::string normalize(const fs::path& p) {
     // lexically_normal collapses "." and ".." without touching the filesystem,
     // so confinement decisions do not depend on whether the path exists yet.
@@ -100,13 +105,18 @@ bool ancestor_stays_inside(const fs::path& abs, const fs::path& base, const std:
 } // namespace
 
 std::string Workspace::project_root() {
+    if (const auto* scope = current_run_scope();
+        scope && scope->leaf.project_root && !scope->leaf.project_root->empty())
+        return *scope->leaf.project_root;
+    if (const auto* root = ui_project_root(); root && !root->empty())
+        return *root;
     return ensure_project_root();
 }
 
 std::string Workspace::workspace_root() {
     if (const std::string* scoped = scoped_workspace_root())
         return *scoped;
-    return ensure_project_root();
+    return project_root();
 }
 
 void Workspace::set_root(const std::string& path) {
@@ -114,11 +124,15 @@ void Workspace::set_root(const std::string& path) {
 }
 
 std::string Workspace::local_dir() {
+    return local_dir_for(project_root());
+}
+
+std::string Workspace::local_dir_for(const std::string& project_root) {
     // Deliberately NOT created here: this is the project's shareable config
     // dir (skills, MCP servers, plugins), and merely running amber must not
     // create it -- in $HOME that used to leave a stray ~/.amber behind. Every
     // writer creates the directories it needs.
-    return ensure_project_root() + "/.amber";
+    return (project_root.empty() ? ensure_project_root() : project_root) + "/.amber";
 }
 
 std::string workspace_state_slug(const std::string& workspace_path) {
@@ -158,6 +172,10 @@ std::string workspace_state_slug(const std::string& workspace_path) {
 }
 
 std::string Workspace::state_dir() {
+    return state_dir_for(project_root());
+}
+
+std::string Workspace::state_dir_for(const std::string& project_root) {
     std::string base;
     const char* xdg = std::getenv("XDG_STATE_HOME");
     if (xdg && *xdg && is_sane_state_root(xdg)) {
@@ -166,12 +184,13 @@ std::string Workspace::state_dir() {
         const std::string home = user_home_dir();
         base = home.empty() ? ".amber-state" : home + "/.local/state";
     }
-    return base + "/amber/projects/" + workspace_state_slug(ensure_project_root());
+    return base + "/amber/projects/" +
+           workspace_state_slug(project_root.empty() ? ensure_project_root() : project_root);
 }
 
 void Workspace::adopt_legacy_state(const std::string& name) {
-    const std::string src = local_dir() + "/" + name;
-    const std::string dst = state_dir() + "/" + name;
+    const std::string src = local_dir_for(project_root()) + "/" + name;
+    const std::string dst = state_dir_for(project_root()) + "/" + name;
     std::error_code ec;
     if (!fs::exists(src, ec) || fs::exists(dst, ec))
         return;
@@ -192,13 +211,33 @@ void Workspace::adopt_legacy_state(const std::string& name) {
 }
 
 std::string Workspace::settings_path() {
-    adopt_legacy_state("settings");
-    return state_dir() + "/settings";
+    return settings_path_for(project_root());
+}
+
+std::string Workspace::settings_path_for(const std::string& project_root) {
+    const std::string src = local_dir_for(project_root) + "/settings";
+    const std::string dst = state_dir_for(project_root) + "/settings";
+    std::error_code ec;
+    if (std::filesystem::exists(src, ec) && !std::filesystem::exists(dst, ec)) {
+        std::filesystem::create_directories(std::filesystem::path(dst).parent_path(), ec);
+        std::filesystem::copy_file(src, dst, ec);
+    }
+    return dst;
 }
 
 std::string Workspace::policy_path() {
-    adopt_legacy_state("policy.json");
-    return state_dir() + "/policy.json";
+    return policy_path_for(project_root());
+}
+
+std::string Workspace::policy_path_for(const std::string& project_root) {
+    const std::string src = local_dir_for(project_root) + "/policy.json";
+    const std::string dst = state_dir_for(project_root) + "/policy.json";
+    std::error_code ec;
+    if (std::filesystem::exists(src, ec) && !std::filesystem::exists(dst, ec)) {
+        std::filesystem::create_directories(std::filesystem::path(dst).parent_path(), ec);
+        std::filesystem::copy_file(src, dst, ec);
+    }
+    return dst;
 }
 
 bool Workspace::confine(const std::string& path, std::string& resolved, std::string& error) {
@@ -246,6 +285,15 @@ bool Workspace::confine(const std::string& path, std::string& resolved, std::str
     }
     resolved = norm;
     return true;
+}
+
+ScopedProjectRoot::ScopedProjectRoot(const std::string& root)
+    : root_(root), prev_(ui_project_root()) {
+    ui_project_root() = root_.empty() ? nullptr : &root_;
+}
+
+ScopedProjectRoot::~ScopedProjectRoot() {
+    ui_project_root() = prev_;
 }
 
 std::string Workspace::relative(const std::string& path) {

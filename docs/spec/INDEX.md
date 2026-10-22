@@ -13,6 +13,12 @@ wrong.
 | 3 | `ux-policy.md` | **How the interface works**: 1:1 mapping, autosuggest, `?`-at-depth, readline, widget policy, habit loops. |
 | 4 | Individual specs | **Contracts**: invariants, scenarios, error states, cross-references. |
 
+## Roadmaps
+
+| File | Covers |
+|------|--------|
+| `roadmap/0.6.0.md` | Build-ready 0.6.0 plan: command foundation, work surfaces, project sessions, issue numbers, dependencies, release gates, current workspace state |
+
 ## Gap register
 
 See `MISSION.md` → Gap register for the complete list of known gaps across
@@ -53,11 +59,15 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
-| `tui/input-system/slash-engine.md` | BitchX-style drawer (narrows per depth), `?` at any depth opens full help page, Cisco IOS `/no` prefix negation, partial command acceptance, Tab accepts autosuggest shadow + inline cycling, Ctrl-D/R, readline input editing, BitchX/IrcII shortcut aliases (`/q`=quit, `/sl`=session list, `/sy`=system) |
+| `tui/input-system/slash-engine.md` | BitchX-style drawer (narrows per depth), `?` at any depth opens full help page, Cisco IOS `/no` prefix negation, partial command acceptance, Tab accepts autosuggest shadow + inline cycling, Ctrl-D/R, readline input editing, BitchX/IrcII shortcut aliases (`/q`=quit, `/sl`=session list, `/sy`=system). Current exact-only dispatch is called out; SE-17..SE-26 are 0.6.0 acceptance criteria. |
 | `tui/input-system/auto-complete.md` | Per-depth completion, zsh-style inline menu cycling, Ctrl-D list-choices, Ctrl-R reverse-i-search, value cycling, Up/Down synced with cycle, alias-aware shadow |
-| `tui/input-system/nested-commands.md` | Full command tree: settings, provider/model/session/job CRUD, file browsing (`/files`), system operations (`/system exec|rmdir|mv|cp|ps|kill|df|uptime`), `config` key-chain. Shortcut alias scheme with design rules. Tree model: `CommandNode` with `ArgSpec`/`FlagSpec`, depth-aware walk, Cisco `/no` prefix |
+| `tui/input-system/nested-commands.md` | Historical tree/key-chain model. Its old flat alias table is superseded by `tui/command-shortcuts.md`. |
 | `tui/input-system/contextual-help.md` | `?` at any depth replaces `/help`. Scales to infinite key-chain nesting. Full info_dialog: description, args, types, choices, ranges, current values, flags, related commands. `?` stripped on dismiss. |
-| `tui/command-tree.md` | The JSON mapper contract: `completions.json` is the only command surface, code binds behaviour only, documented fields are immutable, merges concatenate children and count collisions, plugin namespaces must be new roots |
+| `tui/command-namespace.md` | 0.6.0 command grammar, domain roots, standard verbs, `/get`/`/set` property plane, `/work`/`/window` boundaries, plugin placement (settings first, `/plugin/<id>`, no plugin roots), migration table |
+| `tui/command-shortcuts.md` | `short`/`aliases` data model, derived/overridden path tokens, global conflict index, exact/alias/glued/prefix resolution, ambiguous drawer, completion/help UX, acceptance tests |
+| `tui/work-surfaces.md` | Resource model for sessions/jobs/agents/watches, status cells `[s][j][a][w]`, host Work board, resource viewer windows, job/subagent metadata, lifecycle matrix, PTY tests |
+| `tui/window-projects.md` | Per-window project roots and project sessions: project vs workspace axis, per-project stores/config/prompts/worktrees, `/project open`, security, restore and tests |
+| `tui/command-tree.md` | The JSON mapper contract: `completions.json` is the only command surface, code binds behaviour only, documented fields (including `short`) are immutable, merges concatenate children and count collisions, plugins mount under `/plugin/<id>` and cannot add roots |
 
 ## TUI, Widgets
 
@@ -126,7 +136,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `mcp/mcp-architecture.md` | Umbrella: amber as MCP client, scope (tools/resources/prompts, no roots/sampling), primitive mapping, session lifecycle, invariants |
 | `mcp/mcp-transport.md` | JSON-RPC 2.0 wire contract, stdio (spawn/framing/shutdown), Streamable HTTP (POST/SSE/session id), timeouts, cancellation |
 | `mcp/mcp-client.md` | Per-server client session: initialize/negotiation, discovery, pagination, listChanged, tool/resource/prompt adapters, server config |
-| `mcp/mcp-ui.md` | `/mcp` + `/prompt` commands, dynamic prompt subtree, `mcp.*` get/set keys, status bar, CLI flags |
+| `mcp/mcp-ui.md` | `/mcp` + `/prompt` commands (legacy roots; migrate to `/plugin mcp` and `/get plugin settings mcp` / `/set plugin settings mcp`), dynamic prompt subtree, status bar, CLI flags |
 | `mcp/mcp-security.md` | Trust model: untrusted-by-default servers, approval gate, read-mode policy, output caps, cancellation, no server-initiated capabilities |
 
 ## Plugins
@@ -134,6 +144,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | File | Covers |
 |------|--------|
 | `plugins/plugin-framework.md` | Harness extension engine (design record, implemented through PF-4): three-mechanism model (registries/events/host services), typed capabilities + ledger, typed events over `EventBus` with fire sites and performance invariants, prompt blocks, status segments, panels, provider/wallet/allowance capabilities, threading contract, deferred register |
+| `plugins/watch-observer.md` | Background watch + sentry: standalone `plugins/watch` architecture, watch/observer/worker resource classes, one-shot read-only observer, PR failure reports, prompt assembly, host delivery seam, single-GPU policy. Current `/watch` command root migrates to `/plugin watch` under the 0.6.0 namespace contract. |
 | `plugins/developer-guide.md` | How to build amber plugins: quickstart, tier decision tree, availability table (the single status surface), core plugin anatomy, capability catalogue with code, typed event catalogue, provider path, external quick start, review checklist |
 | `plugins/README.md` | External plugin protocol (shipping): JSON-RPC wire contract, manifest.json, `PluginManager`, tool registration, `/get`/`/set plugin` administration, shipped external plugins (sysinfo, cdp) |
 | `../plugin-framework-tracker.md` | Plugin framework tracker: phases PF-1..PF-6, decision log (D1..D23), deferred register, risks, definition of done |

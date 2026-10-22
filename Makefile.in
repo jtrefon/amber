@@ -100,6 +100,17 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
               $(BUILD_DIR)/plugins/tool_skills/tool_skills_plugin.o \
+              $(BUILD_DIR)/plugins/watch/watch_plugin.o \
+              $(BUILD_DIR)/plugins/watch/watch_service.o \
+              $(BUILD_DIR)/plugins/watch/watch_runner.o \
+              $(BUILD_DIR)/plugins/watch/watch_profile_process.o \
+              $(BUILD_DIR)/plugins/watch/watch_profile_pr.o \
+              $(BUILD_DIR)/plugins/watch/watch_profile_url.o \
+              $(BUILD_DIR)/plugins/watch/watch_observer.o \
+              $(BUILD_DIR)/plugins/watch/watch_settings.o \
+              $(BUILD_DIR)/plugins/watch/watch_tools.o \
+              $(BUILD_DIR)/plugins/watch/watch_types.o \
+              $(BUILD_DIR)/plugins/watch/watch_store.o \
               $(BUILD_DIR)/plugins/mcp/mcp_plugin.o \
               $(BUILD_DIR)/plugins/search_grep/search_grep_plugin.o \
               $(BUILD_DIR)/plugins/search_semantic/search_semantic_plugin.o \
@@ -228,6 +239,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_core_test.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
+               $(BUILD_DIR)/tests/watch_test.o \
                $(BUILD_DIR)/tests/status_segments_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o \
                $(BUILD_DIR)/tests/example_plugin_test.o \
@@ -970,6 +982,8 @@ install: all
 	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/prompts/
 	install -d $(DESTDIR)$(datadir)/prompts/tools
 	install -m 644 prompts/tools/*.md $(DESTDIR)$(datadir)/prompts/tools/
+	install -d $(DESTDIR)$(datadir)/prompts/watch
+	install -m 644 prompts/watch/*.md $(DESTDIR)$(datadir)/prompts/watch/
 	install -d $(DESTDIR)$(datadir)/prompts/domains/coding
 	install -m 644 prompts/domains/coding/*.md $(DESTDIR)$(datadir)/prompts/domains/coding/
 	# The coding library is a tree (topics are directories), and it is data the

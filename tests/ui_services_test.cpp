@@ -127,9 +127,11 @@ TEST(plugin_services_default_to_the_null_ui) {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     auto search_backends = std::make_shared<SearchBackendRegistry>();
     PluginServices services(tools, prompts, status, panels, wallets, search_backends, bus,
                             commands);
+    services.set_settings(settings);
 
     ASSERT_TRUE(services.ui != nullptr);
     ASSERT_EQ(services.ui->ask_secret(AskSpec{"t", "p", ""}), std::string());

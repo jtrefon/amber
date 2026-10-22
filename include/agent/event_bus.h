@@ -26,6 +26,7 @@ enum class EventType : std::uint8_t {
     PluginFailed,
     CompressionCompleted,
     ErrorRaised,
+    WatchReport,
     Count, // sentinel: number of event types
 };
 

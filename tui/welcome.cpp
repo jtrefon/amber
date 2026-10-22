@@ -78,10 +78,10 @@ void render(WINDOW* win, int start_y, int width) {
     mvwaddstr(win, y++, xo, "        an AI agent for the amber-CRT age");
     mvwaddstr(win, y++, xo, "");
     mvwaddstr(win, y++, xo, "        /help      show commands & getting started");
-    mvwaddstr(win, y++, xo, "        /model     set provider URL, model, context");
-    mvwaddstr(win, y++, xo, "        /new       open a chat window");
-    mvwaddstr(win, y++, xo, "        /config    show current configuration");
-    mvwaddstr(win, y++, xo, "        /close     close this window");
+    mvwaddstr(win, y++, xo, "        /set model set provider URL, model, context");
+    mvwaddstr(win, y++, xo, "        /session new open a fresh conversation");
+    mvwaddstr(win, y++, xo, "        /get config show current configuration");
+    mvwaddstr(win, y++, xo, "        /window close close this window");
     mvwaddstr(win, y++, xo, "");
     mvwaddstr(win, y++, xo, "        just start typing to chat");
     mvwaddstr(win, y++, xo, "");

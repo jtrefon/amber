@@ -319,12 +319,15 @@ struct TestHarness {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> search_backends =
         std::make_shared<SearchBackendRegistry>();
     PluginServices services;
 
     TestHarness()
-        : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {}
+        : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {
+        services.set_settings(settings);
+    }
 };
 
 } // namespace
@@ -335,6 +338,35 @@ TEST(capability_install_reports_the_contribution) {
     InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(r.contribution.name, std::string("greet"));
+}
+
+TEST(settings_capability_round_trips_and_unwinds) {
+    TestHarness h;
+    h.services.set_owner("watch");
+
+    std::string observer = "on";
+    PluginSettingSpec spec;
+    spec.key = "observer";
+    spec.help = "Observer switch";
+    spec.type = "choice";
+    spec.choices = {"on", "off"};
+    spec.get = [&observer] { return observer; };
+    spec.set = [&observer](const std::string& value) {
+        observer = value;
+        return true;
+    };
+    SettingsCapability cap({spec});
+    InstallResult r = cap.install(h.services);
+    ASSERT(r.ok);
+    ASSERT_EQ(h.settings.size(), 1u);
+    ASSERT_EQ(h.settings.get("watch", "observer"), std::string("on"));
+    ASSERT_TRUE(h.settings.set("watch", "observer", "off"));
+    ASSERT_EQ(observer, std::string("off"));
+    ASSERT_FALSE(h.settings.set("watch", "observer", "invalid"));
+    ASSERT_EQ(h.settings.get("watch", "observer"), std::string("off"));
+
+    r.contribution.remove();
+    ASSERT_EQ(h.settings.size(), 0u);
 }
 
 TEST(capability_install_can_fail_with_a_reason) {

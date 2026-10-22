@@ -99,7 +99,17 @@ struct Tui {
     ~Tui() { stop(); }
 
     bool start(const std::string& binary, const std::string& workspace,
-               const std::string& path_prefix = "", int rows = 0, int cols = 0) {
+               const std::string& path_prefix = "", int rows = 0, int cols = 0,
+               const std::vector<std::string>& extra_args = {}) {
+        std::vector<std::string> argv_strings;
+        argv_strings.push_back(binary);
+        argv_strings.insert(argv_strings.end(), extra_args.begin(), extra_args.end());
+        std::vector<char*> argv;
+        argv.reserve(argv_strings.size() + 1);
+        for (auto& s : argv_strings)
+            argv.push_back(const_cast<char*>(s.c_str()));
+        argv.push_back(nullptr);
+
         master = posix_openpt(O_RDWR | O_NOCTTY);
         if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0)
             return false;
@@ -145,7 +155,7 @@ struct Tui {
                              std::strerror(errno));
                 _exit(127);
             }
-            execl(binary.c_str(), binary.c_str(), static_cast<char*>(nullptr));
+            execv(argv[0], argv.data());
             std::fprintf(stderr, "pty child: exec(%s): %s\n", binary.c_str(), std::strerror(errno));
             _exit(127);
         }
@@ -562,6 +572,8 @@ public:
         return std::find(paths_.begin(), paths_.end(), path) != paths_.end();
     }
 
+    void reset_chat() { chat_calls_ = 0; }
+
     void stop() {
         stopping_ = true;
         if (thread_.joinable())
@@ -596,11 +608,28 @@ private:
     }
 
     void handle(int c) {
+        std::string req;
         char buf[4096];
-        const ssize_t n = recv(c, buf, sizeof(buf) - 1, 0);
-        if (n <= 0)
-            return;
-        std::string req(buf, static_cast<size_t>(n));
+        while (req.find("\r\n\r\n") == std::string::npos) {
+            const ssize_t n = recv(c, buf, sizeof(buf), 0);
+            if (n <= 0)
+                return;
+            req.append(buf, static_cast<size_t>(n));
+        }
+        const std::size_t header_end = req.find("\r\n\r\n");
+        std::size_t content_length = 0;
+        const std::size_t cl = req.find("Content-Length:");
+        if (cl != std::string::npos && cl < header_end) {
+            content_length =
+                static_cast<std::size_t>(std::strtoul(req.c_str() + cl + 15, nullptr, 10));
+        }
+        while (req.size() < header_end + 4 + content_length) {
+            const ssize_t n = recv(c, buf, sizeof(buf), 0);
+            if (n <= 0)
+                break;
+            req.append(buf, static_cast<size_t>(n));
+        }
+        const std::string body = req.substr(header_end + 4);
         // "GET /path HTTP/1.1" -> "/path" (query dropped: the anthropic
         // listing asks for one page with ?limit=1000, and the test asserts the
         // endpoint, not the query -- the dialect test pins the query).
@@ -617,14 +646,48 @@ private:
             std::scoped_lock lk(mtx_);
             paths_.push_back(path);
         }
-        const bool ok = path == "/v1/models";
-        const std::string body =
-            ok ? R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})"
-               : R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
-        const std::string http =
-            std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
-            "\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) +
-            "\r\nConnection: close\r\n\r\n" + body;
+        bool ok = path == "/v1/models";
+        std::string response;
+        if (ok) {
+            response =
+                R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
+        } else if (path == "/v1/chat/completions") {
+            ok = true;
+            ++chat_calls_;
+            const bool report = body.find("background watch") != std::string::npos;
+            const bool first = chat_calls_ == 1 && !report;
+            std::string message;
+            std::string finish = "stop";
+            if (report) {
+                message = R"({"role":"assistant","content":"REPORT-ACK"})";
+            } else if (first) {
+                const std::string args =
+                    R"({"action":"start","profile":"process","command":"sh -c 'sleep 1; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
+                std::string escaped;
+                for (char ch : args) {
+                    if (ch == '"' || ch == '\\')
+                        escaped += '\\';
+                    escaped += ch;
+                }
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_watch","type":"function","function":{"name":"watch","arguments":")" +
+                    escaped + R"("}}]})";
+            } else {
+                message = R"({"role":"assistant","content":"WATCH-STARTED"})";
+            }
+            response =
+                R"({"id":"chatcmpl-pty","object":"chat.completion","created":1,"model":"pty-test","choices":[{"index":0,"message":)" +
+                message + R"(,"finish_reason":")" + finish +
+                R"("}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
+        } else {
+            response =
+                R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
+        }
+        const std::string http = std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
+                                 "\r\nContent-Type: application/json\r\nContent-Length: " +
+                                 std::to_string(response.size()) + "\r\nConnection: close\r\n\r\n" +
+                                 response;
         ssize_t ignored = send(c, http.c_str(), http.size(), 0);
         (void)ignored;
     }
@@ -632,6 +695,7 @@ private:
     int listen_fd_ = -1;
     int port_ = 0;
     std::atomic<bool> stopping_{false};
+    std::atomic<int> chat_calls_{0};
     std::thread thread_;
     std::mutex mtx_;
     std::vector<std::string> paths_;
@@ -956,6 +1020,79 @@ TEST(system_commands_do_not_freeze_the_ui) {
 
     // ...and the result is reported when the job finishes, on the drain.
     require(tui.wait_for("ps: exit 0", 20000), "the job result never arrived", tui);
+}
+
+// The resource viewer is a real window, not a modal: it attaches to a live
+// job, detaches without killing it, and the explicit stop still works.
+TEST(work_board_resource_viewer_round_trip) {
+    Tui tui;
+    tui.name = "work_board_resource_viewer_round_trip";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+        tui.pump(300);
+    };
+
+    run("/window new noworkdir");
+    tui.pump(500);
+    run("/job start sleep 30");
+    if (!require(tui.wait_for("started 1", 10000), "the background job did not start", tui))
+        return;
+
+    run("/window attach job 1");
+    if (!require(tui.wait_for("[job 1]", 10000), "the job viewer did not open", tui))
+        return;
+    require(tui.text().find("sleep 30") != std::string::npos, "the viewer has no job label", tui);
+
+    run("/window detach");
+    tui.pump(500);
+    run("/job stop 1");
+    if (!require(tui.wait_for("stopped 1", 10000), "detach stopped the job or stop failed", tui))
+        return;
+
+    run("/work");
+    require(tui.wait_for("Work", 8000), "the Work board did not open", tui);
+    tui.send("\x1b"); // close the board
+    tui.pump(500);
+}
+
+// A project session is a real window with its own project root, not a path
+// override on the current one.
+TEST(project_open_creates_a_scoped_session) {
+    Tui tui;
+    tui.name = "project_open_creates_a_scoped_session";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const std::filesystem::path project =
+        std::filesystem::temp_directory_path() /
+        ("amber_project_pty_" + std::to_string(static_cast<long>(::getpid())));
+    std::filesystem::create_directories(project);
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+        tui.pump(300);
+    };
+
+    run("/project open " + project.string());
+    if (!require(tui.wait_for("project opened", 10000), "project open failed", tui))
+        return;
+    run("/project show");
+    if (!require(tui.wait_for(project.string(), 8000), "project show omitted the root", tui))
+        return;
+    run("/project list");
+    require(tui.wait_for("Open projects", 8000), "project list did not open", tui);
+    run("/project close");
+    tui.pump(500);
+    ASSERT(std::filesystem::exists(project));
+    std::filesystem::remove_all(project);
 }
 
 // ── /get provider list probes each provider when it is asked ──
@@ -1843,6 +1980,87 @@ TEST(worktree_off_survives_a_restart_and_parks_instead_of_reattaching) {
     agent::registry_remove(state, "w1");
 }
 
+// W-09/W-10/W-12: a report waited behind an unsent draft, then woke the same
+// window once the draft cleared. The fake model scripts a watch tool call and
+// answers the follow-up report turn, so this is the real plugin, TUI queue,
+// acknowledgement and turn boundary.
+void watch_report_waits_for_a_draft_then_wakes() {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    Tui tui;
+    tui.name = "watch_report_waits_for_a_draft_then_wakes";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never became ready", tui))
+        return;
+    tui.send("/set policy mode yolo\r");
+    if (!require(tui.wait_for(" yolo ", 10000), "yolo mode never took effect", tui))
+        return;
+
+    api.reset_chat();
+    tui.send("start a watch\r");
+    if (!require(tui.wait_for("WATCH-STARTED", 15000), "the first turn never finished", tui))
+        return;
+
+    // Leave a draft in the input. The watch finishes during this window; the
+    // host must hold the report, not start a turn underneath the user.
+    tui.send("draft");
+    tui.pump(2500);
+    if (tui.text().find("background watch") != std::string::npos) {
+        std::cerr << "FAIL: the report woke the window under an unsent draft\n";
+        ++failed;
+        return;
+    }
+
+    tui.send("\x15"); // Ctrl-U clears the draft
+    if (!require(tui.wait_for("background watch", 10000),
+                 "clearing the draft did not wake the report", tui))
+        return;
+    require(tui.wait_for("REPORT-ACK", 15000), "the report turn did not complete", tui);
+}
+
+// W-20: one-shot CLI does not silently run a report turn; --watch-wake opts in
+// and uses the same persisted report. This drives the real amber-cli binary
+// against the same fake model as the TUI wake test.
+void watch_cli_does_not_wake_by_default_and_opts_in() {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
+    ASSERT(fs::exists(cli));
+
+    for (const bool wake : {false, true}) {
+        api.reset_chat();
+        Tui child;
+        child.name = wake ? "watch_cli_watch_wake" : "watch_cli_default";
+        std::vector<std::string> args = {
+            "--api-base",  api.base() + "/v1", "--model",       "pty-test",
+            "--no-stream", "--prompt",         "start a watch", "--yolo"};
+        if (wake)
+            args.push_back("--watch-wake");
+        ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
+        if (!require(child.wait_for("WATCH-STARTED", 15000), "the CLI turn never finished", child))
+            return;
+        if (!wake) {
+            if (!require(child.wait_for("[watch] report", 10000),
+                         "the CLI did not persist and report the watch", child))
+                return;
+            child.pump(1000);
+            if (child.text().find("REPORT-ACK") != std::string::npos) {
+                std::cerr << "FAIL: one-shot CLI ran a report turn without --watch-wake\n";
+                ++failed;
+                return;
+            }
+        } else {
+            if (!require(child.wait_for("REPORT-ACK", 15000),
+                         "--watch-wake did not run the follow-up turn", child))
+                return;
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -1883,6 +2101,10 @@ int main(int argc, char** argv) {
     worktree_detach_parks_and_attach_reclaims();
     worktree_manager_round_trip();
     worktree_off_survives_a_restart_and_parks_instead_of_reattaching();
+    work_board_resource_viewer_round_trip();
+    project_open_creates_a_scoped_session();
+    watch_report_waits_for_a_draft_then_wakes();
+    watch_cli_does_not_wake_by_default_and_opts_in();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.

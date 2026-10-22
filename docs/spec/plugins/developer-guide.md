@@ -80,9 +80,9 @@ bug.
 | Wallet readout | ✅ Available | `WalletCapability` |
 | Search backend contribution | ✅ Available | `SearchBackendCapability` |
 | Skill contribution (a skill the harness ships, no file) | ✅ Available | `SkillCapability` |
-| Command contribution (slash namespace) | ✅ Available | `CommandCapability` |
+| Command contribution (slash workspace) | ✅ Available | `CommandCapability`; mounted at `/plugin/<id>`, `CommandSpec.name` is workspace-relative |
 | Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`, `fill_input`) | ✅ Available | `PluginServices::ui` |
-| Per-plugin settings | – | Not available, use `~/.config/amber/plugins/<id>/plugin.conf` |
+| Per-plugin settings | ✅ Available (bundled) | `SettingsCapability`, generated as `/get plugin settings` and `/set plugin settings`; external plugins keep the manifest store until they adopt it |
 | Log sinks | – | Deferred (no consumer) |
 | `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
 | Theme, key interception, window geometry, hot reload | – | Deferred register (tracker) |
@@ -327,27 +327,42 @@ caps.push_back(std::make_unique<agent::PanelCapability>(std::move(spec)));
 `lines(width)` is called on every repaint, so keep it pure and fast, no I/O,
 no blocking. The registry console at Alt+0 is the worked example.
 
-### Command
+### Command and settings placement
 
-A plugin contributes a slash-command namespace: a **new root**, its help/man,
-the child nodes as a completions.json subtree, and one handler per executable
-leaf. The host merges the subtree into the command tree and binds each leaf to
-its handler. The subtree is the only shape the plugin supplies: the plugin
-cannot add rows, help or choices from code, and the host derives every action
-as `plugin.<id>.<path>` so a plugin never names (or overwrites) a core action.
+A plugin does **not** choose a slash-command root. It chooses a contribution
+kind. This is the 0.6.0 contract (see `docs/spec/tui/command-namespace.md`):
 
-Merging is additive and collision-checked. A contribution may extend a
-documented namespace with new children (the MCP plugin contributes `/get mcp`)
-or add a new root, but documented fields (`action`, `help`, `man`, `aliases`,
-`choices`, `range`) are immutable — the documented value wins and the attempted
-write is counted. A plugin never names a core action; the host derives every
-leaf as `plugin.<id>.<path>`.
+| Need | Surface |
+|---|---|
+| Setting or read-only state | `SettingsCapability` → `/get plugin settings <id> <key>`, `/set plugin settings <id> <key> <value>`, settings screen |
+| Action | `/plugin <id> <verb>` |
+| Tool | registered tool; no command surface |
+| Panel/status/prompt | that capability; no command root |
+| First-class daily domain | host-owned root allowlist; never plugin-chosen |
+
+**Settings first.** A plugin should expose configuration as typed settings,
+not as bespoke config files or command roots. The host owns the command shape,
+help, completion, choices, persistence and the settings screen. The target
+`SettingsCapability` schema is a key, help, type (`string|bool|int|choice|path`),
+current value, choices, and a setter.
+
+**Workspace second.** Actions mount in the plugin's `/plugin/<id>` workspace.
+The host composes the mount from the plugin id; the plugin subtree is relative to
+that workspace. The host derives every leaf action as
+`plugin.<id>.<path>`, so a plugin cannot name or overwrite a core action.
+
+**Root last.** A root is a host-owned UI decision for a daily-use domain, not a
+plugin deployment convenience. A plugin may request an alias; the host grants it
+only through the documented root allowlist. **0.6.0 starts with no plugin
+roots.** Existing roots (`/hello`, `/index`, `/mcp`, `/prompt`, `/watch`) migrate
+under `/plugin/<id>`; a host alias may be added later if usage proves it.
 
 ```cpp
+// The plugin supplies a workspace-relative subtree, never a root.
 agent::CommandSpec spec;
-spec.root = "hello";
+spec.name = "hello";
 spec.help = "Say hello";
-spec.man  = "Usage: /hello greet <name>";
+spec.man  = "Usage: /plugin hello greet <name>";
 spec.subtree = agent::json::parse(R"({
   "greet": {"help": "Greet someone by name"}
 })");
@@ -359,18 +374,18 @@ caps.push_back(std::make_unique<agent::CommandCapability>(std::move(spec)));
 
 - The handler returns the text to display; the host prints it. That keeps the
   plugin UI-free, no `tui/` includes.
-- `handlers` is keyed by the leaf's **dotted path** relative to the root
+- `handlers` is keyed by the leaf's **dotted path** relative to the workspace
   (`"greet"`, `"config.set"`). A leaf with no handler stays inert: documented in
   the drawer, not executable.
-- You never name an action string. The host derives it
-  (`plugin.<id>.<path>`), so a plugin command cannot collide with a core one.
 - The **TUI** owns the slash engine; the headless CLI has no command tree, so a
   command contribution is TUI-only today.
 - Toggling the plugin rebuilds the tree immediately, its commands appear or
   disappear with no restart.
+- `CommandSpec.name` is relative to `/plugin/<id>`; when it equals the plugin id,
+  the subtree mounts at the workspace itself, otherwise it is a child namespace.
 
-The bundled `plugins/hello/` is the worked example: `/hello greet amber`
-returns `Hello, amber!`.
+The bundled `plugins/hello/` is the worked example after migration:
+`/plugin hello greet amber` returns `Hello, amber!`.
 
 ### Provider
 
@@ -590,6 +605,7 @@ Catalogue. **Fire sites are in `lib/agent.cpp` (loop), `lib/dispatch.cpp`
 | `CompressionEvent` | ✅ | compression triggered |
 | `CompressionCompletedEvent` | ✅ | compression finished |
 | `ErrorRaisedEvent` | ✅ | observation only; classification stays in the dialect |
+| `WatchReportEvent` | ✅ | a watch finished; carries owner/watch/report ids, state and headline. The host routes it by owner; the plugin keeps the report and never touches `Context` |
 | `PluginLoadedEvent` | ✅ | after a successful install pass, so the plugin is fully active |
 | `PluginUnloadedEvent` | ✅ | only on a real deactivation — not an off-again toggle, not a failed install's rollback |
 | `PluginFailedEvent` | ✅ | after the failed activation's rollback; carries the plugin id and the reason |
@@ -660,8 +676,9 @@ agent's catalog through the run scope, so the plugin holds no host state). The
 search backends follow the same rule, one plugin each:
 `plugins/search_grep/` and `plugins/search_semantic/`. `plugins/mcp/` (category
 `integration`) is the tool-source worked example: it owns the MCP client, and
-its servers' discovered tools, its status segment, its `/mcp`, `/prompt` and
-`/get mcp` commands and its prompt block all arrive and leave with it. Alongside
+its servers' discovered tools, its status segment, its `/plugin mcp` command
+workspace, its plugin settings and its prompt block all arrive and leave with
+it. Alongside
 them: `plugins/project_instructions/` (category `context`: it reads the
 workspace's `AGENTS.md` once and carries it as a session-fixed System block, so
 the agent works to the project's own conventions instead of re-deriving them —
@@ -671,15 +688,19 @@ about the project — how it runs, where its parts and artefacts live, which
 library entries apply — read from the project's private state once per session,
 with the provenance line reporting a source that has moved; its tools
 (`index_init`, `index_add`, `index_update`, `index_remove`, `index_show`) and its
-`/index show|refresh` command arrive and leave with it),
+`/plugin project_index show|refresh` commands arrive and leave with it),
 `plugins/clock/` (the bar's right-edge readout),
+`plugins/watch/` (category `observability`: background command/PR watches, a
+deterministic journal, a one-shot read-only observer, a `/plugin watch` command
+workspace, a status segment and the `watch` tool; its spec is
+`watch-observer.md`),
 `plugins/metrics/` (an event-observing plugin with no contributions),
-`plugins/hello/` (the command example), `plugins/amber_self/` (the
+`plugins/hello/` (the `/plugin hello` command example), `plugins/amber_self/` (the
 `amber-self` plugin: it contributes the `amber-config` skill, whose body is
 rendered from the same table `/get config paths` prints) and
 `plugins/git_timeline/` (the `git-timeline` plugin: the snapshot/history
 playbook as a skill, so its depth is activation-tier rather than resident
-prose). That is 28 bundled plugins in total.
+prose). That is 29 bundled plugins in total.
 
 Steps:
 
@@ -732,12 +753,13 @@ the completion drawer but cannot execute, no handler is bound for their
 tier, which contributes tools only. Treat external plugin commands as
 documented-but-inert and expose behaviour through tools.
 
-The `completion` object is a completions.json subtree, not a code list. Its
-top-level keys merge into the command tree additively: a key may extend a
-documented namespace with children (the MCP plugin's `/get mcp`) or add a new
-root, but it cannot rewrite a documented field — the documented value wins and
-the collision is counted. The host derives the leaf actions, so the manifest
-does not carry action strings. See `docs/spec/tui/command-tree.md`.
+The `completion` object is a completions.json subtree, not a code list. In the
+0.6.0 contract it is mounted under `/plugin/<id>`; it may extend a documented
+namespace with children (the MCP plugin's `/get mcp`) or add children inside
+its workspace, but it cannot add a root or rewrite a documented field — the
+documented value wins and the collision is counted. The host derives the leaf
+actions, so the manifest does not carry action strings. See
+`docs/spec/tui/command-tree.md` and `docs/spec/tui/command-namespace.md`.
 
 ---
 

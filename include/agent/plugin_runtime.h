@@ -207,6 +207,8 @@ public:
     SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     CommandRegistry& commands() noexcept { return commands_; }
     const CommandRegistry& commands() const noexcept { return commands_; }
+    SettingsRegistry& settings() noexcept { return settings_; }
+    const SettingsRegistry& settings() const noexcept { return settings_; }
     EventBus& events() noexcept { return bus_; }
 
     // Contributions across every registry, for the console.
@@ -253,6 +255,7 @@ private:
     StatusRegistry status_;
     PanelRegistry panels_;
     CommandRegistry commands_;
+    SettingsRegistry settings_;
     WalletRegistry wallets_;
     // Shared with every search tool a plugin builds, so the tool's resolver
     // keeps the table alive (search_backend.h).
