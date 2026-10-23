@@ -130,9 +130,8 @@ public:
     // e.g. children_of("set.policy") → ["approval", "mode", "timeout"]
     std::vector<std::string> children_of(const std::string& key) const;
 
-    // Aliases declared in the JSON ("aliases": ["w"]) for top-level
-    // commands, so the no-space completion branch stays tree-driven.
-    std::vector<std::string> top_level_aliases() const;
+    // Node-level aliases declared in the JSON ("aliases": ["w"]) — synonyms
+    // of one node's own name, so command help and dispatch stay tree-driven.
     const std::vector<std::string>& aliases_for(const std::string& key) const;
 
     // Access choices and ranges loaded from JSON (for help display).
@@ -145,6 +144,15 @@ public:
 
 private:
     const nlohmann::json* find_namespace_node(const std::string& prefix) const;
+    // Namespace walk split: the first token may rebase onto a visible alias
+    // target, the remaining tokens descend through "children" maps.
+    static std::size_t first_token_len(const std::string& prefix);
+    const nlohmann::json* head_node(const nlohmann::json& commands, const std::string& head) const;
+    static const nlohmann::json* descends_remaining(const nlohmann::json* node,
+                                                    const std::string& prefix, std::size_t from);
+    // Descend from "commands" through "children" maps to the node a visible
+    // alias targets: exact names only, no alias rebase.
+    const nlohmann::json* walk_alias_target(const std::vector<std::string>& tokens) const;
     void index_entry(const std::string& key, const NodeFields& f);
     void index_children(const std::string& display_path, const std::string& key_path,
                         const nlohmann::json& node);
@@ -159,8 +167,27 @@ private:
     void merge_field(nlohmann::json& dst, const std::string& key, const nlohmann::json& value);
 
     // Canonical full-path key for a possibly-dotted key: exact match, then
-    // the "get.<key>" / "set.<key>" namespace probes. Empty when not indexed.
+    // a visible alias head ("model" → "set.model"), then the "get.<key>" /
+    // "set.<key>" namespace probes. Empty when not indexed.
     std::string resolve_key(const std::string& key) const;
+
+    // Book one visible alias key from the JSON "aliases" map: rejects a key
+    // that shadows a documented command root or a hidden legacy entry, and
+    // counts each refusal (alias_collisions()).
+    void load_alias_entry(const std::string& key, const nlohmann::json& target);
+
+    // Apply a completions.json document: replace the tree, re-derive the
+    // static-path index, and book both alias maps (hidden first, so a visible
+    // key refused there cannot slip in undetected afterwards).
+    void apply_commands_document(const nlohmann::json& root);
+    void parse_hidden_aliases(const nlohmann::json& root);
+    void parse_visible_aliases(const nlohmann::json& root);
+    // Whitespace-split alias target tokens; empty when not a JSON string.
+    static std::vector<std::string> split_alias_target(const nlohmann::json& target);
+
+    // Append the visible alias keys (bare root spellings) to a top-level
+    // list; sorted by key, so the drawer reads truthfully after a merge.
+    void append_alias_keys(std::vector<std::string>& out) const;
 
     nlohmann::json tree_;
 
@@ -168,6 +195,13 @@ private:
     // and immutable; a path absent from it was introduced dynamically.
     std::set<std::string> static_paths_;
     std::size_t merge_collisions_ = 0;
+
+    // Host-granted root spellings. Visible ("aliases"): drawer rows, dispatch,
+    // completion and man inherit the target's documentation. Hidden
+    // ("legacy"): dispatch only, the compat spelling for renamed commands.
+    std::map<std::string, std::vector<std::string>> alias_paths_;
+    std::map<std::string, std::vector<std::string>> legacy_paths_;
+    std::size_t alias_collisions_ = 0;
 
     std::vector<Setting> settings_;
     std::map<std::string, std::string> key_help_;
@@ -178,7 +212,6 @@ private:
     std::map<std::string, std::vector<std::string>> command_choices_;
     std::map<std::string, std::vector<std::string>> command_aliases_;
     std::map<std::string, std::string> command_shorts_;
-    std::map<std::string, std::vector<std::string>> legacy_paths_;
     std::map<std::string, std::pair<double, double>> command_ranges_;
     std::map<std::string, std::vector<std::string>> command_subcommands_;
     std::size_t shortcut_collisions_ = 0;

@@ -48,8 +48,15 @@ std::string child_row(const std::string& name, const std::string& full_key,
                       const SettingRegistry& settings, bool show_short) {
     std::string label = name;
     const std::string short_name = show_short ? settings.short_for(full_key) : std::string();
-    if (!short_name.empty())
+    if (!short_name.empty()) {
         label += " (" + short_name + ")";
+    } else if (show_short) {
+        std::string target = settings.alias_target_path(full_key);
+        if (!target.empty()) {
+            std::replace(target.begin(), target.end(), '.', ' ');
+            label += " (\u2192 /" + target + ")";
+        }
+    }
     std::string line = "  ";
     line += label;
     std::string h = settings.help_for(full_key);

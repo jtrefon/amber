@@ -315,9 +315,11 @@ TEST(test_drawer_namespace_levels) {
     ASSERT(!reg.help_for("set.policy.approval").empty());
 }
 
-// ── Test: no root /model command remains (FIX-015) ──
-// The old root /model node with list|set|probe children is gone; model
-// lives under get/set (see test_model_lives_under_get_set).
+// ── Test: no root /model command node (FIX-015) ──
+// The old root /model node with list|set|probe children is gone; model lives
+// under get/set. /model exists only as the host-granted alias spelling: a
+// drawer row without a tree node of its own (see
+// test_command_tree_has_domain_roots_not_action_roots).
 
 TEST(test_model_command_is_leaf) {
     tui::SettingRegistry reg;
@@ -325,27 +327,27 @@ TEST(test_model_command_is_leaf) {
     ASSERT(ok);
     auto subs = reg.subcommands_for("model");
     ASSERT(subs.empty());
-    // The root command is no longer in the tree.
+    // No tree node, only the alias spelling.
+    ASSERT(reg.command_tree()["commands"].find("model") == reg.command_tree()["commands"].end());
     bool root_model = false;
     for (const auto& k : reg.complete(""))
         if (k == "model")
             root_model = true;
-    ASSERT(!root_model);
+    ASSERT(root_model);
 }
 
-// ── Test: model lives under get/set, not at the root (FIX-015 P2) ──
+// ── Test: model lives under get/set, with /model as its alias (FIX-015 P2) ──
 // Model is a state-modifying accessor: queries at /get model (current, list,
-// context), switching at /set model. There is no root /model command.
+// context), switching at /set model. The root spelling is the alias layer,
+// never a command node.
 
 TEST(test_model_lives_under_get_set) {
     tui::SettingRegistry reg;
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
-    bool root_model = false;
-    for (const auto& k : reg.complete(""))
-        if (k == "model")
-            root_model = true;
-    ASSERT(!root_model);
+    // The /model row is the /set model alias, not a tree command.
+    ASSERT(reg.command_tree()["commands"].find("model") == reg.command_tree()["commands"].end());
+    ASSERT_EQ(reg.alias_target_path("model"), std::string("set.model"));
     // /get model list|context are documented children.
     auto get_kids = reg.children_of("get.model");
     REQUIRE_NONEMPTY(get_kids);
@@ -1490,8 +1492,8 @@ TEST(test_settings_surface_matches_the_tree) {
     ASSERT(reg.load_completions_json("completions.json"));
     // The aliases that opened a provider picker under a server-wide name are
     // gone; the settings surface is the tree.
-    for (const auto& a : reg.top_level_aliases())
-        ASSERT(a != "server" && a != "endpoint");
+    for (const auto& k : reg.complete(""))
+        ASSERT(k != "server" && k != "endpoint");
     ASSERT(reg.help_for("settings").find("group") != std::string::npos);
     ASSERT(reg.man_for("settings").find("full-screen") == std::string::npos);
 }
@@ -1528,8 +1530,15 @@ TEST(test_command_tree_has_domain_roots_not_action_roots) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
     const auto top = reg.complete("");
-    for (const char* gone : {"new", "close", "stop", "compress", "save", "sessions"}) {
+    // Roots are domains; the retired action roots stay spellings only, hidden.
+    for (const char* gone : {"new", "close", "reset", "cancel", "kill", "open", "load"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(gone)) == top.end());
+    }
+    // The host-granted alias spellings surface as drawer rows beside the
+    // domains they dispatch into.
+    for (const char* alias :
+         {"model", "compress", "compact", "stop", "clear", "save", "sessions", "mcp"}) {
+        ASSERT(std::find(top.begin(), top.end(), std::string(alias)) != top.end());
     }
     for (const char* present : {"session", "window", "job", "worktree"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(present)) != top.end());

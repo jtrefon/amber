@@ -174,12 +174,24 @@ domain proves it needs a root alias later, the host grants it explicitly.
 
 ## 5. Migration table
 
-Canonical paths replace action roots. Legacy names remain **hidden aliases for
-one release**, then are removed.
+Canonical paths replace action roots.
+
+**Two alias tiers, both host-owned in `completions.json`.** The **`aliases`
+map** holds the visible spellings the drawer shows beside the domains they
+dispatch into (`model`, `compress`, `compact`, `stop`, `clear`, `save`,
+`sessions`, `mcp`): resolution and dispatch go through the canonical path, so
+help, man, choices and actions are exactly the target's own, and the drawer
+row carries a `(→ /canonical)` hint instead of a shortcut. The **`legacy`
+map** holds the retired spellings (`new`, `close`, `reset`, `cancel`, `kill`,
+`open`, `load`, and bare-name mounts of retired plugin roots): dispatch-only,
+never a drawer or completion row. An alias key may not shadow a documented
+root, and a spelling may not be booked in both maps at once; refusals are
+counted in `alias_collisions()` and a feed or plugin contribution naming
+either map is refused (it cannot author alias material).
 
 | Legacy | Canonical |
 |---|---|
-| `/new`, `/clear`, `/reset` | `/session new` |
+| `/new`, `/reset` | `/session new` (hidden) — `/clear` visible spelling |
 | `/close` | `/window close` |
 | `/save` | `/session save` |
 | `/stop`, `/cancel`, `/kill` | `/session stop` (active turn) |
@@ -194,7 +206,8 @@ one release**, then are removed.
 
 A compatibility alias never appears as a documented peer in the drawer; it is
 accepted, with a one-line notice when appropriate, and removed after the
-migration window.
+migration window — unless the host books it in the visible `aliases` map, in
+which case it is a permanent spelling of that row.
 
 ## 6. Framework and metadata changes
 
