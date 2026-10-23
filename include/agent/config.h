@@ -53,6 +53,10 @@ struct Config {
     bool stream = true;            // use SSE streaming when supported
     bool subagent_parallel = true; // sub-agents run concurrently (env AMBER_SUBAGENT_PARALLEL)
     int subagent_max = 4;          // max concurrent sub-agents (env AMBER_SUBAGENT_MAX)
+    // Background work viewers: off | agents | jobs | all (default off). When
+    // on, the TUI opens a viewer for newly running work without stealing
+    // focus, and closes it on completion unless it was focused.
+    std::string work_auto_attach = "off";
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed

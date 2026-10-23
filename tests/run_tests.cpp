@@ -200,6 +200,7 @@ TEST(config_load_covers_every_key) {
         f << "skills_interop=true\n";
         f << "skills_max_discovery=14\n";
         f << "skills_body_budget_tokens=15\n";
+        f << "work_auto_attach=agents\n";
         f << "log_path=/tmp/conv.jsonl\n";
         f << "debug_log=/tmp/dbg.log\n";
         f << "debug=1\n";
@@ -252,6 +253,7 @@ TEST(config_load_covers_every_key) {
     ASSERT_TRUE(c.skills_interop);
     ASSERT_EQ(c.skills_max_discovery, 14);
     ASSERT_EQ(c.skills_body_budget_tokens, 15);
+    ASSERT_EQ(c.work_auto_attach, "agents");
     ASSERT_EQ(c.log_path, "/tmp/conv.jsonl");
     ASSERT_EQ(c.debug_log, "/tmp/dbg.log");
     ASSERT_TRUE(c.debug);
@@ -5465,6 +5467,26 @@ TEST(sanitize_tool_pairs_stubs_missing_result) {
     ASSERT_EQ(hist[2].role, "assistant"); // the tool_calls message
     ASSERT_EQ(hist[3].role, "tool");      // stub injected before the user turn
     ASSERT_EQ(hist[4].role, "user");
+}
+
+TEST(subagent_tail_is_bounded) {
+    // A tool-level live tail: newest lines survive, and a chatty sub-agent
+    // cannot grow its viewer without limit.
+    std::string tail;
+    for (int i = 0; i < 500; ++i)
+        agent::append_task_tail(tail, "line " + std::to_string(i));
+    std::size_t lines = 0;
+    for (char c : tail)
+        if (c == '\n')
+            ++lines;
+    ASSERT(lines <= agent::kTaskTailMaxLines);
+    ASSERT(tail.find("line 499") != std::string::npos);
+    ASSERT(tail.find("line 0\n") == std::string::npos);
+
+    std::string wide;
+    for (int i = 0; i < 50; ++i)
+        agent::append_task_tail(wide, std::string(500, 'x'));
+    ASSERT(wide.size() <= agent::kTaskTailMaxBytes);
 }
 
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {

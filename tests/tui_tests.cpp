@@ -1660,8 +1660,8 @@ TEST(window_manager_close_background_resource_keeps_focus) {
     tui::WindowManager wm(cfg, reg);
     wm.new_window("chat");
     const size_t chat = wm.active();
-    wm.new_background_resource_window("job", "7", "job 7");
-    ASSERT(!wm.win().ever_focused);
+    tui::Window& viewer = wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(!viewer.ever_focused);
     ASSERT(wm.close_resource_window("job", "7"));
     ASSERT_EQ(wm.active(), chat);
     ASSERT_EQ(wm.chat_count(), 1u);

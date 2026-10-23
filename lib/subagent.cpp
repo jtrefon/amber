@@ -83,6 +83,52 @@ std::string SubAgentExecutor::add_task(const std::string& prompt) {
     return tasks_.back().id;
 }
 
+void append_task_tail(std::string& tail, const std::string& line) {
+    if (!tail.empty() && tail.back() != '\n')
+        tail += '\n';
+    tail += line + '\n';
+    std::size_t lines = static_cast<std::size_t>(std::count(tail.begin(), tail.end(), '\n'));
+    while (lines > kTaskTailMaxLines) {
+        const std::size_t end = tail.find('\n');
+        if (end == std::string::npos)
+            break;
+        tail.erase(0, end + 1);
+        --lines;
+    }
+    while (tail.size() > kTaskTailMaxBytes) {
+        const std::size_t end = tail.find('\n');
+        if (end == std::string::npos) {
+            tail.erase(0, tail.size() - kTaskTailMaxBytes);
+            break;
+        }
+        tail.erase(0, end + 1);
+    }
+}
+
+AgentHooks SubAgentExecutor::progress_hooks(const std::string& task_id) {
+    AgentHooks hooks = sub_hooks_of();
+    hooks.on_tool_call = [this, task_id](const std::string& name, const json&) {
+        update_task(task_id, "running", name);
+        append_tail(task_id, "-> " + name);
+    };
+    hooks.on_tool_result = [this, task_id](const std::string& name, const ToolResult& result,
+                                           const json&) {
+        update_task(task_id, "running");
+        append_tail(task_id, "<- " + name + (result.ok ? " ok" : " error"));
+    };
+    return hooks;
+}
+
+void SubAgentExecutor::append_tail(const std::string& id, const std::string& line) {
+    std::scoped_lock lk(tasks_mutex_);
+    for (auto& record : tasks_) {
+        if (record.id != id)
+            continue;
+        append_task_tail(record.tail, line);
+        return;
+    }
+}
+
 void SubAgentExecutor::update_task(const std::string& id, const std::string& state,
                                    const std::string& current_tool, const std::string& result) {
     std::scoped_lock lk(tasks_mutex_);
@@ -117,6 +163,7 @@ std::vector<SubAgentTaskInfo> SubAgentExecutor::tasks() const {
         info.state = record.state;
         info.current_tool = record.current_tool;
         info.result = record.result;
+        info.tail = record.tail;
         info.elapsed_s =
             std::chrono::duration_cast<std::chrono::seconds>(now - record.started).count();
         info.slot = record.slot;
@@ -204,13 +251,7 @@ std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& 
     } slot_guard{this};
 
     update_task(task_id, "running");
-    AgentHooks sub_hooks = sub_hooks_of();
-    sub_hooks.on_tool_call = [this, task_id](const std::string& name, const json&) {
-        update_task(task_id, "running", name);
-    };
-    sub_hooks.on_tool_result = [this, task_id](const std::string&, const ToolResult&, const json&) {
-        update_task(task_id, "running");
-    };
+    const AgentHooks sub_hooks = progress_hooks(task_id);
     const Config sub_cfg = sub_config();
 
     launched_.fetch_add(1);

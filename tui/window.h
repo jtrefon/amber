@@ -40,7 +40,11 @@ struct Window {
     std::string session_id;         // set once persisted / loaded
     std::atomic<bool> dirty{false}; // has unsaved changes since last save
     bool read_only = false;         // welcome / log window: typing spawns chat
-    bool welcome_art = false;       // renders via welcome::render() instead of lines
+    // Resource viewers only: set once the user has actually looked at the
+    // window, so a terminal state keeps the final output instead of closing
+    // under them.
+    bool ever_focused = false;
+    bool welcome_art = false; // renders via welcome::render() instead of lines
 
     // This window's workspace: the worktree its tools operate in, empty when it
     // works in the project root. base_oid is the commit the worktree was cut
