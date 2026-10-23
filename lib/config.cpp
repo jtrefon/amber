@@ -128,6 +128,8 @@ void apply_agent_keys(Config& c, const std::string& key, const std::string& val,
         c.subagent_parallel = parse_bool(val);
     else if (key == "subagent_max")
         parse_int(key, val, warnings, c.subagent_max);
+    else if (key == "max_tool_result_bytes")
+        parse_int(key, val, warnings, c.max_tool_result_bytes);
     else if (key == "context_size") {
         // 0 (or negative) means "auto-detect"; only a positive value counts
         // as an explicit override that suppresses server probing.
@@ -405,6 +407,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "worktree=" << (worktree_auto ? 1 : 0) << "\n";
     f << "skills_max_discovery=" << skills_max_discovery << "\n";
     f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
+    f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
     return static_cast<bool>(f);
 }
 
@@ -453,6 +456,7 @@ void Config::apply_environment() {
     stream = env_flag("AMBER_STREAM", stream);
     subagent_parallel = env_flag("AMBER_SUBAGENT_PARALLEL", subagent_parallel);
     subagent_max = env_int("AMBER_SUBAGENT_MAX", subagent_max);
+    max_tool_result_bytes = env_int("AMBER_MAX_TOOL_RESULT_BYTES", max_tool_result_bytes);
     thinking_budget = env_int("AMBER_THINKING_BUDGET", thinking_budget);
     show_reasoning = env_flag("AMBER_SHOW_REASONING", show_reasoning);
 

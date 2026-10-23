@@ -69,11 +69,41 @@ std::string capped(std::string text, std::size_t limit) {
 
 } // namespace
 
+namespace {
+
+bool is_utf8_continuation(unsigned char c) {
+    return (c & 0xC0) == 0x80;
+}
+
+// Budget a payload middle-out: both ends survive (headers first, final errors
+// last), the cut lands on a code-point boundary, and `omitted` reports how
+// many bytes went away. `budget == 0` means "no cap".
+std::string truncate_middle(const std::string& text, std::size_t budget, std::size_t& omitted) {
+    omitted = 0;
+    if (budget == 0 || text.size() <= budget)
+        return text;
+    std::size_t head_len = budget / 2;
+    std::size_t tail_len = budget - head_len;
+    while (head_len > 0 && is_utf8_continuation(static_cast<unsigned char>(text[head_len])))
+        --head_len;
+    std::size_t tail_start = text.size() - tail_len;
+    while (tail_start < text.size() &&
+           is_utf8_continuation(static_cast<unsigned char>(text[tail_start])))
+        ++tail_start;
+    omitted = text.size() - head_len - (text.size() - tail_start);
+    return text.substr(0, head_len) + "\n[... " + std::to_string(omitted) + " bytes omitted of " +
+           std::to_string(text.size()) + " total]\n" + text.substr(tail_start);
+}
+
+} // namespace
+
 std::string format_tool_envelope(const std::string& name, const json& args,
-                                 const ToolResult& result) {
+                                 const ToolResult& result, std::size_t budget) {
     // Ensure meta is always an object, never null (tools that return early
     // on error may leave meta uninitialized).
     json meta = result.meta.is_null() ? json::object() : result.meta;
+    if (!meta.is_object())
+        meta = json::object();
 
     std::string status;
     if (result.ok) {
@@ -86,18 +116,126 @@ std::string format_tool_envelope(const std::string& name, const json& args,
         status = "error";
     }
 
+    std::string content = result.ok ? result.output : capped("ERROR: " + result.error, 2000);
+    meta["bytes"] = content.size();
+    std::size_t omitted = 0;
+    content = truncate_middle(content, budget, omitted);
+    if (omitted > 0)
+        meta["truncated"] = true;
+
     // Echo args only when compact: the model confirms what it sent (the
     // envelope's own contract), but large payloads (write edit blocks) only
     // bloat context and drive degradation.
     const std::string args_dump = args.dump();
     std::string header = "[tool=" + name + (args_dump.size() <= 120 ? " args=" + args_dump : "") +
                          " status=" + status + " meta=" + capped(meta.dump(), 300) + "]\n";
-
-    std::string content = result.ok ? result.output : capped("ERROR: " + result.error, 2000);
     if (!content.empty() && content.back() != '\n')
         content += '\n';
 
     return header + content + "[end]";
+}
+
+namespace {
+
+std::string header_field(const std::string& content, const std::string& field,
+                         const std::string& terminators) {
+    const size_t start = content.find(field);
+    if (start == std::string::npos)
+        return {};
+    const size_t from = start + field.size();
+    const size_t end = content.find_first_of(terminators, from);
+    return content.substr(from, (end == std::string::npos ? content.size() : end) - from);
+}
+
+std::string header_meta(const std::string& content) {
+    return header_field(content, "meta=", "]");
+}
+
+std::string header_status(const std::string& content) {
+    const std::string status = header_field(content, "status=", " \n]");
+    return status.empty() ? std::string("unknown") : status;
+}
+
+std::string meta_number(const std::string& meta, const std::string& key) {
+    const std::string pattern = "\"" + key + "\":";
+    const size_t at = meta.find(pattern);
+    if (at == std::string::npos)
+        return {};
+    size_t from = at + pattern.size();
+    size_t to = from;
+    while (to < meta.size() && std::isdigit(static_cast<unsigned char>(meta[to])))
+        ++to;
+    return meta.substr(from, to - from);
+}
+
+std::string meta_string(const std::string& meta, const std::string& key) {
+    const std::string pattern = "\"" + key + "\":\"";
+    const size_t at = meta.find(pattern);
+    if (at == std::string::npos)
+        return {};
+    const size_t from = at + pattern.size();
+    const size_t to = meta.find('"', from);
+    return meta.substr(from, (to == std::string::npos ? meta.size() : to) - from);
+}
+
+std::string one_line(const std::string& text, std::size_t cap) {
+    std::string out = text.substr(0, cap);
+    for (char& c : out)
+        if (c == '\n' || c == '\r' || c == '\t')
+            c = ' ';
+    return out;
+}
+
+// The payload after the header line, with the closing [end] removed.
+std::string envelope_body(const std::string& content) {
+    const size_t nl = content.find('\n');
+    if (nl == std::string::npos)
+        return {};
+    std::string body = content.substr(nl + 1);
+    if (body.size() >= 5 && body.compare(body.size() - 5, 5, "[end]") == 0)
+        body.resize(body.size() - 5);
+    return body;
+}
+
+std::string first_line(const std::string& body) {
+    size_t start = 0;
+    while (start < body.size() && body[start] == '\n')
+        ++start;
+    const size_t end = body.find('\n', start);
+    return one_line(body.substr(start, (end == std::string::npos ? body.size() : end) - start), 60);
+}
+
+std::string last_line(const std::string& body) {
+    size_t end = body.size();
+    while (end > 0 && (body[end - 1] == '\n' || body[end - 1] == '\r'))
+        --end;
+    const size_t start = end == 0 ? std::string::npos : body.rfind('\n', end - 1);
+    const size_t from = (start == std::string::npos) ? 0 : start + 1;
+    return one_line(body.substr(from, end - from), 60);
+}
+
+} // namespace
+
+std::string tool_result_digest(const Message& message) {
+    const std::string meta = header_meta(message.content);
+    std::string bytes = meta_number(meta, "bytes");
+    if (bytes.empty())
+        bytes = std::to_string(message.content.size());
+    std::string out = "[tool output omitted: tool=" +
+                      (message.name.empty() ? std::string("unknown") : message.name) +
+                      " status=" + header_status(message.content) + " bytes=" + bytes;
+    const std::string id = meta_string(meta, "result_id");
+    if (!id.empty())
+        out += " result_id=" + id;
+    const std::string body = envelope_body(message.content);
+    const std::string head = first_line(body);
+    const std::string tail = last_line(body);
+    if (!head.empty())
+        out += " first=\"" + head + "\"";
+    if (!tail.empty() && tail != head)
+        out += " last=\"" + tail + "\"";
+    out += "]";
+    return out;
 }
 
 std::string strip_think(std::string s) {

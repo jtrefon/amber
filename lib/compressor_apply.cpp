@@ -1,5 +1,6 @@
 
 #include "agent/compressor.h"
+#include "agent/agent_helpers.h"
 #include "agent/context.h"
 #include "agent/experience.h"
 
@@ -375,7 +376,7 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
     for (size_t i = 1; i < limit; ++i) {
         Message& m = history[i];
         if (m.role == "tool" && m.content.size() > 200) {
-            m.content = kToolOutputOmitted;
+            m.content = tool_result_digest(m);
             ++replaced;
         }
     }
