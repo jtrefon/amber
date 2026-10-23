@@ -46,9 +46,8 @@ std::string decode_numeric(const std::string& body) {
         std::string digits = body;
         if (!digits.empty() && digits[0] == '#')
             digits.erase(digits.begin());
-        const int value = digits.size() > 1 && (digits[1] == 'x' || digits[1] == 'X')
-                              ? std::stoi(digits.substr(2), nullptr, 16)
-                              : std::stoi(digits);
+        const bool hex = digits.size() > 1 && (digits[0] == 'x' || digits[0] == 'X');
+        const int value = hex ? std::stoi(digits.substr(1), nullptr, 16) : std::stoi(digits);
         if (value <= 0 || value > 0x10ffff)
             return {};
         std::string out;
