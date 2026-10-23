@@ -23,10 +23,13 @@ class FakeTransport : public agent::plugins::web::WebTransport {
 public:
     agent::plugins::web::HttpResponse response{200, ""};
     std::string requested;
+    bool fail = false;
 
     std::optional<agent::plugins::web::HttpResponse> get(const std::string& url, int,
                                                          int) override {
         requested = url;
+        if (fail)
+            return std::nullopt;
         return response;
     }
 };
@@ -72,6 +75,18 @@ TEST(web_parse_extracts_text_and_strips_scripts) {
         "<p>Hello <b>world</b>.</p></html>";
     ASSERT_EQ(agent::plugins::web::html_to_text(html), "Title & more\nHello world.");
     ASSERT_EQ(agent::plugins::web::decode_entities("&lt;&#65;&gt;"), "<A>");
+}
+
+TEST(web_parse_handles_entities_and_malformed_markup) {
+    using agent::plugins::web::decode_entities;
+    ASSERT_EQ(decode_entities("&quot;&apos;&nbsp;&#233;&#x20ac;"), "\"' \xc3\xa9\xe2\x82\xac");
+    ASSERT_EQ(decode_entities("&#x110000;"), "&#x110000;");
+    ASSERT_EQ(decode_entities("&#xzz;"), "&#xzz;");
+    ASSERT_EQ(decode_entities("&unknown;"), "&unknown;");
+    ASSERT_EQ(decode_entities("a & b"), "a & b");
+    ASSERT_EQ(agent::plugins::web::html_to_text("unterminated <b"), "unterminated");
+    std::string error;
+    ASSERT_FALSE(agent::plugins::web::safe_web_url("https:///path", error));
 }
 
 TEST(web_parse_rejects_unsafe_urls) {
@@ -129,11 +144,49 @@ TEST(web_client_error_paths_and_caps) {
     agent::plugins::web::WebClient missing(settings, nullptr);
     ASSERT_FALSE(missing.fetch("https://example.com", error).has_value());
     ASSERT_TRUE(missing.search("x", 1, error).empty());
+
+    transport->fail = true;
+    ASSERT_FALSE(capped.fetch("https://example.com", error).has_value());
+    ASSERT_TRUE(no_placeholder.search("x", 1, error).empty());
+    transport->fail = false;
+
+    settings.search_url = "file:///bad";
+    ASSERT_TRUE(agent::plugins::web::WebClient(settings, transport).search("x", 1, error).empty());
+
+    settings.search_url = "https://example.com/search";
+    transport->response = {200, "<p>no results</p>"};
+    ASSERT_TRUE(no_placeholder.search("x", 1, error).empty());
+    transport->response = {
+        200,
+        R"(<a class="result__a" href="https://example.com/a">A</a><a class="result__snippet">S</a>)"
+        R"(<a class="result__a" href="https://example.com/b">B</a><a class="result__snippet">T</a>)"};
+    ASSERT_EQ(no_placeholder.search("x", 1, error).size(), 1u);
+
+    agent::plugins::web::WebSettings utf8;
+    utf8.max_bytes = 1024;
+    transport->response = {200, "<p>" + std::string(1023, 'a') + "\xc3\xa9" + "</p>"};
+    const auto cut =
+        agent::plugins::web::WebClient(utf8, transport).fetch("https://example.com", error);
+    ASSERT_TRUE(cut.has_value());
+    ASSERT_EQ(cut->size(), 1023u);
 }
 
 TEST(web_curl_transport_handles_connection_failure) {
     agent::plugins::web::CurlWebTransport transport;
     ASSERT_FALSE(transport.get("http://127.0.0.1:1/", 1, 1024).has_value());
+}
+
+TEST(web_curl_transport_reads_a_body) {
+    const std::string path = "/tmp/amber_web_curl_body.txt";
+    {
+        std::ofstream out(path, std::ios::trunc);
+        out << "curl body";
+    }
+    agent::plugins::web::CurlWebTransport transport;
+    const auto response = transport.get("file://" + path, 1, 1024);
+    ASSERT_TRUE(response.has_value());
+    ASSERT_EQ(response->body, "curl body");
+    fs::remove(path);
 }
 
 TEST(web_plugin_registers_settings_and_tools) {
@@ -153,6 +206,7 @@ TEST(web_plugin_registers_settings_and_tools) {
     ASSERT_TRUE(fetch != nullptr);
     ASSERT_TRUE(search != nullptr);
     ASSERT(fetch->is_read_only());
+    ASSERT(search->is_read_only());
     ASSERT(fetch->parameters_schema()["properties"].contains("url"));
     ASSERT(search->parameters_schema()["properties"].contains("query"));
     ASSERT_FALSE(fetch->execute({{"url", "file:///etc/passwd"}}).ok);
@@ -167,6 +221,7 @@ TEST(web_plugin_registers_settings_and_tools) {
     ASSERT_TRUE(runtime.settings().set("web", "provider", "builtin"));
     ASSERT_TRUE(runtime.settings().set("web", "timeout_s", "5"));
     ASSERT_FALSE(runtime.settings().set("web", "timeout_s", "0"));
+    ASSERT_FALSE(runtime.settings().set("web", "timeout_s", "not-a-number"));
     ASSERT_TRUE(runtime.settings().set("web", "max_bytes", "2048"));
     ASSERT_FALSE(runtime.settings().set("web", "max_bytes", "1"));
     ASSERT_TRUE(runtime.settings().set("web", "search_url", "https://example.com/?q={query}"));
@@ -180,7 +235,8 @@ TEST(web_plugin_loads_persisted_settings) {
     fs::create_directories(base + "/amber/plugins/web");
     {
         std::ofstream out(base + "/amber/plugins/web/web.conf", std::ios::trunc);
-        out << "provider=off\n"
+        out << "garbage-without-equals\n"
+            << "provider=off\n"
             << "timeout_s=7\n"
             << "max_bytes=4096\n"
             << "search_url=https://example.com/search?q={query}\n";
@@ -228,6 +284,7 @@ TEST(web_plugin_provider_conflict_and_fetch) {
     ASSERT(cdp.error.find("cdp") != std::string::npos);
 
     ASSERT_TRUE(plugin.set_provider("builtin"));
+    ASSERT_FALSE(plugin.fetch(agent::json::object()).ok);
     auto fetched = plugin.fetch({{"url", "https://example.com"}});
     ASSERT_TRUE(fetched.ok);
     ASSERT_EQ(fetched.output, "hello web");
@@ -239,6 +296,8 @@ TEST(web_plugin_provider_conflict_and_fetch) {
     ASSERT_TRUE(searched.ok);
     ASSERT(searched.output.find("https://example.com") != std::string::npos);
     ASSERT(transport->requested.find("q=example") != std::string::npos);
+    transport->response = {200, "<p>no results</p>"};
+    ASSERT_FALSE(plugin.search({{"query", "nothing"}}).ok);
 
     fs::remove_all(base);
 }
