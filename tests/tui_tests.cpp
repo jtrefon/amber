@@ -8,6 +8,7 @@
 #include "agent/workspace.h"
 #include <csignal>
 #include "tui/action_registry.h"
+#include "tui/session_usage.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
@@ -1595,6 +1596,52 @@ TEST(macos_option_digit_rejects_other_codepoints) {
     ASSERT_EQ(tui::macos_option_digit(0x00DF), -1); // ß = Option+S
     ASSERT_EQ(tui::macos_option_digit(0x20AC), -1); // €
     ASSERT_EQ(tui::macos_option_digit(0x222B), -1); // ∫ = Option+B, not a digit
+}
+
+TEST(usage_ledger_tree_sums_sources_and_resets) {
+    tui::UsageLedger ledger;
+    ledger.main.add(100, 10);
+    ledger.subagents.add(200, 20);
+    ledger.compression.add(300, 30);
+    ledger.watch.add(400, 40);
+    ledger.inherited.add(500, 50);
+    const agent::UsageTotals tree = ledger.tree();
+    ASSERT_EQ(tree.prompt_tokens, 1500L);
+    ASSERT_EQ(tree.completion_tokens, 150L);
+    ASSERT(tree.measured);
+    ledger.reset();
+    ASSERT_EQ(ledger.tree().prompt_tokens, 0L);
+    ASSERT_EQ(ledger.tree().completion_tokens, 0L);
+    ASSERT(!ledger.tree().measured);
+}
+
+TEST(usage_ledger_round_trips_session_meta) {
+    tui::UsageLedger before;
+    before.main.add(1000, 100);
+    before.subagents.add(2000, 200);
+    before.compression.add(3000, 300);
+    before.watch.add(4000, 400);
+    before.inherited.add(5000, 500);
+    agent::json meta = agent::json::object();
+    tui::save_usage(meta, before);
+    tui::UsageLedger after;
+    tui::load_usage(meta, after);
+    ASSERT_EQ(after.tree().prompt_tokens, 15000L);
+    ASSERT_EQ(after.tree().completion_tokens, 1500L);
+    ASSERT_EQ(after.subagents.prompt_tokens, 2000L);
+    ASSERT_EQ(after.watch.completion_tokens, 400L);
+    ASSERT_EQ(after.inherited.prompt_tokens, 5000L);
+}
+
+TEST(usage_ledger_reads_legacy_session_keys_as_main) {
+    agent::json meta = {{"session_prompt_tokens", 700},
+                        {"session_completion_tokens", 70},
+                        {"session_usage_measured", true}};
+    tui::UsageLedger ledger;
+    tui::load_usage(meta, ledger);
+    ASSERT_EQ(ledger.main.prompt_tokens, 700L);
+    ASSERT_EQ(ledger.main.completion_tokens, 70L);
+    ASSERT(ledger.main.measured);
 }
 
 // --- WindowOps tests (11) ---

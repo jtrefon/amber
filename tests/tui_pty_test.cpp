@@ -1076,6 +1076,32 @@ TEST(work_board_resource_viewer_round_trip) {
     tui.pump(500);
 }
 
+// /usage is a first-class command: show reports the (empty) tree, reset zeroes
+// it explicitly and says so.
+TEST(usage_show_and_reset_are_reachable) {
+    Tui tui;
+    tui.name = "usage_show_and_reset_are_reachable";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+        tui.pump(300);
+    };
+
+    run("/usage show");
+    if (!require(tui.wait_for("usage - session tree", 10000), "no usage report", tui))
+        return;
+    require(tui.text().find("not measured") != std::string::npos,
+            "an empty ledger should read unmeasured", tui);
+
+    run("/usage reset");
+    require(tui.wait_for("session tree reset", 10000), "reset did not report", tui);
+}
+
 // A project session is a real window with its own project root, not a path
 // override on the current one.
 TEST(project_open_creates_a_scoped_session) {
