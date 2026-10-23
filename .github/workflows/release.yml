@@ -85,6 +85,9 @@ jobs:
         run: |
           rm -rf stage
           make install DESTDIR="$PWD/stage"
+          test -x stage/usr/local/share/amber/plugins/cdp/cdp-plugin
+          test -f stage/usr/local/share/amber/plugins/cdp/manifest.json
+          test -x stage/usr/local/share/amber/plugins/sysinfo/sysinfo-plugin
 
       - name: Build tarball + checksum
         id: tar
@@ -287,6 +290,9 @@ jobs:
         run: |
           rm -rf stage
           make install DESTDIR="$PWD/stage"
+          test -x stage/usr/local/share/amber/plugins/cdp/cdp-plugin
+          test -f stage/usr/local/share/amber/plugins/cdp/manifest.json
+          test -x stage/usr/local/share/amber/plugins/sysinfo/sysinfo-plugin
 
       - name: Build tarball + checksum
         run: |

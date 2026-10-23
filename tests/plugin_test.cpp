@@ -24,20 +24,37 @@ namespace {
 
 struct EnvGuard {
     std::string saved_xdg;
+    std::string saved_data;
     bool was_set = false;
+    bool data_was_set = false;
+    bool touched_data = false;
 
-    EnvGuard(const std::string& xdg) {
+    EnvGuard(const std::string& xdg, const std::string& data = "") {
         const char* old = std::getenv("XDG_CONFIG_HOME");
         was_set = old != nullptr;
         if (old)
             saved_xdg = old;
         setenv("XDG_CONFIG_HOME", xdg.c_str(), 1);
+        touched_data = !data.empty();
+        if (touched_data) {
+            const char* old_data = std::getenv("XDG_DATA_HOME");
+            data_was_set = old_data != nullptr;
+            if (old_data)
+                saved_data = old_data;
+            setenv("XDG_DATA_HOME", data.c_str(), 1);
+        }
     }
     ~EnvGuard() {
         if (was_set)
             setenv("XDG_CONFIG_HOME", saved_xdg.c_str(), 1);
         else
             unsetenv("XDG_CONFIG_HOME");
+        if (touched_data) {
+            if (data_was_set)
+                setenv("XDG_DATA_HOME", saved_data.c_str(), 1);
+            else
+                unsetenv("XDG_DATA_HOME");
+        }
     }
 };
 
@@ -283,6 +300,23 @@ TEST(sec05_manifest_rejects_symlink_main) {
     // A symlinked main pointing outside the plugin dir must be rejected.
     ASSERT(info->state == agent::PluginState::Incompatible);
     ASSERT(!info->error.empty());
+    std::filesystem::remove_all(base);
+}
+
+// The XDG data root is where a user installs external plugins (and where a
+// relocatable prefix can expose them); discovery must scan it.
+TEST(plugin_discovers_the_xdg_data_root) {
+    std::string base = "/tmp/amber_plugin_data_root";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg-config", base + "/xdg-data");
+    stage_fake_plugin(base + "/xdg-data/amber/plugins");
+
+    agent::PluginManager mgr;
+    mgr.discover();
+    const agent::PluginInfo* info = mgr.find("fake");
+    REQUIRE(info != nullptr);
+    ASSERT(info->state == agent::PluginState::Disabled);
     std::filesystem::remove_all(base);
 }
 
