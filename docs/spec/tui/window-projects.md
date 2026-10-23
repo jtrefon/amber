@@ -1,6 +1,6 @@
 # Spec: Per-window project roots and project sessions
 
-- **Status:** Core implemented in the working tree (2026-10-22): per-window
+- **Status:** Implemented and shipped in v0.6.0 (2026-10-22): per-window
   project root, run-scope propagation, per-project session stores/settings/
   policy/instructions, `/project list|open|show|close`, missing-project restore
   validation, and a project-scoped worktree rebuild/reap pass. `workspace.json`
