@@ -183,6 +183,8 @@ std::string store_tool_artifact(const std::string& payload) {
     std::string id = random_id();
     const fs::path temp = dir / (id + ".tmp");
     {
+        // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the user's own XDG
+        // state root, absolute and traversal-checked by Workspace::state_dir().
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         if (!out)
             return {};
