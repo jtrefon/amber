@@ -1,8 +1,9 @@
 # Spec: Watch Observer (background watch + sentry)
 
-- **Status:** Implemented P1–P4 (process, PR and URL watches; observer; prompt
-  assembly; tool/command/status/panel; TUI delivery; CLI join/`--watch-wake`;
-  restart re-emit/ack; attempt history; retention/config). P5 remains optional.
+- **Status:** Implemented P1–P4 and shipped in v0.6.0 (process, PR and URL
+  watches; observer; prompt assembly; tool/command/status/panel; TUI delivery;
+  CLI join/`--watch-wake`; restart re-emit/ack; attempt history;
+  retention/config). P5 remains optional.
 - **Tracking:** issue #318 (this feature), issue #317 (generic background
   tasks/workers; related, not a dependency), 0.6.0 release #331.
 - **Related:** `plugins/plugin-framework.md`, `plugins/developer-guide.md`,

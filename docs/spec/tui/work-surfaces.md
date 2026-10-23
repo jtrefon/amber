@@ -1,6 +1,6 @@
 # Spec: Work surfaces for jobs, subagents, watches and sessions
 
-- **Status:** Implemented in the working tree (2026-10-22): job/subagent
+- **Status:** Implemented and shipped in v0.6.0 (2026-10-22): job/subagent
   metadata, status cells, `/work` (live timed modal with tabs/filter/selection
   preservation), and resource viewers. Project sessions are implemented in
   their own spec.
