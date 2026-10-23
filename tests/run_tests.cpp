@@ -5,6 +5,7 @@
 #include <thread>
 #include "agent.h"
 #include "agent/tools.h"
+#include "agent/artifacts.h"
 #include "agent/search_backend.h"
 #include "agent/dialect.h"
 #include "agent/dialect_openai.h"
@@ -2687,6 +2688,106 @@ private:
             unsetenv(name);
     }
 };
+
+// ---------------------------------------------------------------------------
+// Tool-result artifacts (#344 P2)
+// ---------------------------------------------------------------------------
+
+TEST(artifacts_store_and_slice_a_payload) {
+    XdgGuard xdg("artifacts_store");
+    std::string payload;
+    for (int i = 0; i < 2000; ++i)
+        payload += "line " + std::to_string(i) + "\n";
+    const std::string id = agent::store_tool_artifact(payload);
+    ASSERT_EQ(id.size(), 16u);
+    ASSERT(agent::valid_artifact_id(id));
+    std::string error;
+    const auto head = agent::read_tool_artifact(id, 0, 40, "", error);
+    ASSERT(head.has_value());
+    ASSERT_EQ(*head, payload.substr(0, 40));
+    const auto mid = agent::read_tool_artifact(id, 100, 20, "", error);
+    ASSERT(mid.has_value());
+    ASSERT_EQ(*mid, payload.substr(100, 20));
+    ASSERT(error.empty());
+}
+
+TEST(artifacts_grep_returns_numbered_matches) {
+    XdgGuard xdg("artifacts_grep");
+    std::string payload = "alpha\nneedle one\nbeta\nneedle two\n";
+    payload += std::string(5000, 'z'); // above the store threshold
+    const std::string id = agent::store_tool_artifact(payload);
+    ASSERT(!id.empty());
+    std::string error;
+    const auto hits = agent::read_tool_artifact(id, 0, 4096, "needle", error);
+    ASSERT(hits.has_value());
+    ASSERT(hits->find("2:needle one") != std::string::npos);
+    ASSERT(hits->find("4:needle two") != std::string::npos);
+    ASSERT(hits->find("alpha") == std::string::npos);
+    const auto none = agent::read_tool_artifact(id, 0, 4096, "absent-token", error);
+    ASSERT(!none.has_value());
+    ASSERT(error.find("no matches") != std::string::npos);
+}
+
+TEST(artifacts_reject_invalid_and_expired_ids) {
+    XdgGuard xdg("artifacts_reject");
+    std::string error;
+    ASSERT(!agent::read_tool_artifact("../../etc/passwd", 0, 10, "", error).has_value());
+    ASSERT(!agent::valid_artifact_id("../../etc/passwd"));
+    ASSERT(!agent::valid_artifact_id("0123456789abcdef0"));
+    error.clear();
+    const auto missing = agent::read_tool_artifact("0000000000000000", 0, 10, "", error);
+    ASSERT(!missing.has_value());
+    ASSERT(error.find("unknown") != std::string::npos);
+}
+
+TEST(artifacts_retention_evicts_the_oldest) {
+    XdgGuard xdg("artifacts_retention");
+    std::vector<std::string> ids;
+    for (int i = 0; i < 70; ++i) {
+        const std::string id =
+            agent::store_tool_artifact(std::string(4096, static_cast<char>('a' + i % 26)));
+        ASSERT(!id.empty());
+        ids.push_back(id);
+    }
+    std::string error;
+    ASSERT(!agent::read_tool_artifact(ids.front(), 0, 1, "", error).has_value());
+    ASSERT(agent::read_tool_artifact(ids.back(), 0, 1, "", error).has_value());
+    std::size_t files = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(agent::artifact_dir()))
+        if (entry.is_regular_file())
+            ++files;
+    ASSERT(files <= agent::kArtifactMaxFiles);
+}
+
+TEST(artifacts_skip_payloads_below_the_threshold) {
+    XdgGuard xdg("artifacts_threshold");
+    ASSERT_EQ(agent::store_tool_artifact("tiny"), std::string());
+}
+
+TEST(read_result_tool_reads_a_stored_slice) {
+    XdgGuard xdg("read_result_tool");
+    const std::string payload = std::string(9000, 'r') + "TAIL";
+    const std::string id = agent::store_tool_artifact(payload);
+    ASSERT(!id.empty());
+    const auto tool = agent::make_read_result_tool();
+    ASSERT_EQ(tool->name(), "read_result");
+    ASSERT(tool->is_read_only());
+    ASSERT(!tool->requires_approval(json::object()));
+    const agent::ToolResult ok = tool->execute({{"result_id", id}, {"offset", 0}, {"limit", 8}});
+    ASSERT(ok.ok);
+    ASSERT_EQ(ok.output, payload.substr(0, 8));
+    const agent::ToolResult missing = tool->execute({{"offset", 0}});
+    ASSERT(!missing.ok);
+    ASSERT(missing.error.find("result_id") != std::string::npos);
+}
+
+TEST(tool_envelope_marker_names_the_result_handle) {
+    agent::ToolResult big;
+    big.output.assign(9000, 'k');
+    big.meta = {{"result_id", "0123456789abcdef"}};
+    const std::string env = agent::format_tool_envelope("read", json::object(), big, 4096);
+    ASSERT(env.find("read_result result_id=0123456789abcdef") != std::string::npos);
+}
 
 // Router-style /models listing (kilocode et al.): kilo-auto/frontier (1M)
 // is listed BEFORE kilo-auto/free (256k). The autodetect probe must adopt the
