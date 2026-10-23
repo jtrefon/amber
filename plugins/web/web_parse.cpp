@@ -154,7 +154,8 @@ std::string decode_entity(const std::string& body) {
 
 std::string decode_entities(const std::string& text) {
     std::string out;
-    for (std::size_t i = 0; i < text.size();) {
+    std::size_t i = 0;
+    while (i < text.size()) {
         if (text[i] != '&') {
             out.push_back(text[i++]);
             continue;
