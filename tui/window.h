@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "reasoning_block.h"
+#include "usage_ledger.h"
 #include "rich.h"
 #include "widgets.h"
 
@@ -75,6 +76,8 @@ struct Window {
     // Session spend, accumulated from every completed exchange (see
     // UsageTotals: it spans compactions and is what the token segment shows;
     // ctx_used below is what the NEXT request sends).
+    // Source-split spend; `usage` stays the tree total for the status bar.
+    UsageLedger ledger;
     agent::UsageTotals usage;
     // Context token gauge. Written by this window's worker via context
     // events / stats and by the UI thread on session load; read by the UI

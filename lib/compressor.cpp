@@ -139,6 +139,12 @@ void CompressionReporter::on_llm_request_sent() {
     pump();
 }
 
+void CompressionReporter::on_llm_usage(const Stats& stats) {
+    if (hooks_.on_usage)
+        hooks_.on_usage(
+            {UsageSource::Compression, stats.prompt_tokens, stats.completion_tokens, {}, {}});
+}
+
 void CompressionReporter::on_llm_reply_received(long sec) {
     log("LLM replied in " + std::to_string(sec) + "s");
     pump();
@@ -270,7 +276,10 @@ ClassifyOutcome run_classify(std::vector<Message>& copy, const CompressionConfig
     if (observer)
         observer->on_llm_request_sent();
     try {
-        class_reply = client.chat(request, {});
+        Stats stats;
+        class_reply = client.chat(request, {}, &stats);
+        if (observer)
+            observer->on_llm_usage(stats);
     } catch (const std::exception& e) {
         cr.error = std::string("LLM call failed: ") + e.what();
         if (observer)
@@ -327,7 +336,10 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
         observer->on_llm_request_sent();
     Message ext_reply;
     try {
-        ext_reply = client.chat(request, {});
+        Stats stats;
+        ext_reply = client.chat(request, {}, &stats);
+        if (observer)
+            observer->on_llm_usage(stats);
     } catch (const std::exception&) {
         return; // non-fatal: keep the classification result
     }

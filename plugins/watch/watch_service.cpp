@@ -278,6 +278,13 @@ std::optional<WatchRecord> WatchService::wait(const std::string& id, int timeout
     return get(id);
 }
 
+std::map<std::string, agent::UsageTotals> WatchService::take_usage() {
+    std::scoped_lock lk(mtx_);
+    std::map<std::string, agent::UsageTotals> out;
+    std::swap(out, usage_by_owner_);
+    return out;
+}
+
 WatchCounts WatchService::counts() const {
     WatchCounts out;
     std::scoped_lock lk(mtx_);
@@ -486,6 +493,12 @@ WatchReport WatchService::observe(const WatchRecord& record, const WatchReport& 
     std::string raw;
     try {
         raw = observer_->complete(observer_prompt_, brief_json(record, fallback), cancel);
+        const agent::UsageTotals spent = observer_->take_usage();
+        std::scoped_lock lk(mtx_);
+        usage_by_owner_[record.owner_id].prompt_tokens += spent.prompt_tokens;
+        usage_by_owner_[record.owner_id].completion_tokens += spent.completion_tokens;
+        usage_by_owner_[record.owner_id].measured =
+            usage_by_owner_[record.owner_id].measured || spent.measured;
     } catch (const std::exception&) {
         raw.clear();
     }

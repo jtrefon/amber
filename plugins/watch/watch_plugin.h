@@ -7,6 +7,7 @@
 
 #include "agent/plugin_core.h"
 
+#include <map>
 #include <memory>
 #include <string>
 
@@ -43,6 +44,8 @@ public:
     std::vector<WatchReport> pending_reports() const;
     std::vector<WatchRecord> list_records() const;
     std::string show_text(const std::string& id) const;
+    // Observer usage per owner window, drained for the host's usage ledger.
+    std::map<std::string, agent::UsageTotals> take_usage();
     bool stop_watch(const std::string& id);
     int running_count() const;
     std::vector<std::unique_ptr<agent::Capability>> capabilities() override;

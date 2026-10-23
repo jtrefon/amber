@@ -117,6 +117,10 @@ public:
     std::vector<AgentEvent> pop_all();
     bool empty() const;
 
+    // Thread-safe enqueue for events that are not tied to a window at source
+    // time (a shared executor reporting sub-agent usage); the UI thread
+    // resolves the owner at drain time.
+    void enqueue_global(AgentEvent ev);
     bool shutting_down() const noexcept { return shutting_down_; }
     void set_shutting_down(bool v) noexcept { shutting_down_ = v; }
 
@@ -131,6 +135,7 @@ public:
     // and the stream / blocking hook groups.
     using PushFn = std::function<void(AgentEvent)>;
     PushFn make_push(size_t window_id, const std::atomic<bool>& cancel);
+    static std::function<void(const agent::UsageSample&)> emit_usage(const PushFn& push);
     static std::function<void(const std::string&)> emit_text(const PushFn& push,
                                                              AgentEvent::Type type);
     // The agent's on_debug sink: a status line while `/set debug on` is active,
@@ -159,6 +164,7 @@ public:
     void handle_state_change(Window* w, const AgentEvent& ev);
     void handle_status(Window* w, const AgentEvent& ev);
     void handle_stats(Window* w, const AgentEvent& ev);
+    void handle_usage(Window* w, const AgentEvent& ev);
     // Queue while a modal is open (never nest ncurses dialogs), else resolve.
     void defer_or_resolve_approval(AgentEvent ev);
     void defer_or_resolve_api_key(AgentEvent ev);

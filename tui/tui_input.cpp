@@ -1224,6 +1224,8 @@ void SlashDispatcher::register_plugin_actions() {
     register_action("core.config.set.plugin.settings",
                     [this](const std::string& a) { cmd_plugin_settings_set(a); });
     register_action("core.work", [this](const std::string&) { cmd_work_board(); });
+    register_action("core.usage.show", [this](const std::string&) { cmd_usage_show(); });
+    register_action("core.usage.reset", [this](const std::string&) { cmd_usage_reset(); });
     register_action("core.project", [this](const std::string&) { cmd_project_list(); });
     register_action("core.project.list", [this](const std::string&) { cmd_project_list(); });
     register_action("core.project.open", [this](const std::string& a) { cmd_project_open(a); });
@@ -2634,6 +2636,62 @@ void SlashDispatcher::cmd_work_board() {
         }
     }
     dlg.hide();
+    tui_.draw();
+}
+
+namespace {
+
+std::string usage_line(const char* label, const agent::UsageTotals& usage) {
+    std::string line = std::string(label) + ": up " + agent::compact::count(usage.prompt_tokens) +
+                       " down " + agent::compact::count(usage.completion_tokens);
+    if (!usage.measured)
+        line += " (not measured)";
+    return line;
+}
+
+} // namespace
+
+void SlashDispatcher::cmd_usage_show() {
+    const tui::UsageLedger& ledger = tui_.win().ledger;
+    tui_.append_line(P_STATUS, "usage - session tree");
+    tui_.append_line(P_STATUS, "  " + usage_line("tree", ledger.tree()));
+    tui_.append_line(P_STATUS, "  " + usage_line("main", ledger.main));
+    if (ledger.subagents.measured)
+        tui_.append_line(P_STATUS, "  " + usage_line("sub-agents", ledger.subagents));
+    if (ledger.compression.measured)
+        tui_.append_line(P_STATUS, "  " + usage_line("compression", ledger.compression));
+    if (ledger.watch.measured)
+        tui_.append_line(P_STATUS, "  " + usage_line("watches", ledger.watch));
+    if (ledger.inherited.measured)
+        tui_.append_line(P_STATUS, "  " + usage_line("inherited", ledger.inherited));
+    for (const auto& task : tui_.subagents_.tasks()) {
+        if (!task.usage_measured)
+            continue;
+        tui_.append_line(P_STATUS, "  task " + task.id + ": up " +
+                                       agent::compact::count(task.prompt_tokens) + " down " +
+                                       agent::compact::count(task.completion_tokens));
+    }
+    std::size_t chats = 0;
+    for (const auto& window : tui_.window_manager_->all())
+        if (window->kind == tui::Window::Kind::Chat)
+            ++chats;
+    if (chats > 1) {
+        for (const auto& window : tui_.window_manager_->all()) {
+            if (window->kind != tui::Window::Kind::Chat)
+                continue;
+            tui_.append_line(P_STATUS, "  window '" + window->title + "': up " +
+                                           agent::compact::count(window->usage.prompt_tokens) +
+                                           " down " +
+                                           agent::compact::count(window->usage.completion_tokens));
+        }
+    }
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_usage_reset() {
+    tui_.win().ledger.reset();
+    tui_.win().usage = tui_.win().ledger.tree();
+    tui_.append_line(P_STATUS, "usage: session tree reset");
     tui_.draw();
 }
 
