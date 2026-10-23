@@ -2686,7 +2686,7 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     agent::PluginRuntime runtime(reg, cfg, ws);
     runtime.attach_host_services(host);
     runtime.add_bundled();
-    runtime.start();
+    runtime.start(false);
 
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
