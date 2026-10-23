@@ -225,9 +225,16 @@ std::vector<std::string> PluginManager::default_plugin_roots() {
         roots.emplace_back(home + "/.config/amber/plugins");
         roots.emplace_back(home + "/.local/share/amber/plugins");
     }
+    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg)
+        roots.emplace_back(std::string(xdg) + "/amber/plugins");
     const std::string ws = Workspace::project_root();
     if (!ws.empty())
         roots.emplace_back(ws + "/.amber/plugins");
+    // Relocatable installs: <prefix>/share/amber/plugins, resolved through the
+    // running executable so Homebrew Cellars and custom prefixes work.
+    const std::string bin = exe_dir();
+    if (!bin.empty())
+        roots.emplace_back(bin + "/../share/amber/plugins");
     roots.emplace_back("/usr/local/share/amber/plugins");
     roots.emplace_back("/usr/share/amber/plugins");
     return roots;

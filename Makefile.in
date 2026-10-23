@@ -995,6 +995,9 @@ install: all
 	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
 	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/
 	install -m 644 tools/plugins/sysinfo/manifest.json $(DESTDIR)$(datadir)/plugins/sysinfo/
+	install -d $(DESTDIR)$(datadir)/plugins/cdp
+	install -m 755 $(CDP_PLUGIN) $(DESTDIR)$(datadir)/plugins/cdp/
+	install -m 644 tools/plugins/cdp/manifest.json $(DESTDIR)$(datadir)/plugins/cdp/
 	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(includedir)/nlohmann/
 	install -d $(DESTDIR)$(docdir)
 	install -m 644 $(SRC_DIR)/LICENSE $(DESTDIR)$(docdir)/
