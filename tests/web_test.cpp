@@ -9,6 +9,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <string>
 
@@ -95,6 +96,46 @@ TEST(web_parse_search_results) {
     ASSERT_EQ(results[1].url, "https://example.com/b");
 }
 
+TEST(web_client_error_paths_and_caps) {
+    auto transport = std::make_shared<FakeTransport>();
+    agent::plugins::web::WebSettings settings;
+    agent::plugins::web::WebClient client(settings, transport);
+    std::string error;
+
+    ASSERT_FALSE(client.fetch("file:///etc/passwd", error).has_value());
+    transport->response = {500, "nope"};
+    ASSERT_FALSE(client.fetch("https://example.com", error).has_value());
+    transport->response = {200, "<script>only</script>"};
+    ASSERT_FALSE(client.fetch("https://example.com", error).has_value());
+    transport->response = {200, "<p>" + std::string(4000, 'a') + "</p>"};
+    settings.max_bytes = 1024;
+    agent::plugins::web::WebClient capped(settings, transport);
+    const auto text = capped.fetch("https://example.com", error);
+    ASSERT_TRUE(text.has_value());
+    ASSERT(text->size() <= 1024u);
+
+    settings.search_url = "https://example.com/search";
+    agent::plugins::web::WebClient no_placeholder(settings, transport);
+    transport->response = {
+        200,
+        R"(<a class="result__a" href="https://example.com/a">A</a><a class="result__snippet">S</a>)"};
+    const auto results = no_placeholder.search("hello world", 1, error);
+    ASSERT_EQ(results.size(), 1u);
+    ASSERT(transport->requested.find("?q=hello%20world") != std::string::npos);
+    ASSERT_FALSE(no_placeholder.search("", 1, error).size());
+    transport->response = {503, ""};
+    ASSERT_TRUE(no_placeholder.search("x", 1, error).empty());
+
+    agent::plugins::web::WebClient missing(settings, nullptr);
+    ASSERT_FALSE(missing.fetch("https://example.com", error).has_value());
+    ASSERT_TRUE(missing.search("x", 1, error).empty());
+}
+
+TEST(web_curl_transport_handles_connection_failure) {
+    agent::plugins::web::CurlWebTransport transport;
+    ASSERT_FALSE(transport.get("http://127.0.0.1:1/", 1, 1024).has_value());
+}
+
 TEST(web_plugin_registers_settings_and_tools) {
     const std::string base = "/tmp/amber_web_runtime_test";
     fs::remove_all(base);
@@ -107,10 +148,54 @@ TEST(web_plugin_registers_settings_and_tools) {
     agent::PluginRuntime runtime(tools, config, workspace);
     runtime.add_bundled();
     runtime.start(false);
-    ASSERT_TRUE(tools.find("web_fetch") != nullptr);
-    ASSERT_TRUE(tools.find("web_search") != nullptr);
-    ASSERT_TRUE(runtime.settings().find("web", "provider") != nullptr);
+    auto fetch = tools.find("web_fetch");
+    auto search = tools.find("web_search");
+    ASSERT_TRUE(fetch != nullptr);
+    ASSERT_TRUE(search != nullptr);
+    ASSERT(fetch->is_read_only());
+    ASSERT(fetch->parameters_schema()["properties"].contains("url"));
+    ASSERT(search->parameters_schema()["properties"].contains("query"));
+    ASSERT_FALSE(fetch->execute({{"url", "file:///etc/passwd"}}).ok);
+    ASSERT_FALSE(search->execute({{"query", ""}}).ok);
+
+    const auto* provider = runtime.settings().find("web", "provider");
+    ASSERT_TRUE(provider != nullptr);
     ASSERT_EQ(runtime.settings().get("web", "provider"), std::string("builtin"));
+    ASSERT_FALSE(runtime.settings().set("web", "provider", "bogus"));
+    ASSERT_TRUE(runtime.settings().set("web", "provider", "off"));
+    ASSERT_FALSE(fetch->execute({{"url", "https://example.com"}}).ok);
+    ASSERT_TRUE(runtime.settings().set("web", "provider", "builtin"));
+    ASSERT_TRUE(runtime.settings().set("web", "timeout_s", "5"));
+    ASSERT_FALSE(runtime.settings().set("web", "timeout_s", "0"));
+    ASSERT_TRUE(runtime.settings().set("web", "max_bytes", "2048"));
+    ASSERT_FALSE(runtime.settings().set("web", "max_bytes", "1"));
+    ASSERT_TRUE(runtime.settings().set("web", "search_url", "https://example.com/?q={query}"));
+    ASSERT_FALSE(runtime.settings().set("web", "search_url", "file:///x"));
+    fs::remove_all(base);
+}
+
+TEST(web_plugin_loads_persisted_settings) {
+    const std::string base = "/tmp/amber_web_settings_test";
+    fs::remove_all(base);
+    fs::create_directories(base + "/amber/plugins/web");
+    {
+        std::ofstream out(base + "/amber/plugins/web/web.conf", std::ios::trunc);
+        out << "provider=off\n"
+            << "timeout_s=7\n"
+            << "max_bytes=4096\n"
+            << "search_url=https://example.com/search?q={query}\n";
+    }
+    ConfigGuard guard(base);
+    agent::plugins::WebPlugin plugin(std::make_shared<FakeTransport>());
+    agent::EventBus bus;
+    agent::ToolRegistry tools;
+    agent::Config config;
+    agent::Workspace workspace;
+    ASSERT_TRUE(plugin.initialize(agent::PluginContext{bus, tools, &config, workspace}));
+    ASSERT_EQ(plugin.settings().provider, "off");
+    ASSERT_EQ(plugin.settings().timeout_s, 7);
+    ASSERT_EQ(plugin.settings().max_bytes, 4096);
+    ASSERT(plugin.settings().search_url.find("{query}") != std::string::npos);
     fs::remove_all(base);
 }
 
