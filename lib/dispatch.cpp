@@ -451,9 +451,9 @@ std::size_t tool_result_budget(const Config& cfg) {
 struct RecordDeps {
     const AgentHooks& hooks;
     ConversationLog& log;
-    EventBus* events;
-    Context* context;
-    std::size_t result_budget;
+    EventBus* events = nullptr;
+    Context* context = nullptr;
+    std::size_t result_budget = 0;
 };
 
 bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
