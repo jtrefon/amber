@@ -129,7 +129,7 @@ std::optional<fs::path> artifact_path(const std::string& id, std::string& error)
         error = "invalid artifact id";
         return std::nullopt;
     }
-    const fs::path path = fs::path(artifact_dir()) / id;
+    fs::path path = fs::path(artifact_dir()) / id;
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
         error = "unknown or expired artifact " + id;
@@ -180,7 +180,7 @@ std::string store_tool_artifact(const std::string& payload) {
     if (ec && !fs::is_directory(dir))
         return {};
     prune(dir, payload.size());
-    const std::string id = random_id();
+    std::string id = random_id();
     const fs::path temp = dir / (id + ".tmp");
     {
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
