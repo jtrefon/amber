@@ -1043,9 +1043,9 @@ TEST(registry_register_and_find) {
     agent::TodoStore todos;
     agent::register_default_tools(r, jobs, todos);
     ASSERT_FALSE(r.empty());
-    // The nine tool-plugin tools plus the three skill tools, which arrive
+    // The tool-plugin tools plus the three skill tools, which arrive
     // through the same install path (one definition, two paths).
-    ASSERT_EQ(r.snapshot_tools().size(), 14u);
+    ASSERT_EQ(r.snapshot_tools().size(), 15u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
@@ -1459,7 +1459,7 @@ TEST(dialect_openai_builds_tool_payload) {
         agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 14u);
+    ASSERT_EQ(s.size(), 15u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");

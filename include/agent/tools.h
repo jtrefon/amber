@@ -20,6 +20,7 @@ class SubAgentExecutor; // task tool binds to the host-owned sub-agent executor
 // Built-in tool factories. Definitions live in tools/*.cpp, compiled and linked
 // into libagent. Kept as factories so the registry owns unique instances.
 std::unique_ptr<Tool> make_read_tool();
+std::unique_ptr<Tool> make_read_result_tool();
 std::unique_ptr<Tool> make_write_tool();
 // The search tool resolves `mode` through the provider handed in at
 // construction: a hosted session passes the runtime's live registry, a bare

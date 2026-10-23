@@ -1,5 +1,6 @@
 
 #include "agent/dispatch.h"
+#include "agent/artifacts.h"
 #include "agent/events.h"
 #include "agent/agent_helpers.h"
 #include "agent/context.h"
@@ -456,6 +457,19 @@ struct RecordDeps {
     std::size_t result_budget = 0;
 };
 
+// A payload larger than the boundary budget is paged out and replaced by a
+// handle, so the model can fetch the rest instead of losing it.
+void page_out_oversized(ToolResult& res, std::size_t budget) {
+    if (!res.ok || budget == 0 || res.output.size() <= budget)
+        return;
+    const std::string id = store_tool_artifact(res.output);
+    if (id.empty())
+        return;
+    json meta = (res.meta.is_null() || !res.meta.is_object()) ? json::object() : res.meta;
+    meta["result_id"] = id;
+    res.meta = std::move(meta);
+}
+
 bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
     const AgentHooks& hooks = deps.hooks;
     ConversationLog& log = deps.log;
@@ -478,6 +492,7 @@ bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
     tool_msg.role = "tool";
     tool_msg.tool_call_id = c.id;
     tool_msg.name = c.fn;
+    page_out_oversized(res, deps.result_budget);
     tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, c.args, res, deps.result_budget));
     context->push(std::move(tool_msg));
     MessageAddedEvent added;

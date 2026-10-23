@@ -1,7 +1,7 @@
 # Proposal: one budget at the context boundary, with paged artifacts (#344)
 
-Status: P1+P4 IMPLEMENTED (2026-10-23, branch
-`fix/tool-result-budget`); P2+P3 pending. Issue: #344. Taken over from the
+Status: P1+P4 IMPLEMENTED (branch `fix/tool-result-budget`); P2 IMPLEMENTED
+(branch `fix/tool-result-artifacts`); P3 + benchmark pending. Issue: #344. Taken over from the
 cancelled session that filed it.
 
 ## 1. Context (measured in the issue)
@@ -72,8 +72,11 @@ One enforcement point, at the tool-result to sealed-message boundary
   default 32 KiB, env `AMBER_MAX_TOOL_RESULT_BYTES`, 0 = no cap), enforcement in
   dispatch (`RecordDeps`), middle-out UTF-8 marker, `meta.bytes/truncated`,
   tests.
-- **P2 — artifacts + `read_result`.** Store, retention, tool registration,
-  paging/grep, confinement and eviction tests.
+- **P2 — artifacts + `read_result`.** DONE: project-scoped store under
+  `Workspace::state_dir()/artifacts` (64 files / 32 MiB, oldest-first), opaque
+  validated ids, paging/grep, the `read_result` tool, and the marker handle.
+  Project-scoped rather than per-session so a resumed session keeps its own
+  artifacts; the quota is shared and still bounded.
 - **P3 — per-tool alignment.** `read` byte cap + handle, `process_read all` tail
   + handle, `bash` routed through the budget.
 - **P4 — compression digest.** DONE: `tool_result_digest()` (tool, status,
