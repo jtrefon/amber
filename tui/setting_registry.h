@@ -85,6 +85,16 @@ public:
     // value always wins; this is the collision report.
     std::size_t merge_collisions() const { return merge_collisions_; }
 
+    // Refused alias-layer writes: a visible alias key shadowing a documented
+    // root, a key dual-booked with the legacy map, or a feed/plugin subtree
+    // attempting to write the maps. The trees stay canonical either way.
+    std::size_t alias_collisions() const;
+
+    // Canonical display path behind a visible alias spelling ("model" →
+    // "set.model"), empty for every non-alias key. The drawer hints the
+    // mapping on the alias row.
+    std::string alias_target_path(const std::string& key) const;
+
     // Clear all JSON-derived metadata (help/man/choices/children). Used to
     // rebuild the index after plugin namespaces are added or removed.
     void reset_completion_index();

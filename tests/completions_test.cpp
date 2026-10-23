@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cassert>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -1621,6 +1622,216 @@ TEST(test_resolver_unique_prefix_and_glued_set_path) {
               std::string("core.config.set.model.context"));
 }
 
+// ── Host-granted alias layer (#345): visible root spellings over the tree ──
+
+// The industry spellings dispatch to their canonicaldom action. "model" is the
+// signed-off standardization alias (/model → /set model); "compress" is the
+// reported regression spelling, permanent by contract.
+TEST(test_alias_dispatch_reaches_the_canonical_action) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    auto m = reg.resolve_command({"model", "gpt-x"});
+    if (!m.node) {
+        std::cerr << "FAIL: /model has no resolver node\n";
+        failed++;
+    } else {
+        ASSERT_EQ(m.consumed, 1u);
+        ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.config.set.model"));
+    }
+
+    for (const std::string alias : {"compress", "compact"}) {
+        m = reg.resolve_command({alias});
+        if (!m.node) {
+            std::cerr << "FAIL: /" << alias << " has no resolver node\n";
+            failed++;
+        } else {
+            ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.compress"));
+        }
+    }
+
+    m = reg.resolve_command({"stop"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.stop"));
+
+    m = reg.resolve_command({"clear"});
+    if (!m.node) {
+        std::cerr << "FAIL: /clear has no resolver node\n";
+        failed++;
+    } else {
+        ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.reset"));
+    }
+
+    m = reg.resolve_command({"save", "title"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 1u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.save"));
+
+    m = reg.resolve_command({"sessions"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.session.list"));
+}
+
+// Visible aliases are drawer rows; hidden legacy spellings never are.
+TEST(test_visible_alias_rows_surface_at_the_drawer) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto top = reg.complete("");
+    for (const char* alias :
+         {"model", "compress", "compact", "stop", "clear", "save", "sessions", "mcp"}) {
+        const std::string key(alias);
+        if (std::find(top.begin(), top.end(), key) == top.end()) {
+            std::cerr << "FAIL: alias /" << alias << " is not a drawer row\n";
+            failed++;
+        }
+    }
+    for (const char* hidden : {"new", "reset", "close", "kill", "cancel", "open", "load", "hello",
+                               "watch", "prompt", "index", "sl"}) {
+        ASSERT(std::find(top.begin(), top.end(), std::string(hidden)) == top.end());
+    }
+}
+
+// Everything the target namespace offers, the alias view offers under the
+// alias spelling: same children, same completions, same drawer entries.
+TEST(test_alias_view_mirrors_the_target) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    const auto direct = reg.children_of("set.model");
+    REQUIRE_NONEMPTY(direct);
+    const auto via_alias = reg.children_of("model");
+    ASSERT_EQ(via_alias.size(), direct.size());
+    for (std::size_t i = 0; i < direct.size() && i < via_alias.size(); ++i)
+        ASSERT_EQ(via_alias[i], direct[i]);
+
+    const auto rows_alias = reg.complete("model");
+    REQUIRE_NONEMPTY(rows_alias);
+    const std::string target_prefix = "set.model.";
+    for (const auto& r : reg.complete("set.model")) {
+        if (r.size() <= target_prefix.size())
+            continue;
+        const std::string mirrored = "model." + r.substr(target_prefix.size());
+        ASSERT(std::find(rows_alias.begin(), rows_alias.end(), mirrored) != rows_alias.end());
+    }
+
+    const auto entries_alias = tui::drawer_entry_names("/model ", reg);
+    const auto entries_direct = tui::drawer_entry_names("/set model ", reg);
+    ASSERT_EQ(entries_alias.size(), entries_direct.size());
+    for (std::size_t i = 0; i < entries_direct.size() && i < entries_alias.size(); ++i)
+        ASSERT_EQ(entries_alias[i], entries_direct[i]);
+}
+
+// Alias surfaces inherit the target's documentation; nothing diverges.
+TEST(test_alias_help_and_man_are_inherited_from_the_target) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT_EQ(reg.help_for("model"), reg.help_for("set.model"));
+    ASSERT_EQ(reg.man_for("model"), reg.man_for("set.model"));
+    ASSERT(!reg.help_for("compress").empty());
+    ASSERT_EQ(reg.help_for("compress"), reg.help_for("session.compress"));
+    ASSERT_EQ(reg.man_for("compress"), reg.man_for("session.compress"));
+}
+
+// The drawer renders the mapping so the alias is honest about where it lands.
+TEST(test_alias_target_hint_is_available_to_the_drawer) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT_EQ(reg.alias_target_path("model"), std::string("set.model"));
+    ASSERT_EQ(reg.alias_target_path("get"), std::string());
+
+    bool hint = false;
+    for (const auto& r : tui::drawer_rows("/", reg, ""))
+        if (r.find("model") != std::string::npos && r.find("set model") != std::string::npos)
+            hint = true;
+    ASSERT(hint);
+}
+
+// An alias key may not shadow a documented root and may not dual-book with
+// the hidden legacy map; refusals are counted, roots stay canonical.
+TEST(test_alias_collisions_are_refused_and_counted) {
+    const std::string path = "/tmp/amber_alias_collision_test.json";
+    {
+        std::ofstream f(path);
+        f << R"({"commands": {)"
+             R"("quit": {"action": "core.quit", "help": "exit amber"},)"
+             R"("session": {"action": "core.session", "children": {"list": {"action": "core.session.list"}}}},)"
+             R"( "legacy": {"sl": "session list"},)"
+             R"( "aliases": {"quit": "set model", "sl": "set model", "model": "set model"}})";
+    }
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json(path));
+    ASSERT_EQ(reg.alias_collisions(), 2u);
+
+    auto quit = reg.resolve_command({"quit"});
+    if (quit.node) {
+        ASSERT_EQ(quit.node->at("action").get<std::string>(), std::string("core.quit"));
+    } else {
+        std::cerr << "FAIL: refused alias shadowed the documented quit root\n";
+        failed++;
+    }
+    auto sl = reg.resolve_command({"sl"});
+    if (sl.node) {
+        ASSERT_EQ(sl.node->at("action").get<std::string>(), std::string("core.session.list"));
+    } else {
+        std::cerr << "FAIL: refused alias kept the legacy sl spelling from dispatching\n";
+        failed++;
+    }
+
+    const auto top = reg.complete("");
+    ASSERT(std::find(top.begin(), top.end(), std::string("model")) != top.end());
+}
+
+// The alias maps are host-owned: a feed or plugin subtree may not add them.
+TEST(test_feeds_cannot_write_the_alias_maps) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    ASSERT(!reg.merge_completions_json(nlohmann::json{{"aliases", {{"model", "set model"}}}}));
+    ASSERT(!reg.merge_completions_json(nlohmann::json{{"legacy", {{"kill", "session stop"}}}}));
+    ASSERT_EQ(reg.alias_collisions(), 2u);
+
+    for (const auto& k : reg.complete("")) {
+        ASSERT(k != "kill");
+        ASSERT(k != "--aliases--");
+    }
+}
+
+// /model descends exactly like /set model: same rows, namespace kept.
+TEST(test_completion_context_descends_alias_namespaces) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    auto ctx = tui::completion_context::for_input("/model", reg);
+    if (ctx.prefix != "/model ") {
+        std::cerr << "FAIL: /model does not descend into the alias target namespace\n";
+        failed++;
+    }
+    REQUIRE_NONEMPTY(ctx.rows);
+    bool has_context = false;
+    for (const auto& r : ctx.rows)
+        if (r == "context")
+            has_context = true;
+    ASSERT(has_context);
+
+    auto spaced = tui::completion_context::for_input("/model ", reg);
+    ASSERT_EQ(spaced.prefix, std::string("/model "));
+    REQUIRE_NONEMPTY(spaced.rows);
+    ASSERT(spaced.filter.empty());
+}
+
+// Type-ahead filters match the visible alias spellings.
+TEST(test_drawer_entry_names_filter_visible_aliases) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    auto names = tui::drawer_entry_names("/comp", reg);
+    REQUIRE_NONEMPTY(names);
+    ASSERT(std::find(names.begin(), names.end(), "compress") != names.end());
+    auto m = tui::drawer_entry_names("/m", reg);
+    REQUIRE_NONEMPTY(m);
+    ASSERT(std::find(m.begin(), m.end(), "model") != m.end());
+    ASSERT(std::find(m.begin(), m.end(), "mcp") != m.end());
+}
+
 TEST(test_short_index_and_collisions) {
     tui::SettingRegistry reg;
     ASSERT(reg.load_completions_json("completions.json"));
@@ -1757,6 +1968,15 @@ int main() {
         test_resolver_glued_shorts_and_path_aliases();
         test_resolver_legacy_action_roots_expand_without_tree_roots();
         test_command_tree_has_domain_roots_not_action_roots();
+        test_alias_dispatch_reaches_the_canonical_action();
+        test_visible_alias_rows_surface_at_the_drawer();
+        test_alias_view_mirrors_the_target();
+        test_alias_help_and_man_are_inherited_from_the_target();
+        test_alias_target_hint_is_available_to_the_drawer();
+        test_alias_collisions_are_refused_and_counted();
+        test_feeds_cannot_write_the_alias_maps();
+        test_completion_context_descends_alias_namespaces();
+        test_drawer_entry_names_filter_visible_aliases();
     } catch (const std::exception& e) {
         std::cerr << "FAIL: unexpected exception: " << e.what() << "\n";
         failed++;

@@ -575,6 +575,17 @@ std::size_t walk_command(const nlohmann::json& tree, const std::vector<std::stri
 
 } // namespace
 
+// RED stubs (#345): the alias-layer surface must exist for the failing tests
+// to compile; the GREEN pass replaces these bodies with the real layer.
+std::size_t SettingRegistry::alias_collisions() const {
+    return 0;
+}
+
+std::string SettingRegistry::alias_target_path(const std::string& key) const {
+    (void)key;
+    return {};
+}
+
 SettingRegistry::CommandMatch
 SettingRegistry::resolve_command(const std::vector<std::string>& tokens) const {
     CommandMatch out;
