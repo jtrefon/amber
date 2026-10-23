@@ -488,6 +488,18 @@ tree in `SettingRegistry`; C++ handlers are pure `(action, arg)` closures.
   namespace (tree-walked) so drawer rows and completions stay 1:1 for Enter
   dispatch. The legacy flat `palette::Command` carries display metadata only
   (name/aliases/usage/help); there is no `complete_arg`/`current_value`.
+- **Two host-owned alias tiers in `completions.json`.** The `aliases` map holds
+  the *visible* root spellings (`model`, `compress`, `clear`, `stop`, `save`,
+  `sessions`, `mcp`, …): they complete and appear as drawer rows pointing at
+  the domains they dispatch into (`(→ /set model)` hint), resolve/dispatch
+  through the canonical path so help, man and actions are the target's own,
+  and `resolve_key` probes them after the exact index and before the
+  `get.`/`set.` fallbacks (`context`, `filter` and `help_for` follow them).
+  The `legacy` map holds the *hidden* spellings: dispatch-only, never drawer
+  or completion rows. Neither map accepts a key shadowing a documented root or
+  dual-booked across maps, refusals count in `alias_collisions()`, and a feed
+  or plugin merge naming either map is refused — only `completions.json`
+  authors alias material.
 
 ### Hard rule: the JSON mapper is the only command surface (no exceptions)
 

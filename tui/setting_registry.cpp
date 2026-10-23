@@ -45,29 +45,73 @@ std::vector<std::string> SettingRegistry::keys_in(const std::string& ns) const {
 
 // Walk to the namespace node: the first token is a top-level command, every
 // following token descends through a "children" map. Returns nullptr when the
-// path is not in the tree.
+// path is not in the tree. A first token naming a visible alias rebases the
+// walk onto the alias target's path ("model" walks as "set.model").
 const nlohmann::json* SettingRegistry::find_namespace_node(const std::string& prefix) const {
     if (!tree_.contains("commands") || !tree_["commands"].is_object())
         return nullptr;
-    const nlohmann::json* node = &tree_["commands"];
-    size_t p = 0;
-    while (p < prefix.size()) {
-        const size_t dot = prefix.find('.', p);
+    if (prefix.empty())
+        return &tree_["commands"];
+    const std::size_t head_len = first_token_len(prefix);
+    const nlohmann::json* node = head_node(tree_["commands"], prefix.substr(0, head_len));
+    if (!node || head_len == prefix.size())
+        return node;
+    return descends_remaining(node, prefix, head_len + 1);
+}
+
+std::size_t SettingRegistry::first_token_len(const std::string& prefix) {
+    const size_t dot = prefix.find('.');
+    return (dot == std::string::npos) ? prefix.size() : dot;
+}
+
+// The first token of a namespace path: the visible alias spellings rebase
+// onto their canonical nodes, everything else must be a top-level command.
+const nlohmann::json* SettingRegistry::head_node(const nlohmann::json& commands,
+                                                 const std::string& head) const {
+    const auto alias = alias_paths_.find(head);
+    if (alias != alias_paths_.end())
+        return walk_alias_target(alias->second);
+    if (!commands.contains(head))
+        return nullptr;
+    return &commands[head];
+}
+
+// Tokens after the first: each one must be a "children" entry of the current
+// node ("a.b.c" descends commands[a] → children[b] → children[c]).
+const nlohmann::json* SettingRegistry::descends_remaining(const nlohmann::json* node,
+                                                          const std::string& prefix,
+                                                          std::size_t from) {
+    while (from < prefix.size()) {
+        const size_t dot = prefix.find('.', from);
         const std::string tok =
-            (dot == std::string::npos) ? prefix.substr(p) : prefix.substr(p, dot - p);
-        if (p == 0) {
-            if (!node->contains(tok))
-                return nullptr;
-            node = &(*node)[tok];
-        } else {
-            if (!node->is_object() || !node->contains("children") ||
-                !(*node)["children"].is_object() || !(*node)["children"].contains(tok))
-                return nullptr;
-            node = &(*node)["children"][tok];
-        }
+            (dot == std::string::npos) ? prefix.substr(from) : prefix.substr(from, dot - from);
+        if (!node->is_object() || !node->contains("children") || !(*node)["children"].is_object() ||
+            !(*node)["children"].contains(tok))
+            return nullptr;
+        node = &(*node)["children"][tok];
         if (dot == std::string::npos)
             break;
-        p = dot + 1;
+        from = dot + 1;
+    }
+    return node;
+}
+
+// Descend from "commands" through "children" maps to the node a visible alias
+// targets: exact names only, no alias rebase (the target path is canonical).
+const nlohmann::json*
+SettingRegistry::walk_alias_target(const std::vector<std::string>& tokens) const {
+    const nlohmann::json* node = &tree_["commands"];
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        const std::string& tok = tokens[i];
+        if (!node->is_object() || !node->contains(tok))
+            return nullptr;
+        node = &(*node)[tok];
+        if (i + 1 < tokens.size()) {
+            if (!node->is_object() || !node->contains("children") ||
+                !(*node)["children"].is_object())
+                return nullptr;
+            node = &(*node)["children"];
+        }
     }
     return node;
 }
@@ -96,6 +140,10 @@ std::vector<std::string> SettingRegistry::complete(const std::string& prefix) co
         if (std::find(out.begin(), out.end(), child) == out.end())
             out.push_back(child);
     }
+    // Root spellings remain completable beside the commands they alias;
+    // dispatch expands them through the same documented paths.
+    if (prefix.empty())
+        append_alias_keys(out);
     return out;
 }
 
@@ -106,6 +154,18 @@ std::string SettingRegistry::resolve_key(const std::string& key) const {
     };
     if (indexed(key))
         return key;
+    // A visible alias head stands for its canonical path wherever a dotted
+    // key surface is queried, so every consumer inherits the target's view.
+    if (const auto& it = alias_paths_.find(key); it != alias_paths_.end()) {
+        std::string rk;
+        for (const auto& tok : it->second)
+            if (rk.empty())
+                rk = tok;
+            else
+                rk.append(".").append(tok);
+        if (indexed(rk))
+            return rk;
+    }
     std::string g = "get." + key;
     if (indexed(g))
         return g;
@@ -143,6 +203,7 @@ std::vector<std::string> SettingRegistry::children_of(const std::string& key) co
         std::vector<std::string> out;
         for (auto it2 = tree_["commands"].begin(); it2 != tree_["commands"].end(); ++it2)
             out.push_back(it2.key());
+        append_alias_keys(out);
         return out;
     }
     return {};
@@ -260,29 +321,87 @@ bool SettingRegistry::load_completions_json(const std::string& path) {
         return false;
     }
 
-    if (root.contains("commands") && root["commands"].is_object()) {
-        tree_["commands"] = root["commands"];
-        static_paths_.clear();
-        legacy_paths_.clear();
-        merge_collisions_ = 0;
-        for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
-            record_static_paths(it.value(), it.key());
-        if (root.contains("legacy") && root["legacy"].is_object()) {
-            for (auto it = root["legacy"].begin(); it != root["legacy"].end(); ++it) {
-                if (!it.value().is_string())
-                    continue;
-                std::istringstream in(it.value().get<std::string>());
-                std::vector<std::string> tokens;
-                std::string tok;
-                while (in >> tok)
-                    tokens.push_back(tok);
-                if (!tokens.empty())
-                    legacy_paths_[it.key()] = std::move(tokens);
-            }
-        }
-        reindex();
-    }
+    if (root.contains("commands") && root["commands"].is_object())
+        apply_commands_document(root);
     return true;
+}
+
+void SettingRegistry::apply_commands_document(const nlohmann::json& root) {
+    tree_["commands"] = root["commands"];
+    static_paths_.clear();
+    legacy_paths_.clear();
+    alias_paths_.clear();
+    alias_collisions_ = 0;
+    merge_collisions_ = 0;
+    for (auto it = root["commands"].begin(); it != root["commands"].end(); ++it)
+        record_static_paths(it.value(), it.key());
+    parse_hidden_aliases(root);
+    parse_visible_aliases(root);
+    reindex();
+}
+
+void SettingRegistry::parse_hidden_aliases(const nlohmann::json& root) {
+    if (!root.contains("legacy") || !root["legacy"].is_object())
+        return;
+    for (auto it = root["legacy"].begin(); it != root["legacy"].end(); ++it) {
+        std::vector<std::string> tokens = split_alias_target(it.value());
+        if (!tokens.empty())
+            legacy_paths_[it.key()] = std::move(tokens);
+    }
+}
+
+void SettingRegistry::parse_visible_aliases(const nlohmann::json& root) {
+    if (!root.contains("aliases") || !root["aliases"].is_object())
+        return;
+    for (auto it = root["aliases"].begin(); it != root["aliases"].end(); ++it)
+        load_alias_entry(it.key(), it.value());
+}
+
+void SettingRegistry::load_alias_entry(const std::string& key, const nlohmann::json& target) {
+    std::vector<std::string> tokens = split_alias_target(target);
+    const bool bad_key = key.empty() || tokens.empty() || tree_["commands"].contains(key) ||
+                         legacy_paths_.count(key) > 0;
+    if (bad_key) {
+        ++alias_collisions_;
+        return;
+    }
+    alias_paths_[key] = std::move(tokens);
+}
+
+std::vector<std::string> SettingRegistry::split_alias_target(const nlohmann::json& target) {
+    std::vector<std::string> tokens;
+    if (!target.is_string())
+        return tokens;
+    std::istringstream in(target.get<std::string>());
+    std::string tok;
+    while (in >> tok)
+        tokens.push_back(tok);
+    return tokens;
+}
+
+void SettingRegistry::append_alias_keys(std::vector<std::string>& out) const {
+    for (const auto& [key, tokens] : alias_paths_) {
+        (void)tokens;
+        if (std::find(out.begin(), out.end(), key) == out.end())
+            out.push_back(key);
+    }
+}
+
+std::size_t SettingRegistry::alias_collisions() const {
+    return alias_collisions_;
+}
+
+std::string SettingRegistry::alias_target_path(const std::string& key) const {
+    const auto& it = alias_paths_.find(key);
+    if (it == alias_paths_.end())
+        return {};
+    std::string path;
+    for (const auto& tok : it->second)
+        if (path.empty())
+            path = tok;
+        else
+            path.append(".").append(tok);
+    return path;
 }
 
 void SettingRegistry::record_static_paths(const nlohmann::json& node, const std::string& path) {
@@ -319,7 +438,9 @@ void SettingRegistry::merge_field(nlohmann::json& dst, const std::string& key,
 // command may also be a namespace: /set model is both the switch and the list
 // of model rows) and fills in new dynamic branches, but never rewrites a
 // field completions.json supplied -- a plugin or feed that tries is recorded
-// as a collision and the documented value stays.
+// as a collision and the documented value stays. The alias maps are
+// host-owned: a subtree that books one ("aliases"/"legacy") is refused the
+// same way and counted in alias_collisions().
 void SettingRegistry::merge_tree_node(nlohmann::json& dst, const nlohmann::json& src,
                                       const std::string& path) {
     const bool documented = static_paths_.count(path) > 0;
@@ -343,17 +464,26 @@ void SettingRegistry::merge_tree_node(nlohmann::json& dst, const nlohmann::json&
 bool SettingRegistry::merge_completions_json(const nlohmann::json& subtree) {
     if (!subtree.is_object())
         return false;
+    bool merged = false;
     for (auto it = subtree.begin(); it != subtree.end(); ++it) {
+        // The alias maps are host-owned; only completions.json may author
+        // them, so a contribution naming them is a refusal, not a mount.
+        if (it.key() == "aliases" || it.key() == "legacy") {
+            if (it.value().is_object() && !it.value().empty())
+                ++alias_collisions_;
+            continue;
+        }
         nlohmann::json& node = tree_["commands"][it.key()];
         if (!node.is_object())
             node = nlohmann::json::object();
         merge_tree_node(node, it.value(), it.key());
+        merged = true;
     }
     // The index must describe the merged tree, not the subtree that was
     // offered: otherwise a blocked overwrite would still leak into help or
     // choices through the index.
     reindex();
-    return true;
+    return merged;
 }
 
 void SettingRegistry::clear_index() {
@@ -522,6 +652,8 @@ void SettingRegistry::reset_completion_index() {
     tree_ = nlohmann::json::object();
     static_paths_.clear();
     legacy_paths_.clear();
+    alias_paths_.clear();
+    alias_collisions_ = 0;
     merge_collisions_ = 0;
     clear_index();
 }
@@ -534,17 +666,22 @@ struct LegacyExpansion {
     std::size_t target_len = 0;
 };
 
-LegacyExpansion expand_legacy(const std::map<std::string, std::vector<std::string>>& legacy,
-                              const std::vector<std::string>& tokens) {
+LegacyExpansion expand_alias(const std::map<std::string, std::vector<std::string>>& visible,
+                             const std::map<std::string, std::vector<std::string>>& hidden,
+                             const std::vector<std::string>& tokens) {
     LegacyExpansion out;
     out.tokens = tokens;
-    const auto it = legacy.find(tokens.front());
-    if (it == legacy.end())
-        return out;
-    out.applied = true;
-    out.target_len = it->second.size();
-    out.tokens = it->second;
-    out.tokens.insert(out.tokens.end(), tokens.begin() + 1, tokens.end());
+    const std::map<std::string, std::vector<std::string>>* maps[2] = {&visible, &hidden};
+    for (const auto* m : maps) {
+        const auto it = m->find(tokens.front());
+        if (it == m->end())
+            continue;
+        out.applied = true;
+        out.target_len = it->second.size();
+        out.tokens = it->second;
+        out.tokens.insert(out.tokens.end(), tokens.begin() + 1, tokens.end());
+        break;
+    }
     return out;
 }
 
@@ -581,7 +718,7 @@ SettingRegistry::resolve_command(const std::vector<std::string>& tokens) const {
     if (tokens.empty() || !tree_.contains("commands") || !tree_["commands"].is_object())
         return out;
 
-    const LegacyExpansion expanded = expand_legacy(legacy_paths_, tokens);
+    const LegacyExpansion expanded = expand_alias(alias_paths_, legacy_paths_, tokens);
     const std::size_t walked = walk_command(tree_, expanded.tokens, out);
     if (expanded.applied && walked < expanded.target_len)
         out.node = nullptr; // the alias target is not installed
@@ -601,15 +738,6 @@ const std::vector<std::string>& SettingRegistry::aliases_for(const std::string& 
     std::string rk = resolve_key(key);
     auto it = command_aliases_.find(rk);
     return it != command_aliases_.end() ? it->second : empty;
-}
-
-std::vector<std::string> SettingRegistry::top_level_aliases() const {
-    std::vector<std::string> out;
-    for (const auto& [path, aliases] : command_aliases_)
-        if (path.find('.') == std::string::npos)
-            for (const auto& a : aliases)
-                out.push_back(a);
-    return out;
 }
 
 const std::vector<std::string>& SettingRegistry::choices_for(const std::string& key) const {

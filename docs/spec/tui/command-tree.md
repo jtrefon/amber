@@ -68,9 +68,14 @@ implements it.
 
 Roots such as `session`, `window`, `job`, `agent`, `watch`, `project`,
 `worktree`, `work`, `plugin`, `get`, `set`, `settings`, `provider`, `files`,
-`system`, `panel`, `help` and `quit` are the closed domain set. Action roots
-(`new`, `close`, `save`, `stop`, `compress`, `sessions`) are legacy aliases and
-are not documented as peers.
+`system`, `panel`, `help` and `quit` are the closed domain set. Root spellings
+that point at the domains they dispatch into (`model`, `compress`, `compact`,
+`stop`, `clear`, `save`, `sessions`, `mcp`) are **host-granted visible
+aliases**: drawer and completion rows beside the domains, resolved and
+dispatched through their canonical paths, and authored only by `completions.json`
+(the `aliases` map). Retired action roots (`new`, `close`, `reset`, `cancel`,
+`kill`, `open`, `load`) remain **hidden legacy aliases** (the `legacy` map):
+dispatch-only, never drawer or completion rows.
 
 ---
 
@@ -137,6 +142,9 @@ non-zero when a contribution tried to rewrite documented material.
   and may add children inside its workspace. It may not rewrite a documented
   `action`/`help`/`man`/`aliases`/`short`/`choices`/`range`: the documented
   value wins and the attempt increments `merge_collisions()`.
+- A contribution that names the top-level `aliases` or `legacy` map is refused
+  the same way and counted in `alias_collisions()`: the alias maps are
+  host-owned and only `completions.json` may author them.
 - Handlers are code, but they bind only the leaves their subtree declares. A
   leaf with no handler is documented and inert.
 

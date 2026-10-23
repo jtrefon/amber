@@ -81,15 +81,15 @@
      ],
      "short": "sp"
     },
-    "compress": {
-     "action": "core.compress",
-     "help": "Compress conversation history to free context space while preserving task state.",
-     "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation.",
-     "aliases": [
-      "compact"
-     ],
-     "short": "cp"
-    }
+      "compress": {
+       "action": "core.compress",
+       "help": "Compress conversation history to free context space while preserving task state.",
+       "man": "Runs the LLM-based conversation compressor which collapses loops, archives older turns into summaries, and prunes redundant tool output. This frees token space in the context window while preserving task context and decisions. The compressed history replaces the current conversation.",
+       "aliases": [
+        "compact"
+       ],
+       "short": "cp"
+      }
    },
    "short": "se"
   },
@@ -979,23 +979,26 @@
    "short": "q"
   }
  },
- "legacy": {
-  "new": "session new",
-  "clear": "session new",
-  "reset": "session new",
-  "close": "window close",
-  "stop": "session stop",
-  "cancel": "session stop",
-  "kill": "session stop",
+ "aliases": {
+  "model": "set model",
   "compress": "session compress",
   "compact": "session compress",
+  "stop": "session stop",
+  "clear": "session new",
   "save": "session save",
   "sessions": "session list",
+  "mcp": "plugin mcp"
+ },
+ "legacy": {
+  "new": "session new",
+  "reset": "session new",
+  "close": "window close",
+  "cancel": "session stop",
+  "kill": "session stop",
   "load": "session list",
   "open": "session list",
   "sl": "session list",
   "watch": "plugin watch",
-  "mcp": "plugin mcp",
   "prompt": "plugin mcp prompt",
   "index": "plugin project_index index",
   "hello": "plugin hello"
