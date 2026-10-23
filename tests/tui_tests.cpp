@@ -1624,6 +1624,49 @@ TEST(window_manager_creates_and_focuses_resource_viewers) {
     ASSERT(!wm.focus_resource("job", "4"));
 }
 
+TEST(window_manager_background_resource_does_not_steal_focus) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t before = wm.active();
+    tui::Window& viewer = wm.new_background_resource_window("job", "7", "job 7 - make");
+    ASSERT(viewer.kind == tui::Window::Kind::Resource);
+    ASSERT(viewer.read_only);
+    ASSERT(!viewer.agent);
+    ASSERT_EQ(wm.active(), before); // focus never moves implicitly
+    ASSERT_EQ(wm.count(), 2u);
+    ASSERT_EQ(wm.chat_count(), 1u); // resource viewers are not chat windows
+}
+
+TEST(window_manager_close_resource_hands_focus_back) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t owner = wm.active();
+    wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(wm.focus_resource("job", "7"));
+    ASSERT(wm.win().ever_focused);
+    ASSERT(wm.close_resource_window("job", "7"));
+    ASSERT_EQ(wm.count(), 1u);
+    ASSERT_EQ(wm.active(), owner);
+    ASSERT(!wm.close_resource_window("job", "7"));
+}
+
+TEST(window_manager_close_background_resource_keeps_focus) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t chat = wm.active();
+    wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(!wm.win().ever_focused);
+    ASSERT(wm.close_resource_window("job", "7"));
+    ASSERT_EQ(wm.active(), chat);
+    ASSERT_EQ(wm.chat_count(), 1u);
+}
+
 TEST(windowops_switch_to_valid_index) {
     agent::Config cfg;
     agent::ToolRegistry reg;
