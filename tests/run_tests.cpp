@@ -3933,6 +3933,12 @@ TEST(tool_envelope_reports_original_bytes_and_truncation_in_meta) {
     ASSERT(small_env.find("\"bytes\":2") != std::string::npos);
     ASSERT(small_env.find("\"truncated\"") == std::string::npos);
     ASSERT(small_env.find("bytes omitted") == std::string::npos);
+
+    // A zero budget means "no cap" (an explicit opt-out).
+    const std::string uncapped =
+        agent::format_tool_envelope("read", json::object(), big, std::size_t{0});
+    ASSERT(uncapped.find("bytes omitted") == std::string::npos);
+    ASSERT(uncapped.find("\"truncated\"") == std::string::npos);
 }
 
 TEST(core_system_prompt_stays_agnostic) {
@@ -5569,6 +5575,7 @@ TEST(prune_tool_io_keeps_a_readable_digest) {
     // an index the model can act on without re-running the call.
     agent::ToolResult big;
     big.output = std::string(5000, 'a');
+    big.meta = {{"result_id", "abc123"}};
     const std::string env = agent::format_tool_envelope("read", json::object(), big, 4096);
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),      msg("user", "task a"), msg("assistant", "a done"),
@@ -5583,9 +5590,21 @@ TEST(prune_tool_io_keeps_a_readable_digest) {
     ASSERT(digest.find("tool=read") != std::string::npos);
     ASSERT(digest.find("status=ok") != std::string::npos);
     ASSERT(digest.find("bytes=5000") != std::string::npos);
+    ASSERT(digest.find("result_id=abc123") != std::string::npos);
     ASSERT(digest.size() < 400u);
     agent::prune_tool_io(again);
     ASSERT_EQ(again[3].content, digest); // deterministic
+}
+
+TEST(tool_result_digest_falls_back_for_a_plain_message) {
+    // Messages recorded before the envelope existed (or by a tool that returns
+    // raw text) still digest to something actionable, never to an empty line.
+    const agent::Message plain = msg("tool", std::string(300, 'q'), "bash");
+    const std::string digest = agent::tool_result_digest(plain);
+    ASSERT(digest.find("tool=bash") != std::string::npos);
+    ASSERT(digest.find("status=unknown") != std::string::npos);
+    ASSERT(digest.find("bytes=300") != std::string::npos);
+    ASSERT(digest.size() < 120u);
 }
 
 TEST(compression_gate_below_threshold) {

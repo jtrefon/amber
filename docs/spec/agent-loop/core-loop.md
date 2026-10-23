@@ -132,6 +132,14 @@ stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 - **Expected**: `note_loop_state()` pushes **one** `[harness]` notice at each state change: the 80 % crossing of `max_tool_iterations`, the 80 % crossing of `max_wall_ms` (when set), and a call repeated 3× in a row on canonical arguments (timing arguments stripped). Nothing intervenes; the model decides.
 - **On failure**: A silent cap, or a harness that decides for the model.
 
+#### [CL-20] A tool result is budgeted at the context boundary
+
+- **Given**: A tool whose successful output is far larger than `max_tool_result_bytes` (`Config`, default 32 KiB, env `AMBER_MAX_TOOL_RESULT_BYTES`; 0 means no cap)
+- **Input**: `dispatch_tool_calls()` records the result through `format_tool_envelope`
+- **Expected**: The sealed tool message keeps its head and tail (UTF-8-safe, cut on a code-point boundary) around `[... N bytes omitted of M total]`, and the envelope meta carries `bytes` (the original size) and `truncated`. Small results are unchanged. Compression later replaces a bulky tool message with `tool_result_digest()`: tool, status, original bytes, optional `result_id`, and first/last line excerpts — never the opaque placeholder, except for the orphaned-call stub.
+- **On failure**: One long read can dominate the context and be re-sent whole every turn, and compression destroys the index that would let the model recover the detail.
+- **Regression guards**: `tool_envelope_caps_a_large_result_middle_out`, `tool_envelope_truncation_is_utf8_safe`, `tool_envelope_reports_original_bytes_and_truncation_in_meta`, `prune_tool_io_keeps_a_readable_digest`.
+
 #### [CL-12] System prompt is idempotent
 
 - **Given**: Multiple calls to `ensure_system_prompt()`

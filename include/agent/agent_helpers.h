@@ -102,8 +102,21 @@ std::string internal_failure_reply(const std::string& what);
 // `status` is one of "ok"|"error"|"denied"|"timeout", and `meta` holds
 // tool-specific metadata (lines, exit code, duration, etc.). The envelope
 // is token 0 — the model sees it before any content.
+//
+// `budget` caps the payload: anything larger keeps its head and tail (UTF-8
+// safe) around a marker reporting the omitted bytes, and `meta` gains `bytes`
+// (the original size) and `truncated`. The envelope overhead is bounded, so a
+// sealed tool message stays within roughly `budget` + 1 KiB.
+inline constexpr std::size_t kToolResultBudgetDefault = std::size_t{32} * 1024;
+
 std::string format_tool_envelope(const std::string& name, const json& args,
-                                 const ToolResult& result);
+                                 const ToolResult& result,
+                                 std::size_t budget = kToolResultBudgetDefault);
+
+// Deterministic replacement for a bulky tool message pruned during
+// compression: tool, status, original bytes and first/last line excerpts, so
+// the model keeps an index instead of an opaque placeholder.
+std::string tool_result_digest(const Message& message);
 
 } // namespace agent
 
