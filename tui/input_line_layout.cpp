@@ -41,8 +41,6 @@ Scroll scroll_for(int prompt_w, const std::string& input, std::size_t cursor,
     s.cursor_col = prompt_w + text::display_cols(input.substr(0, cursor));
     if (s.cursor_col >= width)
         s.offset = s.cursor_col - width + 1;
-    if (s.offset < prompt_w)
-        s.offset = 0;
     if (s.total_w - s.offset <= 0)
         s.offset = std::max(0, s.total_w - width);
     return s;
