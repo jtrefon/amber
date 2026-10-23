@@ -30,6 +30,7 @@
 #include "plugins/tool_task/tool_task_plugin.h"
 #include "plugins/tool_write/tool_write_plugin.h"
 #include "plugins/watch/watch_plugin.h"
+#include "plugins/web/web_plugin.h"
 
 namespace agent {
 
@@ -54,6 +55,10 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // keeping the tool set, and so its prompt/status/command surfaces unwind
     // together.
     plugins.push_back(std::make_shared<plugins::WatchPlugin>());
+    // Web access: the built-in HTTP fetch/search provider. Its provider setting
+    // makes the external CDP browser an explicit alternative, not a second
+    // always-on web surface.
+    plugins.push_back(std::make_shared<plugins::WebPlugin>());
     // Interface: the bar's right edge is a registered region, so the clock is
     // a contribution like any other rather than a reservation the renderer
     // makes before it knows what else the bar holds.

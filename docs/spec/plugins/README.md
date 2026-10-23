@@ -172,4 +172,4 @@ timeout (partial output lost, plugins must emit one line per request).
 | Plugin | Ships in | Purpose |
 |--------|----------|---------|
 | `sysinfo` | core package | Host facts for the agent: memory/swap, CPU load, partitions, network interfaces and addresses. |
-| `cdp` | separate package | Real browser automation via the Chrome DevTools Protocol (WebSocket to a CDP endpoint): list targets, navigate, evaluate JS, click, type, screenshot to file, DOM snapshot. |
+| `cdp` | core package | Real browser automation via the Chrome DevTools Protocol (WebSocket to a CDP endpoint): list targets, navigate, evaluate JS, click, type, screenshot to file, DOM snapshot. The Linux `.deb`/`.rpm` also ship a standalone `amber-plugin-cdp` package. |

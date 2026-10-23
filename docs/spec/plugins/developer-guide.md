@@ -674,7 +674,11 @@ and its interval/ceiling controls) (read_skill, list_skills and
 write_skill, plus the prose that documents them — the tools resolve the running
 agent's catalog through the run scope, so the plugin holds no host state). The
 search backends follow the same rule, one plugin each:
-`plugins/search_grep/` and `plugins/search_semantic/`. `plugins/mcp/` (category
+`plugins/search_grep/` and `plugins/search_semantic/`. `plugins/web/` is the
+built-in HTTP fetch/search provider: its `web_fetch` and `web_search` tools are
+read-only, and its `web.provider` setting selects `builtin`, `cdp` or `off`;
+`cdp` requires the external CDP plugin and the built-in tools fail closed while
+it is selected. `plugins/mcp/` (category
 `integration`) is the tool-source worked example: it owns the MCP client, and
 its servers' discovered tools, its status segment, its `/plugin mcp` command
 workspace, its plugin settings and its prompt block all arrive and leave with
@@ -700,7 +704,7 @@ workspace, a status segment and the `watch` tool; its spec is
 rendered from the same table `/get config paths` prints) and
 `plugins/git_timeline/` (the `git-timeline` plugin: the snapshot/history
 playbook as a skill, so its depth is activation-tier rather than resident
-prose). That is 29 bundled plugins in total.
+prose). That is 30 bundled plugins in total.
 
 Steps:
 
