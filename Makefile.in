@@ -111,6 +111,9 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/watch/watch_tools.o \
               $(BUILD_DIR)/plugins/watch/watch_types.o \
               $(BUILD_DIR)/plugins/watch/watch_store.o \
+              $(BUILD_DIR)/plugins/web/web_plugin.o \
+              $(BUILD_DIR)/plugins/web/web_client.o \
+              $(BUILD_DIR)/plugins/web/web_parse.o \
               $(BUILD_DIR)/plugins/mcp/mcp_plugin.o \
               $(BUILD_DIR)/plugins/search_grep/search_grep_plugin.o \
               $(BUILD_DIR)/plugins/search_semantic/search_semantic_plugin.o \
@@ -240,6 +243,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
+               $(BUILD_DIR)/tests/web_test.o \
                $(BUILD_DIR)/tests/status_segments_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o \
                $(BUILD_DIR)/tests/example_plugin_test.o \

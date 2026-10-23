@@ -62,6 +62,7 @@ inline constexpr int kSkills = 560;
 inline constexpr int kMcp = 570;
 inline constexpr int kRate = 580;
 inline constexpr int kWatch = 590;
+inline constexpr int kWeb = 595;
 } // namespace tool_doc_priority
 
 // Render the tool advertising section: a Markdown block listing each tool's
