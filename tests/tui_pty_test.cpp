@@ -1022,6 +1022,21 @@ TEST(system_commands_do_not_freeze_the_ui) {
     require(tui.wait_for("ps: exit 0", 20000), "the job result never arrived", tui);
 }
 
+// Typing past the right edge must scroll the input at the first clipped
+// column. The old layout kept the offset at zero until the cursor had moved a
+// whole prompt-width past the edge, so this tail was never painted.
+TEST(input_scroll_keeps_tail_visible) {
+    Tui tui;
+    tui.name = "input_scroll_keeps_tail_visible";
+    if (!require(tui.start(fixture().binary, fixture().workspace, "", 24, 80),
+                 "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the prompt never became ready", tui))
+        return;
+    tui.send(std::string(60, 'x') + "ZZZ");
+    require(tui.wait_for("ZZZ", 4000), "the input tail stayed clipped off screen", tui);
+}
+
 // The resource viewer is a real window, not a modal: it attaches to a live
 // job, detaches without killing it, and the explicit stop still works.
 TEST(work_board_resource_viewer_round_trip) {
@@ -2094,6 +2109,7 @@ int main(int argc, char** argv) {
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
     system_commands_do_not_freeze_the_ui();
+    input_scroll_keeps_tail_visible();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();

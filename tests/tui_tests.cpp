@@ -2508,6 +2508,21 @@ TEST(input_line_layout_scroll_keeps_cursor_visible) {
     ASSERT_EQ(scrolled.offset, 22); // cursor_col - width + 1
 }
 
+TEST(input_line_layout_scroll_starts_at_the_input_edge) {
+    const std::string input(12, 'x');
+    auto before = ILL::scroll_for(10, input, 9, "", 20);
+    ASSERT_EQ(before.cursor_col, 19);
+    ASSERT_EQ(before.offset, 0);
+
+    auto edge = ILL::scroll_for(10, input, 10, "", 20);
+    ASSERT_EQ(edge.cursor_col, 20);
+    ASSERT_EQ(edge.offset, 1);
+
+    auto past = ILL::scroll_for(10, input, 11, "", 20);
+    ASSERT_EQ(past.cursor_col, 21);
+    ASSERT_EQ(past.offset, 2);
+}
+
 TEST(input_line_layout_visible_bytes_stops_at_the_column_budget) {
     ASSERT_EQ(ILL::visible_bytes("abcdef", 0, 4), 4);
     ASSERT_EQ(ILL::visible_bytes("abcdef", 2, 10), 4); // to the end of the string
