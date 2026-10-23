@@ -315,7 +315,7 @@ TEST(plugin_discovers_the_xdg_data_root) {
     agent::PluginManager mgr;
     mgr.discover();
     const agent::PluginInfo* info = mgr.find("fake");
-    ASSERT(info != nullptr);
+    REQUIRE(info != nullptr);
     ASSERT(info->state == agent::PluginState::Disabled);
     std::filesystem::remove_all(base);
 }
