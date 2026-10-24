@@ -392,8 +392,6 @@ private:
     // Open/close background resource viewers for work whose state changed;
     // never moves focus.
     void auto_attach_resources();
-    void auto_attach_jobs();
-    void auto_attach_agents();
     bool resource_ever_focused(const std::string& kind, const std::string& id) const;
     // Drain watch-observer usage into each owner window's ledger.
     void poll_watch_usage();

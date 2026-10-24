@@ -12,6 +12,7 @@
 #include "option_key_decode.h"
 #include "signal_guard.h"
 #include "event_router.h"
+#include "work_auto_attach.h"
 #include "feed_manager.h"
 #include "path_confine.h"
 #include "panel_view.h"
@@ -732,18 +733,6 @@ bool Tui::pump_io(CommandLine& cl) {
     return had_events;
 }
 
-namespace {
-
-bool auto_attach_job_running(agent::JobState state) {
-    return state == agent::JobState::Running || state == agent::JobState::Starting;
-}
-
-bool auto_attach_task_running(const std::string& state) {
-    return state == "running" || state == "queued";
-}
-
-} // namespace
-
 bool Tui::resource_ever_focused(const std::string& kind, const std::string& id) const {
     for (const auto& window : window_manager_->all())
         if (window->kind == Window::Kind::Resource && window->resource_kind == kind &&
@@ -752,45 +741,22 @@ bool Tui::resource_ever_focused(const std::string& kind, const std::string& id) 
     return false;
 }
 
-// Background work stays observable without becoming a chat session: one
-// viewer per newly running job/task, opened without stealing focus, closed on
-// completion unless the user has actually looked at it.
-void Tui::auto_attach_jobs() {
-    for (const auto& job : jobs_.list()) {
-        const std::string key = "job:" + job.id;
-        if (auto_attach_job_running(job.state)) {
-            if (auto_attached_.insert(key).second)
-                window_manager_->new_background_resource_window(
-                    "job", job.id, "job " + job.id + " \u2014 " + job.label);
-        } else if (auto_attached_.erase(key) > 0) {
-            if (!resource_ever_focused("job", job.id))
-                window_manager_->close_resource_window("job", job.id);
-        }
-    }
-}
-
-void Tui::auto_attach_agents() {
-    for (const auto& task : subagents_.tasks()) {
-        const std::string key = "agent:" + task.id;
-        if (auto_attach_task_running(task.state)) {
-            if (auto_attached_.insert(key).second)
-                window_manager_->new_background_resource_window(
-                    "agent", task.id, "agent " + task.id + " \u2014 " + task.prompt_head);
-        } else if (auto_attached_.erase(key) > 0) {
-            if (!resource_ever_focused("agent", task.id))
-                window_manager_->close_resource_window("agent", task.id);
-        }
-    }
-}
-
 void Tui::auto_attach_resources() {
-    const std::string& mode = cfg_.work_auto_attach;
-    if (mode == "off")
-        return;
-    if (mode == "jobs" || mode == "all")
-        auto_attach_jobs();
-    if (mode == "agents" || mode == "all")
-        auto_attach_agents();
+    const auto steps =
+        plan_auto_attach(cfg_.work_auto_attach, jobs_.list(), subagents_.tasks(), auto_attached_,
+                         [this](const std::string& kind, const std::string& id) {
+                             return resource_ever_focused(kind, id);
+                         });
+    for (const auto& step : steps) {
+        if (step.action == AutoAttachStep::Action::Open) {
+            window_manager_->new_background_resource_window(step.kind, step.id, step.title);
+            auto_attached_.insert(step.key);
+            continue;
+        }
+        if (step.action == AutoAttachStep::Action::Close)
+            window_manager_->close_resource_window(step.kind, step.id);
+        auto_attached_.erase(step.key);
+    }
 }
 
 // Watch observers run in plugin worker threads and accumulate their spend in
