@@ -1081,8 +1081,12 @@ void SlashDispatcher::register_set_engine_actions() {
                     [this](const std::string& v) { cmd_set_detection_toggle("loop", v); });
     register_action("core.config.set.worktree",
                     [this](const std::string& v) { cmd_set_worktree(v); });
-    register_action("core.config.set.work.auto_attach",
-                    [this](const std::string& v) { cmd_set_work_auto_attach(v); });
+    // Routed through the generic settings path so the one save site (and its
+    // documented behaviour) is shared with every other dotted setting.
+    register_action("core.config.set.work.auto_attach", [this](const std::string& v) {
+        if (!apply_setting_key("work.auto_attach " + v))
+            tui_.append_line(P_STATUS, "usage: /set work auto_attach off|agents|jobs|all");
+    });
     register_action("core.config.set.detection.duplicate",
                     [this](const std::string& v) { cmd_set_detection_toggle("duplicate", v); });
     register_action("core.config.set.debug", [this](const std::string& v) { set_debug(v); });
@@ -3879,15 +3883,9 @@ void SlashDispatcher::add_work_settings() {
 }
 
 void SlashDispatcher::cmd_set_work_auto_attach(const std::string& v) {
-    if (v != "off" && v != "agents" && v != "jobs" && v != "all") {
-        tui_.append_line(P_STATUS, "usage: /set work auto_attach off|agents|jobs|all");
-        return;
-    }
+    if (v != "off" && v != "agents" && v != "jobs" && v != "all")
+        throw std::invalid_argument("expected off|agents|jobs|all");
     tui_.cfg_.work_auto_attach = v;
-    // The settings path is the user's own XDG state root (absolute, ".." rejected).
-    tui_.cfg_.save_settings(tui_.session_controller_->settings_path()); // lgtm[cpp/path-injection]
-    tui_.append_line(P_STATUS, "work.auto_attach: " + v);
-    tui_.draw();
 }
 
 void SlashDispatcher::add_detection_settings() {
