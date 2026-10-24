@@ -20,29 +20,13 @@
 #include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
+#include "agent/prompt_priorities.h"
 #include "agent/session_brief.h"
 #include "agent/skill_catalog.h"
 #include "agent/activation_sink.h"
 #include "agent/tool_recovery.h"
 
 namespace agent {
-
-// Injected prompt-block order. Ascending priority; ties keep insertion order.
-//
-// These are declared here, next to the assembly that consumes them, so the
-// order of the blocks the model receives is readable in one place instead of
-// being reconstructed from scattered injection sites. A block's position is
-// deliberate for one of two reasons: `head` blocks read as instructions and sit
-// with the system prompt; `tail` blocks are trailing context and sit after the
-// conversation, where a change costs the server's KV cache only from that point
-// on — which is why the volatile ones live there.
-namespace prompt_priority {
-inline constexpr int kMemory = 100;          // head: retrieved for this request
-inline constexpr int kSkillDiscovery = 200;  // head: what skills can be activated
-inline constexpr int kActivatedSkills = 900; // tail: bodies loaded on demand
-inline constexpr int kSessionBrief = 950;    // tail: changes rarely, but late
-inline constexpr int kPluginBlock = 1000;    // tail: contributed by plugins
-} // namespace prompt_priority
 
 // Coarse activity state for a status-bar connection indicator.
 enum class RunState : std::uint8_t {

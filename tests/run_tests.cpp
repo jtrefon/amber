@@ -42,6 +42,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <cstdlib>
@@ -1502,6 +1503,42 @@ TEST(prompt_render_tools_markdown_lists_all) {
     ASSERT(md.find("`search`") != std::string::npos);
     ASSERT(md.find("`bash`") != std::string::npos);
     ASSERT(md.find("path") != std::string::npos); // a known parameter
+}
+
+// The ordering authority: every injected-block priority lives in one table
+// (include/agent/prompt_priorities.h). The header's static_asserts already refuse
+// a collision at build time; these tests name the offending row when one slips
+// through and pin the band order the assembly depends on.
+TEST(prompt_priorities_sit_inside_their_band_and_do_not_collide) {
+    std::string violations;
+    std::set<int> seen;
+    for (const agent::PromptPriorityEntry& entry : agent::kPromptPriorities) {
+        const int begin = agent::prompt_band_begin(entry.band);
+        const int end = agent::prompt_band_end(entry.band);
+        if (entry.value < begin || entry.value >= end) {
+            violations += std::string(entry.name) + "=" + std::to_string(entry.value) +
+                          " is outside [" + std::to_string(begin) + "," + std::to_string(end) +
+                          "); ";
+        }
+        if (!seen.insert(entry.value).second)
+            violations +=
+                std::string(entry.name) + " collides on " + std::to_string(entry.value) + "; ";
+    }
+    ASSERT_EQ(violations, "");
+    ASSERT_EQ(seen.size(), agent::prompt_priority_count());
+}
+
+TEST(prompt_bands_are_contiguous_and_ordered_by_owner) {
+    // Head blocks read as instructions before the conversation, project facts and
+    // tool docs follow, then the tail blocks, then plugin contributions. A gap or
+    // a reordering here changes what the model reads when, so it is pinned.
+    const auto& order = agent::kPromptBands;
+    for (std::size_t i = 0; i + 1 < sizeof(order) / sizeof(order[0]); ++i) {
+        ASSERT_TRUE(agent::prompt_band_begin(order[i]) < agent::prompt_band_begin(order[i + 1]));
+        ASSERT_EQ(agent::prompt_band_end(order[i]), agent::prompt_band_begin(order[i + 1]));
+    }
+    ASSERT_TRUE(agent::prompt_band_begin(order[0]) > 0);
+    ASSERT_EQ(agent::prompt_band_end(agent::PromptBand::Plugin), 1100);
 }
 
 // ---------------------------------------------------------------------------
