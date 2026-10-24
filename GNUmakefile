@@ -9,36 +9,47 @@
 
 .DEFAULT_GOAL := all
 
-# Keep the catch-all from being applied to the makefiles themselves: make tries
-# to "remake" the makefiles it read, which would forward GNUmakefile to the
-# generated Makefile on every run.
-GNUmakefile Makefile: ;
+# Keep the catch-all from being applied to the makefile it read and to the two
+# inputs of the generated one: make tries to "remake" the makefiles it read, and
+# it would consider building Makefile.in or configure through the catch-all,
+# which is circular (they are inputs, never goals).
+GNUmakefile Makefile.in configure: ;
 
-# ensure is phony, so it is always out of date and every goal that depends on it
-# always forwards — even when a file shares the goal's name.
-#
 # Homebrew's ncurses is keg-only, so pkg-config cannot see it unaided and a bare
 # ./configure silently falls back to the SDK's non-wide ncurses, which the TUI
 # does not compile against. Point pkg-config at it when brew has it, so a fresh
 # checkout builds with a plain `make` as documented.
-.PHONY: ensure
-ensure:
-	@if [ ! -f Makefile ]; then \
-		echo "Makefile not found; running ./configure ..."; \
-		ncurses_pc=""; \
-		if command -v brew >/dev/null 2>&1; then \
-			ncurses_pc="$$(brew --prefix ncurses 2>/dev/null)/lib/pkgconfig"; \
-			[ -d "$$ncurses_pc" ] || ncurses_pc=""; \
-		fi; \
-		if [ -n "$$ncurses_pc" ]; then \
-			echo "  using Homebrew ncurses ($$ncurses_pc)"; \
-			PKG_CONFIG_PATH="$$ncurses_pc$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}" ./configure; \
-		else \
-			./configure; \
-		fi; \
+#
+# The generated Makefile embeds the object list at configure time, so it is a
+# target of its template: a tree that pulls a Makefile.in change must not keep
+# building the previous list. That failure is either a link error for the new
+# objects or, worse, a new translation unit silently left out of the build.
+#
+# A missing Makefile and a stale one are the same case, which is why this lives
+# in the rule rather than in ensure's recipe.
+Makefile: Makefile.in configure
+	@echo "regenerating Makefile from Makefile.in (./configure) ..."; \
+	ncurses_pc=""; \
+	if command -v brew >/dev/null 2>&1; then \
+		ncurses_pc="$$(brew --prefix ncurses 2>/dev/null)/lib/pkgconfig"; \
+		[ -d "$$ncurses_pc" ] || ncurses_pc=""; \
+	fi; \
+	if [ -n "$$ncurses_pc" ]; then \
+		echo "  using Homebrew ncurses ($$ncurses_pc)"; \
+		PKG_CONFIG_PATH="$$ncurses_pc$${PKG_CONFIG_PATH:+:$$PKG_CONFIG_PATH}" ./configure; \
+	else \
+		./configure; \
 	fi
 
-# Any goal: make sure the generated Makefile exists, then run the goal there.
+# ensure is phony, so it is always out of date and every goal that depends on it
+# always forwards — even when a file shares the goal's name. Depending on the
+# generated Makefile is what brings the rule above into every goal's graph; the
+# empty recipe keeps make from looking for an implicit one.
+.PHONY: ensure
+ensure: Makefile ;
+
+# Any goal: make sure the generated Makefile exists and is current, then run the
+# goal there.
 %: ensure
 	@$(MAKE) --no-print-directory -f Makefile $@
 
