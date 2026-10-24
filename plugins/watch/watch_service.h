@@ -53,6 +53,8 @@ public:
     void reemit_pending();
     std::optional<WatchRecord> wait(const std::string& id, int timeout_s) const;
     WatchCounts counts() const;
+    // Per-owner observer usage since the last call (owner_id -> totals).
+    std::map<std::string, agent::UsageTotals> take_usage();
     int running_count() const;
 
     void shutdown();
@@ -84,6 +86,7 @@ private:
     mutable std::mutex mtx_;
     std::map<std::string, WatchRecord> records_;
     std::map<std::string, WatchReport> reports_;
+    std::map<std::string, agent::UsageTotals> usage_by_owner_;
     std::map<std::string, std::shared_ptr<WatchWorker>> workers_;
     std::map<std::string, std::thread> threads_;
     mutable std::mutex observer_mtx_; // one observer call at a time

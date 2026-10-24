@@ -88,6 +88,10 @@ std::vector<WatchRecord> WatchPlugin::list_records() const {
     return service_ ? service_->list() : std::vector<WatchRecord>{};
 }
 
+std::map<std::string, agent::UsageTotals> WatchPlugin::take_usage() {
+    return service_ ? service_->take_usage() : std::map<std::string, agent::UsageTotals>{};
+}
+
 std::string WatchPlugin::show_text(const std::string& id) const {
     return service_ ? command_text("show", id) : "watch plugin is inactive";
 }

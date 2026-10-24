@@ -8,6 +8,8 @@
 #include "agent/workspace.h"
 #include <csignal>
 #include "tui/action_registry.h"
+#include "tui/session_usage.h"
+#include "tui/usage_report.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
@@ -1595,6 +1597,123 @@ TEST(macos_option_digit_rejects_other_codepoints) {
     ASSERT_EQ(tui::macos_option_digit(0x00DF), -1); // ß = Option+S
     ASSERT_EQ(tui::macos_option_digit(0x20AC), -1); // €
     ASSERT_EQ(tui::macos_option_digit(0x222B), -1); // ∫ = Option+B, not a digit
+}
+
+TEST(usage_ledger_tree_sums_sources_and_resets) {
+    tui::UsageLedger ledger;
+    ledger.main.add(100, 10);
+    ledger.subagents.add(200, 20);
+    ledger.compression.add(300, 30);
+    ledger.watch.add(400, 40);
+    ledger.inherited.add(500, 50);
+    const agent::UsageTotals tree = ledger.tree();
+    ASSERT_EQ(tree.prompt_tokens, 1500L);
+    ASSERT_EQ(tree.completion_tokens, 150L);
+    ASSERT(tree.measured);
+    ledger.reset();
+    ASSERT_EQ(ledger.tree().prompt_tokens, 0L);
+    ASSERT_EQ(ledger.tree().completion_tokens, 0L);
+    ASSERT(!ledger.tree().measured);
+}
+
+TEST(usage_ledger_round_trips_session_meta) {
+    tui::UsageLedger before;
+    before.main.add(1000, 100);
+    before.subagents.add(2000, 200);
+    before.compression.add(3000, 300);
+    before.watch.add(4000, 400);
+    before.inherited.add(5000, 500);
+    agent::json meta = agent::json::object();
+    tui::save_usage(meta, before);
+    tui::UsageLedger after;
+    tui::load_usage(meta, after);
+    ASSERT_EQ(after.tree().prompt_tokens, 15000L);
+    ASSERT_EQ(after.tree().completion_tokens, 1500L);
+    ASSERT_EQ(after.subagents.prompt_tokens, 2000L);
+    ASSERT_EQ(after.watch.completion_tokens, 400L);
+    ASSERT_EQ(after.inherited.prompt_tokens, 5000L);
+}
+
+TEST(usage_ledger_apply_tags_each_source) {
+    tui::UsageLedger ledger;
+    tui::apply_usage(ledger, {agent::UsageSource::Main, 10, 1, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Subagent, 20, 2, "task-1", "owner"});
+    tui::apply_usage(ledger, {agent::UsageSource::Compression, 30, 3, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Watch, 40, 4, {}, {}});
+    ASSERT_EQ(ledger.main.prompt_tokens, 10L);
+    ASSERT_EQ(ledger.subagents.prompt_tokens, 20L);
+    ASSERT_EQ(ledger.compression.prompt_tokens, 30L);
+    ASSERT_EQ(ledger.watch.prompt_tokens, 40L);
+    ASSERT_EQ(ledger.tree().prompt_tokens, 100L);
+    ASSERT_EQ(ledger.tree().completion_tokens, 10L);
+}
+
+TEST(usage_report_lists_measured_sources_tasks_and_windows) {
+    tui::UsageLedger ledger;
+    ledger.main.add(1000, 100);
+    ledger.subagents.add(2000, 200);
+    ledger.compression.add(3000, 300);
+    ledger.watch.add(4000, 400);
+    ledger.inherited.add(5000, 500);
+    agent::SubAgentTaskInfo task;
+    task.id = "task-7";
+    task.prompt_tokens = 111;
+    task.completion_tokens = 22;
+    task.usage_measured = true;
+    agent::SubAgentTaskInfo quiet;
+    quiet.id = "task-8";
+    std::vector<std::pair<std::string, agent::UsageTotals>> windows;
+    agent::UsageTotals first;
+    first.add(1, 1);
+    agent::UsageTotals second;
+    second.add(2, 2);
+    windows.emplace_back("alpha", first);
+    windows.emplace_back("beta", second);
+    const auto lines = tui::usage_report_lines(ledger, {task, quiet}, windows);
+    const std::string joined = [&lines] {
+        std::string out;
+        for (const auto& line : lines)
+            out += line + "\n";
+        return out;
+    }();
+    ASSERT(joined.find("tree: up 15k down 1.5k") != std::string::npos);
+    ASSERT(joined.find("sub-agents: up 2k") != std::string::npos);
+    ASSERT(joined.find("compression: up 3k") != std::string::npos);
+    ASSERT(joined.find("watches: up 4k") != std::string::npos);
+    ASSERT(joined.find("inherited: up 5k") != std::string::npos);
+    ASSERT(joined.find("task task-7: up 111 down 22") != std::string::npos);
+    ASSERT(joined.find("task-8") == std::string::npos);
+    ASSERT(joined.find("window 'alpha'") != std::string::npos);
+    ASSERT(joined.find("window 'beta'") != std::string::npos);
+}
+
+TEST(usage_report_marks_an_empty_ledger_unmeasured) {
+    const auto lines = tui::usage_report_lines(tui::UsageLedger{}, {}, {});
+    ASSERT_EQ(lines.size(), 2u);
+    ASSERT(lines[0].find("(not measured)") != std::string::npos);
+}
+
+TEST(window_manager_finds_the_owner_chat) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    tui::Window& chat = wm.new_window("chat");
+    chat.owner_id = "owner-9";
+    wm.new_resource_window("job", "7", "job 7");
+    ASSERT(wm.by_owner_id("owner-9") == &chat);
+    ASSERT(wm.by_owner_id("owner-nope") == nullptr);
+    ASSERT(wm.by_owner_id("") == nullptr);
+}
+
+TEST(usage_ledger_reads_legacy_session_keys_as_main) {
+    agent::json meta = {{"session_prompt_tokens", 700},
+                        {"session_completion_tokens", 70},
+                        {"session_usage_measured", true}};
+    tui::UsageLedger ledger;
+    tui::load_usage(meta, ledger);
+    ASSERT_EQ(ledger.main.prompt_tokens, 700L);
+    ASSERT_EQ(ledger.main.completion_tokens, 70L);
+    ASSERT(ledger.main.measured);
 }
 
 // --- WindowOps tests (11) ---
