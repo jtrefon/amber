@@ -54,6 +54,7 @@ inline constexpr int kDomainLibrary = 450;
 namespace tool_doc_priority {
 inline constexpr int kSearch = 500;
 inline constexpr int kRead = 510;
+inline constexpr int kReadResult = 515;
 inline constexpr int kWrite = 520;
 inline constexpr int kBash = 530;
 inline constexpr int kProcess = 540;
