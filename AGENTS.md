@@ -163,19 +163,26 @@ driven by an OpenAI-compatible LLM API.
   `gh api -X DELETE repos/jtrefon/amber/branches/main/protection` — re-apply it
   afterwards, because a repo with protection removed will not notice.
 
-  **Merging goes through the queue, and a PR is armed rather than watched.**
-  Auto-merge is enabled (`allow_auto_merge`), so
-  `gh pr merge <n> --squash --auto` merges the moment the PR is green — no
-  waiting on a terminal. `strict` checks mean a green PR still cannot merge
-  once `main` has moved, which is the queue's job: the **merge queue** builds
-  `gh-readonly-queue/main/pr-<n>-<sha>` from `main` plus the queued PRs and runs
-  the gates on that commit, so PRs are validated against the tree they will
-  actually produce instead of being serialised behind each other's staleness.
-  That is why `ci.yml` triggers on `merge_group`: without it the queue's commit
-  reports no `ci-gate` and the queue waits forever. `tools/gate_needs_check.py`
-  holds the merge-group event to every job that applies to it (only the
-  `pull_request`-only jobs may skip there), with its self-test covering both the
-  legitimate skips and the bypasses.
+  **A PR is armed, and stale PRs are refreshed by the train.** Auto-merge is on
+  (`allow_auto_merge`), so `gh pr merge <n> --squash --auto` merges the moment
+  the gates pass — no waiting on a terminal. `strict` checks still block a green
+  PR once `main` has moved, and **GitHub's native merge queue cannot be enabled
+  here**: the rulesets API rejects a `merge_queue` rule and no REST or GraphQL
+  field turns it on. What stands in for it is the **labelled merge train**
+  (`.github/workflows/merge-train.yml`, selection in `tools/merge_train.py`):
+  every 30 minutes it lands at most one `CLEAN` PR carrying the `merge-train`
+  label and updates the branches of the other labelled ones, so their gates
+  re-run against the new `main` instead of waiting for somebody to press "Update
+  branch". It never touches an unlabelled PR, a draft, a `DIRTY` one, or one
+  whose gates have not passed — a train cannot resolve a conflict, and merging
+  past a red gate is the failure the gates exist to prevent.
+
+  `ci.yml` still triggers on `merge_group`, so enabling the native queue later
+  needs no workflow change; `tools/gate_needs_check.py` holds that event to
+  every job that applies there (only the `pull_request`-only jobs may skip), and
+  its self-test covers both the legitimate skips and the bypasses. A skip policy
+  that treated an unknown event as "not applicable" would let a merge-group run
+  skip every gate and still pass, which is why the event is listed explicitly.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 
