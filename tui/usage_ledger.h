@@ -1,6 +1,7 @@
 #ifndef AMBER_TUI_USAGE_LEDGER_H
 #define AMBER_TUI_USAGE_LEDGER_H
 
+#include "agent/agent.h"
 #include "agent/extensions.h"
 
 namespace tui {
@@ -30,6 +31,26 @@ struct UsageLedger {
     // baseline included.
     void reset() { *this = UsageLedger{}; }
 };
+
+// Route one request's usage into its source. Shared by the event router and the
+// watch poller so the attribution table exists once.
+inline void apply_usage(UsageLedger& ledger, const agent::UsageSample& sample) {
+    agent::UsageTotals* sink = &ledger.main;
+    switch (sample.source) {
+    case agent::UsageSource::Main:
+        break;
+    case agent::UsageSource::Subagent:
+        sink = &ledger.subagents;
+        break;
+    case agent::UsageSource::Compression:
+        sink = &ledger.compression;
+        break;
+    case agent::UsageSource::Watch:
+        sink = &ledger.watch;
+        break;
+    }
+    sink->add(sample.prompt_tokens, sample.completion_tokens);
+}
 
 } // namespace tui
 

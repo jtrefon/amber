@@ -739,13 +739,15 @@ void Tui::poll_watch_usage() {
     if (!watch)
         return;
     for (auto& [owner_id, spent] : watch->take_usage()) {
-        for (auto& window : window_manager_->all()) {
-            if (window->kind != Window::Kind::Chat || window->owner_id != owner_id)
-                continue;
-            window->ledger.watch.add(spent.prompt_tokens, spent.completion_tokens);
-            window->usage = window->ledger.tree();
-            break;
-        }
+        tui::Window* window = window_manager_->by_owner_id(owner_id);
+        if (!window)
+            continue;
+        agent::UsageSample sample;
+        sample.source = agent::UsageSource::Watch;
+        sample.prompt_tokens = spent.prompt_tokens;
+        sample.completion_tokens = spent.completion_tokens;
+        tui::apply_usage(window->ledger, sample);
+        window->usage = window->ledger.tree();
     }
 }
 

@@ -272,35 +272,12 @@ void EventRouter::handle_stats(Window* w, const AgentEvent& ev) {
 }
 
 void EventRouter::handle_usage(Window* w, const AgentEvent& ev) {
-    Window* target = w;
-    if (ev.usage.source == agent::UsageSource::Subagent) {
-        target = nullptr;
-        for (auto& window : tui_.window_manager_->all()) {
-            if (window->kind != Window::Kind::Chat || ev.usage.owner_id.empty())
-                continue;
-            if (window->owner_id == ev.usage.owner_id) {
-                target = window.get();
-                break;
-            }
-        }
-    }
+    Window* target = ev.usage.source == agent::UsageSource::Subagent
+                         ? tui_.window_manager_->by_owner_id(ev.usage.owner_id)
+                         : w;
     if (!target)
         return;
-    agent::UsageTotals* sink = &target->ledger.main;
-    switch (ev.usage.source) {
-    case agent::UsageSource::Main:
-        break;
-    case agent::UsageSource::Subagent:
-        sink = &target->ledger.subagents;
-        break;
-    case agent::UsageSource::Compression:
-        sink = &target->ledger.compression;
-        break;
-    case agent::UsageSource::Watch:
-        sink = &target->ledger.watch;
-        break;
-    }
-    sink->add(ev.usage.prompt_tokens, ev.usage.completion_tokens);
+    apply_usage(target->ledger, ev.usage);
     target->usage = target->ledger.tree();
 }
 

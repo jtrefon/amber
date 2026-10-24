@@ -1,5 +1,8 @@
 
 #include "tui.h"
+#include "usage_report.h"
+
+#include <agent/compact.h>
 #include "feed_manager.h"
 #include "tui/list_panel.h"
 #include "tui/model_picker.h"
@@ -2639,52 +2642,15 @@ void SlashDispatcher::cmd_work_board() {
     tui_.draw();
 }
 
-namespace {
-
-std::string usage_line(const char* label, const agent::UsageTotals& usage) {
-    std::string line = std::string(label) + ": up " + agent::compact::count(usage.prompt_tokens) +
-                       " down " + agent::compact::count(usage.completion_tokens);
-    if (!usage.measured)
-        line += " (not measured)";
-    return line;
-}
-
-} // namespace
-
 void SlashDispatcher::cmd_usage_show() {
-    const tui::UsageLedger& ledger = tui_.win().ledger;
-    tui_.append_line(P_STATUS, "usage - session tree");
-    tui_.append_line(P_STATUS, "  " + usage_line("tree", ledger.tree()));
-    tui_.append_line(P_STATUS, "  " + usage_line("main", ledger.main));
-    if (ledger.subagents.measured)
-        tui_.append_line(P_STATUS, "  " + usage_line("sub-agents", ledger.subagents));
-    if (ledger.compression.measured)
-        tui_.append_line(P_STATUS, "  " + usage_line("compression", ledger.compression));
-    if (ledger.watch.measured)
-        tui_.append_line(P_STATUS, "  " + usage_line("watches", ledger.watch));
-    if (ledger.inherited.measured)
-        tui_.append_line(P_STATUS, "  " + usage_line("inherited", ledger.inherited));
-    for (const auto& task : tui_.subagents_.tasks()) {
-        if (!task.usage_measured)
-            continue;
-        tui_.append_line(P_STATUS, "  task " + task.id + ": up " +
-                                       agent::compact::count(task.prompt_tokens) + " down " +
-                                       agent::compact::count(task.completion_tokens));
-    }
-    std::size_t chats = 0;
+    std::vector<std::pair<std::string, agent::UsageTotals>> windows;
     for (const auto& window : tui_.window_manager_->all())
         if (window->kind == tui::Window::Kind::Chat)
-            ++chats;
-    if (chats > 1) {
-        for (const auto& window : tui_.window_manager_->all()) {
-            if (window->kind != tui::Window::Kind::Chat)
-                continue;
-            tui_.append_line(P_STATUS, "  window '" + window->title + "': up " +
-                                           agent::compact::count(window->usage.prompt_tokens) +
-                                           " down " +
-                                           agent::compact::count(window->usage.completion_tokens));
-        }
-    }
+            windows.emplace_back(window->title, window->usage);
+    tui_.append_line(P_STATUS, "usage - session tree");
+    for (const auto& line :
+         tui::usage_report_lines(tui_.win().ledger, tui_.subagents_.tasks(), windows))
+        tui_.append_line(P_STATUS, "  " + line);
     tui_.draw();
 }
 
