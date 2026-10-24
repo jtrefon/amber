@@ -32,6 +32,7 @@
 #include "agent/repair.h"
 #include "agent/run_scope.h"
 #include "agent/plugin.h"
+#include "agent/turn.h"
 #include "tests/fake_llm.h"
 #include "tests/test_util.h"
 
@@ -6394,6 +6395,142 @@ TEST(agent_extract_memories_from_tool_results) {
 
     auto top = store->top_memories(10, "build");
     ASSERT(!top.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Turn: the loop's state machine (issue #276)
+//
+// These are the transition rules themselves, not the loop's end-to-end effect.
+// The loop suite above still pins the behaviour; these pin the state that
+// produces it, so a bound can be changed without re-deriving it from a fake
+// model's transcript.
+// ---------------------------------------------------------------------------
+
+namespace {
+agent::Turn fresh_turn(int max_wall_ms = 0) {
+    return agent::Turn(std::chrono::steady_clock::now(), max_wall_ms);
+}
+} // namespace
+
+TEST(turn_silence_stops_at_the_bound_and_tool_work_resets_it) {
+    agent::Turn turn = fresh_turn();
+    ASSERT_FALSE(turn.record_silent_reply());
+    ASSERT_TRUE(turn.record_silent_reply());
+
+    agent::Turn reset = fresh_turn();
+    ASSERT_FALSE(reset.record_silent_reply());
+    reset.record_tool_reply();
+    ASSERT_FALSE(reset.record_silent_reply());
+}
+
+TEST(turn_notice_patience_is_separate_from_silence) {
+    agent::Turn turn = fresh_turn();
+    ASSERT_FALSE(turn.record_notice());
+    ASSERT_FALSE(turn.record_notice());
+    ASSERT_TRUE(turn.record_notice());
+
+    // A silent reply and a notice are different signals: one of each is not
+    // "two in a row" of either.
+    agent::Turn mixed = fresh_turn();
+    ASSERT_FALSE(mixed.record_silent_reply());
+    ASSERT_FALSE(mixed.record_notice());
+    ASSERT_FALSE(mixed.record_silent_reply());
+}
+
+TEST(turn_repeated_call_is_reported_once_per_milestone) {
+    agent::Turn turn = fresh_turn();
+    ASSERT_EQ(turn.observe_repeated_call("read|a"), 0);
+    ASSERT_EQ(turn.note_repeated_call(), 0);
+    ASSERT_EQ(turn.observe_repeated_call("read|a"), 1);
+    ASSERT_EQ(turn.note_repeated_call(), 0);
+    ASSERT_EQ(turn.observe_repeated_call("read|a"), 2);
+    // The note names the run length, and it is said once at that milestone.
+    ASSERT_EQ(turn.note_repeated_call(), 3);
+    ASSERT_EQ(turn.note_repeated_call(), 0);
+    // A different call starts a new run.
+    ASSERT_EQ(turn.observe_repeated_call("read|b"), 0);
+}
+
+TEST(turn_dispatch_loop_stops_at_the_guard_limit) {
+    agent::Turn turn = fresh_turn();
+    // The counter counts REPEATS, so the first batch sets the fingerprint and
+    // the fourth identical batch is the third repeat.
+    ASSERT_FALSE(turn.record_dispatch_fingerprint("fp"));
+    ASSERT_FALSE(turn.record_dispatch_fingerprint("fp"));
+    ASSERT_FALSE(turn.record_dispatch_fingerprint("fp"));
+    ASSERT_TRUE(turn.record_dispatch_fingerprint("fp"));
+    ASSERT_FALSE(turn.record_dispatch_fingerprint("other"));
+}
+
+TEST(turn_text_repeat_steers_then_stops) {
+    agent::Turn turn = fresh_turn();
+    // The first reply is the baseline, so the steer lands on the third
+    // identical arrival and the stop on the sixth.
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::None);
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::None);
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::Steer);
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::None);
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::None);
+    ASSERT_TRUE(turn.observe_text("x") == agent::TextRepeat::Unrecoverable);
+    // Different text is a new baseline, not a repeat.
+    ASSERT_TRUE(turn.observe_text("y") == agent::TextRepeat::None);
+    ASSERT_TRUE(turn.observe_text("y") == agent::TextRepeat::None);
+}
+
+TEST(turn_wall_clock_budget_exhausts_at_the_deadline) {
+    const auto start = std::chrono::steady_clock::now() - std::chrono::milliseconds(1500);
+    agent::Turn turn(start, 1000);
+    ASSERT_TRUE(turn.wall_clock_exceeded(std::chrono::steady_clock::now()));
+    ASSERT_TRUE(turn.elapsed_ms(std::chrono::steady_clock::now()) >= 1500);
+
+    agent::Turn unlimited = fresh_turn();
+    ASSERT_FALSE(unlimited.wall_clock_exceeded(std::chrono::steady_clock::now()));
+}
+
+TEST(turn_budget_notes_are_said_once) {
+    agent::Turn turn = fresh_turn(1000);
+    ASSERT_FALSE(turn.note_iteration_budget(1, 10)); // 20% spent
+    ASSERT_TRUE(turn.note_iteration_budget(8, 10));  // 90% spent
+    ASSERT_FALSE(turn.note_iteration_budget(9, 10)); // said already
+
+    agent::Turn wall(std::chrono::steady_clock::now(), 1000);
+    ASSERT_FALSE(wall.note_wall_budget(1000, std::chrono::steady_clock::now()));
+    const auto late = std::chrono::steady_clock::now() + std::chrono::milliseconds(900);
+    ASSERT_TRUE(wall.note_wall_budget(1000, late));
+    ASSERT_FALSE(wall.note_wall_budget(1000, late));
+}
+
+TEST(turn_internal_failures_stop_after_the_second) {
+    agent::Turn turn = fresh_turn();
+    ASSERT_FALSE(turn.record_internal_failure());
+    ASSERT_TRUE(turn.record_internal_failure());
+}
+
+TEST(turn_recovery_steer_is_claimable_once) {
+    agent::Turn turn = fresh_turn();
+    ASSERT_TRUE(turn.claim_recovery_steer());
+    ASSERT_FALSE(turn.claim_recovery_steer());
+}
+
+TEST(turn_records_how_the_turn_closed) {
+    agent::Turn closed = fresh_turn();
+    ASSERT_FALSE(closed.ran_tools());
+    closed.record_tool_reply();
+    ASSERT_TRUE(closed.ran_tools());
+    closed.record_failure("provider 500");
+    closed.close_with("the answer");
+    ASSERT_TRUE(closed.closed_by_model());
+    ASSERT_TRUE(closed.has_reply());
+    ASSERT_EQ(closed.last_failure(), "provider 500");
+    ASSERT_EQ(closed.take_reply(), "the answer");
+    ASSERT_FALSE(closed.has_reply());
+
+    // A bound-ended turn is not "closed by the model", and its reply is the
+    // stop reason the host sees.
+    agent::Turn stopped = fresh_turn();
+    stopped.stop_with("[stopped: budget]");
+    ASSERT_FALSE(stopped.closed_by_model());
+    ASSERT_EQ(stopped.take_reply(), "[stopped: budget]");
 }
 
 // ---------------------------------------------------------------------------

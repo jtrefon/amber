@@ -43,6 +43,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/repair.o \
             $(BUILD_DIR)/lib/agent_helpers.o \
+            $(BUILD_DIR)/lib/turn.o \
             $(BUILD_DIR)/lib/artifacts.o \
             $(BUILD_DIR)/lib/tool_recovery.o \
             $(BUILD_DIR)/lib/dispatch.o \

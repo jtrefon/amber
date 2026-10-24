@@ -26,6 +26,7 @@
 #include "agent/activation_sink.h"
 #include "agent/repair.h"
 #include "agent/tool_recovery.h"
+#include "agent/turn.h"
 
 namespace agent {
 
@@ -122,45 +123,6 @@ public:
         std::string text;
     };
 
-    // The mutable state of one agent turn: loop counters, recovery bookkeeping,
-    // the deadline, and the reply the turn will return.
-    struct TurnState {
-        FailStreak fail_streak;
-        int loop_count = 0;
-        int text_loop_count = 0;
-        int tool_recovery_attempts = 0;
-        int internal_failures = 0;
-        // Consecutive silent replies (no tool calls, no text). Bounds the loop's
-        // patience with a model that has stopped answering.
-        int no_answer = 0;
-        // Consecutive harness notices with no model reply in between: a failing
-        // endpoint has its own bound (it is not the model going quiet).
-        int notices = 0;
-        // True when the model's own reply closed the turn (a reply with no tool
-        // calls and text in it). False means a bound ended it, and the stop
-        // reason becomes part of the record.
-        bool model_closed = false;
-        // The loop's own state, announced once when it changes: the budget
-        // crossing and a call that keeps repeating. Reported, never acted on.
-        bool budget_noted = false;
-        bool wall_noted = false;
-        int repeat_count = 0;
-        int noted_repeats = 0;
-        // Whether THIS turn executed a tool call. The retained history is not a
-        // proxy: after compaction it still holds tool results from earlier
-        // turns, which made every empty reply read as "after tool calls".
-        bool had_tool_calls = false;
-        // The last request failure the harness reported in this turn. The stop
-        // reason names it, so a provider outage is not reported as a silent
-        // model.
-        std::string last_failure;
-        std::string last_call_key;
-        std::string last_loop_key;
-        std::string last_text;
-        std::string final_reply;
-        std::chrono::steady_clock::time_point start;
-        std::chrono::steady_clock::time_point deadline;
-    };
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
           std::unique_ptr<CompressionStrategy> compressor = {},
           std::unique_ptr<CompressionGate> gate = {},
@@ -421,7 +383,6 @@ private:
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
 
-    TurnState make_turn_state() const;
     void open_turn(const std::string& user_prompt);
     bool fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before);
     void publish_compression_done(bool success, long tokens_after);
@@ -435,19 +396,18 @@ private:
     void finish_compression(CompressionResult& r, const CompressionResponse& cr, size_t msgs_before,
                             size_t tokens_before, CompressionReporter& reporter,
                             CompressionResult* out);
-    bool turn_budget_exceeded(TurnState& st);
-    bool advance_turn(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools,
-                      Message& reply);
+    bool turn_budget_exceeded(Turn& turn);
+    bool advance_turn(Turn& turn, const std::vector<std::shared_ptr<Tool>>& tools, Message& reply);
 
     // advance_turn under a recovery guard: a failure raised while folding a
     // reply into the turn (dispatch, tool envelopes, host callbacks) is
     // reported and survived instead of escaping run() and killing the turn.
-    bool fold_reply(TurnState& st, const std::vector<std::shared_ptr<Tool>>& tools, Message& reply);
+    bool fold_reply(Turn& turn, const std::vector<std::shared_ptr<Tool>>& tools, Message& reply);
 
     // Fold a non-chat failure into the turn: log it, tell the host, hand the
     // model a message it can act on, and answer any tool_call the failure
     // swallowed. Returns true when the loop must stop instead.
-    bool recover_internal_failure(TurnState& st, const std::string& what);
+    bool recover_internal_failure(Turn& turn, const std::string& what);
 
     // Push a [harness] notice (retry summary, repair report, loop state, stop
     // reason) into the conversation. Harness notices ride the user channel with
@@ -458,13 +418,13 @@ private:
     // The loop's own state, said once at the moment it changes: how much of the
     // iteration and wall-clock budget is spent, and whether the same call keeps
     // coming back. Nothing here intervenes — the model is told and decides.
-    void note_loop_state(TurnState& st, int iter);
+    void note_loop_state(Turn& turn, int iter);
 
     // The four ways one reply can fold into the turn. Each returns true when the
     // loop must stop.
-    bool fold_tool_calls(TurnState& st, const json& tool_calls, const std::string& content);
-    bool fold_harness_notice(TurnState& st);
-    bool fold_silent_reply(TurnState& st);
+    bool fold_tool_calls(Turn& turn, const json& tool_calls, const std::string& content);
+    bool fold_harness_notice(Turn& turn);
+    bool fold_silent_reply(Turn& turn);
 
     // A tool_call with no tool response is an invalid request and poisons every
     // later turn; a swallowed dispatch failure leaves one behind.
@@ -474,17 +434,20 @@ private:
     void log_and_push_user_prompt(const std::string& prompt);
 
     // Dispatch tool calls with loop detection. Returns true if the loop
-    // should continue (tool calls were present and handled). Sets final_reply
-    // on hard stop.
+    // should continue (tool calls were present and handled). Sets the turn's
+    // stop reason on a hard stop.
     bool dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
-                                      FailStreak& fail_streak, int& loop_count,
-                                      std::string& last_loop_key, int& tool_recovery_attempts,
-                                      std::string& final_reply);
+                                      Turn& turn);
+
+    // The dispatch guards: the same call fingerprint repeated past the guard
+    // ends the turn, and a failing tool earns one recovery steer before it
+    // stops.
+    bool stop_on_dispatch_loop(const json& tool_calls, Turn& turn);
+    void fold_fail_streak(const json& tool_calls, bool dispatch_ok, Turn& turn);
 
     // Detect repeated text replies. Returns true if a hard text loop was
-    // detected and final_reply was set.
-    bool detect_text_loop(const std::string& content, int& text_loop_count, std::string& last_text,
-                          std::string& final_reply);
+    // detected and the turn's stop reason was set.
+    bool detect_text_loop(Turn& turn, const std::string& content);
 
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<std::shared_ptr<Tool>> resolve_tools();
@@ -506,7 +469,7 @@ private:
     // Finalize a turn: fallback on empty, report the stop, log, update state.
     // `st.model_closed` false means a bound ended the turn (iteration cap, wall
     // clock, loop guard, silence) — its reason is recorded as a harness notice.
-    std::string finish_turn(TurnState& st);
+    std::string finish_turn(Turn& turn);
     std::string finish_turn_cancelled();
 
     // Apply memory/skill ops from a compression response to the store.
