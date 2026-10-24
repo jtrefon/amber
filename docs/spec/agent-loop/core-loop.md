@@ -13,8 +13,8 @@ invents a turn of its own; what it has to report (a retry, a repair, a budget, a
 stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 
 ### Ownership
-- **Source files**: `lib/agent.cpp` (`Agent::run()`, `chat_once()`, `advance_turn()`, `inject_harness_note()`, `compress_now()`), `lib/agent_helpers.cpp` (`chat_with_retry`, `empty_turn_reply`, `fingerprint_tool_calls`), `lib/dispatch.cpp` (`dispatch_tool_calls`), `lib/tool_recovery.cpp` (`FailStreak`), `include/agent/agent.h`
-- **Test files**: `tests/agent_loop_test.cpp` (hermetic FakeLLMClient scenarios [AL-xx]), `tests/agent_events_test.cpp`
+- **Source files**: `lib/agent.cpp` (`Agent::run()`, `chat_once()`, `advance_turn()`, `inject_harness_note()`, `compress_now()`), `lib/turn.cpp` (`Turn`, the per-turn counters, budgets and stop reason), `lib/agent_helpers.cpp` (`chat_with_retry`, `empty_turn_reply`, `fingerprint_tool_calls`), `lib/dispatch.cpp` (`dispatch_tool_calls`), `lib/tool_recovery.cpp` (`FailStreak`), `include/agent/agent.h`, `include/agent/turn.h`
+- **Test files**: `tests/agent_loop_test.cpp` (hermetic FakeLLMClient scenarios [AL-xx]), `tests/agent_events_test.cpp`, `tests/run_tests.cpp` (`turn_*`, the transition rules themselves)
 
 ---
 
@@ -36,10 +36,14 @@ stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 4. The loop never exceeds `cfg_.max_tool_iterations` (default 100).
 5. `run()` always returns a non-empty string. If no valid reply exists, `empty_turn_reply()` synthesises one.
 6. The loop state machine follows: `Idle → Waiting → Thinking/Streaming → Tooling → Idle` (or loop back to Waiting).
-7. Harness notices reach the model in place: a `[harness]` message is pushed with
+7. The turn's own state (counters, budgets, the reply it will return) belongs to
+   `Turn` (`include/agent/turn.h`). The loop and its helpers change it only
+   through its methods, so each bound is written once and the reported state is
+   the enforced state.
+8. Harness notices reach the model in place: a `[harness]` message is pushed with
    `Message::harness` set, so the loop knows it is not the model's own reply and
    the model knows it is the environment speaking.
-8. Cancellation via `cancel_token` is checked by the HTTP transport and tools but NOT directly by the loop (loop relies on LLM call aborting via transport cancellation).
+9. Cancellation via `cancel_token` is checked by the HTTP transport and tools but NOT directly by the loop (loop relies on LLM call aborting via transport cancellation).
 
 ---
 
