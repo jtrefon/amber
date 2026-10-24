@@ -6,6 +6,7 @@
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
+#include "agent/private_file.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/watch/watch_plugin.h"
 
@@ -700,6 +701,7 @@ int main(int argc, char** argv) try {
     if (std::optional<int> rc = parse_args(argc, argv, cfg, args))
         return *rc;
     load_run_config(cfg, args, global);
+    agent::secure_private_state_async();
 
     if (const int rc = run_mcp_surfaces(cfg, args, args.no_plugins); rc >= 0)
         return rc;

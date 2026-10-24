@@ -1,5 +1,6 @@
 
 #include "agent/policy.h"
+#include "agent/private_file.h"
 #include "agent/shell_classify.h"
 
 #include <algorithm>
@@ -97,15 +98,7 @@ void PolicyStore::save(const std::string& path) const {
         if (r.level != PolicyLevel::Ask)
             arr.push_back(rule_to_json(r));
     }
-    std::string tmp = path + ".tmp";
-    {
-        std::ofstream f(tmp);
-        if (!f)
-            return;
-        f << arr.dump(2);
-    }
-    std::error_code ec;
-    std::filesystem::rename(tmp, path, ec);
+    write_private_file(path, arr.dump(2));
 }
 
 const PolicyRule* PolicyStore::find(const std::string& scope_id) const {

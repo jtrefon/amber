@@ -1,5 +1,6 @@
 #include "agent/artifacts.h"
 
+#include "agent/private_file.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -76,6 +77,7 @@ std::string random_id() {
 std::optional<fs::path> canonical_dir(const fs::path& dir, std::string& error) {
     std::error_code ec;
     fs::create_directories(dir, ec);
+    ensure_private_dir(dir.string());
     char* resolved = ::realpath(dir.c_str(), nullptr);
     if (!resolved) {
         error = "cannot resolve the artifact directory: " + dir.string();
@@ -199,27 +201,10 @@ std::string store_tool_artifact(const std::string& payload) {
     if (!resolved)
         return {};
     const fs::path& dir = *resolved;
-    std::error_code ec;
     prune(dir, payload.size());
     std::string id = random_id();
-    const fs::path temp = dir / (id + ".tmp");
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out)
-            return {};
-        out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
-        if (!out) {
-            fs::remove(temp, ec);
-            return {};
-        }
-    }
-    fs::permissions(temp, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace,
-                    ec);
-    fs::rename(temp, dir / id, ec);
-    if (ec) {
-        fs::remove(temp, ec);
+    if (!write_private_file((dir / id).string(), payload))
         return {};
-    }
     return id;
 }
 

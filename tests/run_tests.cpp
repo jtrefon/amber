@@ -27,6 +27,7 @@
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/config_paths.h"
+#include "agent/private_file.h"
 #include "agent/mcp_tools.h"
 #include "agent/subagent.h"
 #include "agent/repair.h"
@@ -2829,6 +2830,62 @@ TEST(private_error_journal_is_owner_only) {
     }
     ASSERT_EQ(mode_of(xdg.state + "/errors"), 0700u);
     ASSERT_EQ(mode_of(path), 0600u);
+}
+
+TEST(private_migration_narrows_existing_paths_and_is_idempotent) {
+    XdgGuard xdg("private_migration");
+    UmaskGuard umask(022);
+    const std::string config = agent::global_config_path();
+    const std::string providers = agent::global_config_dir() + "/providers";
+    const std::string state = agent::Workspace::state_dir();
+    const std::string sessions = state + "/sessions";
+    const std::string session = sessions + "/old.json";
+    std::filesystem::create_directories(providers);
+    std::filesystem::create_directories(sessions);
+    {
+        std::ofstream f(config);
+        f << "api_key=secret\n";
+    }
+    {
+        std::ofstream f(providers + "/old.conf");
+        f << "api_key=secret\n";
+    }
+    {
+        std::ofstream f(session);
+        f << "{}\n";
+    }
+    ASSERT_EQ(::chmod(config.c_str(), 0644), 0);
+    ASSERT_EQ(::chmod((providers + "/old.conf").c_str(), 0644), 0);
+    ASSERT_EQ(::chmod(session.c_str(), 0644), 0);
+
+    agent::secure_private_state();
+    agent::secure_private_state(); // idempotent
+
+    ASSERT_EQ(mode_of(config), 0600u);
+    ASSERT_EQ(mode_of(providers), 0700u);
+    ASSERT_EQ(mode_of(providers + "/old.conf"), 0600u);
+    ASSERT_EQ(mode_of(state), 0700u);
+    ASSERT_EQ(mode_of(sessions), 0700u);
+    ASSERT_EQ(mode_of(session), 0600u);
+}
+
+TEST(private_migration_does_not_follow_symlinks) {
+    XdgGuard xdg("private_symlink");
+    UmaskGuard umask(022);
+    std::filesystem::create_directories(xdg.dir);
+    const std::string target = xdg.dir + "/outside.conf";
+    {
+        std::ofstream f(target);
+        f << "api_key=secret\n";
+    }
+    ASSERT_EQ(::chmod(target.c_str(), 0644), 0);
+    std::filesystem::create_directories(agent::global_config_dir());
+    ASSERT_EQ(::symlink(target.c_str(), agent::global_config_path().c_str()), 0);
+
+    agent::secure_private_state();
+
+    ASSERT_EQ(mode_of(target), 0644u);
+    ASSERT_TRUE(std::filesystem::is_symlink(agent::global_config_path()));
 }
 
 // ---------------------------------------------------------------------------
