@@ -3860,7 +3860,8 @@ void SlashDispatcher::cmd_set_work_auto_attach(const std::string& v) {
         return;
     }
     tui_.cfg_.work_auto_attach = v;
-    tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+    // The settings path is the user's own XDG state root (absolute, ".." rejected).
+    tui_.cfg_.save_settings(tui_.session_controller_->settings_path()); // lgtm[cpp/path-injection]
     tui_.append_line(P_STATUS, "work.auto_attach: " + v);
     tui_.draw();
 }
