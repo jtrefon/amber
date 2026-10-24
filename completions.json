@@ -10,6 +10,23 @@
    ],
    "short": "h"
   },
+  "usage": {
+   "action": "core.usage.show",
+   "help": "Show token spend by source.",
+   "man": "Reports the active session's spend: this conversation, sub-agents, compression and watches, with the tree total. '/usage reset' zeroes the tree; compression and '/session new' never do.",
+   "children": {
+    "show": {
+     "action": "core.usage.show",
+     "help": "Show the session usage breakdown.",
+     "man": "Lists prompt (up) and completion (down) tokens for the main conversation, sub-agent tasks, compression passes and watches, then the tree total and each open chat window's total when more than one exists."
+    },
+    "reset": {
+     "action": "core.usage.reset",
+     "help": "Zero this session's usage tree.",
+     "man": "Resets the active window's ledger, including sub-agent spend and an inherited fork baseline. It is an explicit action only: compression and '/session new' never reset spend."
+    }
+   }
+  },
   "settings": {
    "action": "core.settings",
    "help": "Browse settings groups; edit with /set <group>.",

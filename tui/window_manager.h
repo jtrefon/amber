@@ -38,6 +38,8 @@ public:
     Window& win();
     const Window& win() const;
     Window* by_id(size_t id);
+    // The chat window that owns background work with this owner_id, or null.
+    Window* by_owner_id(const std::string& owner_id);
     size_t active() const noexcept { return active_; }
     // Activating a window marks it viewed; resources use that to decide
     // whether a terminal state may close them.

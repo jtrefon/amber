@@ -133,6 +133,15 @@ void WindowManager::set_active(size_t idx) noexcept {
         last_chat_ = idx;
 }
 
+Window* WindowManager::by_owner_id(const std::string& owner_id) {
+    if (owner_id.empty())
+        return nullptr;
+    for (auto& window : windows_)
+        if (window->kind == Window::Kind::Chat && window->owner_id == owner_id)
+            return window.get();
+    return nullptr;
+}
+
 bool WindowManager::focus_resource(const std::string& kind, const std::string& id) {
     for (size_t i = 0; i < windows_.size(); ++i) {
         if (windows_[i]->kind == Window::Kind::Resource && windows_[i]->resource_kind == kind &&

@@ -632,6 +632,16 @@ void Tui::run_startup(CommandLine& cl) {
     render_engine_->draw();       // first paint: nothing below this line may fork before it
     render_engine_->draw_input("");
     render_engine_->flush();
+    // Sub-agent usage is reported from the shared executor's worker threads;
+    // the owner window is resolved on the UI thread at drain time.
+    subagents_.set_usage_sink([this](const agent::UsageSample& sample) {
+        if (!router_)
+            return;
+        AgentEvent ev;
+        ev.type = AgentEvent::Usage;
+        ev.usage = sample;
+        router_->enqueue_global(std::move(ev));
+    });
     start_workspace_pass(); // git, but off this thread: reap, rebuild, record heads
     detect_server(false);
     timeout(kTickTimeoutMs);
@@ -783,6 +793,25 @@ void Tui::auto_attach_resources() {
         auto_attach_agents();
 }
 
+// Watch observers run in plugin worker threads and accumulate their spend in
+// the watch service; drain it here, on the UI thread, into the owning window.
+void Tui::poll_watch_usage() {
+    auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch"));
+    if (!watch)
+        return;
+    for (auto& [owner_id, spent] : watch->take_usage()) {
+        tui::Window* window = window_manager_->by_owner_id(owner_id);
+        if (!window)
+            continue;
+        agent::UsageSample sample;
+        sample.source = agent::UsageSource::Watch;
+        sample.prompt_tokens = spent.prompt_tokens;
+        sample.completion_tokens = spent.completion_tokens;
+        tui::apply_usage(window->ledger, sample);
+        window->usage = window->ledger.tree();
+    }
+}
+
 // No key this tick: repaint what changed, and keep the clock and the tool
 // spinners alive.
 void Tui::idle_tick(bool had_events, CommandLine& cl) {
@@ -794,6 +823,7 @@ void Tui::idle_tick(bool had_events, CommandLine& cl) {
             render_engine_->set_last_status_tick(now);
             router_->advance_tool_spinners();
             auto_attach_resources();
+            poll_watch_usage();
             if (runs_.any_busy())
                 render_engine_->draw();
             else

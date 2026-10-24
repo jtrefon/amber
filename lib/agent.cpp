@@ -498,6 +498,8 @@ void Agent::record_stats(const Stats& stats) {
         return;
     if (hooks_.on_stats)
         hooks_.on_stats(stats);
+    if (hooks_.on_usage)
+        hooks_.on_usage({UsageSource::Main, stats.prompt_tokens, stats.completion_tokens, {}, {}});
     if (stats.prompt_tokens > 0)
         cfg_.prompt_tokens_used = stats.prompt_tokens;
 }

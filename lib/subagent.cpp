@@ -116,6 +116,7 @@ AgentHooks SubAgentExecutor::progress_hooks(const std::string& task_id) {
         update_task(task_id, "running");
         append_tail(task_id, "<- " + name + (result.ok ? " ok" : " error"));
     };
+    hooks.on_stats = [this, task_id](const Stats& stats) { record_usage(task_id, stats); };
     return hooks;
 }
 
@@ -164,6 +165,9 @@ std::vector<SubAgentTaskInfo> SubAgentExecutor::tasks() const {
         info.current_tool = record.current_tool;
         info.result = record.result;
         info.tail = record.tail;
+        info.prompt_tokens = record.prompt_tokens;
+        info.completion_tokens = record.completion_tokens;
+        info.usage_measured = record.usage_measured;
         info.elapsed_s =
             std::chrono::duration_cast<std::chrono::seconds>(now - record.started).count();
         info.slot = record.slot;
@@ -222,6 +226,33 @@ std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegis
         err = std::string("sub-agent failed: ") + e.what();
         return {};
     }
+}
+
+void SubAgentExecutor::record_usage(const std::string& task_id, const Stats& stats) {
+    UsageSample sample;
+    sample.source = UsageSource::Subagent;
+    sample.prompt_tokens = stats.prompt_tokens;
+    sample.completion_tokens = stats.completion_tokens;
+    sample.task_id = task_id;
+    {
+        std::scoped_lock lk(tasks_mutex_);
+        for (auto& record : tasks_) {
+            if (record.id != task_id)
+                continue;
+            if (stats.prompt_tokens >= 0) {
+                record.prompt_tokens += stats.prompt_tokens;
+                record.usage_measured = true;
+            }
+            if (stats.completion_tokens >= 0) {
+                record.completion_tokens += stats.completion_tokens;
+                record.usage_measured = true;
+            }
+            sample.owner_id = record.owner_id;
+            break;
+        }
+    }
+    if (stats.valid && usage_sink_)
+        usage_sink_(sample);
 }
 
 std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& reg,

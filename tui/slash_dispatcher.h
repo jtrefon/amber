@@ -77,6 +77,8 @@ public:
     void show_debug_status();
     void cmd_set_worktree(const std::string& val);
     void cmd_set_work_auto_attach(const std::string& val);
+    void cmd_usage_show();
+    void cmd_usage_reset();
     void cmd_get_worktree();
     void cmd_worktree(const std::string& arg);
     void cmd_worktree_new(const std::string& arg);

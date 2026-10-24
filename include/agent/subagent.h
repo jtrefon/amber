@@ -40,6 +40,9 @@ struct SubAgentTaskInfo {
     std::string current_tool;
     std::string result;
     std::string tail;
+    long prompt_tokens = 0;
+    long completion_tokens = 0;
+    bool usage_measured = false;
     long elapsed_s = 0;
     int slot = -1;
 };
@@ -66,12 +69,19 @@ public:
 
     void set_config(const Config& cfg) { cfg_ = cfg; }
     void set_hooks(const AgentHooks& hooks) { hooks_ = hooks; }
+    // Host sink for sub-agent usage (called on the worker thread). The host
+    // tags it with UsageSource::Subagent; the executor also records the totals
+    // on the task itself.
+    void set_usage_sink(std::function<void(const UsageSample&)> sink) {
+        usage_sink_ = std::move(sink);
+    }
     void set_factory(LLMClientFactory f) { factory_ = std::move(f); }
 
     // Run one focused sub-task; returns the sub-agent's final reply.
     // `err` is set on hard failure (cap exceeded, transport, nesting).
     std::string run_task(const std::string& prompt, ToolRegistry& reg, std::string& err);
     AgentHooks sub_hooks_of() const;
+    void record_usage(const std::string& task_id, const Stats& stats);
     Config sub_config() const;
 
 private:
@@ -86,7 +96,8 @@ private:
     void update_task(const std::string& id, const std::string& state,
                      const std::string& current_tool = {}, const std::string& result = {});
     void append_tail(const std::string& id, const std::string& line);
-    // The child's progress hooks: a tool-level tail, never per-token events.
+    // The child's progress hooks: state, per-task usage and a tool-level tail;
+    // never per-token events.
     AgentHooks progress_hooks(const std::string& task_id);
     void fail_task(const std::string& id, const std::string& error);
     struct TaskRecord {
@@ -97,6 +108,9 @@ private:
         std::string current_tool;
         std::string result;
         std::string tail;
+        long prompt_tokens = 0;
+        long completion_tokens = 0;
+        bool usage_measured = false;
         int slot = -1;
         std::chrono::steady_clock::time_point started;
     };
@@ -116,6 +130,7 @@ private:
     std::vector<TaskRecord> tasks_;
     Config cfg_;
     AgentHooks hooks_;
+    std::function<void(const UsageSample&)> usage_sink_;
     LLMClientFactory factory_;
     std::timed_mutex serial_mutex_;
     mutable std::mutex slot_mutex_;

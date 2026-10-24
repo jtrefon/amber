@@ -395,6 +395,8 @@ private:
     void auto_attach_jobs();
     void auto_attach_agents();
     bool resource_ever_focused(const std::string& kind, const std::string& id) const;
+    // Drain watch-observer usage into each owner window's ledger.
+    void poll_watch_usage();
     bool handle_option_key(int& ch, CommandLine& cl);
     bool handle_key_binding(int ch, CommandLine& cl);
     bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);

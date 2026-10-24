@@ -97,6 +97,7 @@ public:
     mutable std::atomic<int> max_active{0};
     mutable std::mutex mtx;
     std::string last_brief;
+    agent::UsageTotals usage;
 
     std::string complete(const std::string&, const std::string& brief,
                          const CancellationToken&) override {
@@ -113,6 +114,13 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
         --active;
         return reply;
+    }
+
+    agent::UsageTotals take_usage() override {
+        std::scoped_lock lk(mtx);
+        agent::UsageTotals out = usage;
+        usage = {};
+        return out;
     }
 };
 
@@ -248,6 +256,35 @@ TEST(watch_process_failure_uses_observer_and_publishes_owner) {
     ASSERT_EQ(events.size(), std::size_t{1});
     ASSERT_EQ(events[0].owner_id, std::string("7"));
     ASSERT_TRUE(events[0].needs_attention);
+}
+
+TEST(watch_observer_usage_is_attributed_to_the_owner) {
+    ScratchEnv env("usage_owner");
+    auto runner = std::make_shared<FakeRunner>();
+    runner->handler = [](const std::string&, const std::string&, int, const CancellationToken&) {
+        return CommandRunner::Result{"error: boom\n", 2, false, false};
+    };
+    auto observer = std::make_shared<FakeObserver>();
+    observer->reply = kFailureReport;
+    agent::UsageTotals spent;
+    spent.prompt_tokens = 1200;
+    spent.completion_tokens = 30;
+    spent.measured = true;
+    observer->usage = spent;
+    EventBus bus;
+
+    WatchService service(runner, observer, WatchStore(env.path("watch")), "observer", &bus);
+    std::string err;
+    const std::string id = service.start(process_options("false"), err);
+    ASSERT_TRUE(err.empty());
+    ASSERT_TRUE(wait_terminal(service, id).has_value());
+
+    const auto used = service.take_usage();
+    ASSERT_EQ(used.size(), std::size_t{1});
+    ASSERT_EQ(used.at("7").prompt_tokens, 1200L);
+    ASSERT_EQ(used.at("7").completion_tokens, 30L);
+    ASSERT(used.at("7").measured);
+    ASSERT(service.take_usage().empty()); // drained once
 }
 
 TEST(watch_report_ack_and_reemit_survive_restart) {
