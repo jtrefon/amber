@@ -16,9 +16,16 @@ name: Merge train
 # rule is testable without GitHub, a label or a merge.
 
 on:
+  # The real trigger: when a CI run finishes, the train re-plans. That is what makes it
+  # a queue rather than a cron job -- a PR whose gates just passed gets merged, and a
+  # merge lands a push, whose CI completion refreshes the next one.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   schedule:
-    # Twice an hour, off the top of the hour. A CI run is ~20 minutes, so a faster
-    # cadence would only re-plan against checks that cannot have finished.
+    # A backstop, not the mechanism: GitHub's scheduler did not fire this workflow at
+    # all between its merge (17:18Z) and 19:40Z the same day, so nothing may depend on
+    # it. Twice an hour, off the top of the hour.
     - cron: '17,47 * * * *'
   workflow_dispatch:
 

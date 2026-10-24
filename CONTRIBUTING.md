@@ -84,9 +84,9 @@ automation keep that from serialising into a queue of stale PRs:
 
 - **Auto-merge.** Arm the PR instead of watching it:
   `gh pr merge <n> --squash --auto`. It lands the moment the gates pass.
-- **The merge train.** Add the `merge-train` label and the scheduled workflow lands one
-  clean labelled PR per run, then updates the branches of the other labelled PRs so
-  their gates re-run against the new `main`. It never touches an unlabelled PR, a
+- **The merge train.** Add the `merge-train` label and the workflow lands one clean
+  labelled PR when a CI run completes, then updates the branches of the other labelled
+  PRs so their gates re-run against the new `main`. It never touches an unlabelled PR, a
   draft, a conflicted one, or one whose gates have not passed. The native GitHub merge
   queue is not available on this repository (the rulesets API rejects `merge_queue`),
   which is why this exists; selection rules and their cases are in
