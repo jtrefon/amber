@@ -1280,6 +1280,7 @@ void SlashDispatcher::register_readout_actions() {
     register_action("core.config.get.detection.loop",
                     [this](const std::string&) { cmd_get_detection("loop"); });
     register_action("core.config.get.worktree", [this](const std::string&) { cmd_get_worktree(); });
+    register_action("core.config.get.work", [this](const std::string&) { cmd_get("work"); });
     register_action("core.config.get.detection.duplicate",
                     [this](const std::string&) { cmd_get_detection("duplicate"); });
     register_action("core.config.get.debug", [this](const std::string&) { show_debug_status(); });
