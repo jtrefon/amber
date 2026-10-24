@@ -106,6 +106,53 @@ void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, cons
 
 } // namespace
 
+// [BENCH] A long read with and without the context budget: the tool message,
+// and every later request that re-sends it, shrinks; the turn still completes.
+TEST(tool_budget_reduces_resent_bytes) {
+    namespace fs = std::filesystem;
+    std::string tmpl = "/tmp/amber_budget_bench_XXXXXX";
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    const char* made = mkdtemp(buf.data());
+    ASSERT(made != nullptr);
+    const std::string root = made;
+    {
+        std::ofstream f(root + "/big.log");
+        ASSERT(f.good());
+        for (int i = 0; i < 2000; ++i)
+            f << "line " << i << " " << std::string(70, 'x') << "\n";
+    }
+    const auto measure = [&](int budget) -> std::size_t {
+        agent::Workspace::set_root(root);
+        agent::Config cfg = loop_cfg();
+        cfg.log_path = root + "/transcript.jsonl";
+        cfg.max_tool_result_bytes = budget;
+        agent::ToolRegistry reg;
+        agent::JobService jobs;
+        agent::TodoStore todos;
+        agent::SubAgentExecutor subagents;
+        agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents);
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        agent_test::FakeLLMClient* raw = fake.get();
+        push_tool_call(*fake, "read", {{"path", "big.log"}, {"limit", 2000}});
+        push_text(*fake, "done");
+        agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+        const std::string reply = ag.run("read the log");
+        ASSERT_EQ(reply, std::string("done"));
+        ASSERT(!raw->requests.empty());
+        std::size_t bytes = 0;
+        for (const auto& m : raw->requests.back())
+            bytes += m.content.size();
+        return bytes;
+    };
+    const std::size_t uncapped = measure(0);
+    const std::size_t capped = measure(32 * 1024);
+    std::printf("[bench] long-read resend bytes: uncapped=%zu capped=%zu\n", uncapped, capped);
+    ASSERT(capped < uncapped);
+    ASSERT(uncapped - capped > 100000u);
+    fs::remove_all(root);
+}
+
 // [AL-01] A reply with no tool calls is the turn's answer: one generation, and
 // the harness injects nothing behind it. The old contract asked "Are you
 // finished?" and paid a second generation (and a probe) for every reply.
