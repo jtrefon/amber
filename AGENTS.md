@@ -170,10 +170,12 @@ driven by an OpenAI-compatible LLM API.
   here**: the rulesets API rejects a `merge_queue` rule and no REST or GraphQL
   field turns it on. What stands in for it is the **labelled merge train**
   (`.github/workflows/merge-train.yml`, selection in `tools/merge_train.py`):
-  every 30 minutes it lands at most one `CLEAN` PR carrying the `merge-train`
-  label and updates the branches of the other labelled ones, so their gates
-  re-run against the new `main` instead of waiting for somebody to press "Update
-  branch". It never touches an unlabelled PR, a draft, a `DIRTY` one, or one
+  when a CI run completes it lands at most one `CLEAN` PR carrying the
+  `merge-train` label and updates the branches of the other labelled ones, so
+  their gates re-run against the new `main` instead of waiting for somebody to
+  press "Update branch". The trigger is `workflow_run` completion, not a timer:
+  the schedule is only a backstop, because GitHub's scheduler did not fire this
+  workflow once in the two hours after it landed. It never touches an unlabelled PR, a draft, a `DIRTY` one, or one
   whose gates have not passed — a train cannot resolve a conflict, and merging
   past a red gate is the failure the gates exist to prevent. After a merge it
   dispatches `ci.yml` on `main` itself: a merge made with `GITHUB_TOKEN` creates
