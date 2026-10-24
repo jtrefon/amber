@@ -124,6 +124,17 @@ std::size_t WindowManager::chat_count() const noexcept {
     return chats;
 }
 
+std::size_t WindowManager::chat_position() const noexcept {
+    std::size_t seen = 0;
+    for (std::size_t i = 0; i < windows_.size(); ++i) {
+        if (windows_[i]->kind == Window::Kind::Chat)
+            ++seen;
+        if (i == active_)
+            break;
+    }
+    return seen;
+}
+
 void WindowManager::set_active(size_t idx) noexcept {
     active_ = idx;
     if (idx >= windows_.size())

@@ -36,7 +36,7 @@ Four compact cells, left of the model cell, after `[s…]` root:
 
 | Cell | Meaning | Tone |
 |---|---|---|
-| `[s2/3]` | active window index / open chat windows | `Banner` (white-on-blue) |
+| `[s2/3]` | active chat position / open chat windows | `Banner` (white-on-blue) |
 | `[j2]` | running jobs | `Warn` (yellow-on-blue) |
 | `[a1/2]` | active subagents / configured max | `Good` (green-on-blue) |
 | `[w2!]` | running watches, `!` attention | `Dim` (cyan-on-blue) |
@@ -48,9 +48,11 @@ Rules:
 - `[a…]` is hidden when the `task` tool is unavailable or subagents are disabled.
 - `[j1/2]` is shown only while a job viewer is focused: focused job / running
   jobs. With no viewer it is `[j2]`; jobs have no configured maximum.
-- `[s…]` counts **open chat windows**, not saved sessions and not resource
-  viewers. Saved sessions stay in `/session list` and the browser; an
-  auto-attached viewer never inflates the count.
+- `[s…]` is the active **chat**'s position over the **open chat windows** —
+  neither half counts saved sessions or resource viewers. Saved sessions stay in
+  `/session list` and the browser; an auto-attached viewer never inflates either
+  number, and focusing one shows the position of the chat it sits behind, so the
+  cell never reads `index > count`.
 - `[w…]` reuses the watch plugin’s counts and attention flag.
 - The cells are a legend for `/work` and the resource roots; command shortcuts
   may differ where collision resolution requires it.
