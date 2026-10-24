@@ -313,10 +313,15 @@ printf 'all:\n\t@true\n' > "$p12/Makefile"
 # its prerequisites, so the first case must leave ./configure alone.
 touch -t 202001010000 "$p12/Makefile.in" "$p12/configure"
 touch -t 202001020000 "$p12/Makefile"
-if (cd "$p12" && make all >/dev/null 2>&1) && [ ! -f "$p12/configured.marker" ]; then
+# "Circular Makefile.in <- ensure" is the same defect wearing a quieter face: the
+# catch-all was treating the template as a goal it could build through ensure.
+p12_out=$(cd "$p12" && make all 2>&1)
+p12_status=$?
+if [ "$p12_status" -eq 0 ] && [ ! -f "$p12/configured.marker" ] &&
+    ! printf '%s' "$p12_out" | grep -q 'Circular'; then
     ok "P12: a current Makefile is not reconfigured"
 else
-    warn "P12: 'make' reconfigured an already-current Makefile"
+    warn "P12: 'make' reconfigured an already-current Makefile, or remade Makefile.in/configure as goals"
 fi
 # Now the template is newer than the generated Makefile, the one case a pull creates.
 touch -t 202001030000 "$p12/Makefile.in"
