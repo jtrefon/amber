@@ -16,7 +16,8 @@ when a long session needs them.
 ### Ownership
 
 - **Source files**: `lib/agent.cpp` (`Agent::inject_prompt_blocks`, called from
-  `chat_once`), `include/agent/agent.h` (`prompt_priority`),
+  `chat_once`), `include/agent/prompt_priorities.h` (`prompt_priority` and
+  `tool_doc_priority`, one table of bands),
   `lib/extensions.cpp` + `include/agent/extensions.h` (`PromptRegistry`, for
   plugin-contributed blocks).
 - **Consumers**: `chat_once` (the only caller), plugins via
@@ -50,9 +51,12 @@ when a long session needs them.
 4. **Deterministic for identical inputs.** The same context and the same agent
    state produce the same prompt. A block that varies per turn belongs at the
    tail, so the server's KV prefix survives up to its position.
-5. **One ordering authority.** The order is `prompt_priority`, declared beside
-   the assembly. It is not reconstructed from the position of each injection
-   site.
+5. **One ordering authority.** The order is `prompt_priority`, and every
+   priority is a row in the one table in `include/agent/prompt_priorities.h`,
+   banded by owner (agent head, project, tool docs, agent tail, plugin). It is
+   not reconstructed from the position of each injection site, and a collision
+   between two priorities, or a row outside its band, fails the build
+   (`static_assert`) rather than one test run.
 6. **Plugin blocks are ordered by the registry**, which sorts by (priority,
    registration), and follow the core blocks.
 
@@ -104,6 +108,16 @@ pass so the model sees a single coherent sequence.
   (recorded in `docs/plugin-framework-tracker.md`); the ordering test pins the
   shape going forward
 
+#### [PA-05] One ordering table, banded by owner
+
+- **Given**: every injected-block priority, per-agent and plugin alike
+- **Input**: the table in `include/agent/prompt_priorities.h`
+- **Expected**: each priority sits inside its owner's band; no two priorities
+  share a value; every band still has at least one row. A collision or an
+  out-of-band value fails the build (`static_assert`), not just a test run
+- **Regression guard**: `prompt_priorities_sit_inside_their_band_and_do_not_collide`,
+  `prompt_bands_are_contiguous_and_ordered_by_owner`
+
 ---
 
 ### Cross-references
@@ -113,8 +127,9 @@ pass so the model sees a single coherent sequence.
   (the rebuild this spec orders around)
 - **Depended on by**: `plugins/plugin-framework.md` (plugin prompt blocks),
   `agent-loop/core-loop.md` (`chat_once` as a step of the turn)
-- **Test coverage**: `tests/agent_loop_test.cpp` (PA-01..03),
-  `tests/agent_events_test.cpp` (plugin block rendering)
+- **Test coverage**: `tests/agent_loop_test.cpp` (PA-01..04),
+  `tests/run_tests.cpp` (PA-05), `tests/agent_events_test.cpp` (plugin block
+  rendering)
 
 ### Revision history
 
