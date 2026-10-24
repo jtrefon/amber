@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -69,6 +70,22 @@ std::string random_id() {
     return buffer;
 }
 
+// The state root is the user's own XDG directory, but the id is only truly
+// confined once the directory is resolved: realpath collapses ".." and
+// symlinks, so every later open is relative to a canonical absolute path.
+std::optional<fs::path> canonical_dir(const fs::path& dir, std::string& error) {
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    char* resolved = ::realpath(dir.c_str(), nullptr);
+    if (!resolved) {
+        error = "cannot resolve the artifact directory: " + dir.string();
+        return std::nullopt;
+    }
+    fs::path out(resolved);
+    std::free(resolved);
+    return out;
+}
+
 std::optional<std::string> read_range(const fs::path& path, std::size_t offset, std::size_t limit) {
     std::ifstream in(path, std::ios::binary);
     if (!in)
@@ -129,7 +146,10 @@ std::optional<fs::path> artifact_path(const std::string& id, std::string& error)
         error = "invalid artifact id";
         return std::nullopt;
     }
-    fs::path path = fs::path(artifact_dir()) / id;
+    auto dir = canonical_dir(fs::path(artifact_dir()), error);
+    if (!dir)
+        return std::nullopt;
+    fs::path path = *dir / id;
     std::error_code ec;
     if (!fs::is_regular_file(path, ec)) {
         error = "unknown or expired artifact " + id;
@@ -174,19 +194,17 @@ bool valid_artifact_id(const std::string& id) {
 std::string store_tool_artifact(const std::string& payload) {
     if (payload.size() < kArtifactMinBytes || payload.size() > kArtifactMaxBytes)
         return {};
-    const fs::path dir(artifact_dir());
-    std::error_code ec;
-    fs::create_directories(dir, ec);
-    if (ec && !fs::is_directory(dir))
+    std::string dir_error;
+    const auto resolved = canonical_dir(fs::path(artifact_dir()), dir_error);
+    if (!resolved)
         return {};
+    const fs::path& dir = *resolved;
+    std::error_code ec;
     prune(dir, payload.size());
     std::string id = random_id();
     const fs::path temp = dir / (id + ".tmp");
     {
-        // The directory is the user's own XDG state root: Workspace::state_dir()
-        // rejects a non-absolute or ".." root, and the file name is a generated
-        // 16-hex id. This is the same trust boundary as every other state write.
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc); // lgtm[cpp/path-injection]
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         if (!out)
             return {};
         out.write(payload.data(), static_cast<std::streamsize>(payload.size()));
