@@ -6,7 +6,8 @@
 #include <string>
 #include <vector>
 
-#include "agent/llm.h"   // Message, ToolResult, json
+#include "agent/llm.h" // Message, ToolResult, json
+#include "agent/request_failure.h"
 #include "agent/agent.h" // AgentHooks
 
 namespace agent {
@@ -44,18 +45,6 @@ std::string strip_think(std::string s);
 // `ok` is cleared and `args` keeps the raw string so dispatch can report a
 // clear, recoverable error instead of a silent `{}`.
 void parse_tool_call(const json& call, std::string& id, std::string& fn, json& args, bool& ok);
-
-// Classify a non-retryable HTTP 4xx: is the failure in OUR request, and can
-// the request be repaired by adaptation?
-enum class RequestFailure : std::uint8_t {
-    None,           // not a known recoverable request fault
-    ModelName,      // server rejected the model id (vLLM-style "does not exist")
-    TemplateParser, // server cannot parse the tool grammar for the loaded
-                    // template (llama.cpp "Unable to generate parser ...")
-    Auth            // API key/token rejected (HTTP 401/403)
-};
-
-RequestFailure classify_request_failure(const std::string& error_text);
 
 // One-shot request-repair hook for non-retryable 4xx. Given the error text,
 // returns an alternative chat callable that fixes the REQUEST (drop tools,

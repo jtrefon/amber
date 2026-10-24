@@ -29,6 +29,7 @@
 #include "agent/config_paths.h"
 #include "agent/mcp_tools.h"
 #include "agent/subagent.h"
+#include "agent/repair.h"
 #include "agent/run_scope.h"
 #include "agent/plugin.h"
 #include "agent/turn.h"
@@ -6874,6 +6875,184 @@ TEST(context_event_integration_with_agent) {
 
 int main(int argc, char** argv) {
     return agent::test::run_all(argc, argv);
+}
+
+// ---------------------------------------------------------------------------
+// Request repairs (#275)
+//
+// Each strategy is exercised against a fake host, so the conditions and the
+// messages a repair produces are pinned without running the loop.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+class FakeRepairHost final : public agent::RepairHost {
+public:
+    std::string model() const override { return configured_model; }
+
+    void report_error(const std::string& kind, const std::string& message) override {
+        errors.push_back(kind + ": " + message);
+    }
+
+    void status(const std::string& line) override { statuses.push_back(line); }
+
+    void announce(const std::string& note) override { notes.push_back(note); }
+
+    std::vector<agent::ModelInfo> server_models() override { return models; }
+
+    void adopt_model(const std::string& id, const agent::ModelCapabilities& caps) override {
+        adopted_model = id;
+        adopted_caps = caps;
+    }
+
+    std::string request_api_key(const char* stage) override {
+        stages.emplace_back(stage);
+        return key;
+    }
+
+    void adopt_api_key(const std::string& value) override { adopted_key = value; }
+
+    std::string configured_model = "local/current";
+    std::vector<agent::ModelInfo> models;
+    std::string key;
+    std::string adopted_model;
+    agent::ModelCapabilities adopted_caps;
+    std::string adopted_key;
+    std::vector<std::string> errors;
+    std::vector<std::string> statuses;
+    std::vector<std::string> notes;
+    std::vector<std::string> stages;
+};
+
+// A strategy with a fixed answer, to prove the ladder walks in order.
+class StubRepair final : public agent::RepairStrategy {
+public:
+    StubRepair(agent::RequestFailure kind, agent::RetryRequest answer)
+        : kind_(kind), answer_(answer) {}
+
+    agent::RequestFailure handles() const noexcept override { return kind_; }
+
+    agent::RetryRequest apply(const std::string&, const std::string&, bool,
+                              agent::RepairHost&) const override {
+        return answer_;
+    }
+
+private:
+    agent::RequestFailure kind_;
+    agent::RetryRequest answer_;
+};
+
+const char* const kTemplateParserError = "Unable to generate parser for this template";
+const char* const kModelNameError = "model 'x' does not exist";
+const char* const kAuthError = "HTTP 401 Unauthorized";
+
+} // namespace
+
+TEST(repair_template_parser_drops_tools_and_says_so) {
+    FakeRepairHost host;
+    const auto repair = agent::make_template_parser_repair();
+    ASSERT_TRUE(agent::RetryRequest::WithoutTools ==
+                repair->apply(kTemplateParserError, "generation", true, host));
+    ASSERT_EQ(host.errors.size(), 1u);
+    ASSERT(host.errors[0].find("template_parser") == 0);
+    ASSERT_EQ(host.notes.size(), 1u);
+    ASSERT(host.notes[0].find("retried without tools") != std::string::npos);
+    ASSERT_TRUE(host.statuses.empty());
+}
+
+TEST(repair_template_parser_without_tools_reports_without_a_retry) {
+    FakeRepairHost host;
+    const auto repair = agent::make_template_parser_repair();
+    ASSERT_TRUE(agent::RetryRequest::None ==
+                repair->apply(kTemplateParserError, "generation", false, host));
+    // The failure is still recorded; it just is not repairable this way.
+    ASSERT_EQ(host.errors.size(), 1u);
+    ASSERT_TRUE(host.notes.empty());
+}
+
+TEST(repair_server_model_switches_to_the_first_advertised_model) {
+    FakeRepairHost host;
+    agent::ModelInfo advertised;
+    advertised.id = "server/known";
+    advertised.context = 8192;
+    host.models.push_back(advertised);
+    const auto repair = agent::make_server_model_repair();
+    ASSERT_TRUE(agent::RetryRequest::WithTools ==
+                repair->apply(kModelNameError, "generation", true, host));
+    ASSERT_EQ(host.adopted_model, "server/known");
+    ASSERT_EQ(host.adopted_caps.context, 8192);
+    ASSERT_EQ(host.statuses.size(), 1u);
+    ASSERT(host.statuses[0].find("server/known") != std::string::npos);
+    ASSERT_EQ(host.notes.size(), 1u);
+    ASSERT(host.notes[0].find("server/known") != std::string::npos);
+}
+
+TEST(repair_server_model_declines_when_it_already_uses_that_model) {
+    FakeRepairHost host;
+    agent::ModelInfo same;
+    same.id = host.configured_model;
+    host.models.push_back(same);
+    const auto repair = agent::make_server_model_repair();
+    ASSERT_TRUE(agent::RetryRequest::None ==
+                repair->apply(kModelNameError, "generation", true, host));
+    ASSERT_EQ(host.errors.size(), 1u); // the rejection is still recorded
+    ASSERT_TRUE(host.adopted_model.empty());
+    ASSERT_TRUE(host.notes.empty());
+}
+
+TEST(repair_server_model_declines_with_no_model_list) {
+    FakeRepairHost host;
+    const auto repair = agent::make_server_model_repair();
+    ASSERT_TRUE(agent::RetryRequest::None ==
+                repair->apply(kModelNameError, "generation", true, host));
+    ASSERT_EQ(host.errors.size(), 1u);
+    ASSERT_TRUE(host.adopted_model.empty());
+}
+
+TEST(repair_api_key_swaps_the_key) {
+    FakeRepairHost host;
+    host.key = "sk-replacement";
+    const auto repair = agent::make_api_key_repair();
+    ASSERT_TRUE(agent::RetryRequest::WithTools ==
+                repair->apply(kAuthError, "compression", true, host));
+    ASSERT_EQ(host.adopted_key, "sk-replacement");
+    ASSERT_EQ(host.stages.size(), 1u);
+    ASSERT_EQ(host.stages[0], "compression");
+    ASSERT_EQ(host.notes.size(), 1u);
+    ASSERT(host.notes[0].find("API key") != std::string::npos);
+}
+
+TEST(repair_api_key_declines_when_the_host_has_none) {
+    FakeRepairHost host;
+    const auto repair = agent::make_api_key_repair();
+    ASSERT_TRUE(agent::RetryRequest::None == repair->apply(kAuthError, "generation", true, host));
+    ASSERT_EQ(host.errors.size(), 1u);
+    ASSERT_TRUE(host.adopted_key.empty());
+    ASSERT_TRUE(host.notes.empty());
+}
+
+TEST(repair_ladder_walks_past_a_strategy_that_cannot_act) {
+    agent::RepairLadder ladder;
+    ladder.add(
+        std::make_unique<StubRepair>(agent::RequestFailure::ModelName, agent::RetryRequest::None));
+    ladder.add(std::make_unique<StubRepair>(agent::RequestFailure::ModelName,
+                                            agent::RetryRequest::WithTools));
+    FakeRepairHost host;
+    ASSERT_TRUE(agent::RetryRequest::WithTools ==
+                ladder.repair(kModelNameError, "generation", true, host));
+}
+
+TEST(repair_ladder_ignores_an_unclassified_failure) {
+    agent::RepairLadder ladder = agent::make_default_repair_ladder();
+    FakeRepairHost host;
+    ASSERT_TRUE(agent::RetryRequest::None ==
+                ladder.repair("HTTP 500 upstream", "generation", true, host));
+    ASSERT_TRUE(host.errors.empty());
+}
+
+TEST(repair_default_ladder_covers_the_three_failures) {
+    const agent::RepairLadder ladder = agent::make_default_repair_ladder();
+    ASSERT_EQ(ladder.size(), 3u);
 }
 
 // ---------------------------------------------------------------------------

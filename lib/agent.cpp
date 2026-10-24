@@ -841,90 +841,63 @@ std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
 }
 
 // One LLM round-trip with graceful recovery for request-side 4xx failures:
-// the retry loop can REPAIR the request once (drop tools when the server
-// cannot parse the tool grammar for the loaded template; swap to a
-// server-known model id when the configured one is rejected) and retry.
-// The recovery ladder for a failed request: template-parser (retry without
-// tools), model-name (retry with the first advertised model), and auth (ask the
-// host for a key, rebuild the client, retry). Returns an empty adapter entry when
-// no repair applies.
-namespace {
+// the retry loop can REPAIR the request once and retry. The ladder that decides
+// how lives in repair.cpp; this file only bridges it to the agent's config,
+// hooks and log, and maps the answer onto a retry.
+class Agent::RepairBridge final : public RepairHost {
+public:
+    explicit RepairBridge(Agent& agent) : agent_(agent) {}
 
-// Ask the host for a replacement API key after a 401/403. Returns "" when the
-// host cannot or will not provide one (hook unset, or the user cancelled).
-std::string request_new_api_key(const AgentHooks& hooks, const Config& cfg, const char* stage) {
-    if (!hooks.on_api_key)
-        return "";
-    const std::string reason =
-        "API key for provider '" + cfg.provider_name + "' was rejected (HTTP 401/403)";
-    if (hooks.on_status)
-        hooks.on_status(reason + " - requesting a new key");
-    const std::string key = hooks.on_api_key(reason);
-    if (!key.empty() && hooks.on_debug)
-        hooks.on_debug("auth: key updated, retrying " + std::string(stage));
-    return key;
-}
+    std::string model() const override { return agent_.cfg_.model; }
 
-} // namespace
+    void report_error(const std::string& kind, const std::string& message) override {
+        agent_.publish_error(kind, message);
+    }
 
-// Each repair is announced as a [harness] notice before it retries: the request
-// the model asked for is about to change shape, and that is its business. Each
-// returns the retry callable, or {} when no repair applies.
+    void status(const std::string& line) override {
+        if (agent_.hooks_.on_status)
+            agent_.hooks_.on_status(line);
+    }
 
-std::function<Message()> Agent::repair_without_tools(const std::string& err) {
-    publish_error("template_parser", err);
-    inject_harness_note("[harness] the server could not parse the tool grammar for this model; the "
-                        "request is being retried without tools.");
-    return [this]() { return chat_once({}); };
-}
+    void announce(const std::string& note) override { agent_.inject_harness_note(note); }
 
-std::function<Message()>
-Agent::repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
-                                const std::string& err) {
-    publish_error("model_name", err);
-    auto models = list_model_info(cfg_);
-    if (models.empty() || models[0].id == cfg_.model)
-        return {};
-    const ModelInfo& m = models[0];
-    set_model(m.id, capabilities_of(m));
-    if (hooks_.on_status)
-        hooks_.on_status("server rejected model - retrying with \"" + m.id + "\"");
-    inject_harness_note("[harness] the server rejected the configured model; this request is being "
-                        "retried with \"" +
-                        cfg_.model + "\".");
-    return [this, &tools]() { return chat_once(tools); };
-}
+    std::vector<ModelInfo> server_models() override { return list_model_info(agent_.cfg_); }
 
-// One-shot: ask the host for an API key, rebuild the client, and retry. The host
-// persists the key to the provider config; when no key is provided (hook unset or
-// user cancelled) no repair applies and the turn degrades as before.
-std::function<Message()> Agent::repair_with_new_key(const char* stage,
-                                                    const std::vector<std::shared_ptr<Tool>>& tools,
-                                                    const std::string& err) {
-    publish_error("auth", err);
-    const std::string key = request_new_api_key(hooks_, cfg_, stage);
-    if (key.empty())
-        return {};
-    set_connection(cfg_.api_base, key, cfg_.model);
-    inject_harness_note("[harness] the API key was rejected and has been replaced; this request is "
-                        "being retried with the new key.");
-    return [this, &tools]() { return chat_once(tools); };
-}
+    void adopt_model(const std::string& id, const ModelCapabilities& caps) override {
+        agent_.set_model(id, caps);
+    }
+
+    std::string request_api_key(const char* stage) override {
+        if (!agent_.hooks_.on_api_key)
+            return "";
+        const std::string reason =
+            "API key for provider '" + agent_.cfg_.provider_name + "' was rejected (HTTP 401/403)";
+        if (agent_.hooks_.on_status)
+            agent_.hooks_.on_status(reason + " - requesting a new key");
+        const std::string key = agent_.hooks_.on_api_key(reason);
+        if (!key.empty() && agent_.hooks_.on_debug)
+            agent_.hooks_.on_debug("auth: key updated, retrying " + std::string(stage));
+        return key;
+    }
+
+    void adopt_api_key(const std::string& key) override {
+        agent_.set_connection(agent_.cfg_.api_base, key, agent_.cfg_.model);
+    }
+
+private:
+    Agent& agent_;
+};
 
 ChatAdapter Agent::build_chat_adapter(const char* stage,
                                       const std::vector<std::shared_ptr<Tool>>& tools) {
     return [this, stage, &tools](const std::string& err) -> std::function<Message()> {
-        switch (classify_request_failure(err)) {
-        case RequestFailure::TemplateParser:
-            if (!tools.empty())
-                return repair_without_tools(err);
-            publish_error("template_parser", err);
-            break;
-        case RequestFailure::ModelName:
-            return repair_with_server_model(tools, err);
-        case RequestFailure::Auth:
-            return repair_with_new_key(stage, tools, err);
-        default:
+        RepairBridge host(*this);
+        switch (repairs_.repair(err, stage, !tools.empty(), host)) {
+        case RetryRequest::WithoutTools:
+            return [this]() { return chat_once({}); };
+        case RetryRequest::WithTools:
+            return [this, &tools]() { return chat_once(tools); };
+        case RetryRequest::None:
             break;
         }
         return {};
