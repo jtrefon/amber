@@ -24,6 +24,7 @@
 #include "agent/session_brief.h"
 #include "agent/skill_catalog.h"
 #include "agent/activation_sink.h"
+#include "agent/repair.h"
 #include "agent/tool_recovery.h"
 
 namespace agent {
@@ -412,17 +413,10 @@ private:
     std::function<std::function<Message()>(const std::string&)>
     build_chat_adapter(const char* stage, const std::vector<std::shared_ptr<Tool>>& tools);
 
-    // The three request repairs, each announced as a [harness] notice before it
-    // retries: without tools (the tool grammar would not parse), with a
-    // server-known model (the configured one was rejected), with a new key (the
-    // old one was rejected). Empty return means no repair applies.
-    std::function<Message()> repair_without_tools(const std::string& err);
-    std::function<Message()>
-    repair_with_server_model(const std::vector<std::shared_ptr<Tool>>& tools,
-                             const std::string& err);
-    std::function<Message()> repair_with_new_key(const char* stage,
-                                                 const std::vector<std::shared_ptr<Tool>>& tools,
-                                                 const std::string& err);
+    // Bridges the repair ladder to this agent's config, hooks and log. The
+    // strategies themselves never see an Agent (repair.h).
+    class RepairBridge;
+    RepairLadder repairs_ = make_default_repair_ladder();
     std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
