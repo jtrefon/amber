@@ -1892,6 +1892,23 @@ TEST(test_work_board_and_viewer_commands) {
     ASSERT_EQ(detach.node->at("action").get<std::string>(), std::string("core.window.detach"));
 }
 
+// The same groups on both sides: /settings <group> dispatches the /get readout,
+// so a /set group without a get node silently degrades to "use /set <group>".
+TEST(test_every_set_group_has_a_get_readout) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const auto& tree = reg.command_tree();
+    const auto& set_groups = tree["commands"]["set"]["children"];
+    const auto& get_groups = tree["commands"]["get"]["children"];
+    for (auto it = set_groups.begin(); it != set_groups.end(); ++it) {
+        if (!get_groups.contains(it.key()))
+            std::cerr << "FAIL: /set " << it.key() << " has no /get readout node\n";
+        ASSERT(get_groups.contains(it.key()));
+    }
+    ASSERT(!reg.help_for("get.work").empty());
+    ASSERT(!reg.man_for("get.work").empty());
+}
+
 int main() {
     try {
         test_json_loads_all_commands();
@@ -1970,6 +1987,7 @@ int main() {
         test_feeds_never_clobber_documented_verbs();
         test_short_index_and_collisions();
         test_work_board_and_viewer_commands();
+        test_every_set_group_has_a_get_readout();
         test_drawer_root_rows_show_shortcut_hints();
         test_completion_rows_do_not_duplicate_aliases();
         test_resolver_unique_prefix_and_glued_set_path();
