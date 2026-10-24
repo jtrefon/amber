@@ -35,7 +35,7 @@ public:
 
     // Token usage the observer's calls have cost, drained by the host so it can
     // attribute watch spend to the owning window.
-    agent::UsageTotals take_usage();
+    agent::UsageTotals take_usage() override;
 
 private:
     const agent::Config* config_ = nullptr;

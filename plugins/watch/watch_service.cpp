@@ -494,7 +494,7 @@ WatchReport WatchService::observe(const WatchRecord& record, const WatchReport& 
     try {
         raw = observer_->complete(observer_prompt_, brief_json(record, fallback), cancel);
         const agent::UsageTotals spent = observer_->take_usage();
-        std::scoped_lock lk(mtx_);
+        std::scoped_lock usage_lock(mtx_);
         usage_by_owner_[record.owner_id].prompt_tokens += spent.prompt_tokens;
         usage_by_owner_[record.owner_id].completion_tokens += spent.completion_tokens;
         usage_by_owner_[record.owner_id].measured =
