@@ -76,6 +76,22 @@ complete, compiled, tested template lives in
 4. Ensure `make && make test` pass locally.
 5. Open a pull request describing the change and how you verified it.
 
+### Landing: auto-merge and the merge train
+
+`main` only takes squash-merged pull requests whose `ci-gate` passed, and the check is
+`strict`, so a green PR that fell behind the branch cannot merge. Two pieces of
+automation keep that from serialising into a queue of stale PRs:
+
+- **Auto-merge.** Arm the PR instead of watching it:
+  `gh pr merge <n> --squash --auto`. It lands the moment the gates pass.
+- **The merge train.** Add the `merge-train` label and the scheduled workflow lands one
+  clean labelled PR per run, then updates the branches of the other labelled PRs so
+  their gates re-run against the new `main`. It never touches an unlabelled PR, a
+  draft, a conflicted one, or one whose gates have not passed. The native GitHub merge
+  queue is not available on this repository (the rulesets API rejects `merge_queue`),
+  which is why this exists; selection rules and their cases are in
+  `tools/merge_train.py` (`--selftest`).
+
 ## Releasing (maintainers)
 
 Releases are tag-driven. CI (`.github/workflows/release.yml`) runs when a semver

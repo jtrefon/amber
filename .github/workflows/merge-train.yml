@@ -1,0 +1,65 @@
+name: Merge train
+
+# GitHub's native merge queue is not available on this repository: the rulesets API
+# rejects a `merge_queue` rule, and no REST or GraphQL field enables it. Without a
+# queue, `strict` required checks serialise merges badly -- once one PR lands, every
+# other green PR is "out of date" and waits for somebody to press "Update branch".
+#
+# This is the queue without the queue, and it is opt-in: only PRs labelled
+# `merge-train` are ever touched. Each run lands at most one CLEAN PR (a second merge
+# would be validated against a `main` that no longer exists) and updates the branches
+# of the rest so their checks re-run against it. DIRTY, BLOCKED, draft and unlabelled
+# PRs are left alone: the train cannot resolve a conflict, and merging past a red gate
+# is exactly what the gates exist to prevent.
+#
+# Selection is tools/merge_train.py, which carries its own cases (`--selftest`) so the
+# rule is testable without GitHub, a label or a merge.
+
+on:
+  schedule:
+    # Twice an hour, off the top of the hour. A CI run is ~20 minutes, so a faster
+    # cadence would only re-plan against checks that cannot have finished.
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: merge-train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Select what this run may act on
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --label merge-train --state open --limit 50 \
+            --json number,isDraft,labels,mergeable,mergeStateStatus > "$RUNNER_TEMP/prs.json"
+          python3 tools/merge_train.py < "$RUNNER_TEMP/prs.json" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Merge the one clean PR
+        if: steps.plan.outputs.merge != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge "${{ steps.plan.outputs.merge }}" --repo "$GITHUB_REPOSITORY" --squash
+
+      - name: Keep the rest fresh against the new main
+        if: steps.plan.outputs.update != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for n in $(echo "${{ steps.plan.outputs.update }}" | tr ',' ' '); do
+            # A PR that just moved is reported as "no new commits on the base branch",
+            # which is not a failure: the next run plans against the merge it missed.
+            gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$n/update-branch" >/dev/null 2>&1 || true
+          done

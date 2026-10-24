@@ -14,6 +14,7 @@
 #   P10 the ci-gate skip policy keeps its rules (tools/gate_needs_check.py).
 #   P11 vendored md4c matches its recorded sha256.
 #   P12 the generated Makefile is regenerated when Makefile.in/configure change.
+#   P13 the merge train's selection rule keeps its cases (tools/merge_train.py).
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -337,6 +338,17 @@ else
     warn "P12: GNUmakefile did not regenerate Makefile after Makefile.in changed (stale object list)"
 fi
 rm -rf "$p12"
+
+# P13
+# The merge train decides whether a labelled PR lands, so its selection rule is a gate
+# in everything but name: a rule that silently picked nothing would leave PRs waiting
+# forever, and one that picked too much would merge past a red gate. Its cases run here
+# so a broken rule fails `make check`, not a scheduled run nobody reads.
+if python3 tools/merge_train.py --selftest >/dev/null 2>&1; then
+    ok "P13: merge-train selection passes its self-test"
+else
+    warn "P13: merge-train selection self-test FAILED (tools/merge_train.py)"
+fi
 
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
