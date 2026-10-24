@@ -81,7 +81,7 @@ long Turn::elapsed_ms(std::chrono::steady_clock::time_point now) const {
 bool Turn::note_iteration_budget(int iteration, int max_iterations) {
     if (budget_noted_ || max_iterations <= 0)
         return false;
-    if ((iteration + 1) * 100 < max_iterations * kBudgetNotePct)
+    if (static_cast<long>(iteration + 1) * 100 < static_cast<long>(max_iterations) * kBudgetNotePct)
         return false;
     budget_noted_ = true;
     return true;
@@ -90,7 +90,7 @@ bool Turn::note_iteration_budget(int iteration, int max_iterations) {
 bool Turn::note_wall_budget(int max_wall_ms, std::chrono::steady_clock::time_point now) {
     if (wall_noted_ || max_wall_ms <= 0)
         return false;
-    if (elapsed_ms(now) * 100 < max_wall_ms * kBudgetNotePct)
+    if (elapsed_ms(now) * 100 < static_cast<long>(max_wall_ms) * kBudgetNotePct)
         return false;
     wall_noted_ = true;
     return true;
