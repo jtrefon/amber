@@ -56,6 +56,15 @@ EventRouter::PushFn EventRouter::make_push(size_t window_id, const std::atomic<b
     };
 }
 
+std::function<void(const agent::UsageSample&)> EventRouter::emit_usage(const PushFn& push) {
+    return [push](const agent::UsageSample& sample) {
+        AgentEvent ev;
+        ev.type = AgentEvent::Usage;
+        ev.usage = sample;
+        push(std::move(ev));
+    };
+}
+
 std::function<void(const std::string&)> EventRouter::emit_text(const PushFn& push,
                                                                AgentEvent::Type type) {
     return [push, type](const std::string& text) {
@@ -94,6 +103,7 @@ void EventRouter::wire_stream_hooks(agent::AgentHooks& hooks, const PushFn& push
         ev.stats = s;
         push(std::move(ev));
     };
+    hooks.on_usage = emit_usage(push);
     hooks.on_tool_call = [push](const std::string& n, const agent::json& a) {
         AgentEvent ev;
         ev.type = AgentEvent::ToolCall;
@@ -191,8 +201,9 @@ bool EventRouter::handle_window_event(Window* w, AgentEvent& ev) {
         /* Error */ &EventRouter::on_error,
         /* Done */ &EventRouter::on_done,
         /* CompressResult */ &EventRouter::on_compress_result,
+        /* Usage */ &EventRouter::handle_usage,
     };
-    static_assert(std::size(kInline) == static_cast<size_t>(AgentEvent::CompressResult) + 1,
+    static_assert(std::size(kInline) == static_cast<size_t>(AgentEvent::Usage) + 1,
                   "every AgentEvent::Type needs a row, or the table is indexed wrong");
     const auto index = static_cast<size_t>(ev.type);
     if (index >= std::size(kInline) || kInline[index] == nullptr)
@@ -254,11 +265,27 @@ void EventRouter::handle_stats(Window* w, const AgentEvent& ev) {
     if (!w)
         return;
     w->stats = ev.stats;
-    w->usage.add(ev.stats.prompt_tokens, ev.stats.completion_tokens);
     if (ev.stats.prompt_tokens >= 0) {
         w->ctx_used.store(ev.stats.prompt_tokens);
         w->live_ctx_offset = 0;
     }
+}
+
+void EventRouter::handle_usage(Window* w, const AgentEvent& ev) {
+    Window* target = ev.usage.source == agent::UsageSource::Subagent
+                         ? tui_.window_manager_->by_owner_id(ev.usage.owner_id)
+                         : w;
+    if (!target)
+        return;
+    apply_usage(target->ledger, ev.usage);
+    target->usage = target->ledger.tree();
+}
+
+void EventRouter::enqueue_global(AgentEvent ev) {
+    std::scoped_lock lk(mtx_);
+    if (shutting_down_)
+        return;
+    queue_.push(std::move(ev));
 }
 
 void EventRouter::defer_or_resolve_approval(AgentEvent ev) {

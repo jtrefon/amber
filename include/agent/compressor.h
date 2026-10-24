@@ -130,6 +130,8 @@ struct CompressionObserver {
     virtual void on_loop_collapse(size_t /*removed*/) {}
     virtual void on_llm_request_sent() {}
     virtual void on_llm_reply_received(long /*elapsed_ms*/) {}
+    // Token usage for the classify/extract request just completed.
+    virtual void on_llm_usage(const Stats& /*stats*/) {}
     virtual void on_parse_result(const CompressionResponse& /*cr*/) {}
     virtual void on_apply_result(const CompressionResult& /*r*/) {}
     virtual void on_error(const std::string& /*msg*/) {}
@@ -259,6 +261,7 @@ public:
     void on_loop_collapse(size_t removed) override;
     void on_llm_request_sent() override;
     void on_llm_reply_received(long sec) override;
+    void on_llm_usage(const Stats& stats) override;
     void on_parse_result(const CompressionResponse& cr) override;
     void on_apply_result(const CompressionResult&) override;
     void on_error(const std::string& msg) override;

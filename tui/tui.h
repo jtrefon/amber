@@ -386,6 +386,8 @@ private:
     [[noreturn]] void shutdown_from_signal();
     bool pump_io(CommandLine& cl);
     void idle_tick(bool had_events, CommandLine& cl);
+    // Drain watch-observer usage into each owner window's ledger.
+    void poll_watch_usage();
     bool handle_option_key(int& ch, CommandLine& cl);
     bool handle_key_binding(int ch, CommandLine& cl);
     bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);

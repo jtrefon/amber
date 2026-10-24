@@ -108,7 +108,7 @@ agent::Session SessionController::snapshot(Window& w) const {
     // Persist UI state so it survives exit/reload.
     s.meta["ctx_used"] = w.ctx_used.load();
     s.meta["ctx_size"] = acfg ? acfg->context_size : tui_.cfg_.context_size;
-    save_usage(s.meta, w.usage);
+    save_usage(s.meta, w.ledger);
     if (w.stats.valid) {
         s.meta["latency_ms"] = w.stats.latency_ms;
         s.meta["tps"] = w.stats.tps;
@@ -181,6 +181,8 @@ void SessionController::fork_session() {
     // history. It gets its own session id and transcript: one store row per
     // leg keeps the two diverging histories independently restorable.
     Window& fork = tui_.new_window(src.title + " ⑂");
+    fork.ledger.inherited = src.ledger.tree();
+    fork.usage = fork.ledger.tree();
     fork.agent->fork_from(*src.agent);
     fork.agent->meta_["forked_from"] = src.session_id.empty() ? src.title : src.session_id;
     fork.dirty = true;
@@ -225,7 +227,8 @@ void SessionController::restore_stats(Window& w, const agent::Session& s) {
     }
     // The session's spend, not the last exchange's readings: a reload must not
     // reset the meter to whatever the previous turn happened to cost.
-    load_usage(s.meta, w.usage);
+    load_usage(s.meta, w.ledger);
+    w.usage = w.ledger.tree();
 }
 
 void SessionController::restore_into(Window& w, const agent::Session& s) {

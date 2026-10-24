@@ -36,6 +36,7 @@ struct AgentEvent {
         Error,
         Done,
         CompressResult,
+        Usage,
     };
     Type type = Token;
     std::string text;
@@ -46,6 +47,7 @@ struct AgentEvent {
     agent::json tool_args;
     std::string error_msg;
     agent::CompressionResult compress_result{};
+    agent::UsageSample usage{};
 
     // Worker thread blocks on this promise until the UI thread
     // shows the approval dialog and resolves it.

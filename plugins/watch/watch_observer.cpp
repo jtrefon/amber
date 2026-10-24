@@ -88,11 +88,21 @@ std::string HttpObserverModel::complete(const std::string& system_prompt, const 
         user.role = "user";
         user.content = brief;
         messages.push_back(std::move(user));
-        agent::Message reply = client.chat(messages, {});
+        agent::Stats stats;
+        agent::Message reply = client.chat(messages, {}, &stats);
+        std::scoped_lock lk(usage_mtx_);
+        usage_.add(stats.prompt_tokens, stats.completion_tokens);
         return reply.content;
     } catch (const std::exception&) {
         return {};
     }
+}
+
+agent::UsageTotals HttpObserverModel::take_usage() {
+    std::scoped_lock lk(usage_mtx_);
+    agent::UsageTotals out;
+    std::swap(out, usage_);
+    return out;
 }
 
 WatchReport parse_observer_report(const std::string& raw, const WatchReport& fallback) {

@@ -1,5 +1,8 @@
 
 #include "tui.h"
+#include "usage_report.h"
+
+#include <agent/compact.h>
 #include "feed_manager.h"
 #include "tui/list_panel.h"
 #include "tui/model_picker.h"
@@ -1224,6 +1227,8 @@ void SlashDispatcher::register_plugin_actions() {
     register_action("core.config.set.plugin.settings",
                     [this](const std::string& a) { cmd_plugin_settings_set(a); });
     register_action("core.work", [this](const std::string&) { cmd_work_board(); });
+    register_action("core.usage.show", [this](const std::string&) { cmd_usage_show(); });
+    register_action("core.usage.reset", [this](const std::string&) { cmd_usage_reset(); });
     register_action("core.project", [this](const std::string&) { cmd_project_list(); });
     register_action("core.project.list", [this](const std::string&) { cmd_project_list(); });
     register_action("core.project.open", [this](const std::string& a) { cmd_project_open(a); });
@@ -2634,6 +2639,25 @@ void SlashDispatcher::cmd_work_board() {
         }
     }
     dlg.hide();
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_usage_show() {
+    std::vector<std::pair<std::string, agent::UsageTotals>> windows;
+    for (const auto& window : tui_.window_manager_->all())
+        if (window->kind == tui::Window::Kind::Chat)
+            windows.emplace_back(window->title, window->usage);
+    tui_.append_line(P_STATUS, "usage - session tree");
+    for (const auto& line :
+         tui::usage_report_lines(tui_.win().ledger, tui_.subagents_.tasks(), windows))
+        tui_.append_line(P_STATUS, "  " + line);
+    tui_.draw();
+}
+
+void SlashDispatcher::cmd_usage_reset() {
+    tui_.win().ledger.reset();
+    tui_.win().usage = tui_.win().ledger.tree();
+    tui_.append_line(P_STATUS, "usage: session tree reset");
     tui_.draw();
 }
 

@@ -737,6 +737,48 @@ TEST(compression_extract_request_shares_classify_prefix) {
 // Spec invariant 7: if any LLM call or parse fails, the input history is
 // returned unchanged. The loop-collapse pass must not leak into the failure
 // path — previously the caller rebuilt the context from the collapsed copy.
+// Both compression requests report their own usage to the observer, tagged as
+// Compression so the session ledger can attribute the spend.
+TEST(compression_pipeline_reports_usage_per_request) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply classify;
+    classify.content =
+        R"({"classification":[{"turns":"0-1","tag":"context","summary":"greeting"}],)"
+        R"("memories":[],"skills":[]})";
+    classify.prompt_tokens = 900;
+    classify.completion_tokens = 40;
+    fake->script.push_back(std::move(classify));
+    agent_test::FakeReply extract;
+    extract.content = R"({"memories":[],"skills":[]})";
+    extract.prompt_tokens = 950;
+    extract.completion_tokens = 12;
+    fake->script.push_back(std::move(extract));
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    ctx.push(std::move(user));
+
+    struct UsageObserver : agent::CompressionObserver {
+        std::vector<agent::Stats> samples;
+        void on_llm_usage(const agent::Stats& stats) override { samples.push_back(stats); }
+    } observer;
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, &observer, &cr);
+    ASSERT(!out.empty());
+    ASSERT_EQ(observer.samples.size(), std::size_t{2});
+    ASSERT_EQ(observer.samples[0].prompt_tokens, 900L);
+    ASSERT_EQ(observer.samples[0].completion_tokens, 40L);
+    ASSERT_EQ(observer.samples[1].prompt_tokens, 950L);
+    ASSERT_EQ(observer.samples[1].completion_tokens, 12L);
+}
+
 TEST(compression_pipeline_failure_returns_history_unchanged) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor(cc);
@@ -1906,6 +1948,54 @@ TEST(subagent_slot_pool_reports_instead_of_hanging) {
 
     ASSERT(!err.empty());
     ASSERT(waited < std::chrono::seconds(10));
+}
+
+TEST(subagent_usage_is_recorded_and_forwarded) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(1000);
+    agent::Config cfg = loop_cfg();
+    cfg.log_path = "/tmp/amber_subagent_usage.jsonl";
+    executor.set_config(cfg);
+
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    agent_test::FakeReply reply;
+    reply.content = "done";
+    reply.prompt_tokens = 111;
+    reply.completion_tokens = 22;
+    script->push_back(std::move(reply));
+    executor.set_factory([script](const agent::Config&) {
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        fake->script = *script;
+        return fake;
+    });
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
+
+    std::mutex mtx;
+    std::vector<agent::UsageSample> samples;
+    executor.set_usage_sink([&](const agent::UsageSample& sample) {
+        std::scoped_lock lk(mtx);
+        samples.push_back(sample);
+    });
+
+    std::string err;
+    const std::string out = executor.run_task("say done", reg, err);
+    ASSERT_EQ(out, std::string("done"));
+    ASSERT_TRUE(err.empty());
+    const auto tasks = executor.tasks();
+    ASSERT_EQ(tasks.size(), 1u);
+    ASSERT(tasks[0].usage_measured);
+    ASSERT_EQ(tasks[0].prompt_tokens, 111L);
+    ASSERT_EQ(tasks[0].completion_tokens, 22L);
+    std::scoped_lock lk(mtx);
+    ASSERT_EQ(samples.size(), 1u);
+    ASSERT(samples[0].source == agent::UsageSource::Subagent);
+    ASSERT_EQ(samples[0].prompt_tokens, 111L);
+    ASSERT_EQ(samples[0].task_id, tasks[0].id);
 }
 
 TEST(subagent_task_record_tracks_owner_state_and_progress) {

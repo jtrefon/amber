@@ -72,6 +72,19 @@ using LLMClientFactory = std::function<std::unique_ptr<LLMClient>(const Config&)
 
 // A hook invoked on each significant event so UIs can render progress without
 // the library knowing about them. The default no-op is used by headless runs.
+// Where a request's usage came from: the chat itself, a sub-agent it spawned,
+// a compression pass, or a watch observer. Hosts keep them apart so a session's
+// tree total can be attributed.
+enum class UsageSource { Main, Subagent, Compression, Watch };
+
+struct UsageSample {
+    UsageSource source = UsageSource::Main;
+    long prompt_tokens = -1;
+    long completion_tokens = -1;
+    std::string task_id; // sub-agent samples only
+    std::string owner_id;
+};
+
 struct AgentHooks {
     std::function<void(const std::string&)> on_assistant; // final text msg
     std::function<void(const std::string&)> on_token;     // streamed text delta
@@ -83,6 +96,9 @@ struct AgentHooks {
     std::function<void(const std::string&)> on_status;
     std::function<void(RunState)> on_state;     // activity transitions
     std::function<void(const Stats&)> on_stats; // per-request telemetry
+    // Per-request usage with a source tag. on_stats stays the raw telemetry
+    // stream; this is what a session ledger accumulates.
+    std::function<void(const UsageSample&)> on_usage;
 
     // Consulted before running a tool whose requires_approval() is true. Given
     // the tool name and a human-readable summary of the action, returns the
