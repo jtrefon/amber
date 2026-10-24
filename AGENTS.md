@@ -162,6 +162,20 @@ driven by an OpenAI-compatible LLM API.
   push is genuinely needed, is
   `gh api -X DELETE repos/jtrefon/amber/branches/main/protection` — re-apply it
   afterwards, because a repo with protection removed will not notice.
+
+  **Merging goes through the queue, and a PR is armed rather than watched.**
+  Auto-merge is enabled (`allow_auto_merge`), so
+  `gh pr merge <n> --squash --auto` merges the moment the PR is green — no
+  waiting on a terminal. `strict` checks mean a green PR still cannot merge
+  once `main` has moved, which is the queue's job: the **merge queue** builds
+  `gh-readonly-queue/main/pr-<n>-<sha>` from `main` plus the queued PRs and runs
+  the gates on that commit, so PRs are validated against the tree they will
+  actually produce instead of being serialised behind each other's staleness.
+  That is why `ci.yml` triggers on `merge_group`: without it the queue's commit
+  reports no `ci-gate` and the queue waits forever. `tools/gate_needs_check.py`
+  holds the merge-group event to every job that applies to it (only the
+  `pull_request`-only jobs may skip there), with its self-test covering both the
+  legitimate skips and the bypasses.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 
@@ -935,7 +949,7 @@ claim 0-debt conformance. Line counts below are enforced by
 
 | File | Lines | Issue |
 |------|------:|-------|
-| `tests/run_tests.cpp` | 9306 | Test file; exempt from class-size rule but a candidate for per-area headers. |
+| `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 348 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 4066 | Method implementations (not a class); exempt from class-size rule. |

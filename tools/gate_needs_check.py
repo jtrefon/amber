@@ -26,7 +26,12 @@ import sys
 
 ALWAYS = "always"
 PULL_REQUEST_ONLY = "pull_request"
-ALL_EVENTS = ("pull_request", "push")
+# Every event this workflow can run for. A job is only "not applicable" when the
+# event is missing from its own tuple, so an event absent from here would make
+# every skipped job look legitimately skipped -- the fail-open this table exists
+# to prevent. `merge_group` is the merge queue's synthetic ref: the queue runs
+# the whole suite there, so only the pull_request-only jobs may skip.
+ALL_EVENTS = ("pull_request", "push", "merge_group")
 
 # jobs whose result "skipped" is acceptable when the matching output is false
 DIMENSIONS = {
@@ -211,6 +216,17 @@ def selftest():
     for name in CPP_JOBS + ALWAYS_JOBS + WEB_JOBS:
         cases.append((f"BYPASS: {name} skipped on a push",
                       _needs(set(ALL_JOBS) - {name}), True, True, True, PUSH))
+    # The merge queue runs the whole suite on the queued merge commit, so it is
+    # held to the same jobs a push is -- and the pull_request-only jobs skip
+    # there for the same reason they skip on a push.
+    MQ = "merge_group"
+    cases.append(("merge queue: everything runs", _needs(ALL_RUNNING), True, True, False, MQ))
+    for name, events in sorted(EVENTS.items()):
+        cases.append((f"{name} skipped on a merge queue run (it is {events[0]}-only)",
+                      _needs(set(ALL_JOBS) - {name}), True, True, False, MQ))
+    for name in CPP_JOBS + ALWAYS_JOBS + WEB_JOBS:
+        cases.append((f"BYPASS: {name} skipped on a merge queue run",
+                      _needs(set(ALL_JOBS) - {name}), True, True, True, MQ))
     failures = _check_fixture_coverage()
     for desc, needs, cpp, web, want_fail, event in cases:
         bad = offenders(needs, cpp, web, event)

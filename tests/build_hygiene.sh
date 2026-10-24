@@ -6,7 +6,7 @@
 #   P2  every compiled TU emits a .d dependency file (AGENTS.md gotcha).
 #   P3  `make clean` removes every build artifact.
 #   P4  compile_commands.json is never committed (stale machine-specific flags).
-#   P5  AGENTS.md audit-table line counts match the tree.
+#   P5  AGENTS.md audit-table line counts match the tree (tools/audit_table.py).
 #   P6  the Context deque single-owner contract holds (no mutex/mutation).
 #   P7  TUI L1 "domain" modules are pure (no ncurses, no port headers).
 #   P8  the incremental-lint TU selector keeps its rules (tools/affected_tus.py).
@@ -136,17 +136,22 @@ else
 fi
 
 # P5
-for f in tests/run_tests.cpp lib/session.cpp tui/tui_render.cpp tui/tui_input.cpp; do
-    # BSD wc pads with spaces (macOS); strip so the numeric compare is portable.
-    actual=$(wc -l < "$f" | tr -d ' ')
-    doc=$(grep -E "^\| \`$f\` \| " AGENTS.md | head -1 |
-          sed -E 's/^\| [^|]* \| ([0-9]+) \|.*/\1/')
-    if [ -n "$doc" ] && [ "$doc" = "$actual" ]; then
-        ok "AGENTS.md lists $f at $actual lines"
-    else
-        warn "P5: AGENTS.md audit table lists $f at '$doc' lines; tree has $actual"
-    fi
-done
+# The audit table is checked by tools/audit_table.py, which owns the parse, the
+# numeric compare and the exempt-row rule -- a row may say `-` (no exact count) only
+# for a file the tool lists as exempt, so a source file cannot dodge the check. The
+# tool carries its own cases (P5b), because a table parser that silently matches
+# nothing passes every real run.
+if python3 tools/audit_table.py --selftest >/dev/null 2>&1; then
+    ok "P5b: audit-table checker passes its self-test"
+else
+    warn "P5b: audit-table checker self-test FAILED (tools/audit_table.py)"
+fi
+if python3 tools/audit_table.py >/dev/null 2>&1; then
+    ok "P5: AGENTS.md audit table matches the tree"
+else
+    python3 tools/audit_table.py 2>&1 | sed 's/^/  /'
+    warn "P5: AGENTS.md audit table disagrees with the tree (tools/audit_table.py)"
+fi
 
 # P6
 # The Context deque contract is inviolable (AGENTS.md "Context stack
