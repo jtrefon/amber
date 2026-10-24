@@ -175,12 +175,13 @@ driven by an OpenAI-compatible LLM API.
   their gates re-run against the new `main` instead of waiting for somebody to
   press "Update branch". The trigger is `workflow_run` completion, not a timer:
   the schedule is only a backstop, because GitHub's scheduler did not fire this
-  workflow once in the two hours after it landed. It never touches an unlabelled PR, a draft, a `DIRTY` one, or one
-  whose gates have not passed — a train cannot resolve a conflict, and merging
-  past a red gate is the failure the gates exist to prevent. After a merge it
-  dispatches `ci.yml` on `main` itself: a merge made with `GITHUB_TOKEN` creates
-  no push event, so without that the run that validates `main` (the full suite,
-  and `lint-full`, which only runs there) would silently never start.
+  workflow once in the two hours after it landed. It never touches an unlabelled
+  PR, a draft, a `DIRTY` one, or one whose gates have not passed — a train
+  cannot resolve a conflict, and merging past a red gate is the failure the
+  gates exist to prevent. After a merge it dispatches `ci.yml` on `main` itself:
+  a merge made with `GITHUB_TOKEN` creates no push event, so without that the
+  run that validates `main` (the full suite, and `lint-full`, which only runs
+  there) would silently never start.
 
   `ci.yml` still triggers on `merge_group`, so enabling the native queue later
   needs no workflow change; `tools/gate_needs_check.py` holds that event to
