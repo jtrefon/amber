@@ -4,6 +4,10 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # The merge queue builds a temporary branch from main plus the queued PRs and
+  # runs the gates on it. Without this trigger a queued PR waits forever: the
+  # required check (ci-gate) never reports on the merge group's commit.
+  merge_group:
   workflow_dispatch:
 
 permissions:
