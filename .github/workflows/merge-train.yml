@@ -53,6 +53,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh pr merge "${{ steps.plan.outputs.merge }}" --repo "$GITHUB_REPOSITORY" --squash
 
+      - name: Validate main after the merge
+        if: steps.plan.outputs.merge != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A merge made with GITHUB_TOKEN does not create a push event, so the run that
+          # validates main (the full suite, and lint-full which only runs there) would
+          # never start. workflow_dispatch is the one event such a token may still
+          # create, so ask for it explicitly; `lint-full` keys off the ref, not the event.
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
+
       - name: Keep the rest fresh against the new main
         if: steps.plan.outputs.update != ''
         env:
