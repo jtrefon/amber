@@ -237,7 +237,7 @@ int RenderEngine::gauge_pair(double f) {
 // functions of this snapshot, so nothing on the bar reaches into TUI state.
 agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     agent::StatusSnapshot snapshot;
-    snapshot.window_index = static_cast<int>(tui_.window_manager_->active()) + 1;
+    snapshot.window_index = static_cast<int>(tui_.window_manager_->chat_position());
     snapshot.window_count = static_cast<int>(tui_.window_manager_->chat_count());
     // The bar describes the ACTIVE window: model/mode/telemetry are that
     // window's agent state, not process globals.

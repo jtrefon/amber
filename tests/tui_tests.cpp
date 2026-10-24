@@ -1847,6 +1847,24 @@ TEST(window_manager_close_background_resource_keeps_focus) {
     ASSERT_EQ(wm.chat_count(), 1u);
 }
 
+TEST(window_manager_chat_position_never_exceeds_the_chat_count) {
+    // The [s...] cell counts chat windows, so its numerator must too: focusing
+    // a viewer that sits after two chats reads 2/2, never 3/2.
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    wm.new_window("chat");
+    ASSERT_EQ(wm.chat_position(), 2u);
+    wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(wm.focus_resource("job", "7"));
+    ASSERT_EQ(wm.chat_count(), 2u);
+    ASSERT_EQ(wm.chat_position(), 2u);
+    // Back on a chat, the numerator is that chat's own position.
+    wm.set_active(0);
+    ASSERT_EQ(wm.chat_position(), 1u);
+}
+
 TEST(windowops_switch_to_valid_index) {
     agent::Config cfg;
     agent::ToolRegistry reg;
