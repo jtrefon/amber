@@ -1,6 +1,7 @@
 
 #include <agent.h>
 
+#include "agent/private_file.h"
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_runtime.h"
@@ -218,6 +219,7 @@ int main(int argc, char** argv) try {
         std::fprintf(stderr, "info: wrote default config to %s\n",
                      agent::global_config_path().c_str());
     apply_local_settings(cfg);
+    agent::secure_private_state_async();
 
     // Startup is paint-first: the model catalog is read from the disk cache only,
     // so no network I/O ever blocks this path. A missing or stale catalog

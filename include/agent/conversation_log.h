@@ -3,7 +3,6 @@
 #define AGENT_CONVERSATION_LOG_H
 
 #include <string>
-#include <fstream>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -15,6 +14,13 @@ namespace agent {
 // and a session id. No-op (and cheap) when logging is disabled.
 class ConversationLog {
 public:
+    ConversationLog() = default;
+    ~ConversationLog();
+    ConversationLog(const ConversationLog&) = delete;
+    ConversationLog& operator=(const ConversationLog&) = delete;
+    ConversationLog(ConversationLog&& other) noexcept;
+    ConversationLog& operator=(ConversationLog&& other) noexcept;
+
     // path may contain "{ts}", replaced with the session start timestamp.
     void open(const std::string& path);
 
@@ -23,9 +29,9 @@ public:
     // one previous kept. Opened only when diagnostics are on — with them off
     // there is no journal, no buffer, and one bool test on the way.
     void open_errors(const std::string& path);
-    bool errors_enabled() const { return errors_.is_open(); }
+    bool errors_enabled() const { return errors_fd_ >= 0; }
 
-    bool enabled() const { return out_.is_open(); }
+    bool enabled() const { return out_fd_ >= 0; }
 
     // event: "session_start", "user", "assistant", "reasoning",
     //        "tool_call", "tool_result", "error", "session_end".
@@ -35,8 +41,8 @@ private:
     void record_error(const std::string& type, const json& fields);
     void rotate_errors();
 
-    std::ofstream out_;
-    std::ofstream errors_;
+    int out_fd_ = -1;
+    int errors_fd_ = -1;
     std::string session_;
     std::string errors_path_;
     std::size_t errors_bytes_ = 0;

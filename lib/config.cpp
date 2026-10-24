@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include "agent/private_file.h"
 #include "agent/workspace.h"
 #include <algorithm>
 #include <chrono>
@@ -322,28 +323,19 @@ bool ensure_global_config() {
     std::ifstream probe(path);
     if (probe)
         return false;
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-    std::ofstream f(path, std::ios::trunc);
-    if (!f)
-        return false;
-    f << "# amber global settings (LLM provider)\n"
-      << "# Uncomment and edit to connect to your LLM provider.\n"
-      << "# provider=openai\n"
-      << "# api_base=http://localhost:8081/v1\n"
-      << "# api_key=\n"
-      << "# Empty model = auto-detect from the server.\n"
-      << "model=\n";
-    return static_cast<bool>(f);
+    std::ostringstream out;
+    out << "# amber global settings (LLM provider)\n"
+        << "# Uncomment and edit to connect to your LLM provider.\n"
+        << "# provider=openai\n"
+        << "# api_base=http://localhost:8081/v1\n"
+        << "# api_key=\n"
+        << "# Empty model = auto-detect from the server.\n"
+        << "model=\n";
+    return write_private_file(path, out.str());
 }
 
 bool Config::save_global(const std::string& path) const {
-    std::error_code ec;
-    std::filesystem::path p(path);
-    std::filesystem::create_directories(p.parent_path(), ec);
-    std::ofstream f(path, std::ios::trunc);
-    if (!f)
-        return false;
+    std::ostringstream f;
     f << "# amber global settings (LLM provider)\n";
     f << "provider=" << provider_name << "\n";
     f << "api_base=" << api_base << "\n";
@@ -357,7 +349,7 @@ bool Config::save_global(const std::string& path) const {
     if (context_explicit)
         f << "context_size=" << context_size << "\n";
     f << "wallet=" << (wallet_enabled ? 1 : 0) << "\n";
-    return static_cast<bool>(f);
+    return write_private_file(path, f.str());
 }
 
 namespace {
@@ -366,7 +358,7 @@ namespace {
 // unset value never round-trips into the file and silently overrides a future
 // default. Five conditional writes inside save_settings were the bulk of its
 // branch count; the rule itself is one sentence, so it lives in one place.
-void write_compression_settings(std::ofstream& f, const Config& c) {
+void write_compression_settings(std::ostream& f, const Config& c) {
     if (c.compression_threshold_explicit)
         f << "compression_threshold=" << c.compression_threshold << "\n";
     if (c.compression_min_turns_explicit)
@@ -382,13 +374,7 @@ void write_compression_settings(std::ofstream& f, const Config& c) {
 } // namespace
 
 bool Config::save_settings(const std::string& path) const {
-    // Ensure the parent directory exists (e.g. .amber/ for .amber/settings)
-    std::error_code ec;
-    std::filesystem::path p(path);
-    std::filesystem::create_directories(p.parent_path(), ec);
-    std::ofstream f(path, std::ios::trunc);
-    if (!f)
-        return false;
+    std::ostringstream f;
     f << "# amber project settings (local)\n";
     f << "max_tool_iterations=" << max_tool_iterations << "\n";
     f << "temperature=" << temperature << "\n";
@@ -414,7 +400,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "skills_max_discovery=" << skills_max_discovery << "\n";
     f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
-    return static_cast<bool>(f);
+    return write_private_file(path, f.str());
 }
 
 namespace {

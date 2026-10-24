@@ -25,6 +25,7 @@ SRC_DIR   = @srcdir@
 BUILD_DIR = @builddir@
 
 CORE_OBJS = $(BUILD_DIR)/lib/config.o \
+            $(BUILD_DIR)/lib/private_file.o \
             $(BUILD_DIR)/lib/llm.o \
             $(BUILD_DIR)/lib/debug_log.o \
             $(BUILD_DIR)/lib/dialect.o \

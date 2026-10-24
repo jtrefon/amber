@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include "agent/json_read.h"
+#include "agent/private_file.h"
 
 namespace agent {
 namespace memory_detail {
@@ -83,12 +84,6 @@ bool load_store(const std::string& path, std::unordered_map<std::string, Memory>
 
 bool save_store(const std::string& path, const std::unordered_map<std::string, Memory>& memories,
                 const std::unordered_map<std::string, Skill>& skills) {
-    namespace fs = std::filesystem;
-    auto parent = fs::path(path).parent_path();
-    if (!parent.empty()) {
-        std::error_code ec;
-        fs::create_directories(parent, ec);
-    }
     nlohmann::json j;
     j["version"] = 1;
     nlohmann::json mems = nlohmann::json::array();
@@ -99,16 +94,7 @@ bool save_store(const std::string& path, const std::unordered_map<std::string, M
     for (const auto& [id, sk] : skills)
         sks.push_back(skill_to_json(sk));
     j["skills"] = sks;
-    std::string tmp = path + ".tmp";
-    {
-        std::ofstream f(tmp);
-        if (!f.is_open())
-            return false;
-        f << j.dump(2);
-    }
-    std::error_code ec;
-    fs::rename(tmp, path, ec);
-    return !ec;
+    return write_private_file(path, j.dump(2));
 }
 
 } // namespace memory_detail

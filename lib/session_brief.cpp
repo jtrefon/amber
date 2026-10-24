@@ -1,5 +1,6 @@
 
 #include "agent/session_brief.h"
+#include "agent/private_file.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -56,19 +57,7 @@ bool SessionBriefStore::load(const std::string& path) {
 }
 
 bool SessionBriefStore::save(const std::string& path) const {
-    namespace fs = std::filesystem;
-    auto parent = fs::path(path).parent_path();
-    if (!parent.empty()) {
-        std::error_code ec;
-        fs::create_directories(parent, ec);
-    }
-    std::ofstream f(path);
-    if (!f.is_open())
-        return false;
-    f << brief_to_json(brief_).dump(2);
-    f.flush();
-    f.close();
-    return true;
+    return write_private_file(path, brief_to_json(brief_).dump(2));
 }
 
 void SessionBriefStore::merge(const SessionBrief& fresh) {
