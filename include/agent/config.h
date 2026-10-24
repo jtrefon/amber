@@ -57,6 +57,11 @@ struct Config {
     // on, the TUI opens a viewer for newly running work without stealing
     // focus, and closes it on completion unless it was focused.
     std::string work_auto_attach = "off";
+    // Payload cap for one tool result at the context boundary (env
+    // AMBER_MAX_TOOL_RESULT_BYTES). Oversized output keeps both ends with a
+    // marker that reports the omitted bytes, so one long read cannot dominate
+    // the context or be re-sent whole every turn.
+    int max_tool_result_bytes = 32 * 1024;
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed

@@ -201,6 +201,7 @@ TEST(config_load_covers_every_key) {
         f << "skills_max_discovery=14\n";
         f << "skills_body_budget_tokens=15\n";
         f << "work_auto_attach=agents\n";
+        f << "max_tool_result_bytes=65536\n";
         f << "log_path=/tmp/conv.jsonl\n";
         f << "debug_log=/tmp/dbg.log\n";
         f << "debug=1\n";
@@ -254,6 +255,7 @@ TEST(config_load_covers_every_key) {
     ASSERT_EQ(c.skills_max_discovery, 14);
     ASSERT_EQ(c.skills_body_budget_tokens, 15);
     ASSERT_EQ(c.work_auto_attach, "agents");
+    ASSERT_EQ(c.max_tool_result_bytes, 65536);
     ASSERT_EQ(c.log_path, "/tmp/conv.jsonl");
     ASSERT_EQ(c.debug_log, "/tmp/dbg.log");
     ASSERT_TRUE(c.debug);
@@ -3865,6 +3867,82 @@ TEST(tool_envelope_caps_meta_and_error_text) {
     ASSERT(small_env.find("more characters]") == std::string::npos);
 }
 
+static bool tool_budget_utf8_valid(const std::string& s) {
+    for (std::size_t i = 0; i < s.size();) {
+        const unsigned char c = static_cast<unsigned char>(s[i]);
+        std::size_t len = 0;
+        if (c < 0x80)
+            len = 1;
+        else if ((c & 0xE0) == 0xC0)
+            len = 2;
+        else if ((c & 0xF0) == 0xE0)
+            len = 3;
+        else if ((c & 0xF8) == 0xF0)
+            len = 4;
+        else
+            return false;
+        if (i + len > s.size())
+            return false;
+        for (std::size_t k = 1; k < len; ++k)
+            if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80)
+                return false;
+        i += len;
+    }
+    return true;
+}
+
+TEST(tool_envelope_caps_a_large_result_middle_out) {
+    // A single long read must not dominate the context: the budget keeps both
+    // ends (headers and final errors live there) and states what was omitted.
+    agent::ToolResult big;
+    big.output = "HEAD\n" + std::string(100 * 1024, 'm') + "\nTAIL";
+    const std::size_t budget = 16 * 1024;
+    const std::string env = agent::format_tool_envelope("read", {{"path", "big.log"}}, big, budget);
+    ASSERT(env.find("HEAD") != std::string::npos);
+    ASSERT(env.find("TAIL") != std::string::npos);
+    ASSERT(env.find("bytes omitted") != std::string::npos);
+    ASSERT(env.size() < budget + 1024u);
+    ASSERT(env.size() < big.output.size());
+}
+
+TEST(tool_envelope_truncation_is_utf8_safe) {
+    // Cutting at a byte offset would split a multi-byte code point and make
+    // the envelope invalid UTF-8, which nlohmann rejects on dump.
+    std::string body = "HEAD\n";
+    for (int i = 0; i < 40000; ++i)
+        body += "\xc3\xa9"; // é, two bytes
+    body += "\nTAIL";
+    agent::ToolResult r;
+    r.output = body;
+    const std::string env = agent::format_tool_envelope("read", json::object(), r, 4096);
+    ASSERT(tool_budget_utf8_valid(env));
+    ASSERT(env.find("HEAD") != std::string::npos);
+    ASSERT(env.find("TAIL") != std::string::npos);
+    ASSERT(env.size() < 8192u);
+}
+
+TEST(tool_envelope_reports_original_bytes_and_truncation_in_meta) {
+    agent::ToolResult big;
+    big.output.assign(64 * 1024, 'z');
+    const std::string env = agent::format_tool_envelope("read", json::object(), big, 8 * 1024);
+    ASSERT(env.find("\"bytes\":65536") != std::string::npos);
+    ASSERT(env.find("\"truncated\":true") != std::string::npos);
+
+    agent::ToolResult small;
+    small.output = "ok";
+    const std::string small_env =
+        agent::format_tool_envelope("read", json::object(), small, 8 * 1024);
+    ASSERT(small_env.find("\"bytes\":2") != std::string::npos);
+    ASSERT(small_env.find("\"truncated\"") == std::string::npos);
+    ASSERT(small_env.find("bytes omitted") == std::string::npos);
+
+    // A zero budget means "no cap" (an explicit opt-out).
+    const std::string uncapped =
+        agent::format_tool_envelope("read", json::object(), big, std::size_t{0});
+    ASSERT(uncapped.find("bytes omitted") == std::string::npos);
+    ASSERT(uncapped.find("\"truncated\"") == std::string::npos);
+}
+
 TEST(core_system_prompt_stays_agnostic) {
     std::ifstream in("prompts/system.md");
     ASSERT(in.good());
@@ -5509,9 +5587,46 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
             ++omitted;
     }
     ASSERT_EQ(omitted, 1u);
-    ASSERT_EQ(hist[3].content.find("aa"), std::string::npos); // pruned
-    ASSERT_EQ(hist[6].content, "short");                      // kept
-    ASSERT(hist[9].content.size() == 500u);                   // tail kept
+    ASSERT(hist[3].content.size() < 300u);  // pruned to a digest, not the payload
+    ASSERT_EQ(hist[6].content, "short");    // kept
+    ASSERT(hist[9].content.size() == 500u); // tail kept
+}
+
+TEST(prune_tool_io_keeps_a_readable_digest) {
+    // The generic placeholder lost the tool, status and size; the digest keeps
+    // an index the model can act on without re-running the call.
+    agent::ToolResult big;
+    big.output = std::string(5000, 'a');
+    big.meta = {{"result_id", "abc123"}};
+    const std::string env = agent::format_tool_envelope("read", json::object(), big, 4096);
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),      msg("user", "task a"), msg("assistant", "a done"),
+        msg("tool", env, "read"),    msg("user", "task b"), msg("assistant", "b done"),
+        msg("user", "current task"),
+    };
+    std::vector<agent::Message> again = hist;
+    const std::size_t replaced = agent::prune_tool_io(hist);
+    ASSERT_EQ(replaced, 1u);
+    const std::string& digest = hist[3].content;
+    ASSERT(digest.find("[tool output omitted") == 0);
+    ASSERT(digest.find("tool=read") != std::string::npos);
+    ASSERT(digest.find("status=ok") != std::string::npos);
+    ASSERT(digest.find("bytes=5000") != std::string::npos);
+    ASSERT(digest.find("result_id=abc123") != std::string::npos);
+    ASSERT(digest.size() < 400u);
+    agent::prune_tool_io(again);
+    ASSERT_EQ(again[3].content, digest); // deterministic
+}
+
+TEST(tool_result_digest_falls_back_for_a_plain_message) {
+    // Messages recorded before the envelope existed (or by a tool that returns
+    // raw text) still digest to something actionable, never to an empty line.
+    const agent::Message plain = msg("tool", std::string(300, 'q'), "bash");
+    const std::string digest = agent::tool_result_digest(plain);
+    ASSERT(digest.find("tool=bash") != std::string::npos);
+    ASSERT(digest.find("status=unknown") != std::string::npos);
+    ASSERT(digest.find("bytes=300") != std::string::npos);
+    ASSERT(digest.size() < 120u);
 }
 
 TEST(compression_gate_below_threshold) {

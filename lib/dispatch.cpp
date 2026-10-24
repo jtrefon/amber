@@ -441,8 +441,26 @@ ToolResult denied_result(const Call& c) {
 
 // Record one finished call: publish the result, notify the host, and append the
 // tool message to the context. Returns the tool's own success flag.
-bool finish_call(const Call& c, ToolResult res, const AgentHooks& hooks, ConversationLog& log,
-                 EventBus* events, Context* context) {
+std::size_t tool_result_budget(const Config& cfg) {
+    return cfg.max_tool_result_bytes > 0 ? static_cast<std::size_t>(cfg.max_tool_result_bytes)
+                                         : std::size_t{0};
+}
+
+// Everything a finished call needs to report and record; bundled so the
+// recorder stays a narrow function as more sinks appear.
+struct RecordDeps {
+    const AgentHooks& hooks;
+    ConversationLog& log;
+    EventBus* events = nullptr;
+    Context* context = nullptr;
+    std::size_t result_budget = 0;
+};
+
+bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
+    const AgentHooks& hooks = deps.hooks;
+    ConversationLog& log = deps.log;
+    EventBus* events = deps.events;
+    Context* context = deps.context;
     ToolCompletedEvent completed;
     completed.name = c.fn;
     completed.result = &res;
@@ -460,13 +478,25 @@ bool finish_call(const Call& c, ToolResult res, const AgentHooks& hooks, Convers
     tool_msg.role = "tool";
     tool_msg.tool_call_id = c.id;
     tool_msg.name = c.fn;
-    tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, c.args, res));
+    tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, c.args, res, deps.result_budget));
     context->push(std::move(tool_msg));
     MessageAddedEvent added;
     added.message = &context->get_all().back();
     added.index = context->get_all().size() - 1;
     publish_event(events, added);
     return res.ok;
+}
+
+// Report calls that never executed (denied or malformed arguments), in order.
+bool record_denials(const std::vector<Call>& todo, const RecordDeps& deps) {
+    bool all_ok = true;
+    for (const auto& c : todo) {
+        if (c.approved)
+            continue;
+        if (!finish_call(c, denied_result(c), deps))
+            all_ok = false;
+    }
+    return all_ok;
 }
 
 } // namespace
@@ -488,15 +518,9 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
     const RunScopeChain active_scope = capture_run_scope();
     std::vector<Pending> pending = launch_approved(todo, caller_in_subagent, active_scope);
 
-    bool all_ok = true;
-
     // Non-approved calls: report the denial (or the malformed-arguments failure).
-    for (const auto& c : todo) {
-        if (c.approved)
-            continue;
-        if (!finish_call(c, denied_result(c), hooks, log, events, context))
-            all_ok = false;
-    }
+    const RecordDeps deps{hooks, log, events, context, tool_result_budget(cfg)};
+    bool all_ok = record_denials(todo, deps);
 
     // Approved calls are processed as they complete, out of order.
     while (!pending.empty()) {
@@ -505,7 +529,7 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
                 continue;
             Call& c = todo[it->idx];
             ToolResult res = it->future.get();
-            if (!finish_call(c, std::move(res), hooks, log, events, context))
+            if (!finish_call(c, std::move(res), deps))
                 all_ok = false;
             pending.erase(it);
             break;
