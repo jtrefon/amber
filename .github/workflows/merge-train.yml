@@ -32,6 +32,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Dispatching ci.yml after a merge needs actions: write. Without it the run fails with
+  # "Resource not accessible by integration" -- the merge lands, then the validation the
+  # previous step exists to start does not.
+  actions: write
 
 concurrency:
   group: merge-train
