@@ -10,6 +10,10 @@
 #   P6  the Context deque single-owner contract holds (no mutex/mutation).
 #   P7  TUI L1 "domain" modules are pure (no ncurses, no port headers).
 #   P8  the incremental-lint TU selector keeps its rules (tools/affected_tus.py).
+#   P9  the CI path classifier keeps its rules (tools/changed_paths.sh).
+#   P10 the ci-gate skip policy keeps its rules (tools/gate_needs_check.py).
+#   P11 vendored md4c matches its recorded sha256.
+#   P12 the generated Makefile is regenerated when Makefile.in/configure change.
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -282,6 +286,52 @@ if [ -f "$md4c_readme" ]; then
 else
     warn "P11: $md4c_readme is missing, so the vendored md4c checksums cannot be checked"
 fi
+
+# ---------------------------------------------------------------------------
+# P12  The generated Makefile embeds the object list at configure time, and the
+#      bootstrap only ran ./configure when Makefile was *missing*. A tree that
+#      pulled a Makefile.in change therefore kept building the previous list --
+#      which either fails to link or, worse, silently leaves a new translation
+#      unit out of the build. Makefile must be a target of Makefile.in (and
+#      configure), and an already-current Makefile must not reconfigure.
+#
+#      Hermetic: a throwaway directory with a fake configure that records having
+#      run, so the check reads the bootstrap's behaviour rather than its text.
+# ---------------------------------------------------------------------------
+p12=$(mktemp -d 2>/dev/null || echo "/tmp/amber-hygiene-p12-$$")
+mkdir -p "$p12"
+cp GNUmakefile "$p12/GNUmakefile"
+cat > "$p12/configure" <<'P12_CONFIGURE'
+#!/bin/sh
+: > configured.marker
+printf 'all:\n\t@true\n' > Makefile
+P12_CONFIGURE
+chmod +x "$p12/configure"
+: > "$p12/Makefile.in"
+printf 'all:\n\t@true\n' > "$p12/Makefile"
+# Portable mtimes (BSD and GNU touch both read -t): Makefile newer than both of
+# its prerequisites, so the first case must leave ./configure alone.
+touch -t 202001010000 "$p12/Makefile.in" "$p12/configure"
+touch -t 202001020000 "$p12/Makefile"
+# "Circular Makefile.in <- ensure" is the same defect wearing a quieter face: the
+# catch-all was treating the template as a goal it could build through ensure.
+p12_out=$(cd "$p12" && make all 2>&1)
+p12_status=$?
+if [ "$p12_status" -eq 0 ] && [ ! -f "$p12/configured.marker" ] &&
+    ! printf '%s' "$p12_out" | grep -q 'Circular'; then
+    ok "P12: a current Makefile is not reconfigured"
+else
+    warn "P12: 'make' reconfigured an already-current Makefile, or remade Makefile.in/configure as goals"
+fi
+# Now the template is newer than the generated Makefile, the one case a pull creates.
+touch -t 202001030000 "$p12/Makefile.in"
+(cd "$p12" && make all >/dev/null 2>&1)
+if [ -f "$p12/configured.marker" ]; then
+    ok "P12: a newer Makefile.in regenerates the Makefile"
+else
+    warn "P12: GNUmakefile did not regenerate Makefile after Makefile.in changed (stale object list)"
+fi
+rm -rf "$p12"
 
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
