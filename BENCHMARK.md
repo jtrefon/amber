@@ -1309,3 +1309,24 @@ is architecturally invisible when the LLM does not emit a `brief` field
 structured briefs is the follow-up to measure the positive impact
 (reduced redundant reads, avoided ruled-out approaches, post-compression
 continuation fidelity).
+
+## Tool-result budget (#344, 2026-10-24): a long read, before/after
+
+The budget is a single env switch (`AMBER_MAX_TOOL_RESULT_BYTES`, `0` = off),
+so the before/after runs use the same binary and the same scripted agent: a
+2,000-line read (~160 KiB payload), then a final reply. The measurement is the
+size of the last request, i.e. the conversation re-sent on the next turn. The
+regression guard is `tool_budget_reduces_resent_bytes` in
+`tests/agent_loop_test.cpp`.
+
+| run | last request | reduction |
+|---|---:|---:|
+| `max_tool_result_bytes=0` (before) | 180,365 B (~45k tokens) | — |
+| `max_tool_result_bytes=32768` (after) | 41,439 B (~10k tokens) | **77%** |
+
+The turn completes with the same final reply in both runs; the truncated
+portion is recoverable through `read_result` (P2), and the compression digest
+keeps the handle when the message is pruned (P1). Hermetic task success is
+unchanged by construction (the scripted model answers `done` in both); a live
+model run on the long-read scenario is the remaining validation and needs the
+local inference service.
