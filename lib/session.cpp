@@ -1,5 +1,6 @@
 
 #include "agent/session.h"
+#include "agent/private_file.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -144,8 +145,7 @@ void Session::derive_title(size_t max_len) {
 SessionStore::SessionStore(const std::string& dir) : dir_(dir.empty() ? default_dir() : dir) {}
 
 bool SessionStore::ensure_dir() const {
-    std::error_code ec;
-    return std::filesystem::create_directories(dir_, ec) || !ec;
+    return ensure_private_dir(dir_);
 }
 
 std::string SessionStore::new_id() {
@@ -171,23 +171,12 @@ bool SessionStore::save(Session& s) const {
     if (s.created_ms == 0)
         s.created_ms = now_ms();
     s.updated_ms = now_ms();
-    // Atomic write (tmp + rename): a crash mid-save must never corrupt or
-    // lose the session file.
+    // Atomic replace (temp + rename) is inside write_private_file: a crash
+    // mid-save must never corrupt or lose the session file.
     const std::string target = path_for(s.id);
-    const std::string tmp = target + ".tmp";
-    {
-        std::ofstream f(tmp, std::ios::trunc);
-        if (!f)
-            return false;
-        // Replace invalid UTF-8 rather than throw (model output can be dirty).
-        f << s.to_json().dump(2, ' ', false, json::error_handler_t::replace);
-        if (!f)
-            return false;
-    }
-    if (std::rename(tmp.c_str(), target.c_str()) != 0) {
-        ::remove(tmp.c_str());
+    if (!write_private_file(target,
+                            s.to_json().dump(2, ' ', false, json::error_handler_t::replace)))
         return false;
-    }
     cache_valid_ = false;
     return true;
 }
@@ -263,29 +252,13 @@ void SessionStore::rebuild_index() const {
                        {"file_size", e.file_size}});
     }
     j["sessions"] = arr;
-    std::ofstream f(index_path(), std::ios::trunc);
-    if (f)
-        f << j.dump(2);
+    write_private_file(index_path(), j.dump(2));
 }
 
 bool SessionStore::save_workspace(const WorkspaceState& ws) const {
     if (!ensure_dir())
         return false;
-    const std::string target = workspace_path();
-    const std::string tmp = target + ".tmp";
-    {
-        std::ofstream f(tmp, std::ios::trunc);
-        if (!f)
-            return false;
-        f << ws.to_json().dump(2);
-        if (!f)
-            return false;
-    }
-    if (std::rename(tmp.c_str(), target.c_str()) != 0) {
-        ::remove(tmp.c_str());
-        return false;
-    }
-    return true;
+    return write_private_file(workspace_path(), ws.to_json().dump(2));
 }
 
 WorkspaceState SessionStore::load_workspace() const {

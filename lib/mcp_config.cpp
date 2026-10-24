@@ -3,6 +3,7 @@
 #include "agent/config.h"
 #include "agent/mcp_transport_http.h"
 #include "agent/mcp_transport_stdio.h"
+#include "agent/private_file.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -243,20 +244,11 @@ void write_flag(std::ostream& f, const char* key, bool on) {
 bool save_mcp_server(const McpServerConfig& cfg) {
     if (!valid_server_name(cfg.name))
         return false;
-    std::error_code ec;
-    fs::path dir = mcp_dir(true);
-    fs::create_directories(dir, ec);
-    if (ec)
-        return false;
-    std::ofstream f(dir / (cfg.name + ".conf"), std::ios::trunc);
-    if (!f)
-        return false;
+    std::ostringstream f;
     f << "type=" << cfg.type << "\n";
     write_optional(f, "command", cfg.command);
     if (!cfg.args.empty())
         f << "args=" << join_args(cfg.args) << "\n";
-    fs::permissions(dir / (cfg.name + ".conf"), fs::perms::owner_read | fs::perms::owner_write,
-                    fs::perm_options::replace, ec);
     write_optional(f, "cwd", cfg.cwd);
     write_optional(f, "url", cfg.url);
     write_optional(f, "auth_token", cfg.auth_token);
@@ -264,7 +256,7 @@ bool save_mcp_server(const McpServerConfig& cfg) {
     write_flag(f, "auto_connect", cfg.auto_connect);
     write_flag(f, "trusted", cfg.trusted);
     f << "timeout_s=" << cfg.timeout_s << "\n";
-    return static_cast<bool>(f);
+    return write_private_file((fs::path(mcp_dir(true)) / (cfg.name + ".conf")).string(), f.str());
 }
 
 bool delete_mcp_server(const std::string& name) {

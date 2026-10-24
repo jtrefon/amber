@@ -27,6 +27,7 @@
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
 #include "agent/config_paths.h"
+#include "agent/private_file.h"
 #include "agent/mcp_tools.h"
 #include "agent/subagent.h"
 #include "agent/repair.h"
@@ -49,6 +50,7 @@
 #include <string>
 #include <cstdlib>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
@@ -2729,6 +2731,162 @@ private:
             unsetenv(name);
     }
 };
+
+// ---------------------------------------------------------------------------
+// Private file modes (#373)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+mode_t mode_of(const std::string& path) {
+    struct stat st {};
+    if (::stat(path.c_str(), &st) != 0)
+        return 0;
+    return st.st_mode & 0777;
+}
+
+struct UmaskGuard {
+    explicit UmaskGuard(mode_t mask) : old(::umask(mask)) {}
+    ~UmaskGuard() { ::umask(old); }
+    UmaskGuard(const UmaskGuard&) = delete;
+    UmaskGuard& operator=(const UmaskGuard&) = delete;
+    mode_t old;
+};
+
+} // namespace
+
+TEST(private_provider_file_is_owner_only) {
+    XdgGuard xdg("private_provider");
+    UmaskGuard umask(022);
+    auto repo = agent::make_file_provider_repository();
+    agent::Provider p;
+    p.name = "private-test";
+    p.api_base = "https://example.test/v1";
+    p.api_key = "secret";
+    ASSERT_TRUE(repo->save(p));
+    const std::string dir = agent::global_config_dir() + "/providers";
+    ASSERT_EQ(mode_of(dir), 0700u);
+    ASSERT_EQ(mode_of(dir + "/private-test.conf"), 0600u);
+}
+
+TEST(private_global_config_is_owner_only) {
+    XdgGuard xdg("private_config");
+    UmaskGuard umask(022);
+    agent::Config c;
+    c.provider_name = "openai";
+    c.api_key = "secret";
+    ASSERT_TRUE(c.save_global(agent::global_config_path()));
+    ASSERT_EQ(mode_of(agent::global_config_path()), 0600u);
+}
+
+TEST(private_bootstrap_config_is_owner_only) {
+    XdgGuard xdg("private_bootstrap");
+    UmaskGuard umask(022);
+    ASSERT_TRUE(agent::ensure_global_config());
+    ASSERT_EQ(mode_of(agent::global_config_path()), 0600u);
+}
+
+TEST(private_session_file_is_owner_only) {
+    XdgGuard xdg("private_session");
+    UmaskGuard umask(022);
+    agent::SessionStore store;
+    agent::Session s;
+    s.id = "private-session";
+    s.title = "private";
+    ASSERT_TRUE(store.save(s));
+    ASSERT_EQ(mode_of(store.dir()), 0700u);
+    ASSERT_EQ(mode_of(store.dir() + "/private-session.json"), 0600u);
+}
+
+TEST(private_transcript_is_owner_only) {
+    XdgGuard xdg("private_log");
+    UmaskGuard umask(022);
+    const std::string dir = xdg.state + "/logs";
+    {
+        agent::ConversationLog log;
+        log.open(dir + "/{ts}.jsonl");
+        ASSERT_TRUE(log.enabled());
+        log.event("user", {{"content", "secret"}});
+    }
+    std::string file;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.path().extension() == ".jsonl")
+            file = entry.path().string();
+    }
+    ASSERT_TRUE(!file.empty());
+    ASSERT_EQ(mode_of(dir), 0700u);
+    ASSERT_EQ(mode_of(file), 0600u);
+}
+
+TEST(private_error_journal_is_owner_only) {
+    XdgGuard xdg("private_error_log");
+    UmaskGuard umask(022);
+    const std::string path = xdg.state + "/errors/errors.jsonl";
+    {
+        agent::ConversationLog log;
+        log.open_errors(path);
+        ASSERT_TRUE(log.errors_enabled());
+        log.event("error", {{"message", "secret"}});
+    }
+    ASSERT_EQ(mode_of(xdg.state + "/errors"), 0700u);
+    ASSERT_EQ(mode_of(path), 0600u);
+}
+
+TEST(private_migration_narrows_existing_paths_and_is_idempotent) {
+    XdgGuard xdg("private_migration");
+    UmaskGuard umask(022);
+    const std::string config = agent::global_config_path();
+    const std::string providers = agent::global_config_dir() + "/providers";
+    const std::string state = agent::Workspace::state_dir();
+    const std::string sessions = state + "/sessions";
+    const std::string session = sessions + "/old.json";
+    std::filesystem::create_directories(providers);
+    std::filesystem::create_directories(sessions);
+    {
+        std::ofstream f(config);
+        f << "api_key=secret\n";
+    }
+    {
+        std::ofstream f(providers + "/old.conf");
+        f << "api_key=secret\n";
+    }
+    {
+        std::ofstream f(session);
+        f << "{}\n";
+    }
+    ASSERT_EQ(::chmod(config.c_str(), 0644), 0);
+    ASSERT_EQ(::chmod((providers + "/old.conf").c_str(), 0644), 0);
+    ASSERT_EQ(::chmod(session.c_str(), 0644), 0);
+
+    agent::secure_private_state();
+    agent::secure_private_state(); // idempotent
+
+    ASSERT_EQ(mode_of(config), 0600u);
+    ASSERT_EQ(mode_of(providers), 0700u);
+    ASSERT_EQ(mode_of(providers + "/old.conf"), 0600u);
+    ASSERT_EQ(mode_of(state), 0700u);
+    ASSERT_EQ(mode_of(sessions), 0700u);
+    ASSERT_EQ(mode_of(session), 0600u);
+}
+
+TEST(private_migration_does_not_follow_symlinks) {
+    XdgGuard xdg("private_symlink");
+    UmaskGuard umask(022);
+    std::filesystem::create_directories(xdg.dir);
+    const std::string target = xdg.dir + "/outside.conf";
+    {
+        std::ofstream f(target);
+        f << "api_key=secret\n";
+    }
+    ASSERT_EQ(::chmod(target.c_str(), 0644), 0);
+    std::filesystem::create_directories(agent::global_config_dir());
+    ASSERT_EQ(::symlink(target.c_str(), agent::global_config_path().c_str()), 0);
+
+    agent::secure_private_state();
+
+    ASSERT_EQ(mode_of(target), 0644u);
+    ASSERT_TRUE(std::filesystem::is_symlink(agent::global_config_path()));
+}
 
 // ---------------------------------------------------------------------------
 // Tool-result artifacts (#344 P2)

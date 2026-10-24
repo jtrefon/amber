@@ -1,5 +1,6 @@
 
 #include "agent/config.h"
+#include "agent/private_file.h"
 #include "agent/providers.h"
 
 // Adapter: user-added providers persisted as key=value files under
@@ -7,6 +8,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <system_error>
 
 namespace agent {
@@ -17,8 +19,7 @@ namespace fs = std::filesystem;
 
 std::string providers_dir() {
     std::string dir = global_config_dir() + "/providers";
-    std::error_code ec;
-    fs::create_directories(dir, ec);
+    ensure_private_dir(dir);
     return dir;
 }
 
@@ -97,9 +98,7 @@ public:
 
     bool save(const Provider& p) override {
         const std::string path = providers_dir() + "/" + p.name + ".conf";
-        std::ofstream f(path, std::ios::trunc);
-        if (!f)
-            return false;
+        std::ostringstream f;
         f << "# amber provider: " << p.name << "\n";
         f << "provider=" << p.name << "\n";
         f << "api_base=" << p.api_base << "\n";
@@ -114,7 +113,7 @@ public:
             f << "flavor=" << p.flavor << "\n";
         if (p.default_context_size > 0)
             f << "default_context_size=" << p.default_context_size << "\n";
-        return static_cast<bool>(f);
+        return write_private_file(path, f.str());
     }
 
     bool remove(const std::string& name) override {

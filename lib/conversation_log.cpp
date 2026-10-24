@@ -1,7 +1,13 @@
-
 #include "agent/conversation_log.h"
+
 #include <chrono>
 #include <filesystem>
+#include <system_error>
+
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include "agent/private_file.h"
 
 namespace agent {
 
@@ -24,6 +30,39 @@ bool is_app_failure(const std::string& type) {
 
 } // namespace
 
+ConversationLog::~ConversationLog() {
+    if (out_fd_ >= 0)
+        ::close(out_fd_);
+    if (errors_fd_ >= 0)
+        ::close(errors_fd_);
+}
+
+ConversationLog::ConversationLog(ConversationLog&& other) noexcept
+    : out_fd_(other.out_fd_), errors_fd_(other.errors_fd_), session_(std::move(other.session_)),
+      errors_path_(std::move(other.errors_path_)), errors_bytes_(other.errors_bytes_) {
+    other.out_fd_ = -1;
+    other.errors_fd_ = -1;
+    other.errors_bytes_ = 0;
+}
+
+ConversationLog& ConversationLog::operator=(ConversationLog&& other) noexcept {
+    if (this == &other)
+        return *this;
+    if (out_fd_ >= 0)
+        ::close(out_fd_);
+    if (errors_fd_ >= 0)
+        ::close(errors_fd_);
+    out_fd_ = other.out_fd_;
+    errors_fd_ = other.errors_fd_;
+    session_ = std::move(other.session_);
+    errors_path_ = std::move(other.errors_path_);
+    errors_bytes_ = other.errors_bytes_;
+    other.out_fd_ = -1;
+    other.errors_fd_ = -1;
+    other.errors_bytes_ = 0;
+    return *this;
+}
+
 void ConversationLog::open(const std::string& path) {
     if (path.empty())
         return;
@@ -33,47 +72,46 @@ void ConversationLog::open(const std::string& path) {
     size_t pos = resolved.find(tok);
     if (pos != std::string::npos)
         resolved.replace(pos, tok.size(), session_);
-    // The default path lives under .amber/logs/, which may not exist yet.
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(resolved).parent_path(), ec);
-    out_.open(resolved, std::ios::app);
-    if (out_.is_open())
+    out_fd_ = open_private_append(resolved);
+    if (out_fd_ >= 0)
         event("session_start", {{"session", session_}});
 }
 
 void ConversationLog::open_errors(const std::string& path) {
-    if (path.empty() || errors_.is_open())
+    if (path.empty() || errors_fd_ >= 0)
         return;
     errors_path_ = path;
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-    if (std::filesystem::exists(path, ec)) {
-        const auto size = std::filesystem::file_size(path, ec);
-        errors_bytes_ = ec ? 0 : static_cast<std::size_t>(size);
-    }
-    errors_.open(path, std::ios::app);
+    errors_fd_ = open_private_append(path);
+    if (errors_fd_ < 0)
+        return;
+    struct stat st {};
+    if (::fstat(errors_fd_, &st) == 0)
+        errors_bytes_ = static_cast<std::size_t>(st.st_size);
 }
 
 void ConversationLog::rotate_errors() {
     if (errors_bytes_ <= kMaxErrorBytes)
         return;
-    errors_.close();
+    if (errors_fd_ >= 0) {
+        ::close(errors_fd_);
+        errors_fd_ = -1;
+    }
     std::error_code ec;
     std::filesystem::rename(errors_path_, errors_path_ + ".1", ec);
     errors_bytes_ = 0;
-    errors_.open(errors_path_, std::ios::trunc);
+    errors_fd_ = open_private_truncate(errors_path_);
 }
 
 void ConversationLog::record_error(const std::string& type, const json& fields) {
-    if (!errors_.is_open())
+    if (errors_fd_ < 0)
         return;
     json rec = fields;
     rec["ts"] = now_ms();
     rec["session"] = session_;
     rec["event"] = type;
     const std::string line = rec.dump(-1, ' ', false, json::error_handler_t::replace) + "\n";
-    errors_ << line;
-    errors_.flush();
+    if (!write_all(errors_fd_, line))
+        return;
     errors_bytes_ += line.size();
     rotate_errors();
 }
@@ -81,7 +119,7 @@ void ConversationLog::record_error(const std::string& type, const json& fields) 
 void ConversationLog::event(const std::string& type, const json& fields) {
     if (is_app_failure(type))
         record_error(type, fields);
-    if (!out_.is_open())
+    if (out_fd_ < 0)
         return;
     json rec = fields;
     rec["ts"] = now_ms();
@@ -89,8 +127,8 @@ void ConversationLog::event(const std::string& type, const json& fields) {
     rec["event"] = type;
     // Model output can contain invalid UTF-8 (e.g. a multibyte char split
     // across stream fragments); replace bad bytes instead of throwing.
-    out_ << rec.dump(-1, ' ', false, json::error_handler_t::replace) << '\n';
-    out_.flush();
+    const std::string line = rec.dump(-1, ' ', false, json::error_handler_t::replace) + "\n";
+    write_all(out_fd_, line);
 }
 
 } // namespace agent
