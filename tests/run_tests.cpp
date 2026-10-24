@@ -49,6 +49,7 @@
 #include <string>
 #include <cstdlib>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
@@ -2729,6 +2730,106 @@ private:
             unsetenv(name);
     }
 };
+
+// ---------------------------------------------------------------------------
+// Private file modes (#373)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+mode_t mode_of(const std::string& path) {
+    struct stat st {};
+    if (::stat(path.c_str(), &st) != 0)
+        return 0;
+    return st.st_mode & 0777;
+}
+
+struct UmaskGuard {
+    explicit UmaskGuard(mode_t mask) : old(::umask(mask)) {}
+    ~UmaskGuard() { ::umask(old); }
+    UmaskGuard(const UmaskGuard&) = delete;
+    UmaskGuard& operator=(const UmaskGuard&) = delete;
+    mode_t old;
+};
+
+} // namespace
+
+TEST(private_provider_file_is_owner_only) {
+    XdgGuard xdg("private_provider");
+    UmaskGuard umask(022);
+    auto repo = agent::make_file_provider_repository();
+    agent::Provider p;
+    p.name = "private-test";
+    p.api_base = "https://example.test/v1";
+    p.api_key = "secret";
+    ASSERT_TRUE(repo->save(p));
+    const std::string dir = agent::global_config_dir() + "/providers";
+    ASSERT_EQ(mode_of(dir), 0700u);
+    ASSERT_EQ(mode_of(dir + "/private-test.conf"), 0600u);
+}
+
+TEST(private_global_config_is_owner_only) {
+    XdgGuard xdg("private_config");
+    UmaskGuard umask(022);
+    agent::Config c;
+    c.provider_name = "openai";
+    c.api_key = "secret";
+    ASSERT_TRUE(c.save_global(agent::global_config_path()));
+    ASSERT_EQ(mode_of(agent::global_config_path()), 0600u);
+}
+
+TEST(private_bootstrap_config_is_owner_only) {
+    XdgGuard xdg("private_bootstrap");
+    UmaskGuard umask(022);
+    ASSERT_TRUE(agent::ensure_global_config());
+    ASSERT_EQ(mode_of(agent::global_config_path()), 0600u);
+}
+
+TEST(private_session_file_is_owner_only) {
+    XdgGuard xdg("private_session");
+    UmaskGuard umask(022);
+    agent::SessionStore store;
+    agent::Session s;
+    s.id = "private-session";
+    s.title = "private";
+    ASSERT_TRUE(store.save(s));
+    ASSERT_EQ(mode_of(store.dir()), 0700u);
+    ASSERT_EQ(mode_of(store.dir() + "/private-session.json"), 0600u);
+}
+
+TEST(private_transcript_is_owner_only) {
+    XdgGuard xdg("private_log");
+    UmaskGuard umask(022);
+    const std::string dir = xdg.state + "/logs";
+    {
+        agent::ConversationLog log;
+        log.open(dir + "/{ts}.jsonl");
+        ASSERT_TRUE(log.enabled());
+        log.event("user", {{"content", "secret"}});
+    }
+    std::string file;
+    for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.path().extension() == ".jsonl")
+            file = entry.path().string();
+    }
+    ASSERT_TRUE(!file.empty());
+    ASSERT_EQ(mode_of(dir), 0700u);
+    ASSERT_EQ(mode_of(file), 0600u);
+}
+
+TEST(private_error_journal_is_owner_only) {
+    XdgGuard xdg("private_error_log");
+    UmaskGuard umask(022);
+    const std::string path = xdg.state + "/errors/errors.jsonl";
+    {
+        agent::ConversationLog log;
+        log.open_errors(path);
+        ASSERT_TRUE(log.errors_enabled());
+        log.event("error", {{"message", "secret"}});
+    }
+    ASSERT_EQ(mode_of(xdg.state + "/errors"), 0700u);
+    ASSERT_EQ(mode_of(path), 0600u);
+}
 
 // ---------------------------------------------------------------------------
 // Tool-result artifacts (#344 P2)
