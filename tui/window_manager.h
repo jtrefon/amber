@@ -51,6 +51,9 @@ public:
     // Chat windows only: resource viewers are not sessions and never inflate
     // the [s...] count.
     size_t chat_count() const noexcept;
+    // 1-based position of the active window among chat windows, so the [s...]
+    // cell never reads index > count while a resource viewer is focused.
+    size_t chat_position() const noexcept;
     bool valid_index(size_t idx) const noexcept { return idx < windows_.size(); }
 
     // The project's shared skill catalog / memory store. Skills and learned

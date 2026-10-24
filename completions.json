@@ -30,7 +30,7 @@
   "settings": {
    "action": "core.settings",
    "help": "Browse settings groups; edit with /set <group>.",
-   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think and worktree. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/.",
+   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think, worktree and work. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/.",
    "short": "st"
   },
   "session": {
@@ -333,6 +333,11 @@
       "off",
       "toggle"
      ]
+    },
+    "work": {
+     "action": "core.config.get.work",
+     "help": "Show background work viewer settings.",
+     "man": "Reports work.auto_attach. Off keeps viewers manual; agents, jobs and all open a background viewer for each newly running sub-agent, background job or both without moving focus, and an unfocused viewer closes when the work reaches a terminal state. See '/set work auto_attach' to change it."
     },
     "detection": {
      "action": "core.config.get.detection",
