@@ -36,7 +36,7 @@ Four compact cells, left of the model cell, after `[s…]` root:
 
 | Cell | Meaning | Tone |
 |---|---|---|
-| `[s2/3]` | active window index / open windows | `Banner` (white-on-blue) |
+| `[s2/3]` | active window index / open chat windows | `Banner` (white-on-blue) |
 | `[j2]` | running jobs | `Warn` (yellow-on-blue) |
 | `[a1/2]` | active subagents / configured max | `Good` (green-on-blue) |
 | `[w2!]` | running watches, `!` attention | `Dim` (cyan-on-blue) |
@@ -48,8 +48,9 @@ Rules:
 - `[a…]` is hidden when the `task` tool is unavailable or subagents are disabled.
 - `[j1/2]` is shown only while a job viewer is focused: focused job / running
   jobs. With no viewer it is `[j2]`; jobs have no configured maximum.
-- `[s…]` counts **open windows**, not saved sessions. Saved sessions stay in
-  `/session list` and the browser.
+- `[s…]` counts **open chat windows**, not saved sessions and not resource
+  viewers. Saved sessions stay in `/session list` and the browser; an
+  auto-attached viewer never inflates the count.
 - `[w…]` reuses the watch plugin’s counts and attention flag.
 - The cells are a legend for `/work` and the resource roots; command shortcuts
   may differ where collision resolution requires it.
@@ -178,6 +179,12 @@ No action silently kills work by closing its view.
   steal.
 - **WS-08** no resource window is saved/restored as a session or emits a fake
   agent event.
+- **WS-09** `work.auto_attach` (`off|agents|jobs|all`, default `off`) opens one
+  background viewer per newly running job/sub-agent without moving focus. On a
+  terminal state an unfocused viewer closes; a focused one keeps the final
+  output. A sub-agent viewer shows a bounded tool-level tail (200 lines /
+  4 KiB) fed from its tool hooks, never per-token output. Closing a focused
+  viewer returns focus to the last chat window.
 
 ## 8. Non-goals
 

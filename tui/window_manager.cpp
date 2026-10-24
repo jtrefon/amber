@@ -65,7 +65,7 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
         w->agent->set_prompt_registry(plugin_runtime_->prompts());
     }
     windows_.push_back(std::move(w));
-    active_ = windows_.size() - 1;
+    set_active(windows_.size() - 1);
     return *windows_.back();
 }
 
@@ -79,8 +79,58 @@ Window& WindowManager::new_resource_window(const std::string& kind, const std::s
     w->resource_kind = kind;
     w->resource_id = id;
     windows_.push_back(std::move(w));
-    active_ = windows_.size() - 1;
+    set_active(windows_.size() - 1);
     return *windows_.back();
+}
+
+Window& WindowManager::new_background_resource_window(const std::string& kind,
+                                                      const std::string& id,
+                                                      const std::string& title) {
+    auto w = std::make_unique<Window>();
+    w->kind = Window::Kind::Resource;
+    w->id = next_id_++;
+    w->title = title;
+    w->read_only = true;
+    w->resource_kind = kind;
+    w->resource_id = id;
+    windows_.push_back(std::move(w));
+    return *windows_.back();
+}
+
+bool WindowManager::close_resource_window(const std::string& kind, const std::string& id) {
+    for (size_t i = 0; i < windows_.size(); ++i) {
+        const Window& window = *windows_[i];
+        if (window.kind != Window::Kind::Resource || window.resource_kind != kind ||
+            window.resource_id != id)
+            continue;
+        if (windows_.size() == 1)
+            return false; // never leave the manager without a window
+        const bool focused = active_ == i;
+        windows_.erase(windows_.begin() + static_cast<std::ptrdiff_t>(i));
+        if (i < active_)
+            --active_;
+        else if (focused)
+            active_ = std::min(last_chat_, windows_.size() - 1);
+        return true;
+    }
+    return false;
+}
+
+std::size_t WindowManager::chat_count() const noexcept {
+    std::size_t chats = 0;
+    for (const auto& window : windows_)
+        if (window->kind == Window::Kind::Chat)
+            ++chats;
+    return chats;
+}
+
+void WindowManager::set_active(size_t idx) noexcept {
+    active_ = idx;
+    if (idx >= windows_.size())
+        return;
+    windows_[idx]->ever_focused = true;
+    if (windows_[idx]->kind == Window::Kind::Chat)
+        last_chat_ = idx;
 }
 
 Window* WindowManager::by_owner_id(const std::string& owner_id) {
@@ -96,7 +146,7 @@ bool WindowManager::focus_resource(const std::string& kind, const std::string& i
     for (size_t i = 0; i < windows_.size(); ++i) {
         if (windows_[i]->kind == Window::Kind::Resource && windows_[i]->resource_kind == kind &&
             windows_[i]->resource_id == id) {
-            active_ = i;
+            set_active(i);
             return true;
         }
     }

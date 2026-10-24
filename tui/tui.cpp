@@ -12,6 +12,7 @@
 #include "option_key_decode.h"
 #include "signal_guard.h"
 #include "event_router.h"
+#include "work_auto_attach.h"
 #include "feed_manager.h"
 #include "path_confine.h"
 #include "panel_view.h"
@@ -732,6 +733,32 @@ bool Tui::pump_io(CommandLine& cl) {
     return had_events;
 }
 
+bool Tui::resource_ever_focused(const std::string& kind, const std::string& id) const {
+    for (const auto& window : window_manager_->all())
+        if (window->kind == Window::Kind::Resource && window->resource_kind == kind &&
+            window->resource_id == id)
+            return window->ever_focused;
+    return false;
+}
+
+void Tui::auto_attach_resources() {
+    const auto steps =
+        plan_auto_attach(cfg_.work_auto_attach, jobs_.list(), subagents_.tasks(), auto_attached_,
+                         [this](const std::string& kind, const std::string& id) {
+                             return resource_ever_focused(kind, id);
+                         });
+    for (const auto& step : steps) {
+        if (step.action == AutoAttachStep::Action::Open) {
+            window_manager_->new_background_resource_window(step.kind, step.id, step.title);
+            auto_attached_.insert(step.key);
+            continue;
+        }
+        if (step.action == AutoAttachStep::Action::Close)
+            window_manager_->close_resource_window(step.kind, step.id);
+        auto_attached_.erase(step.key);
+    }
+}
+
 // Watch observers run in plugin worker threads and accumulate their spend in
 // the watch service; drain it here, on the UI thread, into the owning window.
 void Tui::poll_watch_usage() {
@@ -761,6 +788,7 @@ void Tui::idle_tick(bool had_events, CommandLine& cl) {
         if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
             render_engine_->set_last_status_tick(now);
             router_->advance_tool_spinners();
+            auto_attach_resources();
             poll_watch_usage();
             if (runs_.any_busy())
                 render_engine_->draw();

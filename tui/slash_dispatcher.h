@@ -76,6 +76,7 @@ public:
     void set_debug(const std::string& val);
     void show_debug_status();
     void cmd_set_worktree(const std::string& val);
+    void cmd_set_work_auto_attach(const std::string& val);
     void cmd_usage_show();
     void cmd_usage_reset();
     void cmd_get_worktree();
@@ -241,6 +242,7 @@ private:
     void add_debug_settings();
     void add_reasoning_settings();
     void add_subagent_settings();
+    void add_work_settings();
     void add_display_settings();
     void add_policy_settings();
     void add_think_settings();

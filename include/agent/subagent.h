@@ -24,6 +24,12 @@
 
 namespace agent {
 
+// A tool-level progress tail (never per-token): newest lines survive, capped
+// so a chatty sub-agent cannot grow its viewer without limit.
+inline constexpr std::size_t kTaskTailMaxLines = 200;
+inline constexpr std::size_t kTaskTailMaxBytes = 4096;
+void append_task_tail(std::string& tail, const std::string& line);
+
 // Point-in-time view of one task run. The executor owns the records; this is a
 // copy so a viewer can render without holding the executor lock.
 struct SubAgentTaskInfo {
@@ -33,6 +39,7 @@ struct SubAgentTaskInfo {
     std::string state; // queued | running | done | failed | cancelled
     std::string current_tool;
     std::string result;
+    std::string tail;
     long prompt_tokens = 0;
     long completion_tokens = 0;
     bool usage_measured = false;
@@ -75,8 +82,6 @@ public:
     std::string run_task(const std::string& prompt, ToolRegistry& reg, std::string& err);
     AgentHooks sub_hooks_of() const;
     void record_usage(const std::string& task_id, const Stats& stats);
-    // The child's progress hooks: state, per-task usage. No per-token events.
-    AgentHooks progress_hooks(const std::string& task_id);
     Config sub_config() const;
 
 private:
@@ -90,6 +95,10 @@ private:
     std::string add_task(const std::string& prompt);
     void update_task(const std::string& id, const std::string& state,
                      const std::string& current_tool = {}, const std::string& result = {});
+    void append_tail(const std::string& id, const std::string& line);
+    // The child's progress hooks: state, per-task usage and a tool-level tail;
+    // never per-token events.
+    AgentHooks progress_hooks(const std::string& task_id);
     void fail_task(const std::string& id, const std::string& error);
     struct TaskRecord {
         std::string id;
@@ -98,6 +107,7 @@ private:
         std::string state;
         std::string current_tool;
         std::string result;
+        std::string tail;
         long prompt_tokens = 0;
         long completion_tokens = 0;
         bool usage_measured = false;

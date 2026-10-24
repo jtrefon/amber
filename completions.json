@@ -553,6 +553,24 @@
       "toggle"
      ]
     },
+    "work": {
+     "action": "core.config.set.work",
+     "help": "Background work settings.",
+     "man": "Controls how background work is surfaced. auto_attach opens a viewer for newly running jobs and/or sub-agents without stealing focus, and closes it when the work finishes unless the viewer was focused.",
+     "children": {
+      "auto_attach": {
+       "action": "core.config.set.work.auto_attach",
+       "help": "Open viewers for background work (off/agents/jobs/all).",
+       "man": "off (the default) leaves viewers manual. agents opens one for each newly running sub-agent, jobs for each background process, all for both. Viewers open in the background: focus never moves. On completion an unfocused viewer closes; a focused one keeps the final output. '/set work auto_attach <mode>' persists the choice.",
+       "choices": [
+        "off",
+        "agents",
+        "jobs",
+        "all"
+       ]
+      }
+     }
+    },
     "detection": {
      "action": "core.config.set.detection",
      "help": "Detection settings.",

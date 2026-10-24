@@ -27,6 +27,11 @@ public:
     Window& new_window(const std::string& title, const std::string& project_root = "");
     Window& new_resource_window(const std::string& kind, const std::string& id,
                                 const std::string& title);
+    // Open a viewer for background work without moving focus.
+    Window& new_background_resource_window(const std::string& kind, const std::string& id,
+                                           const std::string& title);
+    // Close a viewer; focus returns to the last chat window when it was active.
+    bool close_resource_window(const std::string& kind, const std::string& id);
     bool focus_resource(const std::string& kind, const std::string& id);
     Window& open_welcome_window();
     Window& ensure_chat_window();
@@ -36,11 +41,16 @@ public:
     // The chat window that owns background work with this owner_id, or null.
     Window* by_owner_id(const std::string& owner_id);
     size_t active() const noexcept { return active_; }
-    void set_active(size_t idx) noexcept { active_ = idx; }
+    // Activating a window marks it viewed; resources use that to decide
+    // whether a terminal state may close them.
+    void set_active(size_t idx) noexcept;
     size_t next_id() const noexcept { return next_id_; }
     std::vector<std::unique_ptr<Window>>& all() noexcept { return windows_; }
     const std::vector<std::unique_ptr<Window>>& all() const noexcept { return windows_; }
     size_t count() const noexcept { return windows_.size(); }
+    // Chat windows only: resource viewers are not sessions and never inflate
+    // the [s...] count.
+    size_t chat_count() const noexcept;
     bool valid_index(size_t idx) const noexcept { return idx < windows_.size(); }
 
     // The project's shared skill catalog / memory store. Skills and learned
@@ -56,6 +66,7 @@ private:
     agent::PluginRuntime* plugin_runtime_ = nullptr;
     std::vector<std::unique_ptr<Window>> windows_;
     size_t active_ = 0;
+    size_t last_chat_ = 0;
     size_t next_id_ = 0;
 
     // Project-scoped shared state, keyed by workspace root. The pool is UI-

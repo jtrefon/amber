@@ -128,7 +128,12 @@ void apply_agent_keys(Config& c, const std::string& key, const std::string& val,
         c.subagent_parallel = parse_bool(val);
     else if (key == "subagent_max")
         parse_int(key, val, warnings, c.subagent_max);
-    else if (key == "max_tool_result_bytes")
+    else if (key == "work_auto_attach") {
+        if (val == "off" || val == "agents" || val == "jobs" || val == "all")
+            c.work_auto_attach = val;
+        else
+            warnings.push_back("work_auto_attach: expected off|agents|jobs|all, got '" + val + "'");
+    } else if (key == "max_tool_result_bytes")
         parse_int(key, val, warnings, c.max_tool_result_bytes);
     else if (key == "context_size") {
         // 0 (or negative) means "auto-detect"; only a positive value counts
@@ -405,6 +410,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "detection_duplicate=" << (detection_duplicate ? 1 : 0) << "\n";
     f << "skills_interop=" << (skills_interop ? 1 : 0) << "\n";
     f << "worktree=" << (worktree_auto ? 1 : 0) << "\n";
+    f << "work_auto_attach=" << work_auto_attach << "\n";
     f << "skills_max_discovery=" << skills_max_discovery << "\n";
     f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";

@@ -10,6 +10,7 @@
 #include "tui/action_registry.h"
 #include "tui/session_usage.h"
 #include "tui/usage_report.h"
+#include "tui/work_auto_attach.h"
 #include "tui/textutil.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
@@ -1716,6 +1717,66 @@ TEST(usage_ledger_reads_legacy_session_keys_as_main) {
     ASSERT(ledger.main.measured);
 }
 
+TEST(auto_attach_plan_opens_new_running_work_and_is_mode_scoped) {
+    agent::JobInfo running;
+    running.id = "1";
+    running.label = "make";
+    running.state = agent::JobState::Running;
+    agent::JobInfo done;
+    done.id = "2";
+    done.state = agent::JobState::Done;
+    agent::SubAgentTaskInfo task;
+    task.id = "task-1";
+    task.prompt_head = "price it";
+    task.state = "running";
+    std::unordered_set<std::string> attached;
+    const auto none = [](const std::string&, const std::string&) { return false; };
+
+    ASSERT(tui::plan_auto_attach("off", {running}, {task}, attached, none).empty());
+    const auto jobs = tui::plan_auto_attach("jobs", {running, done}, {task}, attached, none);
+    ASSERT_EQ(jobs.size(), 1u);
+    ASSERT(jobs[0].action == tui::AutoAttachStep::Action::Open);
+    ASSERT_EQ(jobs[0].kind, std::string("job"));
+    ASSERT(jobs[0].title.find("job 1") != std::string::npos);
+    const auto agents = tui::plan_auto_attach("agents", {running}, {task}, attached, none);
+    ASSERT_EQ(agents.size(), 1u);
+    ASSERT_EQ(agents[0].kind, std::string("agent"));
+    const auto both = tui::plan_auto_attach("all", {running}, {task}, attached, none);
+    ASSERT_EQ(both.size(), 2u);
+}
+
+TEST(auto_attach_plan_does_not_reopen_attached_work) {
+    agent::JobInfo running;
+    running.id = "1";
+    running.state = agent::JobState::Starting;
+    const std::unordered_set<std::string> attached = {"job:1"};
+    const auto none = [](const std::string&, const std::string&) { return false; };
+    ASSERT(tui::plan_auto_attach("jobs", {running}, {}, attached, none).empty());
+}
+
+TEST(auto_attach_plan_forgets_a_focused_viewer_and_closes_an_unfocused_one) {
+    agent::JobInfo done;
+    done.id = "1";
+    done.state = agent::JobState::Done;
+    const std::unordered_set<std::string> attached = {"job:1"};
+    const auto focused = [](const std::string&, const std::string&) { return true; };
+    const auto unfocused = [](const std::string&, const std::string&) { return false; };
+    const auto kept = tui::plan_auto_attach("jobs", {done}, {}, attached, focused);
+    ASSERT_EQ(kept.size(), 1u);
+    ASSERT(kept[0].action == tui::AutoAttachStep::Action::Forget);
+    const auto closed = tui::plan_auto_attach("jobs", {done}, {}, attached, unfocused);
+    ASSERT_EQ(closed.size(), 1u);
+    ASSERT(closed[0].action == tui::AutoAttachStep::Action::Close);
+}
+
+TEST(auto_attach_plan_ignores_terminal_work_it_never_opened) {
+    agent::JobInfo done;
+    done.id = "1";
+    done.state = agent::JobState::Failed;
+    const auto none = [](const std::string&, const std::string&) { return false; };
+    ASSERT(tui::plan_auto_attach("jobs", {done}, {}, {}, none).empty());
+}
+
 // --- WindowOps tests (11) ---
 
 TEST(window_manager_binds_a_window_to_its_project) {
@@ -1741,6 +1802,49 @@ TEST(window_manager_creates_and_focuses_resource_viewers) {
     ASSERT_EQ(wm.count(), 1u);
     ASSERT(wm.focus_resource("job", "3"));
     ASSERT(!wm.focus_resource("job", "4"));
+}
+
+TEST(window_manager_background_resource_does_not_steal_focus) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t before = wm.active();
+    tui::Window& viewer = wm.new_background_resource_window("job", "7", "job 7 - make");
+    ASSERT(viewer.kind == tui::Window::Kind::Resource);
+    ASSERT(viewer.read_only);
+    ASSERT(!viewer.agent);
+    ASSERT_EQ(wm.active(), before); // focus never moves implicitly
+    ASSERT_EQ(wm.count(), 2u);
+    ASSERT_EQ(wm.chat_count(), 1u); // resource viewers are not chat windows
+}
+
+TEST(window_manager_close_resource_hands_focus_back) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t owner = wm.active();
+    wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(wm.focus_resource("job", "7"));
+    ASSERT(wm.win().ever_focused);
+    ASSERT(wm.close_resource_window("job", "7"));
+    ASSERT_EQ(wm.count(), 1u);
+    ASSERT_EQ(wm.active(), owner);
+    ASSERT(!wm.close_resource_window("job", "7"));
+}
+
+TEST(window_manager_close_background_resource_keeps_focus) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.new_window("chat");
+    const size_t chat = wm.active();
+    tui::Window& viewer = wm.new_background_resource_window("job", "7", "job 7");
+    ASSERT(!viewer.ever_focused);
+    ASSERT(wm.close_resource_window("job", "7"));
+    ASSERT_EQ(wm.active(), chat);
+    ASSERT_EQ(wm.chat_count(), 1u);
 }
 
 TEST(windowops_switch_to_valid_index) {

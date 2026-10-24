@@ -2,6 +2,8 @@
 #define AMBER_TUI_TUI_H
 
 #include <agent.h>
+
+#include <unordered_set>
 #include <agent/events.h>
 #include <agent/learn_commands.h>
 #include <agent/plugin.h>
@@ -222,6 +224,7 @@ private:
     // Commands started by the UI and not yet reported. Job handles are
     // shared_ptrs, so a job that outlives the drain is still safe to read.
     std::vector<detail::WatchedJob> watched_jobs_;
+    std::unordered_set<std::string> auto_attached_;
 
     // ---- session persistence (owned by SessionController) ----------------
     void autosave();
@@ -386,6 +389,10 @@ private:
     [[noreturn]] void shutdown_from_signal();
     bool pump_io(CommandLine& cl);
     void idle_tick(bool had_events, CommandLine& cl);
+    // Open/close background resource viewers for work whose state changed;
+    // never moves focus.
+    void auto_attach_resources();
+    bool resource_ever_focused(const std::string& kind, const std::string& id) const;
     // Drain watch-observer usage into each owner window's ledger.
     void poll_watch_usage();
     bool handle_option_key(int& ch, CommandLine& cl);

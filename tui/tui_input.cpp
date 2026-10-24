@@ -1081,6 +1081,12 @@ void SlashDispatcher::register_set_engine_actions() {
                     [this](const std::string& v) { cmd_set_detection_toggle("loop", v); });
     register_action("core.config.set.worktree",
                     [this](const std::string& v) { cmd_set_worktree(v); });
+    // Routed through the generic settings path so the one save site (and its
+    // documented behaviour) is shared with every other dotted setting.
+    register_action("core.config.set.work.auto_attach", [this](const std::string& v) {
+        if (!apply_setting_key("work.auto_attach " + v))
+            tui_.append_line(P_STATUS, "usage: /set work auto_attach off|agents|jobs|all");
+    });
     register_action("core.config.set.detection.duplicate",
                     [this](const std::string& v) { cmd_set_detection_toggle("duplicate", v); });
     register_action("core.config.set.debug", [this](const std::string& v) { set_debug(v); });
@@ -3863,10 +3869,23 @@ void SlashDispatcher::build_settings() {
     add_debug_settings();
     add_reasoning_settings();
     add_subagent_settings();
+    add_work_settings();
     add_display_settings();
     add_policy_settings();
     add_think_settings();
     add_compression_settings();
+}
+
+void SlashDispatcher::add_work_settings() {
+    add_setting(
+        "work.auto_attach", [this]() { return tui_.cfg_.work_auto_attach; },
+        [this](const std::string& v) { cmd_set_work_auto_attach(v); });
+}
+
+void SlashDispatcher::cmd_set_work_auto_attach(const std::string& v) {
+    if (v != "off" && v != "agents" && v != "jobs" && v != "all")
+        throw std::invalid_argument("expected off|agents|jobs|all");
+    tui_.cfg_.work_auto_attach = v;
 }
 
 void SlashDispatcher::add_detection_settings() {
