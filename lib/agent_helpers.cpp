@@ -77,8 +77,10 @@ bool is_utf8_continuation(unsigned char c) {
 
 // Budget a payload middle-out: both ends survive (headers first, final errors
 // last), the cut lands on a code-point boundary, and `omitted` reports how
-// many bytes went away. `budget == 0` means "no cap".
-std::string truncate_middle(const std::string& text, std::size_t budget, std::size_t& omitted) {
+// many bytes went away. `budget == 0` means "no cap". `handle` (when set) names
+// the read_result call that retrieves the full payload.
+std::string truncate_middle(const std::string& text, std::size_t budget, std::size_t& omitted,
+                            const std::string& handle) {
     omitted = 0;
     if (budget == 0 || text.size() <= budget)
         return text;
@@ -91,8 +93,12 @@ std::string truncate_middle(const std::string& text, std::size_t budget, std::si
            is_utf8_continuation(static_cast<unsigned char>(text[tail_start])))
         ++tail_start;
     omitted = text.size() - head_len - (text.size() - tail_start);
-    return text.substr(0, head_len) + "\n[... " + std::to_string(omitted) + " bytes omitted of " +
-           std::to_string(text.size()) + " total]\n" + text.substr(tail_start);
+    std::string marker = "\n[... " + std::to_string(omitted) + " bytes omitted of " +
+                         std::to_string(text.size()) + " total";
+    if (!handle.empty())
+        marker += "; full output: " + handle;
+    marker += "]\n";
+    return text.substr(0, head_len) + marker + text.substr(tail_start);
 }
 
 } // namespace
@@ -118,8 +124,11 @@ std::string format_tool_envelope(const std::string& name, const json& args,
 
     std::string content = result.ok ? result.output : capped("ERROR: " + result.error, 2000);
     meta["bytes"] = content.size();
+    std::string handle;
+    if (meta.contains("result_id") && meta["result_id"].is_string())
+        handle = "read_result result_id=" + meta["result_id"].get<std::string>();
     std::size_t omitted = 0;
-    content = truncate_middle(content, budget, omitted);
+    content = truncate_middle(content, budget, omitted, handle);
     if (omitted > 0)
         meta["truncated"] = true;
 
