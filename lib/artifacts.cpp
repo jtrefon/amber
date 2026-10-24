@@ -183,8 +183,10 @@ std::string store_tool_artifact(const std::string& payload) {
     std::string id = random_id();
     const fs::path temp = dir / (id + ".tmp");
     {
-        // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the user's own XDG
-        // state root, absolute and traversal-checked by Workspace::state_dir().
+        // The directory is the user's own XDG state root: Workspace::state_dir()
+        // rejects a non-absolute or ".." root, and the file name is a generated
+        // 16-hex id. This is the same trust boundary as every other state write.
+        // codeql[cpp/path-injection] lgtm[cpp/path-injection]
         std::ofstream out(temp, std::ios::binary | std::ios::trunc);
         if (!out)
             return {};
