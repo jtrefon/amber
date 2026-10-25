@@ -129,6 +129,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `skills/agent-skills.md` | Umbrella: two-tier model (authored vs learned), scope axes, precedence, progressive disclosure, injection-slot policy, budgets |
 | `skills/skill-files.md` | Authored `SKILL.md` format (Agent Skills open standard subset), tolerant frontmatter parser, directory scanner, interop gate |
 | `skills/skill-catalog.md` | `SkillCatalog`/`SkillOverrides` ports, `read_skill`/`write_skill`/`list_skills` tools, `/set skills` + `/get skills` curation commands |
+| `skills/skill-acquisition.md` | Skills Explorer: `skills.sh` index adapters, search/browse/facets, install sheet with review gate, atomic tree install, provenance ledger, updates/diff, trust and token-cost surfacing, `/skills` command + CLI parity |
 
 ## MCP (Model Context Protocol)
 
