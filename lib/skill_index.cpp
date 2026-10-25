@@ -187,6 +187,22 @@ std::string skills_index_cache_dir() {
     return cache_dir() + "/skill-index";
 }
 
+std::string url_encode_component(const std::string& in) {
+    return encode_component(in);
+}
+
+IndexFailure classify_http(const std::optional<HttpResponse>& response) {
+    return classify(response);
+}
+
+DetailResult SkillIndex::detail(const SkillRef&, const CancellationToken&) const {
+    return {std::nullopt, failure(IndexError::Unsupported, "detail is not supported")};
+}
+
+AssetsResult SkillIndex::fetch_assets(const SkillDetail&, const CancellationToken&) const {
+    return {std::nullopt, failure(IndexError::Unsupported, "assets are not supported")};
+}
+
 std::string skills_search_url(const std::string& base_url, const std::string& query, int limit) {
     std::string base = base_url;
     while (!base.empty() && base.back() == '/')

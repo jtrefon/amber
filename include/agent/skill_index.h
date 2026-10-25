@@ -37,8 +37,9 @@ enum class IndexError : unsigned char {
     Timeout,
     Cancelled,
     RateLimited,
-    Http,      // a non-2xx status other than 429
-    Malformed, // the body was not the documented shape
+    Http,        // a non-2xx status other than 429
+    Malformed,   // the body was not the documented shape
+    Unsupported, // this adapter cannot answer that operation
 };
 
 struct IndexFailure {
@@ -60,6 +61,48 @@ struct SourceStatus {
     bool enabled = false;
     bool authenticated = false;
     long long fetched_at_ms = 0; // last successful live fetch, 0 = never
+};
+
+// One file inside a skill directory. The git blob SHA is what the ledger
+// records and what an update compares, so a rename with identical bytes is not
+// mistaken for a content change.
+struct SkillAsset {
+    std::string path; // relative to the skill directory
+    size_t bytes = 0;
+    std::string sha;
+};
+
+// Everything a detail pane and an installer need, from one repo listing plus
+// one SKILL.md fetch.
+struct SkillDetail {
+    SkillRef ref;
+    std::string description;
+    std::string license;
+    std::string category;
+    std::string default_branch;
+    std::string skill_dir; // repo-relative directory; empty at repo root
+    std::string hash;      // SKILL.md blob SHA
+    std::vector<SkillAsset> assets;
+};
+
+struct DetailResult {
+    std::optional<SkillDetail> detail;
+    IndexFailure error;
+
+    bool ok() const noexcept { return detail.has_value(); }
+};
+
+// One file's bytes, keyed by the path the installer writes.
+struct SkillAssetContent {
+    std::string path;
+    std::string contents;
+};
+
+struct AssetsResult {
+    std::optional<std::vector<SkillAssetContent>> files;
+    IndexFailure error;
+
+    bool ok() const noexcept { return files.has_value(); }
 };
 
 struct SkillIndexOptions {
@@ -90,8 +133,26 @@ public:
     virtual IndexResult search(const std::string& query, int limit,
                                const CancellationToken& cancel) const = 0;
 
+    // Detail is adapter-specific: search returns id/source/name/installs, and
+    // only an adapter that can read the source repository can answer the rest.
+    // The default says so rather than pretending an empty detail.
+    virtual DetailResult detail(const SkillRef& ref, const CancellationToken& cancel) const;
+
+    // Fetch every asset a detail listed. The installer owns validation and
+    // atomic writes; the adapter owns the bytes.
+    virtual AssetsResult fetch_assets(const SkillDetail& detail,
+                                      const CancellationToken& cancel) const;
+
     virtual std::vector<SourceStatus> sources() const = 0;
 };
+
+// RFC 3986 component encoding, uppercase hex. Shared by the adapters so the
+// search URL and a repository path cannot disagree about a space.
+std::string url_encode_component(const std::string& in);
+
+// Map an HTTP outcome onto the typed failure. `None` means a 2xx response; a
+// 429 carries Retry-After. Adapters add their own rate-limit dialects on top.
+IndexFailure classify_http(const std::optional<HttpResponse>& response);
 
 // The cache root the default options use.
 std::string skills_index_cache_dir();
