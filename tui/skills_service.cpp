@@ -180,6 +180,13 @@ agent::SkillInstallResult SkillsService::run_install(const Job& job, bool& ledge
 
     agent::SkillLedger ledger = agent::SkillLedger::for_root(job.root);
     ledger.load();
+    ledger_saved = ledger.upsert(job.name, entry_for(job, result, request.files));
+    return result;
+}
+
+agent::LedgerEntry
+SkillsService::entry_for(const Job& job, const agent::SkillInstallResult& result,
+                         const std::vector<agent::SkillPayloadFile>& files) const {
     agent::LedgerEntry entry;
     entry.id = job.detail.ref.id;
     entry.source = job.detail.ref.source;
@@ -187,12 +194,15 @@ agent::SkillInstallResult SkillsService::run_install(const Job& job, bool& ledge
     entry.ref = job.detail.default_branch;
     entry.hash = job.detail.hash;
     entry.category = job.detail.category;
+    for (const auto& file : files) {
+        if (file.path == "SKILL.md")
+            entry.local_hash = agent::skill_content_hash(file.contents);
+    }
     entry.installed_at_ms = wall_ms();
     entry.files = result.files;
     entry.bytes = result.bytes;
     entry.enabled = job.enabled;
-    ledger_saved = ledger.upsert(job.name, std::move(entry));
-    return result;
+    return entry;
 }
 
 SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,

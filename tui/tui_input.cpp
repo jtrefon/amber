@@ -22,6 +22,7 @@
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
 #include "agent/skill_index.h"
+#include "agent/skill_ledger.h"
 #include "tui/skills_explorer.h"
 #include "agent/mcp_commands.h"
 
@@ -567,6 +568,44 @@ std::string skills_override_line(agent::SkillCatalog& catalog, const std::string
 
 } // namespace
 
+std::map<std::string, agent::LedgerEntry> skill_ledger_entries(const agent::SkillScanPaths& paths) {
+    std::map<std::string, agent::LedgerEntry> entries;
+    for (const auto& root : {paths.project, paths.global}) {
+        agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
+        ledger.load();
+        for (const auto& [name, entry] : ledger.entries())
+            entries.emplace(name, entry);
+    }
+    return entries;
+}
+
+std::string skill_budget_text(const agent::SkillCatalog& catalog) {
+    const auto discovery = catalog.discovery_block();
+    std::size_t chars = 0;
+    for (const auto& line : discovery)
+        chars += line.size();
+    return std::to_string(discovery.size()) + " lines · ~" + std::to_string(chars / 4) +
+           " tok/turn";
+}
+
+std::vector<tui::SkillRow>
+installed_skill_rows(const agent::SkillCatalog& catalog,
+                     const std::map<std::string, agent::LedgerEntry>& ledger) {
+    std::vector<tui::SkillRow> rows;
+    for (const auto& entry : catalog.entries()) {
+        tui::SkillRow row;
+        row.ref.id = entry.path.empty() ? entry.name : entry.path;
+        row.ref.name = entry.name;
+        row.ref.source = skill_scope_label(entry.scope);
+        row.description = entry.meta.description;
+        row.state = entry.state;
+        row.installed = true;
+        row.unmanaged = ledger.count(entry.name) == 0;
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
 void Tui::open_skills_explorer() {
     if (!win().agent) {
         append_line(P_STATUS, "no agent in this window");
@@ -581,19 +620,17 @@ void Tui::open_skills_explorer() {
     opts.cache_root = agent::skills_index_cache_dir();
     if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
         opts.token = token;
-    opts.installed = [this] {
-        std::vector<tui::SkillRow> rows;
-        for (const auto& entry : win().agent->skills().entries()) {
-            tui::SkillRow row;
-            row.ref.id = entry.path.empty() ? entry.name : entry.path;
-            row.ref.name = entry.name;
-            row.ref.source = skill_scope_label(entry.scope);
-            row.description = entry.meta.description;
-            row.installed = true;
-            rows.push_back(std::move(row));
-        }
-        return rows;
+
+    const auto ledger = skill_ledger_entries(paths);
+    opts.ledger = [ledger](const std::string& name) -> std::optional<agent::LedgerEntry> {
+        const auto it = ledger.find(name);
+        return it == ledger.end() ? std::nullopt : std::optional<agent::LedgerEntry>(it->second);
     };
+    opts.set_state = [this](const std::string& name, const std::string& state) {
+        return win().agent->skills().apply_override(name, state);
+    };
+    opts.budget = skill_budget_text(win().agent->skills());
+    opts.installed = [this, ledger] { return installed_skill_rows(win().agent->skills(), ledger); };
     tui::run_skills_explorer(opts,
                              [this](const std::string& line) { append_line(P_STATUS, line); });
     redraw_after_modal();

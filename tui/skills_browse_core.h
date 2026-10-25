@@ -34,6 +34,7 @@ struct SkillRow {
     agent::SkillRef ref;
     std::string description;
     std::string category;
+    std::string state; // installed: enabled | disabled | blocked | suppressed
     agent::TrustTier tier = agent::TrustTier::Unverified;
     bool installed = false;
     bool update = false;

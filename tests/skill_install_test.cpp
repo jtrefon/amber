@@ -41,6 +41,12 @@ agent::SkillInstallRequest request(const std::string& root, const std::string& n
     return req;
 }
 
+void write(const std::string& path, const std::string& contents) {
+    fs::create_directories(fs::path(path).parent_path());
+    std::ofstream f(path, std::ios::binary);
+    f << contents;
+}
+
 std::string read(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -142,6 +148,34 @@ TEST(skill_install_safe_path_table) {
     ASSERT_TRUE(!agent::is_safe_skill_path("C:/x"));
 }
 
+TEST(skill_content_hash_is_stable_and_sensitive) {
+    const std::string a = agent::skill_content_hash("hello");
+    ASSERT_EQ(a, agent::skill_content_hash("hello"));
+    ASSERT_TRUE(a != agent::skill_content_hash("hello!"));
+    ASSERT_EQ(a.size(), static_cast<size_t>(16));
+}
+
+TEST(skill_install_adopt_reads_without_rewriting) {
+    TempDir tmp("adopt");
+    write(tmp.path + "/mine/SKILL.md", kSkillMd);
+    write(tmp.path + "/mine/notes.md", "notes");
+
+    const auto entry = agent::adopt_skill(tmp.path, "mine");
+    ASSERT_TRUE(entry.has_value());
+    ASSERT_EQ(entry->slug, std::string("mine"));
+    ASSERT_EQ(entry->files, 2);
+    ASSERT_EQ(entry->local_hash, agent::skill_content_hash(kSkillMd));
+    ASSERT_EQ(read(tmp.path + "/mine/notes.md"), std::string("notes"));
+    ASSERT_TRUE(entry->hash.empty()); // unmanaged: no remote provenance
+}
+
+TEST(skill_install_adopt_rejects_missing_skill_md) {
+    TempDir tmp("adopt_missing");
+    write(tmp.path + "/mine/notes.md", "notes");
+    ASSERT_TRUE(!agent::adopt_skill(tmp.path, "mine").has_value());
+    ASSERT_TRUE(!agent::adopt_skill(tmp.path, "nope").has_value());
+}
+
 TEST(skill_ledger_round_trip) {
     TempDir tmp("ledger");
     const std::string path = tmp.path + "/.lock.json";
@@ -151,6 +185,7 @@ TEST(skill_ledger_round_trip) {
     e.slug = "tdd";
     e.ref = "main";
     e.hash = "abc";
+    e.local_hash = "def";
     e.category = "engineering";
     e.installed_at_ms = 123;
     e.files = 2;
@@ -168,6 +203,7 @@ TEST(skill_ledger_round_trip) {
     ASSERT_TRUE(found.has_value());
     ASSERT_EQ(found->id, std::string("acme/skills/tdd"));
     ASSERT_EQ(found->hash, std::string("abc"));
+    ASSERT_EQ(found->local_hash, std::string("def"));
     ASSERT_EQ(found->files, 2);
     ASSERT_EQ(found->bytes, 42);
 

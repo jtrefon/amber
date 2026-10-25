@@ -14,8 +14,9 @@ struct LedgerEntry {
     std::string id;     // registry id: source/slug
     std::string source; // owner/repo or host
     std::string slug;
-    std::string ref;  // branch or tag installed from
-    std::string hash; // SKILL.md blob SHA at install time
+    std::string ref;        // branch or tag installed from
+    std::string hash;       // remote SKILL.md blob SHA at install time
+    std::string local_hash; // FNV of the installed SKILL.md (local-edit check)
     std::string category;
     std::string note;
     long long installed_at_ms = 0;

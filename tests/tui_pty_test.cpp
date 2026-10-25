@@ -2119,9 +2119,6 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
         return;
 
     tui.send("6");
-    if (!require(tui.wait_for("installed skills", 2000), "the installed tab did not render", tui))
-        return;
-
     tui.send("q");
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }

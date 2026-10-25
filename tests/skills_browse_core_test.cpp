@@ -193,6 +193,11 @@ TEST(skills_browse_tabs_and_lifecycle_intents) {
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::ToggleEnabled);
     i = core.key('A');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Adopt);
+    i = core.key('6');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::SetTab);
+    ASSERT_TRUE(i.tab == tui::SkillTab::Installed);
+    ASSERT_TRUE(core.tab() == tui::SkillTab::Installed);
+
     i = core.key('q');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Close);
 }

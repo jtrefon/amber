@@ -1,12 +1,15 @@
 #include "tui/skills_explorer.h"
 
 #include "agent/github_index.h"
+#include "agent/skill_install.h"
 #include "tui/dialog.h"
 #include "tui/skills_service.h"
 
 #include <algorithm>
 #include <chrono>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -62,6 +65,22 @@ std::string compact_installs(int installs) {
     return std::to_string(installs);
 }
 
+std::string local_skill_hash(const std::string& root, const std::string& name) {
+    std::ifstream f(root + "/" + name + "/SKILL.md", std::ios::binary);
+    if (!f)
+        return {};
+    const std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return agent::skill_content_hash(body);
+}
+
+const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::string& name) {
+    for (const auto& row : rows) {
+        if (row.ref.name == name)
+            return &row;
+    }
+    return nullptr;
+}
+
 void draw_tabs(WINDOW* w, int row, int width, SkillTab tab) {
     const std::pair<SkillTab, const char*> tabs[] = {{SkillTab::Top, "Top"},
                                                      {SkillTab::Installed, "Installed"}};
@@ -82,6 +101,8 @@ void draw_row(WINDOW* w, int y, int width, const SkillRow& row, bool selected) {
         badges += "*";
     if (row.update)
         badges += "+";
+    if (row.unmanaged)
+        badges += "?";
 
     std::string name = row.ref.name;
     if (name.size() > 26) {
@@ -98,8 +119,11 @@ void draw_row(WINDOW* w, int y, int width, const SkillRow& row, bool selected) {
     mvwaddnstr(w, y, 0, name.c_str(), 27);
     if (!badges.empty())
         mvwaddnstr(w, y, 28, badges.c_str(), 4);
-    if (width > 40)
-        mvwaddnstr(w, y, 32, row.ref.source.c_str(), std::max(0, tail_x - 33));
+    if (width > 40) {
+        const std::string source =
+            row.state.empty() ? row.ref.source : row.ref.source + " · " + row.state;
+        mvwaddnstr(w, y, 32, source.c_str(), std::max(0, tail_x - 33));
+    }
     mvwaddnstr(w, y, tail_x, tail.c_str(), static_cast<int>(tail.size()));
     if (selected)
         wattroff(w, A_REVERSE);
@@ -188,14 +212,20 @@ void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& quer
         draw_row(w, top + i, list_w, rows_now[static_cast<size_t>(index)],
                  index == core.selection());
     }
-    if (rows_now.empty())
-        mvwaddnstr(w, top, 0, query.empty() ? "Type a query to search." : "No matches.",
-                   std::max(0, list_w - 1));
+    if (rows_now.empty()) {
+        const char* message = "Type a query to search.";
+        if (core.tab() == SkillTab::Installed)
+            message = "No installed skills. Press 1 and search.";
+        else if (!query.empty())
+            message = "No matches.";
+        mvwaddnstr(w, top, 0, message, std::max(0, list_w - 1));
+    }
 }
 
 void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
                     const std::string& last_status,
-                    const std::map<std::string, SkillDetailView>& details) {
+                    const std::map<std::string, SkillDetailView>& details,
+                    const std::string& budget) {
     const int aw = getmaxx(w);
     const int ah = getmaxy(w);
     werase(w);
@@ -205,6 +235,9 @@ void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& 
     if (core.stale())
         mvwaddnstr(w, 0, std::max(0, aw - 8), "[cached]", 8);
     draw_tabs(w, 1, aw, core.tab());
+    if (!budget.empty() && core.tab() == SkillTab::Installed)
+        mvwaddnstr(w, 1, std::max(0, aw - static_cast<int>(budget.size()) - 1), budget.c_str(),
+                   static_cast<int>(budget.size()));
     mvwhline(w, 2, 0, ACS_HLINE, std::max(0, aw));
 
     const int list_w = aw >= 80 ? std::min(46, aw - 24) : aw;
@@ -257,7 +290,7 @@ public:
 
     void run() {
         while (true) {
-            paint_explorer(dlg_->content(), core_, query_, last_status_, details_);
+            paint_explorer(dlg_->content(), core_, query_, last_status_, details_, options_.budget);
             const int ch = wgetch(dlg_->win());
             if (ch != ERR) {
                 const SkillIntent intent = core_.key(ch, list_height());
@@ -275,8 +308,10 @@ private:
     void refresh_installed() {
         installed_rows_ = options_.installed ? options_.installed() : std::vector<SkillRow>{};
         installed_names_.clear();
-        for (const auto& row : installed_rows_)
+        for (auto& row : installed_rows_) {
             installed_names_.insert(row.ref.name);
+            row.update = updates_.count(row.ref.name) != 0;
+        }
         core_.set_installed(installed_rows_);
     }
 
@@ -297,127 +332,23 @@ private:
         return row;
     }
 
-    bool apply(const SkillIntent& intent) {
-        switch (intent.kind) {
-        case SkillIntent::Kind::Search:
-            query_ = core_.filter();
-            pending_search_ = true;
-            last_input_ = Clock::now();
-            return true;
-        case SkillIntent::Kind::OpenDetail:
-            if (const auto ref = find_ref(intent.id))
-                service_->detail(*ref);
-            last_status_ = "loading details...";
-            return true;
-        case SkillIntent::Kind::Install:
-            prompt_install(intent.id);
-            return true;
-        case SkillIntent::Kind::SetTab:
-            apply_tab(intent.tab);
-            return true;
-        case SkillIntent::Kind::Refresh:
-            pending_search_ = true;
-            return true;
-        case SkillIntent::Kind::Close:
-            status_("skills closed");
-            return false;
-        case SkillIntent::Kind::None:
-            return true;
-        default:
-            last_status_ = "not available yet";
-            return true;
-        }
-    }
-
-    void apply_tab(SkillTab tab) {
-        if (tab == SkillTab::Installed) {
-            refresh_installed();
-            last_status_ = "installed skills";
-        } else if (tab == SkillTab::Top) {
-            pending_search_ = !query_.empty();
-        } else {
-            core_.set_tab(SkillTab::Top);
-            last_status_ = "that shelf is not wired yet";
-        }
-    }
-
-    void tick() {
-        if (pending_search_ && since(last_input_) >= 250) {
-            pending_search_ = false;
-            if (query_.size() >= 2)
-                service_->search(query_);
-            else
-                core_.set_rows({});
-        }
-        for (auto& event : service_->drain()) {
-            if (event.kind == SkillsEvent::Kind::SearchDone)
-                on_search(event);
-            else if (event.kind == SkillsEvent::Kind::DetailDone)
-                on_detail(event);
-            else if (event.kind == SkillsEvent::Kind::InstallDone)
-                on_install(event);
-        }
-    }
-
-    void on_search(const SkillsEvent& event) {
-        if (event.query != query_)
-            return;
-        if (!event.search.page) {
-            core_.set_rows({}, false, event.search.error);
-            last_status_ = failure_text(event.search.error);
-            return;
-        }
-        std::vector<SkillRow> rows;
-        rows.reserve(event.search.page->skills.size());
-        for (const auto& ref : event.search.page->skills)
-            rows.push_back(decorate(ref));
-        core_.set_rows(std::move(rows), event.search.page->cached);
-        last_status_ = std::to_string(event.search.page->skills.size()) + " results";
-    }
-
-    void on_detail(const SkillsEvent& event) {
-        if (!event.detail.detail) {
-            last_status_ = failure_text(event.detail.error);
-            return;
-        }
-        const agent::SkillDetail& detail = *event.detail.detail;
-        details_[detail.ref.id] = view_of(detail);
-        raw_details_[detail.ref.id] = detail;
-        last_status_ = "loaded " + detail.ref.name;
-        if (pending_install_ == detail.ref.id) {
-            pending_install_.clear();
-            prompt_install(detail.ref.id);
-        }
-    }
-
-    void on_install(const SkillsEvent& event) {
-        if (!event.install.ok) {
-            last_status_ = "install failed: " + event.install.error;
-            return;
-        }
-        last_status_ = "installed " + event.name + " · " + std::to_string(event.install.files) +
-                       " files" + (event.ledger_saved ? "" : " (ledger not saved)");
-        refresh_installed();
-    }
-
-    void prompt_install(const std::string& id) {
-        const auto raw = raw_details_.find(id);
-        if (raw == raw_details_.end()) {
-            pending_install_ = id;
-            if (const auto ref = find_ref(id))
-                service_->detail(*ref);
-            last_status_ = "loading skill...";
-            return;
-        }
-        const int scope = choose_scope(options_.rows, options_.cols);
-        touchwin(dlg_->win());
-        wrefresh(dlg_->win());
-        if (scope == 0)
-            return;
-        service_->install(raw->second, agent::skill_slug(id),
-                          scope == 1 ? options_.project_root : options_.global_root, false, true);
-        last_status_ = "installing " + agent::skill_slug(id) + "...";
-    }
+    bool apply(const SkillIntent& intent);
+    void apply_tab(SkillTab tab);
+    void tick();
+    void on_search(const SkillsEvent& event);
+    void on_detail(const SkillsEvent& event);
+    void on_install(const SkillsEvent& event);
+    void prompt_install(const std::string& id);
+    void adopt_current();
+    void remove_current();
+    void update_current(const std::string& id);
+    void apply_update(const std::string& name);
+    bool apply_lifecycle(const SkillIntent& intent);
+    void finish_update(const agent::SkillDetail& detail);
+    void toggle_state(const std::string& id);
+    void block_current(const std::string& id);
+    std::string root_for(const SkillRow& row) const;
+    bool confirm(const std::string& title, const std::string& text) const;
 
     SkillsExplorerOptions options_;
     std::function<void(const std::string&)> status_;
@@ -430,10 +361,352 @@ private:
     std::map<std::string, agent::SkillDetail> raw_details_;
     std::string query_;
     std::string pending_install_;
+    std::string pending_update_;
     std::string last_status_;
+    std::set<std::string> updates_;
+    std::set<std::string> update_ready_;
     bool pending_search_ = false;
     Clock::time_point last_input_{};
 };
+
+bool SkillsExplorer::apply(const SkillIntent& intent) {
+    switch (intent.kind) {
+    case SkillIntent::Kind::Search:
+        query_ = core_.filter();
+        pending_search_ = true;
+        last_input_ = Clock::now();
+        return true;
+    case SkillIntent::Kind::OpenDetail:
+        if (const auto ref = find_ref(intent.id))
+            service_->detail(*ref);
+        last_status_ = "loading details...";
+        return true;
+    case SkillIntent::Kind::Install:
+        prompt_install(intent.id);
+        return true;
+    case SkillIntent::Kind::SetTab:
+        apply_tab(intent.tab);
+        return true;
+    case SkillIntent::Kind::Refresh:
+        pending_search_ = true;
+        return true;
+    case SkillIntent::Kind::Close:
+        status_("skills closed");
+        return false;
+    case SkillIntent::Kind::None:
+        return true;
+    default:
+        return apply_lifecycle(intent);
+    }
+}
+
+bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
+    switch (intent.kind) {
+    case SkillIntent::Kind::Adopt:
+        adopt_current();
+        return true;
+    case SkillIntent::Kind::Remove:
+        remove_current();
+        return true;
+    case SkillIntent::Kind::Update:
+        update_current(intent.id);
+        return true;
+    case SkillIntent::Kind::ToggleEnabled:
+        toggle_state(intent.id);
+        return true;
+    case SkillIntent::Kind::Block:
+        block_current(intent.id);
+        return true;
+    default:
+        last_status_ = "not available yet";
+        return true;
+    }
+}
+
+void SkillsExplorer::apply_tab(SkillTab tab) {
+    if (tab == SkillTab::Installed) {
+        refresh_installed();
+        last_status_ = "installed skills";
+    } else if (tab == SkillTab::Top) {
+        pending_search_ = !query_.empty();
+    } else {
+        core_.set_tab(SkillTab::Top);
+        last_status_ = "that shelf is not wired yet";
+    }
+}
+
+void SkillsExplorer::tick() {
+    if (pending_search_ && since(last_input_) >= 250) {
+        pending_search_ = false;
+        if (query_.size() >= 2)
+            service_->search(query_);
+        else
+            core_.set_rows({});
+    }
+    for (auto& event : service_->drain()) {
+        if (event.kind == SkillsEvent::Kind::SearchDone)
+            on_search(event);
+        else if (event.kind == SkillsEvent::Kind::DetailDone)
+            on_detail(event);
+        else if (event.kind == SkillsEvent::Kind::InstallDone)
+            on_install(event);
+    }
+}
+
+void SkillsExplorer::on_search(const SkillsEvent& event) {
+    if (event.query != query_)
+        return;
+    if (!event.search.page) {
+        core_.set_rows({}, false, event.search.error);
+        last_status_ = failure_text(event.search.error);
+        return;
+    }
+    std::vector<SkillRow> rows;
+    rows.reserve(event.search.page->skills.size());
+    for (const auto& ref : event.search.page->skills)
+        rows.push_back(decorate(ref));
+    core_.set_rows(std::move(rows), event.search.page->cached);
+    last_status_ = std::to_string(event.search.page->skills.size()) + " results";
+}
+
+void SkillsExplorer::on_detail(const SkillsEvent& event) {
+    if (!event.detail.detail) {
+        last_status_ = failure_text(event.detail.error);
+        return;
+    }
+    const agent::SkillDetail& detail = *event.detail.detail;
+    details_[detail.ref.id] = view_of(detail);
+    raw_details_[detail.ref.id] = detail;
+    last_status_ = "loaded " + detail.ref.name;
+    if (!pending_update_.empty()) {
+        finish_update(detail);
+        return;
+    }
+    if (pending_install_ == detail.ref.id) {
+        pending_install_.clear();
+        prompt_install(detail.ref.id);
+    }
+}
+
+void SkillsExplorer::on_install(const SkillsEvent& event) {
+    if (!event.install.ok) {
+        last_status_ = "install failed: " + event.install.error;
+        return;
+    }
+    last_status_ = "installed " + event.name + " · " + std::to_string(event.install.files) +
+                   " files" + (event.ledger_saved ? "" : " (ledger not saved)");
+    refresh_installed();
+}
+
+void SkillsExplorer::prompt_install(const std::string& id) {
+    const auto raw = raw_details_.find(id);
+    if (raw == raw_details_.end()) {
+        pending_install_ = id;
+        if (const auto ref = find_ref(id))
+            service_->detail(*ref);
+        last_status_ = "loading skill...";
+        return;
+    }
+    const int scope = choose_scope(options_.rows, options_.cols);
+    touchwin(dlg_->win());
+    wrefresh(dlg_->win());
+    if (scope == 0)
+        return;
+    service_->install(raw->second, agent::skill_slug(id),
+                      scope == 1 ? options_.project_root : options_.global_root, false, true);
+    last_status_ = "installing " + agent::skill_slug(id) + "...";
+}
+
+std::string SkillsExplorer::root_for(const SkillRow& row) const {
+    if (row.ref.source == "project")
+        return options_.project_root;
+    if (row.ref.source == "global")
+        return options_.global_root;
+    return {};
+}
+
+bool SkillsExplorer::confirm(const std::string& title, const std::string& text) const {
+    Dialog dlg(std::min(9, options_.rows - 2), std::min(64, options_.cols - 4), title);
+    dlg.set_footer({{"y", "confirm"}, {"n", "cancel"}});
+    WINDOW* w = dlg.content();
+    mvwaddnstr(w, 1, 0, text.c_str(), dlg.cols() - 2);
+    keypad(w, TRUE);
+    while (true) {
+        const int ch = wgetch(w);
+        if (ch == 'y' || ch == 'Y')
+            return true;
+        if (ch == 'n' || ch == 'N' || ch == 27 || ch == 'q')
+            return false;
+    }
+}
+
+void SkillsExplorer::adopt_current() {
+    const auto row = core_.current();
+    if (!row || !row->installed) {
+        last_status_ = "only installed skills can be adopted";
+        return;
+    }
+    if (options_.ledger && options_.ledger(row->ref.name)) {
+        last_status_ = row->ref.name + " is already managed";
+        return;
+    }
+    const std::string root = root_for(*row);
+    if (root.empty()) {
+        last_status_ = "only project/global skills can be adopted";
+        return;
+    }
+    const auto entry = agent::adopt_skill(root, row->ref.name);
+    if (!entry) {
+        last_status_ = "cannot adopt " + row->ref.name;
+        return;
+    }
+    agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
+    ledger.load();
+    ledger.upsert(row->ref.name, *entry);
+    last_status_ = "adopted " + row->ref.name;
+    refresh_installed();
+}
+
+void SkillsExplorer::remove_current() {
+    const auto row = core_.current();
+    if (!row || !row->installed) {
+        last_status_ = "only installed skills can be removed";
+        return;
+    }
+    const std::string root = root_for(*row);
+    if (root.empty()) {
+        last_status_ = "only project/global skills can be removed here";
+        return;
+    }
+    if (!confirm("Remove skill", "Remove " + row->ref.name + " from " + root + "?"))
+        return;
+    const std::string error = agent::uninstall_skill(row->ref.name, root);
+    if (!error.empty()) {
+        last_status_ = error;
+        return;
+    }
+    agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
+    ledger.load();
+    ledger.remove(row->ref.name);
+    updates_.erase(row->ref.name);
+    update_ready_.erase(row->ref.name);
+    details_.erase(row->ref.id);
+    raw_details_.erase(row->ref.id);
+    last_status_ = "removed " + row->ref.name;
+    refresh_installed();
+}
+
+void SkillsExplorer::update_current(const std::string& id) {
+    const auto row = core_.current();
+    if (!row || row->ref.id != id || !row->installed) {
+        last_status_ = "only an installed skill can be updated";
+        return;
+    }
+    const std::string name = row->ref.name;
+    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
+    if (!entry) {
+        last_status_ = name + " is unmanaged (press A to adopt)";
+        return;
+    }
+    if (update_ready_.count(name) != 0) {
+        apply_update(name);
+        return;
+    }
+    agent::SkillRef ref;
+    ref.id = entry->id;
+    ref.source = entry->source;
+    ref.name = name;
+    ref.installs = row->ref.installs;
+    pending_update_ = name;
+    service_->detail(ref);
+    last_status_ = "checking " + name + "...";
+}
+
+void SkillsExplorer::finish_update(const agent::SkillDetail& detail) {
+    const std::string name = pending_update_;
+    pending_update_.clear();
+    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
+    if (!entry || entry->id != detail.ref.id) {
+        last_status_ = "no provenance recorded for " + name;
+        return;
+    }
+    if (detail.hash == entry->hash) {
+        last_status_ = name + " is up to date";
+        return;
+    }
+    const SkillRow* row = installed_row(installed_rows_, name);
+    const std::string root = row ? root_for(*row) : std::string();
+    if (root.empty()) {
+        last_status_ = "unknown install root for " + name;
+        return;
+    }
+    if (local_skill_hash(root, name) != entry->local_hash) {
+        last_status_ = name + " has local edits; update refused";
+        return;
+    }
+    update_ready_.insert(name);
+    updates_.insert(name);
+    refresh_installed();
+    last_status_ = "update available for " + name + " (u applies)";
+}
+
+void SkillsExplorer::toggle_state(const std::string& id) {
+    const auto row = core_.current();
+    if (!row || row->ref.id != id || !row->installed) {
+        last_status_ = "only an installed skill can be toggled";
+        return;
+    }
+    const bool off = row->state == "disabled" || row->state == "blocked";
+    if (!options_.set_state || !options_.set_state(row->ref.name, off ? "enable" : "disable")) {
+        last_status_ = "cannot change " + row->ref.name;
+        return;
+    }
+    last_status_ = row->ref.name + (off ? " enabled" : " disabled");
+    refresh_installed();
+}
+
+void SkillsExplorer::block_current(const std::string& id) {
+    const auto row = core_.current();
+    if (!row || row->ref.id != id || !row->installed) {
+        last_status_ = "only an installed skill can be blocked";
+        return;
+    }
+    if (!options_.set_state || !options_.set_state(row->ref.name, "block")) {
+        last_status_ = "cannot block " + row->ref.name;
+        return;
+    }
+    last_status_ = row->ref.name + " blocked";
+    refresh_installed();
+}
+
+void SkillsExplorer::apply_update(const std::string& name) {
+    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
+    if (!entry) {
+        last_status_ = name + " is unmanaged";
+        return;
+    }
+    const SkillRow* row = installed_row(installed_rows_, name);
+    const std::string root = row ? root_for(*row) : std::string();
+    if (root.empty()) {
+        last_status_ = "unknown install root for " + name;
+        return;
+    }
+    const auto raw = raw_details_.find(entry->id);
+    if (raw == raw_details_.end()) {
+        last_status_ = "load " + name + " details first";
+        return;
+    }
+    if (local_skill_hash(root, name) != entry->local_hash) {
+        updates_.erase(name);
+        update_ready_.erase(name);
+        refresh_installed();
+        last_status_ = name + " has local edits; update refused";
+        return;
+    }
+    service_->install(raw->second, name, root, true, entry->enabled);
+    update_ready_.erase(name);
+    last_status_ = "updating " + name + "...";
+}
 
 } // namespace
 

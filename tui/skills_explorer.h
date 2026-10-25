@@ -1,6 +1,7 @@
 #ifndef AMBER_TUI_SKILLS_EXPLORER_H
 #define AMBER_TUI_SKILLS_EXPLORER_H
 
+#include "agent/skill_ledger.h"
 #include "tui/skills_browse_core.h"
 
 #include <functional>
@@ -20,6 +21,9 @@ struct SkillsExplorerOptions {
     std::string cache_root;
     std::string token;
     std::function<std::vector<SkillRow>()> installed;
+    std::function<std::optional<agent::LedgerEntry>(const std::string&)> ledger;
+    std::function<bool(const std::string&, const std::string&)> set_state;
+    std::string budget; // installed-tab summary, e.g. "14 lines · ~480 tok/turn"
 };
 
 // Run the modal explorer until Esc/q. `status` receives one line per outcome

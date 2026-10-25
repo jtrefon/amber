@@ -2,8 +2,11 @@
 #ifndef AGENT_SKILL_INSTALL_H
 #define AGENT_SKILL_INSTALL_H
 
+#include <optional>
 #include <string>
 #include <vector>
+
+#include "agent/skill_ledger.h"
 
 namespace agent {
 
@@ -49,6 +52,15 @@ bool is_safe_skill_path(const std::string& relative_path) noexcept;
 // visible under <dest_root>/<name> until every file is written. A failed
 // install leaves no temp directory and no partial skill.
 SkillInstallResult install_skill_files(const SkillInstallRequest& request);
+
+// Stable hash of a SKILL.md body, used to notice a local edit against the
+// ledger's snapshot. Not a security boundary; the remote Git blob SHA is.
+std::string skill_content_hash(const std::string& contents);
+
+// Read an existing skill directory and describe it as a ledger entry, without
+// rewriting a byte. Nullopt when the directory is missing, unsafe, or has no
+// parseable SKILL.md.
+std::optional<LedgerEntry> adopt_skill(const std::string& root, const std::string& name);
 
 } // namespace agent
 
