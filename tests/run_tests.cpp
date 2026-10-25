@@ -7649,8 +7649,8 @@ struct DataTree {
 
     ~DataTree() {
         run_cmd("rm -rf " + base);
-        if (!saved_cwd.empty())
-            (void)chdir(saved_cwd.c_str());
+        if (!saved_cwd.empty() && chdir(saved_cwd.c_str()) != 0)
+            std::fprintf(stderr, "DataTree: could not restore cwd to %s\n", saved_cwd.c_str());
         if (xdg_was_set)
             setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
         else
@@ -7672,7 +7672,10 @@ DataTree make_data_tree() {
     t.saved_xdg = std::getenv("XDG_DATA_HOME") ? std::getenv("XDG_DATA_HOME") : "";
     t.xdg_was_set = std::getenv("XDG_DATA_HOME") != nullptr;
     setenv("XDG_DATA_HOME", t.xdg.c_str(), 1);
-    (void)chdir(t.cwd.c_str());
+    if (chdir(t.cwd.c_str()) != 0) {
+        std::fprintf(stderr, "DataTree: could not enter %s\n", t.cwd.c_str());
+        std::exit(EXIT_FAILURE);
+    }
     return t;
 }
 
