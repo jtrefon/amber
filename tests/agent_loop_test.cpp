@@ -2836,7 +2836,10 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     ASSERT((bool)reg.find("search"));
     ASSERT(raw->requests.back().front().content.find("\n## search\n") != std::string::npos);
 
-    ASSERT_TRUE(runtime.set_state("tool_search", false));
+    // apply_state, not set_state: a test must not write the developer's
+    // plugin.conf. set_state persists, and that is how the search tool went
+    // missing from a real config.
+    ASSERT_TRUE(runtime.apply_state("tool_search", false));
     ag.run("again");
 
     const std::string& system = raw->requests.back().front().content;
