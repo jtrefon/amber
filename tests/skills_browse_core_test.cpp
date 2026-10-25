@@ -92,15 +92,15 @@ TEST(skills_browse_selection_and_scroll) {
     core.key('j', 2);
     core.key('j', 2);
     ASSERT_EQ(core.selection(), 2);
-    ASSERT_EQ(core.scroll(), 1);
+    ASSERT_EQ(core.scroll_offset(), 1);
 
     core.key('g', 2);
     ASSERT_EQ(core.selection(), 0);
-    ASSERT_EQ(core.scroll(), 0);
+    ASSERT_EQ(core.scroll_offset(), 0);
 
     core.key('G', 2);
     ASSERT_EQ(core.selection(), 2);
-    ASSERT_EQ(core.scroll(), 1);
+    ASSERT_EQ(core.scroll_offset(), 1);
 }
 
 TEST(skills_browse_search_pane_types_and_unwinds) {

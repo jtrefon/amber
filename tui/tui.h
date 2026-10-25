@@ -119,6 +119,7 @@ public:
 
     void redraw_after_modal();
     void config_screen() const;
+    void open_skills_explorer();
     void detect_server(bool force);
     void test_connection(bool announce);
     void settings_screen();
