@@ -88,9 +88,16 @@ std::string read_text(const std::string& path) {
 // each of the two readers.
 std::string vocabulary_text() {
     const std::string dir = library_dir();
+    if (dir.empty())
+        return {};
     // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the library directory is
     // resolved from the install; the file name is the constant vocabulary.
-    return dir.empty() ? std::string() : read_text((fs::path(dir) / kVocabulary).string());
+    std::ifstream in(fs::path(dir) / kVocabulary);
+    if (!in)
+        return {};
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
 }
 
 // The index needs the header only. Reading every entry's whole body once per
