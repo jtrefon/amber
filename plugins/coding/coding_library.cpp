@@ -75,6 +75,9 @@ std::vector<std::string> split_aliases(const std::string& value) {
 }
 
 std::string read_text(const std::string& path) {
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — every caller reads a
+    // file under the library directory this plugin resolved from the install;
+    // the names are the scan's own entries and the constant vocabulary.
     std::ifstream in(path, std::ios::binary);
     if (!in)
         return {};
