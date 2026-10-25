@@ -1,5 +1,6 @@
 trigger: when a compose file grows past three services, or a service starts before its database is ready
 tags: #dockercompose
+also: compose, service, network
 weight: 70
 verified: 2026-10
 reference: https://docs.docker.com/compose/compose-file/

@@ -1,5 +1,6 @@
 trigger: when a container is mutated while something still holds an iterator or a reference into it
 tags: #cpp #containers #memory
+also: iterator invalidation, invalidated iterator
 verified: 2026-10
 sources: model knowledge 2026-10; not yet reviewed against the guides
 weight: 60

@@ -1,5 +1,6 @@
 trigger: when something is slow and the obvious fix is a guess
 tags: #cpp #perf #debugging
+also: profile, profiler, profiling
 weight: 50
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

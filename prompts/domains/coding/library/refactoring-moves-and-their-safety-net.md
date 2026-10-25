@@ -1,5 +1,6 @@
 trigger: when the behaviour must not change but the shape must — work in named moves, each one checked before the next
 tags: #design #testing
+also: refactor, refactoring
 weight: 55
 verified: 2026-10
 reference: https://refactoring.com/catalog/

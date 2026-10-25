@@ -1,5 +1,6 @@
 trigger: when a template failure is a wall of errors, or a constraint is being written for the first time
 tags: #cpp #templates
+also: concepts, templates, generics
 weight: 60
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

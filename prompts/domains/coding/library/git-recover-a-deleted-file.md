@@ -1,5 +1,6 @@
 trigger: when a file was deleted and someone needs it back, or a branch was reset away
 tags: #git
+also: deleted file, recover file
 weight: 70
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

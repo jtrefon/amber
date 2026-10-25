@@ -1,5 +1,6 @@
 trigger: when one change has to reach more than one consumer, or a request must write in two services and someone says "just publish an event"
 tags: #architecture #patterns #async
+also: event sourcing, CQRS, audit log, event-driven
 weight: 50
 verified: 2026-10
 reference: https://martinfowler.com/articles/201701-event-driven.html

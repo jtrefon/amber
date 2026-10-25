@@ -1,5 +1,6 @@
 trigger: when the runtime image carries a compiler, a package manager and 900 MB of nothing
 tags: #docker
+also: multi-stage, image size, distroless
 weight: 60
 verified: 2026-10
 reference: https://docs.docker.com/build/building/multi-stage/

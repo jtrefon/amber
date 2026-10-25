@@ -1,5 +1,6 @@
 trigger: when you need to know when a value, a string or a line appeared or changed
 tags: #git
+also: blame, git log -L
 weight: 65
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

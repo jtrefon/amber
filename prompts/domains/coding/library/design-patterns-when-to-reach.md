@@ -1,5 +1,6 @@
 trigger: when a shape repeats in the code and every call site knows which variant it holds
 tags: #patterns #design
+also: design patterns, singleton, strategy, factory, adapter, observer
 weight: 55
 verified: 2026-10
 reference: https://refactoring.guru/design-patterns/criticism
