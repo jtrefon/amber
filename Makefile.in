@@ -285,7 +285,8 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/bracket_paste_test.o \
                $(BUILD_DIR)/tests/provider_repro_test.o \
 $(BUILD_DIR)/tests/provider_health_test.o \
-$(BUILD_DIR)/tests/drawer_tabs_test.o
+$(BUILD_DIR)/tests/drawer_tabs_test.o \
+$(BUILD_DIR)/tests/skill_index_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
