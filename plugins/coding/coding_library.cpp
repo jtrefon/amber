@@ -83,21 +83,20 @@ std::string read_text(const std::string& path) {
     return ss.str();
 }
 
-// The vocabulary is one document in the library's own directory. One opener
-// keeps the path handling here, where the library resolves it, rather than at
-// each of the two readers.
+// The vocabulary is one document in the library's own directory. It is found
+// through the same directory scan the entries use, so the reader never has to
+// build a path from the library root itself.
 std::string vocabulary_text() {
     const std::string dir = library_dir();
     if (dir.empty())
         return {};
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the library directory is
-    // resolved from the install; the file name is the constant vocabulary.
-    std::ifstream in(fs::path(dir) / kVocabulary);
-    if (!in)
-        return {};
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
+    std::error_code ec;
+    for (const auto& item : fs::directory_iterator(dir, ec)) {
+        if (!item.is_regular_file(ec) || item.path().filename() != kVocabulary)
+            continue;
+        return read_text(item.path().string());
+    }
+    return {};
 }
 
 // The index needs the header only. Reading every entry's whole body once per
