@@ -15,6 +15,7 @@
 #   P11 vendored md4c matches its recorded sha256.
 #   P12 the generated Makefile is regenerated when Makefile.in/configure change.
 #   P13 the merge train's selection rule keeps its cases (tools/merge_train.py).
+#   P14 WERROR=1 really turns warnings into errors (compile and link).
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -348,6 +349,28 @@ if python3 tools/merge_train.py --selftest >/dev/null 2>&1; then
     ok "P13: merge-train selection passes its self-test"
 else
     warn "P13: merge-train selection self-test FAILED (tools/merge_train.py)"
+fi
+
+# P14
+# A warning is a defect, and CI gets that from WERROR=1. The knob is a make
+# variable, so nothing stops it from being renamed or losing its expansion --
+# a gate that expands to nothing would stay green while every warning scrolled
+# past. The dry run must carry -Werror on a compile line and the platform's
+# fatal-warnings flag on a link line.
+werror_out=$(make -n -B WERROR=1 test 2>/dev/null)
+if echo "$werror_out" | grep -q -- '-Werror'; then
+    ok "P14: WERROR=1 adds -Werror to the build"
+else
+    warn "P14: WERROR=1 does not add -Werror (the warning gate would measure nothing)"
+fi
+case "$(uname -s)" in
+Darwin) fatal_warnings='-Wl,-fatal_warnings' ;;
+*) fatal_warnings='-Wl,--fatal-warnings' ;;
+esac
+if echo "$werror_out" | grep -q -- "$fatal_warnings"; then
+    ok "P14: WERROR=1 makes linker warnings fatal"
+else
+    warn "P14: WERROR=1 does not add $fatal_warnings"
 fi
 
 if [ "$failures" -gt 0 ]; then
