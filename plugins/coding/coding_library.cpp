@@ -75,9 +75,6 @@ std::vector<std::string> split_aliases(const std::string& value) {
 }
 
 std::string read_text(const std::string& path) {
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — every caller reads a
-    // file under the library directory this plugin resolved from the install;
-    // the names are the scan's own entries and the constant vocabulary.
     std::ifstream in(path, std::ios::binary);
     if (!in)
         return {};
@@ -91,6 +88,8 @@ std::string read_text(const std::string& path) {
 // each of the two readers.
 std::string vocabulary_text() {
     const std::string dir = library_dir();
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the library directory is
+    // resolved from the install; the file name is the constant vocabulary.
     return dir.empty() ? std::string() : read_text((fs::path(dir) / kVocabulary).string());
 }
 
