@@ -160,7 +160,7 @@ agent::SkillInstallResult SkillsService::run_install(const Job& job, bool& ledge
         return result;
     }
     const agent::AssetsResult assets = backends_.assets(job.detail, job.cancel);
-    if (!assets.ok()) {
+    if (!assets.files) {
         result.error =
             assets.error.detail.empty() ? "cannot fetch skill files" : assets.error.detail;
         return result;
