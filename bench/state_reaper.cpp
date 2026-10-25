@@ -49,7 +49,7 @@ enum class EntryKind { Ignore, Young, Candidate };
 struct Selection {
     EntryKind kind = EntryKind::Ignore;
     std::uintmax_t bytes = 0;
-    std::error_code size_error;
+    std::error_code size_error{};
 };
 
 // Classify one directory entry. `ec` reports a stat/age failure the caller must
