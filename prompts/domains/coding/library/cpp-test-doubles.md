@@ -1,5 +1,6 @@
 trigger: when a unit test needs a database, a clock or a network, or a test passes with the double and fails in production
 tags: #cpp #testing
+also: mock, stub, fake
 weight: 45
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

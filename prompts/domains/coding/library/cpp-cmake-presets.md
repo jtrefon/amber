@@ -1,5 +1,6 @@
 trigger: when every developer types a different cmake invocation, or CI and local builds disagree
 tags: #cpp #cmake #build
+also: CMakePresets, presets
 weight: 45
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

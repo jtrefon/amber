@@ -1,5 +1,6 @@
 trigger: when two threads agree in a debugger and disagree in production
 tags: #cpp #concurrency #memory
+also: data race, memory order
 weight: 55
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

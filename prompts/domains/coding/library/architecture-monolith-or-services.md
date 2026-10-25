@@ -1,5 +1,6 @@
 trigger: when someone proposes splitting the system into services — or every release has become a negotiation between teams
 tags: #architecture #design
+also: microservices, monolith, services
 weight: 50
 verified: 2026-10
 reference: https://martinfowler.com/bliki/MonolithFirst.html

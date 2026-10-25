@@ -921,6 +921,7 @@ std::string instructions_block(PluginRuntime& runtime) {
 
 TEST(coding_domain_prose_arrives_and_leaves) {
     ScratchWorkspace ws("coding-domain");
+    ScratchConfig scratch("coding-domain-prose-arrives-and-leaves-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
@@ -941,6 +942,7 @@ TEST(coding_domain_prose_arrives_and_leaves) {
 
 TEST(project_instructions_reach_the_system_prompt) {
     ScratchWorkspace ws("instructions");
+    ScratchConfig scratch("project-instructions-reach-the-system-prompt-config");
     write_text(ws.root() / "AGENTS.md",
                "# Project\n\nBuild with `make test`. Generated files under build/ are not "
                "hand-edited.\n");
@@ -1155,6 +1157,7 @@ std::string project_index_block(PluginRuntime& runtime) {
 TEST(project_index_reaches_the_system_prompt) {
     ScratchWorkspace ws("index");
     ScratchState state("index");
+    ScratchConfig scratch("project-index-reaches-the-system-prompt-config");
     write_project_index("# Project: turbo-shop\n\nmonorepo, backend .NET 8, Angular web\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1410,6 +1413,7 @@ TEST(index_add_writes_and_creates_what_is_missing) {
 TEST(project_index_block_follows_a_compaction) {
     ScratchWorkspace ws("index-compaction");
     ScratchState state("index-compaction");
+    ScratchConfig scratch("project-index-block-follows-a-compaction-config");
     write_project_index("# Project: before\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1627,6 +1631,7 @@ TEST(index_command_shows_the_file_and_refreshes_the_block) {
 TEST(index_tools_travel_with_the_plugin) {
     ScratchWorkspace ws("index-tools-travel");
     ScratchState state("index-tools-travel");
+    ScratchConfig scratch("index-tools-travel-with-the-plugin-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
@@ -1774,25 +1779,57 @@ TEST(coding_library_index_lists_what_the_project_selects) {
     ASSERT(entries <= 25u);
 }
 
-TEST(coding_library_index_stays_dark_without_a_selection) {
+TEST(coding_library_index_shows_the_craft_layer_without_a_selection) {
     ScratchWorkspace ws("library-dark");
     ScratchState state("library-dark");
-    write_project_index("# Project: x\n\n## Shape\nno tags yet\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
     runtime.start(false);
-    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+    const std::string head = head_blocks_text(runtime);
+    // The craft layer answers what the task needs, not what the project is, so
+    // it is indexed even when the project has declared nothing.
+    ASSERT(head.find("when a type is painful to change") != std::string::npos);
+    ASSERT(head.find("when a shape repeats in the code") != std::string::npos);
+    ASSERT(head.find("when someone proposes splitting the system") != std::string::npos);
+    // A domain entry still needs a project tag: no C++ was declared here.
+    ASSERT(head.find("still holds an iterator") == std::string::npos);
 
-    // A tag no entry carries selects nothing. The tags are read per turn, so
-    // the change needs no refresh.
+    // A tag no entry carries selects nothing, and the craft layer stays.
     write_project_index("# Project: x\n\n## Library selection\n#cobol\n");
-    ASSERT(head_blocks_text(runtime).find("Library entries") == std::string::npos);
+    const std::string after = head_blocks_text(runtime);
+    ASSERT(after.find("when a type is painful to change") != std::string::npos);
+    ASSERT(after.find("still holds an iterator") == std::string::npos);
+}
+
+TEST(coding_library_index_reports_the_entries_it_had_to_drop) {
+    ScratchWorkspace ws("library-cap");
+    ScratchState state("library-cap");
+    write_project_index("# Project: x\n\n## Library selection\n"
+                        "#cpp #build #git #testing #debugging #tooling\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const std::string head = head_blocks_text(runtime);
+    // The cap is real: more entries match than the block can carry, and the
+    // model is told so rather than silently handed a partial map.
+    ASSERT(head.find("more selected entries") != std::string::npos);
+    std::size_t entries = 0;
+    std::istringstream rendered(head);
+    std::string line;
+    while (std::getline(rendered, line))
+        if (line.rfind("- ", 0) == 0)
+            ++entries;
+    ASSERT(entries > 0u);
+    ASSERT(entries <= 25u);
 }
 
 TEST(coding_library_index_leaves_with_the_domain) {
     ScratchWorkspace ws("library-domain");
     ScratchState state("library-domain");
+    ScratchConfig scratch("coding-library-index-leaves-with-the-domain-config");
     write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
@@ -1860,6 +1897,7 @@ TEST(library_lookup_answers_a_query_and_reports_a_miss) {
 TEST(library_lookup_travels_with_the_domain) {
     ScratchWorkspace ws("library-lookup-travel");
     ScratchState state("library-lookup-travel");
+    ScratchConfig scratch("library-lookup-travels-with-the-domain-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
@@ -1868,6 +1906,165 @@ TEST(library_lookup_travels_with_the_domain) {
 
     ASSERT_TRUE(runtime.set_state("coding", false));
     ASSERT(f.tools.find("library_lookup") == nullptr);
+}
+
+// The words a user actually asks with. "OOP" used to match "loop" and return
+// five unrelated entries; the vocabulary's `also:` line and whole-word matching
+// are what make the question reach the design layer.
+TEST(library_lookup_finds_oop_and_solid) {
+    ScratchWorkspace ws("library-lookup-oop");
+    ScratchState state("library-lookup-oop");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult oop = call_tool(f, "library_lookup", json{{"query", "OOP"}});
+    ASSERT(oop.ok);
+    ASSERT(oop.output.find("solid-violations-by-symptom") != std::string::npos ||
+           oop.output.find("design-patterns") != std::string::npos);
+    ASSERT(oop.output.find("cpp-build-and-test-loop") == std::string::npos);
+
+    const ToolResult solid = call_tool(f, "library_lookup", json{{"query", "SOLID"}});
+    ASSERT(solid.ok);
+    ASSERT(solid.output.find("solid-violations-by-symptom") != std::string::npos);
+
+    // A question, not a keyword: the filler is dropped, the nouns are kept.
+    const ToolResult asked =
+        call_tool(f, "library_lookup", json{{"query", "why does my iterator get invalidated"}});
+    ASSERT(asked.ok);
+    ASSERT(asked.output.find("cpp-iterator-invalidation") != std::string::npos);
+}
+
+TEST(library_lookup_finds_the_names_people_use) {
+    ScratchWorkspace ws("library-lookup-names");
+    ScratchState state("library-lookup-names");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult event = call_tool(f, "library_lookup", json{{"query", "event sourcing"}});
+    ASSERT(event.ok);
+    ASSERT(event.output.find("architecture-event-driven-and-cqrs") != std::string::npos);
+
+    const ToolResult presets = call_tool(f, "library_lookup", json{{"query", "CMake presets"}});
+    ASSERT(presets.ok);
+    ASSERT(presets.output.find("cpp-cmake-presets") != std::string::npos);
+}
+
+TEST(library_lookup_lists_the_vocabulary_and_every_entry) {
+    ScratchWorkspace ws("library-lookup-list");
+    ScratchState state("library-lookup-list");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    const ToolResult listed = call_tool(f, "library_lookup", json{{"list", true}});
+    ASSERT(listed.ok);
+    ASSERT(listed.output.find("## Vocabulary") != std::string::npos);
+    ASSERT(listed.output.find("design") != std::string::npos);
+    ASSERT(listed.output.find("solid-violations-by-symptom") != std::string::npos);
+    ASSERT(listed.output.find("## Entries") != std::string::npos);
+}
+
+TEST(coding_library_skill_installs_and_unwinds) {
+    ScratchConfig scratch("coding-library-skill");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    const auto has_skill = [] {
+        for (const auto& skill : agent::system_skills())
+            if (skill.name == "coding-library")
+                return true;
+        return false;
+    };
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(has_skill());
+    ASSERT_TRUE(runtime.set_state("coding", false));
+    ASSERT_FALSE(has_skill());
+}
+
+TEST(coding_library_skill_names_the_craft_layer) {
+    const std::string body = plugins::render_library_skill_body();
+    ASSERT(body.find("SOLID") != std::string::npos);
+    ASSERT(body.find("OOP") != std::string::npos);
+    ASSERT(body.find("library_lookup(list=true)") != std::string::npos);
+}
+
+TEST(library_command_lists_entries_and_the_selection) {
+    ScratchWorkspace ws("library-command");
+    ScratchState state("library-command");
+    write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    ASSERT_TRUE(command_root_present(runtime.commands(), "library"));
+    const std::string listed = run_verb(runtime, "library", "list", "");
+    ASSERT(listed.find("solid-violations-by-symptom") != std::string::npos);
+    const std::string selection = run_verb(runtime, "library", "selection", "");
+    ASSERT(selection.find("Library entries this project selects") != std::string::npos);
+    const std::string shown = run_verb(runtime, "library", "show", "cpp-iterator-invalidation");
+    ASSERT(shown.find("std::vector") != std::string::npos);
+}
+
+// The retrieval eval: the questions a coding user actually asks, against the
+// real router. A hermetic floor, not a benchmark -- it catches the regression
+// that made "OOP" answer "no" without needing a model in the loop.
+TEST(coding_library_retrieval_eval_keeps_its_floor) {
+    ScratchWorkspace ws("library-eval");
+    ScratchState state("library-eval");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(false);
+
+    struct Case {
+        const char* query;
+        const char* expected;
+    };
+    const Case cases[] = {
+        {"Are you aware of any OOP specific skills?", "solid-violations-by-symptom"},
+        {"What SOLID principles apply to this class?", "solid-violations-by-symptom"},
+        {"Which design pattern fits interchangeable algorithms?", "design-patterns-by-problem"},
+        {"Should I introduce a singleton here?", "design-patterns-when-to-reach"},
+        {"A header change rebuilds every client", "solid-violations-by-symptom"},
+        {"Where should the database adapter live?", "architecture-dependency-direction"},
+        {"Monolith or microservices?", "architecture-monolith-or-services"},
+        {"Event sourcing or CRUD for an audit log?", "architecture-event-driven-and-cqrs"},
+        {"Why does my iterator get invalidated?", "cpp-iterator-invalidation"},
+        {"Use-after-free under ASan", "sanitizers"},
+        {"How do I bisect a regression?", "git-bisect-run"},
+        {"Undo a bad rebase", "git-rebase-i-and-autosquash"},
+        {"Value categories and std::move", "cpp-value-categories"},
+        {"CMake presets", "cpp-cmake-presets"},
+        {"Recover a deleted file in git", "git-recover-a-deleted-file"},
+    };
+    std::size_t hits = 0;
+    std::string misses;
+    for (const auto& c : cases) {
+        const ToolResult r = call_tool(f, "library_lookup", json{{"query", c.query}});
+        if (r.ok && r.output.find(c.expected) != std::string::npos) {
+            ++hits;
+            continue;
+        }
+        misses += "\n  miss: ";
+        misses += c.query;
+        misses += " -> ";
+        misses += c.expected;
+    }
+    const std::size_t total = sizeof(cases) / sizeof(cases[0]);
+    if (hits < total)
+        agent::test::fail("retrieval eval: " + std::to_string(hits) + "/" + std::to_string(total) +
+                          " hits" + misses);
+
+    // The library must stay quiet when the question is not its business.
+    const ToolResult off = call_tool(f, "library_lookup", json{{"query", "how do I center a div"}});
+    ASSERT(off.ok);
+    ASSERT(off.output.find("nothing in the library matches") != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -3338,9 +3535,10 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    // The bundled set contributes six namespaces: hello, the project index's
-    // index, the mcp plugin's mcp / prompt / get, and watch.
-    ASSERT_EQ(runtime.commands().size(), 6u);
+    // The bundled set contributes seven namespaces: hello, the project index's
+    // index, the coding library's library, the mcp plugin's mcp / prompt / get,
+    // and watch.
+    ASSERT_EQ(runtime.commands().size(), 7u);
     const auto& all = runtime.commands().all();
     const auto hello =
         std::find_if(all.begin(), all.end(),
@@ -3352,10 +3550,11 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     // capability must come back with the same binding.
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 5u); // the mcp plugin's three, watch and the index survive
+    ASSERT_EQ(runtime.commands().size(),
+              6u); // the library, the mcp plugin's three, watch and the index survive
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 6u);
+    ASSERT_EQ(runtime.commands().size(), 7u);
 }
 
 // The registry console groups contributions by kind, so every kind needs a

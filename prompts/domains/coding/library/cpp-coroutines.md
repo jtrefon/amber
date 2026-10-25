@@ -1,5 +1,6 @@
 trigger: when async code needs a shape that callbacks and threads both make ugly
 tags: #cpp #async
+also: coroutine
 weight: 40
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

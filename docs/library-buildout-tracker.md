@@ -8,12 +8,41 @@ session — human or scheduled — to resume without re-deriving anything.
 | | |
 |---|---|
 | Mechanism | **merged** (#261): ranking, topic trees, closed tag vocabulary, `library_lookup`, `make library-check` executing entries' `## Run it` blocks |
+| Discoverability | **2026-10-25**: craft layer always indexed; `also:` aliases on tags and entries; whole-word/prefix retrieval with a `list` mode; one `coding-library` skill; `/library list|show|selection`; a 15-case hermetic retrieval eval |
 | Project index | **merged** (#260): private-state file, frozen block with provenance, `index_init/add/update/remove/show`, `/index show|refresh`, compaction refresh, redaction, append log |
 | Content | **56 entries**, 31 blocks executing in `make check`, 17 declared manual, 0 failing — C++ (34), git (8), Docker/Compose (3), and the craft layers (11) |
 | Accuracy | profile tests for a Rust CLI, a Python+compose app, a .NET+Angular monorepo, a Go service, and a C++/CMake+compose project; `library-check` prints the vocabulary tags no entry carries |
 
 **Open PRs (all green or running, all the owner's to merge):** #265 profile
 accuracy + the `#cpp` scanner fix · #266 Docker/Compose · #267 the craft layers.
+
+## Discoverability — the fix that made "OOP" answerable
+
+The first live eval (kilocode, `amber-cli`, 7 prompts) reproduced the report:
+"Are you aware of any OOP specific skills?" answered *"No — the skill catalog has
+only two entries"*, and `library_lookup` was called **0 times in 7 runs**. Three
+causes, one per layer:
+
+1. **The skills slot** — the library was not in the catalog, so a question phrased
+   as "skills" never reached it. Fixed with one `coding-library` skill whose
+   description names OOP/SOLID/patterns/architecture, and `list_skills` now
+   matches descriptions as well as names.
+2. **The selection axis** — project tags were selecting *task* knowledge. The
+   craft layer (`design`, `patterns`, `architecture`) is now indexed for every
+   project; project tags add the domain entries. A fresh project sees the craft
+   map without an index.
+3. **The vocabulary** — `library_lookup(query="OOP")` matched "loop" and returned
+   five unrelated entries; `query="SOLID"` returned nothing. Tag lines and entries
+   now carry `also:` synonyms, and matching is whole-word/prefix with
+   name/trigger/tag outranking body. A `list` mode and a miss hint make the
+   vocabulary visible.
+
+The hermetic eval is 15 real asks against the router
+(`coding_library_retrieval_eval_keeps_its_floor`), including the OOP question and
+a negative ("center a div"). The live re-run in a temp workspace (the
+installed-user layout, where `read`/`bash` cannot reach the library) now finds
+`coding-library`, calls `read_skill`/`library_lookup`, and names
+`solid-violations-by-symptom` and the design-pattern entries.
 
 ## The entry contract
 
@@ -23,11 +52,16 @@ with `topic.md`). Header, all fields enforced by tests:
 ```
 trigger: <when this applies — a situation, not a topic>
 tags: <from prompts/domains/coding/library/tags.md, the closed list>
+also: <the names people use>        (optional: OOP, SOLID, event sourcing)
 weight: <0-100; heavier survives the 25-line cap first>
 verified: <YYYY-MM>
 reference: <the canonical doc>
 sources: <book + chapter | article | "model knowledge <YYYY-MM>">
 ```
+
+`also:` is retrieval vocabulary, not selection. A tag's line in `tags.md` can
+carry it too, and every entry with the tag inherits the words — which is how
+"OOP" reaches the design entries without each one repeating the acronym.
 
 `## Run it` blocks (```run) are executed by `make library-check` in a scratch
 directory. A block that fails is **fixed**, not marked manual; a block that
@@ -87,3 +121,10 @@ touched — earlier planning that assumed a live session was a mistake.)
 - **Stashes are the ref nobody misses.** Two are now permanent branches:
   `backup/stash-worktree-tests-2026-10-16` and
   `backup/stash-taste-toolset-audit-2026-10-16`.
+- **A test that toggles a plugin writes to the real config unless it redirects
+  it.** The library's own disable tests called `set_state("coding", false)`
+  without a `ScratchConfig`, so running the suite turned the coding domain off in
+  the developer's `~/.config/amber/plugins/coding/plugin.conf` — and the next
+  live eval answered "no OOP skills" with the plugin inactive. Every test that
+  calls `set_state` now redirects `XDG_CONFIG_HOME`. If a live result looks
+  impossible, check the plugin state before doubting the code.

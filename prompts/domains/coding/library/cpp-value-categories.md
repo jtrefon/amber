@@ -1,5 +1,6 @@
 trigger: when a value is copied where a move was meant, or std::move made things worse
 tags: #cpp #memory #ownership
+also: std::move, move semantics, rvalue
 weight: 65
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block

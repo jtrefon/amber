@@ -1,5 +1,6 @@
 trigger: when a branch's history needs tidying before review, or a fixup commit is waiting to be folded
 tags: #git
+also: rebase, squash, fixup
 weight: 65
 verified: 2026-10
 reference: https://git-scm.com/docs/git-rebase

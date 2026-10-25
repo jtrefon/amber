@@ -1,5 +1,6 @@
 trigger: when something is slow or grows and "run a profiler" is the plan without a question yet
 tags: #perf #tooling
+also: profiler, profile
 weight: 50
 verified: 2026-10
 reference: https://www.brendangregg.com/FlameGraphs/cpuflamegraphs.html

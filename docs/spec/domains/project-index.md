@@ -170,7 +170,10 @@ dangerous than none, so its age is visible rather than assumed current.
    (identical across renders, moved only by activation, compaction or an explicit
    refresh). What is not asserted is a repository-wide rule that no other block
    re-renders mid-session; that would be a test over every contributor.
-5. **Library ↔ skills catalog** — should library entries appear in the skill
-   catalog (per-entry `enable|disable|block`, `read_skill`)? They are plain files
-   today; the question is whether the catalog integration is worth the coupling
-   (see PI-D7).
+5. ~~**Library ↔ skills catalog**~~ — **resolved** (2026-10-25): the library
+   stays files + tags (PI-D7), and the coding domain contributes one
+   `coding-library` **skill** as the inventory and entry point. It appears in
+   the discovery slot, its body is the vocabulary, and `library_lookup` is the
+   retrieval. Per-entry catalog integration stays deferred: the catalog has no
+   tags, a 20-skill discovery cap and a body budget, so one skill per entry
+   would invert the economics that make the library cheap.

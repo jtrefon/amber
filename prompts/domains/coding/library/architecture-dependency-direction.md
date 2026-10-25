@@ -1,5 +1,6 @@
 trigger: when a handler, a repository type or a framework header starts appearing inside the domain — decide which way the dependency is allowed to point, and where the seam sits
 tags: #architecture #design
+also: hexagonal, layering, ports and adapters, dependency direction
 weight: 50
 verified: 2026-10
 reference: https://alistair.cockburn.us/hexagonal-architecture

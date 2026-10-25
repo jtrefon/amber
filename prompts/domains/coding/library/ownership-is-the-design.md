@@ -1,5 +1,6 @@
 trigger: when a value is copied, moved or cloned and the reason is not obvious — say who owns it
 tags: #cpp #rust #ownership
+also: ownership, who owns
 verified: 2026-10
 sources: model knowledge 2026-10; not yet reviewed against the guides
 weight: 55

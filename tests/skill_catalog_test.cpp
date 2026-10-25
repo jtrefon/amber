@@ -416,6 +416,27 @@ TEST(skill_tool_list_skills_filtered) {
     ASSERT_FALSE(bad.ok);
 }
 
+// A filter is a search: the description is what the model reads in the
+// discovery block, so asking for a word from it has to find the skill.
+TEST(skill_tool_list_skills_matches_descriptions) {
+    CatalogEnv env("listdesc");
+    write_skill(env.project_skills, "coding-library", "OOP and SOLID, design patterns");
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    ScopedCatalog scoped(catalog);
+    auto tool = agent::make_list_skills_tool();
+
+    auto by_description = tool->execute({{"name", "OOP"}});
+    ASSERT(by_description.ok);
+    ASSERT(by_description.output.find("coding-library") != std::string::npos);
+
+    auto miss = tool->execute({{"name", "cobol"}});
+    ASSERT(miss.ok);
+    ASSERT(miss.output.find("no skills match") != std::string::npos);
+}
+
 // [SK-04]/[SK-05] write_skill authors a project skill and requires approval;
 // read/list never require approval.
 TEST(skill_tool_write_skill_authors) {

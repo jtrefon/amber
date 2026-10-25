@@ -1,5 +1,6 @@
 trigger: when a type is painful to change and the principle at stake is unclear — read the symptom, then move the dependency
 tags: #design #architecture
+also: OOP, object-oriented, SOLID, design principles
 weight: 55
 verified: 2026-10
 reference: https://web.archive.org/web/20190905005047/http://www.butunclebob.com/ArticleS.UncleBob.PrinciplesOfOod

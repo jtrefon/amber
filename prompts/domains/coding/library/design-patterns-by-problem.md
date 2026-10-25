@@ -1,5 +1,6 @@
 trigger: when the symptom is known — a variant, a call to wrap, an object to build — but not the shape's name
 tags: #patterns #design
+also: design patterns, Gang of Four, GoF, pattern
 weight: 55
 verified: 2026-10
 reference: https://refactoring.guru/design-patterns/catalog

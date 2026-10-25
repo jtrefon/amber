@@ -5,7 +5,9 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <map>
 #include <string>
+#include <vector>
 
 namespace agent::plugins {
 
@@ -20,6 +22,11 @@ std::string string_arg(const json& args, const char* key) {
         return {};
     const json& value = args[key];
     return value.is_string() ? value.get<std::string>() : std::string();
+}
+
+bool bool_arg(const json& args, const char* key) {
+    return args.is_object() && args.contains(key) && args[key].is_boolean() &&
+           args[key].get<bool>();
 }
 
 std::string lowered(std::string text) {
@@ -45,8 +52,18 @@ std::vector<LibraryEntry> all_entries() {
 }
 
 std::string usage_text() {
-    return "library_lookup needs a `name` (an entry or topic from the working index) or a "
-           "`query`.\n";
+    return "library_lookup needs a `name` (an entry or topic from the working index), a "
+           "`query` (words like OOP, SOLID, patterns, architecture, sanitizer), or `list`.\n";
+}
+
+std::string vocabulary_hint() {
+    std::string out = "Try a word the library knows:";
+    for (const auto& [tag, synonyms] : tag_aliases()) {
+        out += " ";
+        out += tag;
+    }
+    out += ". Or ask for `list` to see every entry.\n";
+    return out;
 }
 
 std::string topic_text(const LibraryEntry& topic) {
@@ -64,25 +81,47 @@ std::string topic_text(const LibraryEntry& topic) {
     return out;
 }
 
-bool matches(const LibraryEntry& entry, const std::string& query) {
-    if (lowered(entry.trigger).find(query) != std::string::npos)
-        return true;
-    if (lowered(entry.name).find(query) != std::string::npos)
-        return true;
-    if (lowered(read_library_text(entry.path)).find(query) != std::string::npos)
-        return true;
-    return std::any_of(entry.tags.begin(), entry.tags.end(), [&query](const std::string& tag) {
-        return lowered(tag).find(query) != std::string::npos;
+std::string list_text() {
+    return render_library_list();
+}
+
+std::string query_text(const std::string& query) {
+    const auto aliases = tag_aliases();
+    const auto entries = all_entries();
+    std::vector<std::pair<int, const LibraryEntry*>> scored;
+    for (const auto& entry : entries) {
+        const int score = entry_query_score(entry, query, aliases);
+        if (score > 0)
+            scored.emplace_back(score, &entry);
+    }
+    if (scored.empty())
+        return "nothing in the library matches that. " + vocabulary_hint();
+    std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) {
+        if (a.first != b.first)
+            return a.first > b.first;
+        return a.second->name < b.second->name;
     });
+    std::string out;
+    for (std::size_t i = 0; i < scored.size() && i < kMaxMatches; ++i) {
+        out += "- ";
+        out += scored[i].second->name;
+        out += ": ";
+        out += scored[i].second->trigger;
+        out += '\n';
+    }
+    out += "\nAsk for one by name to read it.\n";
+    return out;
 }
 
 class LibraryLookupTool : public Tool {
 public:
     std::string name() const noexcept override { return "library_lookup"; }
     std::string description() const noexcept override {
-        return "Read amber's coding library: an entry's full text by name (as the working index "
-               "names it), or the entries matching a query. The library is amber's own reference "
-               "material, not the project's.";
+        return "Read amber's coding library: design and SOLID, patterns, architecture, C++/git/"
+               "docker depth, testing and debugging. Ask by `name` (an entry the working index "
+               "names), by `query` (the words people use, e.g. OOP or SOLID), or `list` for the "
+               "vocabulary and every entry. The library is amber's own reference material, not "
+               "the project's.";
     }
     json parameters_schema() const override {
         return {
@@ -92,13 +131,21 @@ public:
                {{"type", "string"}, {"description", "Entry or topic name from the working index"}}},
               {"query",
                {{"type", "string"},
-                {"description", "Words to match against entries, tags and bodies"}}}}}};
+                {"description",
+                 "Words to match against entries, tags, aliases and bodies (OOP, SOLID, patterns, "
+                 "architecture, sanitizer, bisect)"}}},
+              {"list",
+               {{"type", "boolean"},
+                {"description", "List the vocabulary and every entry name"}}}}}};
     }
     bool is_read_only() const noexcept override { return true; }
     ToolResult execute(const json& args) const override;
 };
 
 ToolResult LibraryLookupTool::execute(const json& args) const {
+    if (bool_arg(args, "list"))
+        return ToolResult{true, list_text(), {}, nullptr};
+
     const std::string name = string_arg(args, "name");
     const std::string query = string_arg(args, "query");
     if (name.empty() && query.empty())
@@ -118,24 +165,7 @@ ToolResult LibraryLookupTool::execute(const json& args) const {
         return ToolResult{false, {}, "no library entry named '" + name + "'", nullptr};
     }
 
-    const std::string wanted = lowered(query);
-    std::string out;
-    std::size_t found = 0;
-    for (const auto& entry : entries) {
-        if (!matches(entry, wanted))
-            continue;
-        out += "- ";
-        out += entry.name;
-        out += ": ";
-        out += entry.trigger;
-        out += '\n';
-        if (++found >= kMaxMatches)
-            break;
-    }
-    if (out.empty())
-        return ToolResult{true, "nothing in the library matches that\n", {}, nullptr};
-    out += "\nAsk for one by name to read it.\n";
-    return ToolResult{true, out, {}, nullptr};
+    return ToolResult{true, query_text(query), {}, nullptr};
 }
 
 } // namespace

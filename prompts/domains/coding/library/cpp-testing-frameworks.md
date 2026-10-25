@@ -1,5 +1,6 @@
 trigger: when picking or wiring the C++ test framework for a project
 tags: #cpp #testing
+also: test framework, gtest, catch2
 weight: 45
 verified: 2026-10
 sources: model knowledge 2026-10; claims executed by their run block
