@@ -50,7 +50,13 @@ driven by an OpenAI-compatible LLM API.
   (file, check) rather than per line, so edits that move code do not churn it.
   `tools/lint_baseline.py --report` prints the current counts.
 - CI blocks on `make && make test` under **both** `g++` and `clang++`
-  (`CXX=g++` / `CXX=clang++`).
+  (`CXX=g++` / `CXX=clang++`). Both those jobs, and the macOS job, set
+  `WERROR=1`, so a compiler or linker warning fails the build; the tree is at
+  zero and stays there. Local builds keep the default (`WERROR=0`) so a
+  developer's newer toolchain cannot block unrelated work: `make WERROR=1`
+  opts in. `tests/build_hygiene.sh` **P14** asserts the knob still expands to
+  `-Werror` and the platform's fatal-warnings flag, so it cannot silently
+  measure nothing.
 - `make lint` (clang-tidy) and `make analyze` (cppcheck) gate CI as separate
   compiler-agnostic jobs (single run each, independent of the compiler matrix).
   `.clang-tidy` also enables the `misc-unused-*` family (dead-code surface).

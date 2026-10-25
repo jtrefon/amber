@@ -629,6 +629,8 @@ jobs:
         cxx: [g++, clang++]
     env:
       CXX: ccache ${{ matrix.cxx }}
+      # A warning fails the build: the tree is at zero and stays there.
+      WERROR: 1
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
@@ -662,6 +664,8 @@ jobs:
     timeout-minutes: 90
     env:
       CXX: ccache clang++
+      # Same gate as the Linux matrix: a warning fails this job too.
+      WERROR: 1
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
