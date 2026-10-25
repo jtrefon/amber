@@ -463,7 +463,9 @@ int entry_query_score(const LibraryEntry& entry, const std::string& query,
     if (score.strong == 0 && alias == 0 && score.body_hits < 2)
         return 0;
     const int total = score.total + alias;
-    return (total * 100) / static_cast<int>(3 * tokens.size()) + entry.weight / 10;
+    const int match = (total * 100) / static_cast<int>(3 * tokens.size());
+    const int tie_break = entry.weight / 10;
+    return match + tie_break;
 }
 
 bool entry_matches_query(const LibraryEntry& entry, const std::string& query,
