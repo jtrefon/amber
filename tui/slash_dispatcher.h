@@ -16,7 +16,7 @@
 
 namespace tui {
 class Tui;
-class Window;
+struct Window;
 
 class SlashDispatcher {
 public:

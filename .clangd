@@ -1,5 +1,11 @@
+If:
+  PathMatch: .*\.(h|hpp|hh|hxx)
 CompileFlags:
-  Standard: c++17
+  Add:
+    - -x
+    - c++-header
+---
+CompileFlags:
   Add:
     - -Iinclude
     - -Isrc

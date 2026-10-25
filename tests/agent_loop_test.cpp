@@ -720,7 +720,7 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     ASSERT_EQ(cr.memory_ops.size(), size_t{1});
     // The pipeline is pure — it reads the context and works on a copy, so
     // the live context is untouched by the classify/extract calls.
-    ASSERT_EQ(ctx.size(), 2);
+    ASSERT_EQ(ctx.size(), size_t{2});
     (void)ctx.get_all(); // hash chain intact
 }
 
