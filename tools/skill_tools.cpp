@@ -42,7 +42,11 @@ bool include_entry(const SkillEntry& e, const std::string& name_filter,
                    const std::optional<SkillOrigin>& want_origin) {
     if (e.state != "enabled" && e.state != "force-enabled")
         return false;
-    if (!name_filter.empty() && e.name.find(name_filter) == std::string::npos)
+    // A filter is a search, and the description is what the model reads in the
+    // discovery block: asking for "OOP" has to find a skill whose description
+    // names it even when its name does not.
+    if (!name_filter.empty() && e.name.find(name_filter) == std::string::npos &&
+        e.meta.description.find(name_filter) == std::string::npos)
         return false;
     return !want_origin || e.origin == *want_origin;
 }
@@ -172,7 +176,7 @@ public:
 
     std::string description() const noexcept override {
         return "List available skills (name: description). Optionally filter by "
-               "name substring or origin (authored|learned).";
+               "name or description substring, or origin (authored|learned).";
     }
 
     json parameters_schema() const override {
@@ -181,7 +185,7 @@ public:
                  {{"name",
                    {{"type", "string"},
                     {"description", "Optional substring filter on skill "
-                                    "names"}}},
+                                    "names and descriptions"}}},
                   {"origin",
                    {{"type", "string"},
                     {"description", "Optional origin filter: 'authored' "
