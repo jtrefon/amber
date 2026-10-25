@@ -83,6 +83,14 @@ std::string read_text(const std::string& path) {
     return ss.str();
 }
 
+// The vocabulary is one document in the library's own directory. One opener
+// keeps the path handling here, where the library resolves it, rather than at
+// each of the two readers.
+std::string vocabulary_text() {
+    const std::string dir = library_dir();
+    return dir.empty() ? std::string() : read_text((fs::path(dir) / kVocabulary).string());
+}
+
 // The index needs the header only. Reading every entry's whole body once per
 // turn is I/O the block does not use -- the body is fetched through the tool
 // when the entry is actually pulled.
@@ -374,10 +382,7 @@ std::vector<std::string> selected_tags_from(const std::string& index_body) {
 
 std::map<std::string, std::vector<std::string>> tag_aliases() {
     std::map<std::string, std::vector<std::string>> aliases;
-    const std::string dir = library_dir();
-    if (dir.empty())
-        return aliases;
-    std::ifstream in(fs::path(dir) / kVocabulary);
+    std::istringstream in(vocabulary_text());
     std::string line;
     while (std::getline(in, line)) {
         const std::string trimmed = trim(line);
@@ -542,16 +547,13 @@ std::string render_library_skill_body() {
         "bisect.\n"
         "- `library_lookup(list=true)` — the vocabulary and every entry name.\n\n"
         "## Vocabulary\n\n";
-    const std::string dir = library_dir();
-    if (!dir.empty()) {
-        std::ifstream in(fs::path(dir) / kVocabulary);
-        std::string line;
-        while (std::getline(in, line)) {
-            const std::string trimmed = trim(line);
-            if (trimmed.rfind("- `", 0) == 0) {
-                out += trimmed;
-                out += '\n';
-            }
+    std::istringstream in(vocabulary_text());
+    std::string line;
+    while (std::getline(in, line)) {
+        const std::string trimmed = trim(line);
+        if (trimmed.rfind("- `", 0) == 0) {
+            out += trimmed;
+            out += '\n';
         }
     }
     return out;
