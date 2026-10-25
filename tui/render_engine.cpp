@@ -14,7 +14,7 @@
 
 namespace tui {
 
-RenderEngine::RenderEngine(Tui& tui) : tui_(tui) {
+RenderEngine::RenderEngine(Tui& tui) : tui_(tui), pulse_epoch_(std::chrono::steady_clock::now()) {
     // Seed the project name (getcwd, no fork) so the prompt is complete on the
     // first paint; branch and diff counts arrive from the worker.
     auto seed = std::make_shared<GitState>();
@@ -137,27 +137,6 @@ std::vector<rich::Line> RenderEngine::build_view_without_working(const Window& w
     if (live && (view.empty() || !view.back().runs.empty()))
         view.push_back(rich::Line{});
     return space_rules(view);
-}
-
-std::vector<rich::Line> RenderEngine::build_view(const Window& w) const {
-    auto view = build_view_without_working(w);
-    if (tui_.runs_.busy(w.id) && working_visible_) {
-        if (!view.empty() && !view.back().runs.empty())
-            view.push_back(rich::Line{});
-        auto now = std::chrono::steady_clock::now();
-        size_t secs = static_cast<size_t>(
-            std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-        std::string label = tool_display::working_label(text::glyph::spinner_round(anim_phase_),
-                                                        activity_verb(), secs, w.running_tool_desc);
-        rich::Line wl;
-        rich::Run r;
-        r.pair = P_STATUS;
-        r.text = label;
-        wl.runs.push_back(std::move(r));
-        view.push_back(std::move(wl));
-        view.push_back(rich::Line{});
-    }
-    return view;
 }
 
 // The word leading the working indicator. Priority and wording live in the
@@ -306,19 +285,18 @@ void RenderEngine::draw_working_indicator(int row) {
     const auto now = std::chrono::steady_clock::now();
     const size_t secs = static_cast<size_t>(
         std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
-    const std::string label =
-        tool_display::working_label(text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
+    const tool_display::WorkingParts parts =
+        tool_display::working_parts(text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
                                     tui_.win().running_tool_desc);
-    attron(COLOR_PAIR(P_STATUS));
-    // mvaddnstr counts BYTES and would truncate mid-UTF-8-sequence when the
-    // label (spinner glyph + middot + task) is wider than the terminal, leaving
-    // a mojibake fragment (e.g. "M-b~W~S"). Render via the wide string,
-    // truncated by DISPLAY COLUMNS so a multibyte glyph is never split.
-    std::wstring wlabel = to_wide(label);
-    if (static_cast<int>(wlabel.size()) > width())
-        wlabel.resize(static_cast<size_t>(width()));
-    mvaddwstr(row, 0, wlabel.c_str());
-    attroff(COLOR_PAIR(P_STATUS));
+    // The glyph steps and the verb carries the sweep: the left side has a coarse
+    // motion and a fine one at the same time. Wide strings are painted by
+    // display column, so a multibyte glyph is never split (mvaddnstr counts
+    // BYTES and used to leave a mojibake fragment).
+    const int w = width();
+    int x = 0;
+    put_wsegment(row, w, x, to_wide(parts.glyph + " "), P_STATUS);
+    draw_shine(row, w, x, to_wide(parts.verb), P_STATUS);
+    put_wsegment(row, w, x, to_wide(parts.tail), P_STATUS);
 }
 
 // The scroll indicator used to live here as a " P:0%" tail appended after the
@@ -327,6 +305,8 @@ void RenderEngine::draw_working_indicator(int row) {
 
 void RenderEngine::draw() {
     dirty_ = true;
+    tick_anim();
+    working_row_owned_ = false;
     if (tui_.win().welcome_art) {
         erase();
         welcome::render(stdscr, chat_top(), width());
@@ -336,6 +316,10 @@ void RenderEngine::draw() {
     }
 
     const bool show_working = tui_.runs_.busy(tui_.win().id) && working_visible_;
+    // The canvas gives up a row only when this is true; tick_pulse repaints that
+    // row without resizing the canvas, so it must not touch a row the transcript
+    // still owns.
+    working_row_owned_ = show_working;
     std::vector<rich::Line> view = build_view_without_working(tui_.win());
     int ch = chat_height();
     if (show_working)
@@ -347,7 +331,7 @@ void RenderEngine::draw() {
     chat_canvas_.set_top(tui_.win().scroll_top);
     chat_canvas_.render();
     if (show_working)
-        draw_working_indicator(chat_top() + ch);
+        draw_working_indicator(working_row());
 
     draw_status_bar();
     wnoutrefresh(stdscr);
@@ -355,25 +339,75 @@ void RenderEngine::draw() {
 
 namespace {
 
-// The activity indicator's inner width.
-constexpr int kIW = 12;
+// The sweep's period and the frame the spin glyph steps through. Both read the
+// wall clock: the paint cadence can change without changing how fast the pulse
+// travels, and a skipped paint cannot make it drift.
+constexpr double kPulsePeriodMs = 1800.0;
+constexpr int kFrameMs = 150;
 
 } // namespace
 
 // Paint `s` at x within the budget, clipping by display columns; advances x.
 void RenderEngine::put_segment(int y, int budget, int& x, const std::string& s, int pair) {
+    put_wsegment(y, budget, x, to_wide(s), pair);
+}
+
+void RenderEngine::put_wsegment(int y, int budget, int& x, const std::wstring& ws, int pair) {
     if (x >= budget)
         return;
-    std::wstring ws = to_wide(s);
-    const int room = budget - x;
-    if (static_cast<int>(ws.size()) > room)
-        ws.resize(room);
+    const auto room = static_cast<size_t>(budget - x);
+    const size_t n = std::min(ws.size(), room);
+    if (n == 0)
+        return;
     attron(COLOR_PAIR(pair));
-    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(n));
     attroff(COLOR_PAIR(pair));
-    x += static_cast<int>(ws.size());
-    if (x > budget)
-        x = budget;
+    x += static_cast<int>(n);
+}
+
+int RenderEngine::shine_pair(int base_pair, int level) {
+    if (level <= 0)
+        return base_pair;
+    struct Shade {
+        int base, mid, hi;
+    };
+    static constexpr Shade kShades[] = {
+        {P_GAUGE_OK, P_GAUGE_OK_MID, P_GAUGE_OK_HI},
+        {P_GAUGE_WARN, P_GAUGE_WARN_MID, P_GAUGE_WARN_HI},
+        {P_GAUGE_CRIT, P_GAUGE_CRIT_MID, P_GAUGE_CRIT_HI},
+        {P_STATUS, P_TEXT_SHINE_MID, P_TEXT_SHINE_HI},
+    };
+    for (const Shade& s : kShades) {
+        if (s.base == base_pair)
+            return level == 1 ? s.mid : s.hi;
+    }
+    return base_pair;
+}
+
+// Paint a run of one-column cells with the moving band shaded over it while a
+// run is live; at rest the whole run keeps the base shade, so an idle bar does
+// not appear to be working. Cells are wide-string indices: every glyph the gauge
+// and the verb use is one column, which is what makes the two the same
+// coordinate.
+void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair) {
+    if (cells.empty())
+        return;
+    if (!tui_.runs_.busy(tui_.win().id)) {
+        put_wsegment(y, budget, x, cells, base_pair);
+        return;
+    }
+    const int n = static_cast<int>(cells.size());
+    const double phase = anim_phase01();
+    for (int i = 0; i < n;) {
+        const int level = agent::bar::shine_level(i, n, phase);
+        int end = i + 1;
+        while (end < n && agent::bar::shine_level(end, n, phase) == level)
+            ++end;
+        put_wsegment(y, budget, x,
+                     cells.substr(static_cast<size_t>(i), static_cast<size_t>(end - i)),
+                     shine_pair(base_pair, level));
+        i = end;
+    }
 }
 
 int RenderEngine::context_window() const {
@@ -409,7 +443,7 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     put_segment(y, budget, x, text::glyph::block_l(), P_BAR_DIM);
     const std::string bar = text::glyph::utf8() ? agent::bar::gauge_bar(frac, cells)
                                                 : agent::bar::gauge_bar_ascii(frac, cells);
-    put_segment(y, budget, x, bar, gauge_pair(frac));
+    draw_shine(y, budget, x, to_wide(bar), gauge_pair(frac));
     put_segment(y, budget, x, text::glyph::block_r(), P_BAR_DIM);
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +
@@ -417,37 +451,42 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     put_segment(y, budget, x, readout, gauge_pair(frac));
 }
 
-// The activity indicator: a bouncing bar while a run is live, "idle" otherwise.
-void RenderEngine::draw_spinner(int y, int ix) {
-    wattron(stdscr, COLOR_PAIR(P_BAR_DIM));
-    mvaddch(y, ix, '[');
+int RenderEngine::working_row() const {
+    return chat_top() + std::max(1, chat_height() - 1);
+}
+
+// The frame the spin glyph steps through. The sweep is not driven from here: it
+// reads the wall clock, so a repaint that arrives early or late cannot change
+// how fast it travels.
+void RenderEngine::tick_anim() {
     if (!tui_.runs_.busy(tui_.win().id)) {
         anim_phase_ = 0;
-        mvaddstr(y, ix + 1, "   idle   ");
-    } else {
-        const auto now = std::chrono::steady_clock::now();
-        if (anim_tick_.time_since_epoch().count() == 0 ||
-            now - anim_tick_ > std::chrono::milliseconds(150)) {
-            ++anim_phase_;
-            anim_tick_ = now;
-        }
-        for (int i = 0; i < kIW - 2; ++i) {
-            int c = anim_phase_ % 16;
-            if (c >= 8)
-                c = 16 - c;
-            const int d = std::abs(i - c);
-            chtype a = A_NORMAL;
-            if (d == 0)
-                a = A_BOLD;
-            else if (d > 2)
-                a = A_DIM;
-            attron(a);
-            mvaddch(y, ix + 1 + i, '|');
-            attroff(a);
-        }
+        return;
     }
-    mvaddch(y, ix + kIW - 1, ']');
-    wattroff(stdscr, COLOR_PAIR(P_BAR_DIM));
+    const auto now = std::chrono::steady_clock::now();
+    if (anim_tick_.time_since_epoch().count() == 0 ||
+        now - anim_tick_ > std::chrono::milliseconds(kFrameMs)) {
+        ++anim_phase_;
+        anim_tick_ = now;
+    }
+}
+
+double RenderEngine::anim_phase01() const {
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now() - pulse_epoch_)
+                        .count();
+    return std::fmod(static_cast<double>(ms) / kPulsePeriodMs, 1.0);
+}
+
+// The two rows that animate while a run is live, and only those: the transcript
+// keeps its own, slower cadence.
+void RenderEngine::tick_pulse() {
+    tick_anim();
+    if (working_row_owned_ && tui_.runs_.busy(tui_.win().id))
+        draw_working_indicator(working_row());
+    draw_status_bar();
+    wnoutrefresh(stdscr);
+    dirty_ = true;
 }
 
 // The right zone, laid out left to right so the highest priority (the last
@@ -496,14 +535,6 @@ void RenderEngine::draw_status_bar() {
         put_segment(y, budget, x, s.text, s.pair);
 
     draw_ctx_gauge(y, budget, x, have_ctx, ctx_used, frac);
-
-    // The wave's columns are reserved by the layout: its start column IS the
-    // left zone's budget, so the painter draws it whenever the terminal can
-    // hold it. The old guard (`ix > x + 4`) let the left flow -- in practice
-    // the ctx gauge -- push the wave out exactly while the agent was working.
-    const int ix = status_bar_layout::activity_x(w, plan.right_cols);
-    if (ix >= 0)
-        draw_spinner(y, ix);
 
     if (plan.right_cols > 0)
         draw_right_zone(y, w, plan.right_cols, plan.right);

@@ -1,6 +1,7 @@
 
 #include "agent/statusbar.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,22 @@ Pressure pressure(double frac) {
     if (frac >= 0.60)
         return Pressure::Warn;
     return Pressure::Ok;
+}
+
+int shine_level(int cell, int cells, double phase) {
+    if (cells <= 0 || cell < 0 || cell >= cells || !std::isfinite(phase))
+        return 0;
+    // A third of the region wide, never narrower than three cells: a 6-cell
+    // gauge still needs a core and a fade on each side.
+    const int band = std::max(3, cells / 3);
+    const double half = band / 2.0;
+    phase -= std::floor(phase);
+    // Travel one band past each edge, so the sweep enters and leaves cleanly.
+    const double centre = -half + phase * (cells + band);
+    const double d = std::fabs(static_cast<double>(cell) - centre);
+    if (d >= half)
+        return 0;
+    return d < half / 3.0 ? 2 : 1;
 }
 
 int gauge_full_cells(double frac, int cells) {

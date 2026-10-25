@@ -18,16 +18,6 @@ struct Segment {
     agent::StatusAlign align = agent::StatusAlign::Left;
 };
 
-// The activity indicator's reserved width (the [ wave ] block).
-inline constexpr int kActivityWidth = 13;
-
-// Where the activity wave starts: the first column the left zone may not use,
-// with the right zone's separator and its own width already subtracted. Negative
-// when the terminal cannot hold the wave. The painter draws from here without a
-// further guard, which is what keeps the left zone (clipped at the same column)
-// from ever crowding the wave out.
-int activity_x(int width, int right_cols);
-
 // The scroll badge's value: percent UP from the live edge, because scroll_top
 // counts from the top of the buffer (the live edge is max_top). 0 at the live
 // edge, 100 at the top of the buffer, -1 when everything fits.
@@ -41,10 +31,10 @@ struct Plan {
 };
 
 // Split by alignment and drop the highest-drop segments until the left zone
-// fits `budget`, reserving the right zone and the activity indicator. The
-// context gauge always occupies its minimum width: an unknown window is a
-// state to show ("ctx —"), not an empty slot, and reserving it keeps the bar
-// from jumping when a window is detected mid-session.
+// fits `budget` -- the whole row minus the right zone and the column that
+// separates them. The context gauge always occupies its minimum width: an
+// unknown window is a state to show ("ctx —"), not an empty slot, and reserving
+// it keeps the bar from jumping when a window is detected mid-session.
 Plan plan(std::vector<Segment> segments, int width);
 
 } // namespace tui::status_bar_layout

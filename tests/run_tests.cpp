@@ -2504,6 +2504,45 @@ TEST(statusbar_gauge_bar_glyphs) {
     ASSERT_EQ(agent::bar::gauge_bar(0.5, 0), "");
 }
 
+// The moving highlight: a soft band a third of the region wide, travelling from
+// just outside the left edge to just outside the right one.
+TEST(statusbar_shine_band_is_a_soft_third_of_the_region) {
+    // 24 cells -> an 8-cell band. At half phase its centre is cell 12, so the
+    // core covers 11-13 and the fade reaches 9 and 15.
+    ASSERT_EQ(agent::bar::shine_level(12, 24, 0.5), 2);
+    ASSERT_EQ(agent::bar::shine_level(11, 24, 0.5), 2);
+    ASSERT_EQ(agent::bar::shine_level(13, 24, 0.5), 2);
+    ASSERT_EQ(agent::bar::shine_level(10, 24, 0.5), 1);
+    ASSERT_EQ(agent::bar::shine_level(9, 24, 0.5), 1);
+    ASSERT_EQ(agent::bar::shine_level(15, 24, 0.5), 1);
+    ASSERT_EQ(agent::bar::shine_level(8, 24, 0.5), 0);
+    ASSERT_EQ(agent::bar::shine_level(16, 24, 0.5), 0);
+}
+
+TEST(statusbar_shine_band_travels_left_to_right) {
+    int early = -1;
+    int late = -1;
+    for (int c = 0; c < 24 && (early < 0 || late < 0); ++c) {
+        if (early < 0 && agent::bar::shine_level(c, 24, 0.3) > 0)
+            early = c;
+        if (late < 0 && agent::bar::shine_level(c, 24, 0.7) > 0)
+            late = c;
+    }
+    ASSERT(early >= 0);
+    ASSERT(late > early);
+}
+
+TEST(statusbar_shine_phase_is_periodic) {
+    for (int c = 0; c < 24; ++c)
+        ASSERT_EQ(agent::bar::shine_level(c, 24, 0.25), agent::bar::shine_level(c, 24, 1.25));
+}
+
+TEST(statusbar_shine_is_empty_without_cells) {
+    ASSERT_EQ(agent::bar::shine_level(0, 0, 0.5), 0);
+    ASSERT_EQ(agent::bar::shine_level(-1, 24, 0.5), 0);
+    ASSERT_EQ(agent::bar::shine_level(24, 24, 0.5), 0);
+}
+
 // ---------------------------------------------------------------------------
 // LLM streaming SSE parse (integration via a tiny in-process HTTP server)
 // ---------------------------------------------------------------------------

@@ -38,6 +38,17 @@ rich::Line close_tool_line(const rich::Line& open, rich::Line summary);
 // Elapsed-time label for the working indicator: 12s, 1m 05s, 1h 02m.
 std::string elapsed_label(size_t secs);
 
+// The working indicator, split so a painter can sweep its highlight over the
+// verb alone: the glyph, the verb, and the elapsed/task tail (which starts with
+// the space that separates it from the verb). `working_label` composes them.
+struct WorkingParts {
+    std::string glyph;
+    std::string verb;
+    std::string tail;
+};
+WorkingParts working_parts(const std::string& frame, const std::string& verb, size_t elapsed_secs,
+                           const std::string& task = {});
+
 // The full working indicator: "<frame> <verb> <elapsed>", plus an optional
 // running-task description appended as " · <task>" (truncated to 40 cols).
 // `verb` is a short activity word ("working", "thinking", "compressing",

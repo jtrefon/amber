@@ -36,7 +36,6 @@ public:
     int lines_per_page() const;
     int max_scroll(const Window& w) const;
     int max_scroll() const;
-    std::vector<rich::Line> build_view(const Window& w) const;
     std::vector<rich::Line> build_view_without_working(const Window& w) const;
     // The live thinking block, and the in-flight assistant text.
     void append_reasoning(std::vector<rich::Line>& view, const Window& w) const;
@@ -49,19 +48,36 @@ public:
     void append_rich_to(Window& w, const rich::Line& l);
 
     void draw();
+    // Repaint only the rows that animate while a run is live: the working line
+    // and the status bar. The transcript keeps its 150 ms cadence -- a pulse is
+    // not a reason to rewrap and repaint it.
+    void tick_pulse();
     // The working line under the chat.
     void draw_working_indicator(int row);
-    // Status-bar painting: one segment (clipped to the budget), the context
-    // gauge, the activity indicator, and the right zone.
+    // Status-bar painting: one segment (clipped to the budget), the moving
+    // highlight, the context gauge, and the right zone.
     void put_segment(int y, int budget, int& x, const std::string& s, int pair);
+    // The same for a string that is already wide: the gauge and the verb are
+    // sliced by display column, which is a wide-string index.
+    void put_wsegment(int y, int budget, int& x, const std::wstring& s, int pair);
+    // Paint `cells` one per display column, shading the moving band.
+    void draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair);
     // The window the ACTIVE agent will actually use. Reading the template
     // (tui_.cfg_) is what made the gauge stay at a stale 130k after a switch.
     int context_window() const;
     void draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long ctx_used, double frac);
-    void draw_spinner(int y, int ix);
     void draw_right_zone(int y, int w, int right_w,
                          const std::vector<status_bar_layout::Segment>& right_zone);
     void draw_status_bar();
+    // The row the working line occupies, when it is shown.
+    int working_row() const;
+    // Advance the 150 ms frame the spin glyph steps through. The sweep itself is
+    // time-based (anim_phase01), so its speed cannot drift with the paint rate.
+    void tick_anim();
+    // Position of the sweep in [0,1), from the wall clock.
+    double anim_phase01() const;
+    // The pair for a shine level over `base_pair`: level 0 keeps the base shade.
+    static int shine_pair(int base_pair, int level);
     // Repaint the bar on the second. A segment that renders wall-clock time
     // (the clock plugin) is correct because of this cadence, not because it
     // schedules anything itself: segments are pure reads of the moment they
@@ -124,7 +140,6 @@ public:
     bool working_visible() const noexcept { return working_visible_; }
     void mark_working() noexcept;
     void clear_working() noexcept { working_visible_ = false; }
-    void advance_anim() noexcept { ++anim_phase_; }
     int anim_phase() const noexcept { return anim_phase_; }
 
 private:
@@ -175,8 +190,14 @@ private:
     bool show_reasoning_ = true;
     int anim_phase_ = 0;
     std::chrono::steady_clock::time_point anim_tick_{};
+    // The sweep's epoch: the pulse reads a position from the wall clock, so it
+    // keeps moving even when a paint is skipped or the frame counter is stale.
+    std::chrono::steady_clock::time_point pulse_epoch_{};
     std::chrono::steady_clock::time_point working_since_{};
     bool working_visible_ = false;
+    // Whether the last draw sized the canvas to leave the working row free, so
+    // tick_pulse may repaint that row without resizing anything.
+    bool working_row_owned_ = false;
     bool dirty_ = true;
     std::chrono::steady_clock::time_point last_status_tick_{};
 };
