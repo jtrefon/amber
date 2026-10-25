@@ -15,7 +15,7 @@ struct BrowserItem {
     std::string id;
     std::string title;
     long long updated_ms = 0;
-    std::string model;
+    std::string model{};
     int message_count = 0;
     size_t file_size = 0;
 };

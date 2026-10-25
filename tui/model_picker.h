@@ -28,8 +28,8 @@ struct ProviderModel {
     bool thinking_adaptive = false;
     bool thinking_legacy = false;
     bool thinking_always_on = false;
-    std::string default_effort;
-    std::vector<std::string> input_modalities;
+    std::string default_effort{};
+    std::vector<std::string> input_modalities{};
 };
 
 // Human-readable token counts for picker/readout lines: 2000000 -> "2M",
