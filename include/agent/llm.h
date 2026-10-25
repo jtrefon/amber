@@ -34,7 +34,7 @@ struct Message {
     // failure it reports (transport error, HTTP status). Empty for ordinary
     // guidance, and deliberately not serialized: it describes the turn, not the
     // conversation.
-    std::string failure_detail;
+    std::string failure_detail{};
     // A rate-limit failure is a stop signal, not a retryable turn: the status
     // and Retry-After let the loop end instead of asking the model to continue.
     long failure_status = 0;
@@ -44,7 +44,7 @@ struct Message {
     // Anthropic signs thinking blocks and rejects a tool-use turn that replays
     // them modified or omits them, so the raw blocks travel with the message.
     // Protocols without such blocks leave this null and never read it.
-    json raw_content;
+    json raw_content{};
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
