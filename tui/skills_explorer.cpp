@@ -84,8 +84,10 @@ void draw_row(WINDOW* w, int y, int width, const SkillRow& row, bool selected) {
         badges += "+";
 
     std::string name = row.ref.name;
-    if (name.size() > 26)
-        name = name.substr(0, 25) + "\u2026";
+    if (name.size() > 26) {
+        name.resize(25);
+        name += "\u2026";
+    }
 
     const std::string tail = compact_installs(row.ref.installs);
     const int tail_x = std::max(28, width - static_cast<int>(tail.size()) - 1);
@@ -231,9 +233,9 @@ class SkillsExplorer {
 public:
     SkillsExplorer(const SkillsExplorerOptions& options,
                    std::function<void(const std::string&)> status)
-        : options_(options), status_(std::move(status)) {
-        dlg_ = std::make_unique<Dialog>(std::max(10, options.rows - 2),
-                                        std::max(50, options.cols - 2), "Skills");
+        : options_(options), status_(std::move(status)),
+          dlg_(std::make_unique<Dialog>(std::max(10, options.rows - 2),
+                                        std::max(50, options.cols - 2), "Skills")) {
         dlg_->set_footer({{"/", "search"},
                           {"Enter", "detail"},
                           {"i", "install"},
@@ -268,7 +270,6 @@ public:
 
 private:
     int content_height() const { return dlg_->rows() - 2; }
-    int content_width() const { return dlg_->cols() - 2; }
     int list_height() const { return std::max(1, content_height() - 4); }
 
     void refresh_installed() {
@@ -318,7 +319,7 @@ private:
             pending_search_ = true;
             return true;
         case SkillIntent::Kind::Close:
-            status_(last_status_.empty() ? "skills closed" : last_status_);
+            status_("skills closed");
             return false;
         case SkillIntent::Kind::None:
             return true;
@@ -331,6 +332,7 @@ private:
     void apply_tab(SkillTab tab) {
         if (tab == SkillTab::Installed) {
             refresh_installed();
+            last_status_ = "installed skills";
         } else if (tab == SkillTab::Top) {
             pending_search_ = !query_.empty();
         } else {

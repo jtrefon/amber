@@ -3,14 +3,7 @@
   "skills": {
    "action": "core.skills",
    "help": "Find and install skills.",
-   "man": "Opens the Skills Explorer: search the skills.sh index, read a result's details, and install it into the project (.amber/skills) or globally (~/.config/amber/skills). The explorer keeps the search local-first and only fetches a detail when you ask for it. Type at least two characters to search; Enter loads a detail; i installs it.",
-   "children": {
-    "browse": {
-     "action": "core.skills.browse",
-     "help": "Open the skills explorer.",
-     "man": "Opens the same explorer as /skills."
-    }
-   }
+   "man": "Opens the Skills Explorer: search the skills.sh index, read a result's details, and install it into the project (.amber/skills) or globally (~/.config/amber/skills). The explorer keeps the search local-first and only fetches a detail when you ask for it. Type at least two characters to search; Enter loads a detail; i installs it."
   },
   "help": {
    "action": "core.help",
