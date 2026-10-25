@@ -68,6 +68,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `tui/work-surfaces.md` | Resource model for sessions/jobs/agents/watches, status cells `[s][j][a][w]`, host Work board, resource viewer windows, job/subagent metadata, lifecycle matrix, PTY tests |
 | `tui/window-projects.md` | Per-window project roots and project sessions: project vs workspace axis, per-project stores/config/prompts/worktrees, `/project open`, security, restore and tests |
 | `tui/command-tree.md` | The JSON mapper contract: `completions.json` is the only command surface, code binds behaviour only, documented fields (including `short`) are immutable, merges concatenate children and count collisions, plugins mount under `/plugin/<id>` and cannot add roots |
+| `tui/headless-one-shot.md` | Deferred: `amber --prompt ... --exit-after-turn [--ephemeral]`, same Tui/loop/teardown, PTY in CI, ephemeral XDG roots, no in-app scripting in v1 |
 
 ## TUI, Widgets
 

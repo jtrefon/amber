@@ -20,6 +20,28 @@ The number is the measured value (108 when it was pinned), ratcheted like every
 other budget in this repo: it may only shrink. The library has no budget: it is
 dark.
 
+## Retrieval
+
+The working index is the map, `library_lookup` is the route.
+
+- The **craft layer** (`design`, `patterns`, `architecture`) is indexed for every
+  project. It answers what the *task* needs, and a project tag cannot select it;
+  a fresh project with no index still sees it. The project's own tags add the
+  domain entries. The block is capped at 25 lines, and a trailing `(N more
+  selected entries)` line says when it truncated.
+- A query matches **whole words** and, for words of four characters or more,
+  prefixes. A tag's `also:` synonyms and an entry's own `also:` phrases match
+  too, so "OOP" reaches every design entry and "event sourcing" reaches the
+  event-driven one. Name and trigger hits outrank body hits, and a single body
+  mention is not enough to return an entry.
+- `library_lookup(list=true)` — and `/library list` — prints the vocabulary and
+  every entry. A miss names the vocabulary instead of returning silence.
+- The coding domain contributes **one** `coding-library` skill: the inventory
+  line in the discovery slot, with the vocabulary as its body. It is not one
+  skill per entry — the skills catalog has no tags, a 20-line discovery cap and a
+  body budget, and per-entry skills would invert the economics that make the
+  library cheap.
+
 ## The layers
 
 | Layer | State | Content |
@@ -63,12 +85,19 @@ debugging), **Python** (uv/venv, pytest, ruff/mypy, pdb).
    name: <short name>                 (optional: the file's stem is the name)
    trigger: <when this applies>
    tags: #dotnet #efcore
+   also: <the names people use>       (optional: OOP, SOLID, event sourcing)
    weight: <0-100>                    (optional: 50 default, topics 60)
    verified: <YYYY-MM>
    reference: <url | path>
    sources: <book and chapter | article url | "model knowledge <YYYY-MM>">
    reference: <url | path>            (optional)
    ```
+
+   `also:` is retrieval vocabulary, not selection: a tag's own line in
+   `tags.md` may carry `also:` too, and every entry with that tag inherits the
+   words. It exists because the reader's word ("OOP", "event sourcing") and the
+   entry's word ("design", "event-driven") are often different, and a knowledge
+   base that only answers in its own vocabulary is one nobody finds.
 
    `sources:` is provenance, not authority: it names what was actually consulted —
    a chapter of one of the guides in the owner's library, a current article, or
