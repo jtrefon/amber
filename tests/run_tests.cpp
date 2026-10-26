@@ -5862,9 +5862,67 @@ TEST(apply_classification_context_creates_archive_entry) {
     ASSERT(result.size() >= 2u);
     bool has_archive = false;
     for (const auto& m : result)
-        if (m.content.find("compressed_context") != std::string::npos)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
             has_archive = true;
     ASSERT(has_archive);
+}
+
+TEST(archive_entries_are_capped_and_summarised) {
+    // The archive is bookkeeping, not content: 40 carried entries must not ride
+    // into every later request forever. The oldest merge into one line.
+    agent::json entries = agent::json::array();
+    for (int i = 0; i < 40; ++i)
+        entries.push_back({{"turns", std::to_string(i)}, {"summary", "archived work"}});
+    agent::json old_ctx = {{"archive", entries}};
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("system", std::string(agent::kCompressedContextPrefix) + "\n" + old_ctx.dump()),
+        msg("user", "old task"),
+        msg("assistant", "old work"),
+        msg("user", "current task"),
+    };
+    agent::CompressionResponse cr;
+    cr.segments.push_back({2, 3, agent::Classification::core, ""});
+    auto result = agent::apply_classification(hist, cr);
+    agent::json body;
+    for (const auto& m : result)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
+            body = agent::json::parse(m.content.substr(sizeof(agent::kCompressedContextPrefix) - 1),
+                                      nullptr, false);
+    ASSERT(body.is_object());
+    ASSERT(body["archive"].size() <= 32u);
+    ASSERT(body["archive"][0]["summary"].get<std::string>().find("earlier") != std::string::npos);
+}
+
+TEST(compressed_context_message_has_no_write_only_fields) {
+    // `type`, `version` and `facts` had no reader in lib/, tui/, src/ or bench/.
+    // `facts.last_goal` was also the *first* short user message, not the last.
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "old task"),
+        msg("assistant", "old work"),
+        msg("user", "current task"),
+    };
+    agent::CompressionResponse cr;
+    cr.summary = "the work state";
+    cr.segments.push_back({1, 2, agent::Classification::context, "old work"});
+    agent::CompressionConfig cfg;
+    cfg.keep_last_prompts = 1;
+    auto out = agent::apply_classification(hist, cr, &cfg);
+    agent::json body;
+    for (const auto& m : out)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
+            body = agent::json::parse(m.content.substr(sizeof(agent::kCompressedContextPrefix) - 1),
+                                      nullptr, false);
+    ASSERT(body.is_object());
+    ASSERT_FALSE(body.contains("type"));
+    ASSERT_FALSE(body.contains("version"));
+    ASSERT_FALSE(body.contains("facts"));
+    ASSERT_EQ(body["summary"], std::string("the work state"));
+    ASSERT(body.contains("archive"));
 }
 
 TEST(apply_classification_preserves_system_when_classifier_tags_as_prune) {

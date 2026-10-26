@@ -46,6 +46,9 @@ struct EventStream {
     std::vector<RetryEvent> retries;
     std::vector<RecoveryEvent> recoveries;
     std::vector<StatsEvent> stats;
+    // One entry per compaction attempt (success or failure), in order. The
+    // KPI uses the first attempt's before and the last successful after.
+    std::vector<agent::CompressionResult> compactions;
     int compressions = 0;   // "compressing N messages..." status lines
     int bash_cd_prefix = 0; // bash calls starting with `cd <workspace> &&`
     int iterations = 0;     // max "iteration N/M" observed
@@ -72,6 +75,7 @@ public:
     void on_debug(const std::string& text);
     void on_stats(const agent::Stats& s);
     void on_state(agent::RunState st);
+    void on_compression(const agent::CompressionResult& r);
 
 private:
     struct Pending {

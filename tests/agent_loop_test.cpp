@@ -976,6 +976,59 @@ TEST(compression_pipeline_failure_returns_history_unchanged) {
 // CP-08: a failed EXTRACTION is non-fatal. The classification has already been
 // applied, so the caller still gets the compressed history and the
 // classification result — only the memory/skill ops are missing.
+// Retention channels the harness owns: the classifier's summary, one archive
+// entry for a pruned turn, and the active turn verbatim. The checkpoint text
+// must survive a compaction that removes everything older than the tail.
+TEST(compression_preserves_the_summary_archive_and_tail) {
+    agent::CompressionConfig cc;
+    cc.context_size = 8192;
+    cc.target_pct = 10;
+    cc.keep_last_prompts = 1;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, R"({"summary":"DECISION: the cache layer owns eviction","classification":[)"
+                     R"({"turns":"1-2","tag":"context","summary":"explored the cache layer"},)"
+                     R"({"turns":"3-4","tag":"core","summary":""}]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message old_user;
+    old_user.role = "user";
+    old_user.content = "explore the cache";
+    ctx.push(std::move(old_user));
+    agent::Message old_reply;
+    old_reply.role = "assistant";
+    old_reply.content = std::string(4000, 'x'); // pruned: pays for the archive
+    ctx.push(std::move(old_reply));
+    agent::Message active;
+    active.role = "user";
+    active.content = "CHECKPOINT: keep wiring the eviction path";
+    ctx.push(std::move(active));
+
+    agent::CompressionResponse cr;
+    const size_t before_tokens = ctx.token_count();
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
+    bool summary = false;
+    bool archive = false;
+    bool tail = false;
+    for (const auto& m : out) {
+        if (m.content.find("DECISION: the cache layer owns eviction") != std::string::npos)
+            summary = true;
+        if (m.content.find("explored the cache layer") != std::string::npos)
+            archive = true;
+        if (m.content.find("CHECKPOINT: keep wiring the eviction path") != std::string::npos)
+            tail = true;
+    }
+    ASSERT(summary);
+    ASSERT(archive);
+    ASSERT(tail);
+    ASSERT(agent::estimate_tokens(out) < before_tokens);
+}
+
 TEST(compression_extract_failure_keeps_classification) {
     agent::CompressionConfig cc;
     cc.keep_last_prompts = 1; // the older turn is archivable, so the pass reduces

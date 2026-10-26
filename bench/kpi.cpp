@@ -77,6 +77,30 @@ void apply_template_result(const TemplateResult& tmpl, Kpi& k) {
 
 } // namespace
 
+namespace {
+
+// Compaction accounting: the first successful input to the last successful
+// output, so a re-compaction reports the whole run's reduction. Ratio is
+// conversation-only (system prompt excluded) or it measures nothing.
+void apply_compaction_kpi(const EventStream& stream, Kpi& k) {
+    k.compressions = stream.compressions;
+    for (const auto& c : stream.compactions) {
+        if (!c.error.empty()) {
+            ++k.compaction_failures;
+            continue;
+        }
+        if (k.compaction_tokens_before == 0)
+            k.compaction_tokens_before = static_cast<long>(c.payload_tokens_before);
+        k.compaction_tokens_after = static_cast<long>(c.payload_tokens_after);
+        k.compaction_archive_tokens = static_cast<long>(c.archive_tokens);
+    }
+    if (k.compaction_tokens_before > 0)
+        k.compaction_ratio = static_cast<double>(k.compaction_tokens_after) /
+                             static_cast<double>(k.compaction_tokens_before);
+}
+
+} // namespace
+
 Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle, const ResourceMeter& meter,
                 const TemplateResult& tmpl, const Checks& prompt_checks,
                 const std::string& final_text, long wall_ms, long bullseye_at_ms) {
@@ -87,7 +111,7 @@ Kpi compute_kpi(const EventStream& stream, const OracleResult& oracle, const Res
                                                         static_cast<double>(oracle.total_calls)
                                                   : 1.0;
     k.steps = stream.iterations;
-    k.compressions = stream.compressions;
+    apply_compaction_kpi(stream, k);
     k.bash_cd_prefix = stream.bash_cd_prefix;
     k.tool_calls = static_cast<int>(stream.calls.size());
     count_tool_outcomes(stream, k);
@@ -120,6 +144,16 @@ bool kpi_success(const Kpi& k, const Scenario& s) noexcept {
         return false;
     if (s.max_wall_ms > 0 && k.wall_ms > s.max_wall_ms)
         return false;
+    if (s.min_compactions > 0 && k.compressions < s.min_compactions)
+        return false;
+    if (s.max_compaction_ratio > 0.0) {
+        // A ratio was requested, so a successful compaction must have run:
+        // "no compaction" is not a passing measurement.
+        if (k.compaction_tokens_before <= 0)
+            return false;
+        if (k.compaction_ratio > s.max_compaction_ratio)
+            return false;
+    }
     return true;
 }
 

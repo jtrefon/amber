@@ -234,6 +234,12 @@ void render_scenario_line(std::ostream& out, const ScenarioReport& r) {
         << " bullseye=" << r.kpi.bullseye << " steps=" << r.kpi.steps
         << " cd=" << r.kpi.bash_cd_prefix << " wasted=" << r.kpi.wasted << " wall=" << r.kpi.wall_ms
         << "ms" << " retries=" << r.kpi.retries << " recoveries=" << r.kpi.recoveries;
+    if (r.kpi.compressions > 0) {
+        out << " compact=" << r.kpi.compaction_tokens_before << "->"
+            << r.kpi.compaction_tokens_after << "tok";
+        if (r.kpi.compaction_failures > 0)
+            out << " (" << r.kpi.compaction_failures << " failed)";
+    }
     if (r.templated)
         out << " artifact=" << r.kpi.artifact_score
             << " compile=" << (r.kpi.compile_ok ? "ok" : "FAIL")
@@ -321,6 +327,11 @@ agent::json json_kpi(const ScenarioReport& r) {
     j["arg_precision"] = r.kpi.arg_precision;
     j["steps"] = r.kpi.steps;
     j["compressions"] = r.kpi.compressions;
+    j["compaction_tokens_before"] = r.kpi.compaction_tokens_before;
+    j["compaction_tokens_after"] = r.kpi.compaction_tokens_after;
+    j["compaction_ratio"] = r.kpi.compaction_ratio;
+    j["compaction_archive_tokens"] = r.kpi.compaction_archive_tokens;
+    j["compaction_failures"] = r.kpi.compaction_failures;
     j["bash_cd_prefix"] = r.kpi.bash_cd_prefix;
     j["tool_calls_total"] = r.kpi.tool_calls;
     j["tool_failures"] = r.kpi.tool_failures;

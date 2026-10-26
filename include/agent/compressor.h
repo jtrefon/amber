@@ -44,6 +44,11 @@ inline constexpr std::size_t kMaxSummaryChars = 200;
 inline constexpr char kToolOutputOmitted[] =
     "[tool output omitted \u2014 session log retains the original]";
 
+// The archive is bookkeeping: a hard cap keeps it from eating the budget the
+// pass is trying to reach. Oldest entries merge into one line.
+inline constexpr std::size_t kMaxArchiveEntries = 32;
+inline constexpr std::size_t kMaxArchiveTokens = 800;
+
 // Prefix of the compressed-context message produced by apply_classification;
 // enforce_headroom locates it by this prefix to append archive entries.
 inline constexpr char kCompressedContextPrefix[] = "Compressed conversation context:";
@@ -67,9 +72,18 @@ struct CompressionResult {
     size_t messages_after = 0;
     size_t tokens_before = 0;
     size_t tokens_after = 0;
+    // Conversation-only tokens (everything except `system` messages), before
+    // and after. The system prompt is immutable, so including it in a
+    // compaction ratio hides the effect: 8.7K of an 8.8K context is the prompt.
+    // `payload_tokens_after` includes the archive the pass wrote.
+    size_t payload_tokens_before = 0;
+    size_t payload_tokens_after = 0;
     size_t core_count = 0;
     size_t context_count = 0;
     size_t prune_count = 0;
+    // Tokens of the compressed-context message the pass wrote (summary +
+    // archive). Zero when the pass produced no reduction and kept the history.
+    size_t archive_tokens = 0;
     std::string error; // non-empty when compression failed
 };
 

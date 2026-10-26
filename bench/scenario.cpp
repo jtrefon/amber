@@ -197,6 +197,8 @@ void take_budget(const agent::json& j, Scenario& s) {
     const agent::json& b = j["budget"];
     take_int(b, "max_steps", s.max_steps);
     take_long(b, "max_wall_ms", s.max_wall_ms);
+    take_int(b, "min_compactions", s.min_compactions);
+    take_clamped_double(b, "max_compaction_ratio", s.max_compaction_ratio, 0.0, 1.0);
 }
 
 } // namespace
