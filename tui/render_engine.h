@@ -20,6 +20,7 @@
 
 #include "agent/extensions.h"
 #include "agent/plugin_runtime.h"
+#include "agent/statusbar.h"
 
 namespace tui {
 class Tui;
@@ -60,9 +61,15 @@ public:
     // The same for a string that is already wide: the gauge and the verb are
     // sliced by display column, which is a wide-string index.
     void put_wsegment(int y, int budget, int& x, const std::wstring& s, int pair);
-    // Paint `cells` one per display column, shading the moving band (at most
-    // `band` cells wide; 0 means a third of the region).
-    void draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair, int band);
+    // Paint `cells` one per display column, shading the moving band over it.
+    // `shine` carries the band's width in cells (0 = a third of the run) and
+    // whether it fades or is one solid shade.
+    struct Shine {
+        int band = 0;
+        agent::bar::ShineStyle style = agent::bar::ShineStyle::Gradient;
+    };
+    void draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair,
+                    Shine shine);
     // The window the ACTIVE agent will actually use. Reading the template
     // (tui_.cfg_) is what made the gauge stay at a stale 130k after a switch.
     int context_window() const;

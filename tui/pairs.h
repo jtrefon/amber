@@ -41,14 +41,11 @@ enum Pair {
     P_MD_TABLE,     // table rows
     P_MD_HR,        // horizontal rule
     P_INPUT_SHADOW, // faded completion hint (gray on default bg)
-    // The working pulse: the moving band's fade and core. The gauge shades are
-    // the same brightness ramp over each pressure colour, so the pulse never
-    // reads as a fourth health state.
-    P_GAUGE_OK_MID,   // bright green on blue
+    // The working pulse. The gauge runs solid: three cells in the one light
+    // shade, so it never reads as a fourth health state or as a second signal.
+    // The verb keeps the fade, whose mid step is the bright hue.
     P_GAUGE_OK_HI,    // white on blue
-    P_GAUGE_WARN_MID, // bright yellow on blue
     P_GAUGE_WARN_HI,  // white on blue
-    P_GAUGE_CRIT_MID, // bright red on blue
     P_GAUGE_CRIT_HI,  // white on blue
     P_TEXT_SHINE_MID, // bright yellow on the transcript background
     P_TEXT_SHINE_HI,  // white on the transcript background
