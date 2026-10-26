@@ -20,7 +20,7 @@ int shine_band(int cells) {
     return std::max(3, cells / 3);
 }
 
-int shine_level(int cell, int cells, double phase, int band) {
+int shine_level(int cell, int cells, double phase, int band, ShineStyle style) {
     if (cells <= 0 || cell < 0 || cell >= cells || !std::isfinite(phase))
         return 0;
     const bool fixed = band > 0;
@@ -40,6 +40,8 @@ int shine_level(int cell, int cells, double phase, int band) {
     const double d = std::fabs(static_cast<double>(cell) - centre);
     if (d >= half)
         return 0;
+    if (style == ShineStyle::Solid)
+        return 2;
     return d < half / 3.0 ? 2 : 1;
 }
 
