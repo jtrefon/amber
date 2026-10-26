@@ -5799,6 +5799,44 @@ TEST(parser_keeps_fence_tokens_inside_a_string) {
     ASSERT_EQ(cr.summary, std::string("wrap code in ``` fences"));
 }
 
+// The classifier cannot count messages it only sees as text. The instruction
+// carries an index legend whose numbers match the harness's message indices —
+// the same ones apply_classification uses.
+TEST(classifier_manifest_indices_match_the_harness_message_indices) {
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "first task"),
+        msg("assistant", "working"),
+        msg("user", "current task"),
+    };
+    const auto req = agent::build_classify_request(false, hist);
+    ASSERT_EQ(req.role, std::string("user"));
+    ASSERT(req.content.find("Index 0 is the system prompt") != std::string::npos);
+    ASSERT(req.content.find("1 user first task") != std::string::npos);
+    ASSERT(req.content.find("2 assistant working") != std::string::npos);
+    ASSERT(req.content.find("3 user current task") != std::string::npos);
+}
+
+TEST(classifier_manifest_is_bounded_and_groups_the_oldest) {
+    // 400 messages must not turn the instruction into a second conversation:
+    // the oldest are grouped, the newest stay individually addressable.
+    std::vector<agent::Message> hist = {msg("system", "Amber")};
+    for (int i = 0; i < 400; ++i)
+        hist.push_back(msg("tool", std::string(120, 'x'), "read"));
+    const auto req = agent::build_classify_request(false, hist);
+    ASSERT(req.content.find("(grouped") != std::string::npos);
+    ASSERT(agent::message_tokens(req) < 2600u);
+}
+
+TEST(update_instruction_names_the_archive_wire_position) {
+    // The archive is merged into the leading system prompt by every dialect, so
+    // "the message above" was never where the model saw it.
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "task")};
+    const auto req = agent::build_classify_request(true, hist);
+    ASSERT(req.content.find("merged into") != std::string::npos);
+    ASSERT(req.content.find("numbered transcript") != std::string::npos);
+}
+
 // =========================================================================
 // Applier tests
 // =========================================================================
