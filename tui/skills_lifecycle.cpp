@@ -71,7 +71,7 @@ std::string SkillsLifecycle::remove(const SkillRow& row) {
     if (root.empty())
         return "only project/global skills can be removed here";
 
-    const std::string error = agent::uninstall_skill(row.ref.name, root);
+    std::string error = agent::uninstall_skill(row.ref.name, root);
     if (!error.empty())
         return error;
     agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
