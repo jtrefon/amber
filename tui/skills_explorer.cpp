@@ -185,6 +185,10 @@ int choose_scope(int rows, int cols) {
     mvwaddnstr(w, 1, 0, "Install for this project, or for every project?", aw);
     mvwaddnstr(w, 3, 0, "project  .amber/skills", aw);
     mvwaddnstr(w, 4, 0, "global   ~/.config/amber/skills", aw);
+    // Reading the content window refreshes the body, but the panel's frame and
+    // title are drawn on the parent; without an explicit show they stay blank
+    // until some later repaint.
+    dlg.show();
     keypad(w, TRUE);
     while (true) {
         const int ch = wgetch(w);
@@ -253,6 +257,7 @@ void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& 
         }
         draw_detail(w, top, list_w + 2, height, aw - list_w - 3, view);
     }
+    wnoutrefresh(w);
     update_panels();
     doupdate();
 }
@@ -475,7 +480,9 @@ void SkillsExplorer::apply_tab(SkillTab tab) {
 void SkillsExplorer::tick() {
     if (pending_search_ && since(last_input_) >= 250) {
         pending_search_ = false;
-        if (query_.size() >= 2)
+        // The installed shelf filters locally; a registry search there would
+        // spend a request on rows the shelf never shows.
+        if (query_.size() >= 2 && core_.tab() != SkillTab::Installed)
             service_->search(query_);
         else
             core_.set_rows({});
@@ -564,6 +571,7 @@ bool SkillsExplorer::confirm(const std::string& title, const std::string& text) 
     dlg.set_footer({{"y", "confirm"}, {"n", "cancel"}});
     WINDOW* w = dlg.content();
     mvwaddnstr(w, 1, 0, text.c_str(), dlg.cols() - 2);
+    dlg.show();
     keypad(w, TRUE);
     while (true) {
         const int ch = wgetch(w);
