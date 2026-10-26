@@ -2544,6 +2544,20 @@ TEST(statusbar_shine_fixed_band_keeps_its_width) {
     }
 }
 
+TEST(statusbar_shine_solid_style_lights_only_core_shade) {
+    // The gauge's glint is a single colour: three cells, all at the core level,
+    // so there is no mid/fade cell to read as a second signal.
+    int lit = 0;
+    int fade = 0;
+    for (int c = 0; c < 24; ++c) {
+        const int level = agent::bar::shine_level(c, 24, 0.5, 3, agent::bar::ShineStyle::Solid);
+        lit += level > 0 ? 1 : 0;
+        fade += level == 1 ? 1 : 0;
+    }
+    ASSERT_EQ(lit, 3);
+    ASSERT_EQ(fade, 0);
+}
+
 TEST(statusbar_shine_band_defaults_to_the_proportional_width) {
     ASSERT_EQ(agent::bar::shine_band(24), 8);
     ASSERT_EQ(agent::bar::shine_band(5), 3);
