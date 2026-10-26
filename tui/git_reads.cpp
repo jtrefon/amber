@@ -44,8 +44,13 @@ text::GitStatus read_status(const std::string& root) {
 }
 
 text::DiffStat read_diff_stat(const std::string& root) {
-    return text::parse_git_shortstat(
-        read_stdout("git -C " + git_dir(root) + " diff --shortstat" + kPathspec));
+    // A worktree whose line endings differ from the index -- a Windows checkout
+    // read from WSL, where the two gits disagree on core.autocrlf -- makes every
+    // line a deletion and an insertion. Line-ending churn is not a content
+    // change, so the prompt's counts ignore CR at end of line; without this a
+    // clean tree reports the whole repository as +N/-N.
+    return text::parse_git_shortstat(read_stdout(
+        "git -C " + git_dir(root) + " diff --shortstat --ignore-cr-at-eol" + kPathspec));
 }
 
 } // namespace tui::git_reads
