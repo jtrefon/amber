@@ -1,5 +1,13 @@
 ## Spec: Context Compression Pipeline
 
+> **⚠ Under remediation (2026-10-26).** The 2026-10 review found this spec
+> contradicts the shipped code in several places (prefill/KV reuse, the
+> `kFallbackContextBudget` fallback, the pipeline's purity, the budget order and
+> the "known gaps" list). Read
+> [`docs/deep-audit/context-compaction-review.md`](../../deep-audit/context-compaction-review.md)
+> first; the reconciliation is tracked as CC-12. Do not implement from this file
+> until that lands.
+
 ### Purpose
 
 Reduce conversation history size without triggering expensive context reloads. The pipeline runs as a sequence of small LLM requests — each one appends an instruction to the TAIL of the existing conversation, extending the server's KV cache incrementally. No full prefill is triggered during compression. Only after the compressed context is assembled does the next turn pay for one prefill — of a much smaller context.
