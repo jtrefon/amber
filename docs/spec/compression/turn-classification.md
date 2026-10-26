@@ -1,81 +1,73 @@
 ## Spec: Compression — Turn Classification
 
+- **Status:** current (reconciled with the code in CC-12, 2026-10-26)
+- **Source:** `lib/compressor_apply.cpp` (`apply_classification`, `tag_turns`,
+  `protect_active_task`, `archive_json_for`), `lib/compressor_parser.cpp`
+- **Pipeline:** `compression-pipeline.md`
+
 ### Purpose
-Apply the LLM's classification response to the conversation history: keep
-`core` turns verbatim, archive `context` turns as JSON summaries, and discard
-`prune` turns. Produces the compressed output message vector.
 
-### Ownership
-- **Source files**: `lib/compressor_apply.cpp` (`apply_classification()` — lines 13–84, `build_compression_result()`), `lib/compressor_parser.cpp` (`parse_compression_response()`)
-- **Test files**: `tests/run_tests.cpp` — 4 apply tests (lines 1657–1717)
-
----
+Turn the classifier's per-range tags into a new message list: `core` stays
+verbatim, `context` becomes an archive entry, `prune` disappears — with the
+system prompt, the active tail and provider-valid tool pairing guaranteed
+regardless of what the model said.
 
 ### Contract
 
 | Dimension | Detail |
-|-----------|--------|
-| **Input** | History + `CompressionResponse{segments, memory_ops, skill_ops}` |
-| **Output** | Compressed history: core verbatim, context archived, pruned removed, plus `compressed_context` system message |
-| **Error states** | Empty/no segments → history unchanged. Parse failure → post-collapse history returned. |
-| **Invariants** | See below. |
+|---|---|
+| Input | History snapshot + `CompressionResponse{segments, summary, memory_ops, skill_ops, brief}` + optional `CompressionConfig` |
+| Output | New message list: system prompt, surviving core turns, the compressed-context message, the protected tail |
+| Error states | Empty history or empty segments → the input is returned unchanged |
+| Purity | No mutation of the input; the caller rebuilds the `Context` |
 
-### Invariants
+### The index space
 
-1. Core turns are preserved verbatim in original order.
-2. Context turns are removed and their content summarised into `archive[]`.
-3. Prune turns are removed entirely — no trace in output.
-4. The archive JSON is inserted as a single `role: "system"` message.
-5. Archive entries are contiguous ranges; non-contiguous context spans produce separate entries.
+The classifier's `turns` values are **message indices** — the same numbers the
+classify instruction's transcript manifest shows it (`compression-pipeline.md`).
+`tag_turns` clamps both ends to `history.size() - 1`; later segments overwrite
+earlier tags; unclassified messages default to `core` (the safe direction).
 
----
+### What apply guarantees
 
-### Scenarios
+1. **System prompt.** Index 0 is restored even if the classifier tagged it
+   `prune` (segment ranges are applied from index 1).
+2. **Protected tail.** `protected_tail_start` returns the newest real user turns
+   that fit the tail budget, always including the final prompt. Everything from
+   there on is forced to `core`; harness notices do not count as user turns.
+3. **Minimum context.** If no real user message survives, the last one is
+   restored. The budget passes re-apply this guarantee after their drops.
+4. **Tool pairing.** `sanitize_tool_pairs` drops orphaned results and stubs
+   calls whose results were pruned, so the rebuilt history is provider-valid.
+5. **Archive.** One entry per contiguous `context` run:
+   `{"turns": "a-b", "summary": "..."}`. Entries from a previous compression are
+   carried forward and the archive is capped (32 entries / ~800 tokens, oldest
+   merged into `earlier work, compressed`).
+6. **Compressed-context message.** A single `system` message carrying
+   `{archive, summary}` — the classifier's work-state summary is the semantic
+   channel the next turn continues from. Nothing else is written: `type`,
+   `version` and `facts` had no reader.
+7. **No-op passes.** `apply_classification` always emits the compressed-context
+   message; the pipeline compares totals and returns the original when the pass
+   did not reduce (invariant I1), so a no-op costs nothing.
 
-#### [TC-01] All core — no change
+### Scenarios (pinned by name in `tests/run_tests.cpp`)
 
-- **Given**: All turns classified as core
-- **Input**: `apply_classification(history, segments_all_core)`
-- **Expected**: History unchanged. No archive block added.
-- **Regression guard**: `apply_classification_all_core` test.
-
-#### [TC-02] Prune and archive
-
-- **Given**: Mixed tags: 2 core, 3 context, 1 prune
-- **Input**: 6-turn history
-- **Expected**: Prune removed. Context turns removed, grouped into one archive entry. Core preserved. Archive block inserted as system message.
-- **Regression guard**: `apply_classification_prunes_and_archives` test.
-
-#### [TC-03] Empty classification — no-op
-
-- **Given**: Empty segments array
-- **Input**: `apply_classification(history, empty_response)`
-- **Expected**: Returns history unchanged.
-- **Regression guard**: `apply_classification_empty` test.
-
-#### [TC-04] Non-contiguous context spans
-
-- **Given**: Context at turns 1-2 and 4-5, core at 3
-- **Input**: 5-turn history
-- **Expected**: Two archive entries: `archive[0]` for turns 1-2, `archive[1]` for turns 4-5. Core turn 3 preserved between them.
-
-#### [TC-05] Parse failure — JSON extraction fails
-
-- **Given**: LLM returns non-JSON text
-- **Input**: `parse_compression_response("I don't understand compression")`
-- **Expected**: Returns empty `CompressionResponse`. Pipeline returns post-collapse history.
-- **Regression guard**: `parse_compression_response_invalid_json` test.
-
----
+| ID | Case | Test |
+|---|---|---|
+| TC-01 | all core | `apply_classification_all_core` |
+| TC-02 | prune + archive | `apply_classification_prunes_and_archives` |
+| TC-03 | empty response | `apply_classification_empty` |
+| TC-04 | non-contiguous context runs → separate entries | `apply_classification_context_creates_archive_entry` |
+| TC-05 | parse failure → empty response → pipeline returns the original | `parse_compression_response_invalid_json`, `compression_pipeline_failure_returns_history_unchanged` |
+| TC-06 | system prompt survives a `prune`/`context` tag on index 0 | `apply_classification_preserves_system_when_classifier_tags_as_prune` |
+| TC-07 | previous archive carried forward, old message consumed | `apply_classification_carries_previous_archive` |
+| TC-08 | archive capped and merged | `archive_entries_are_capped_and_summarised` |
+| TC-09 | no write-only payload | `compressed_context_message_has_no_write_only_fields` |
+| TC-10 | tail survives a misclassification | `compression_never_drops_the_active_user_message` |
 
 ### Cross-references
 
-- **Depends on**: `compression/compression-pipeline.md`, `compression/loop-collapse.md`
-- **Depended on by**: `memory/extraction.md` (memory/skill ops extracted from same LLM response)
-- **Test coverage**: `tests/run_tests.cpp`: all 4 apply_classification tests + 3 parse tests
-
-### Known gaps
-
-1. **`turn_start` not clamped** — `apply_classification` clamps `turn_end` to `history.size()-1` but does NOT clamp `turn_start`. Out-of-range start causes undefined `tags[i]` access.
-2. **Archive segment detection** — Non-contiguity check compares `seg.turn_start` against loop index `i`. This only works for single-turn segments. Multi-turn segments with non-contiguous ranges may not be detected correctly.
-3. **`CompressionBudget` not enforced** — Core/archive/headroom fractions declared but never checked.
+- `compression-pipeline.md` — the pass that calls this
+- `loop-collapse.md` — the other reduction, applied after assembly
+- `docs/spec/memory/extraction.md` — memory/skill ops carried by the same response
