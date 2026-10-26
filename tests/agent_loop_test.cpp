@@ -730,12 +730,11 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     for (int r = 0; r < 10; ++r) {
         agent::Message call;
         call.role = "assistant";
-        call.tool_calls =
-            json::array({{{"id", "c" + std::to_string(r)},
-                          {"type", "function"},
-                          {"function",
-                           {{"name", "read"}, {"arguments", "{\"path\":\"f" +
-                                                               std::to_string(r) + "\"}"}}}}});
+        call.tool_calls = json::array(
+            {{{"id", "c" + std::to_string(r)},
+              {"type", "function"},
+              {"function",
+               {{"name", "read"}, {"arguments", "{\"path\":\"f" + std::to_string(r) + "\"}"}}}}});
         ctx.push(std::move(call));
         agent::Message result;
         result.role = "tool";
@@ -979,12 +978,14 @@ TEST(compression_pipeline_failure_returns_history_unchanged) {
 // classification result — only the memory/skill ops are missing.
 TEST(compression_extract_failure_keeps_classification) {
     agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1; // the older turn is archivable, so the pass reduces
     auto compressor = agent::make_compressor(cc);
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
 
-    // First call (classify): a valid response that keeps both turns.
+    // First call (classify): prune the older (large) turn, keep the active one.
     agent_test::FakeReply classify;
-    classify.content = R"({"classification":[{"turns":"0-1","tag":"core","summary":""}]})";
+    classify.content = R"({"classification":[{"turns":"1-2","tag":"prune","summary":""},)"
+                       R"({"turns":"3-3","tag":"core","summary":""}]})";
     fake->script.push_back(std::move(classify));
     // Second call (extract): fail.
     agent_test::FakeReply boom;
@@ -996,6 +997,14 @@ TEST(compression_extract_failure_keeps_classification) {
     sys.role = "system";
     sys.content = "Amber";
     ctx.push(std::move(sys));
+    agent::Message old_user;
+    old_user.role = "user";
+    old_user.content = "old task";
+    ctx.push(std::move(old_user));
+    agent::Message old_reply;
+    old_reply.role = "assistant";
+    old_reply.content = std::string(4000, 'x'); // big enough that dropping it pays
+    ctx.push(std::move(old_reply));
     agent::Message user;
     user.role = "user";
     user.content = "search for x";

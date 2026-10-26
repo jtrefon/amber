@@ -6718,7 +6718,11 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
     // (~1004 tokens each) put us at ~3033 — one must go. keep_last_prompts=1
     // protects only the active prompt, so the older user turn is archivable.
-    auto out = agent::enforce_headroom(std::move(msgs), 3000, 1);
+    agent::CompressionConfig cfg;
+    cfg.context_size = 3000;
+    cfg.target_pct = 10;
+    cfg.keep_last_prompts = 1;
+    auto out = agent::enforce_headroom(std::move(msgs), 3000, cfg);
     ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") == std::string::npos);
@@ -6766,7 +6770,11 @@ TEST(compression_never_drops_the_active_user_message) {
         compressed_ctx_msg(),
         msg("user", "THE ACTIVE TASK: finish the refactor " + std::string(4000, 't')),
     };
-    auto out = agent::enforce_headroom(std::move(hist), 900); // budget 675 < the tail
+    agent::CompressionConfig cfg;
+    cfg.context_size = 900;
+    cfg.target_pct = 10;
+    cfg.keep_last_prompts = 10;
+    auto out = agent::enforce_headroom(std::move(hist), 900, cfg); // budget 675 < the tail
     bool active = false;
     for (const auto& m : out)
         if (m.content.find("THE ACTIVE TASK") != std::string::npos)

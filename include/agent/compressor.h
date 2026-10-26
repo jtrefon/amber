@@ -244,11 +244,11 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 // Enforce that the compressed context leaves at least 25% headroom.
 // Drops oldest non-system messages, recording them as archive entries on
 // the compressed-context message. The system prompt at index 0 is never
-// modified, and neither is the protected tail (the last `keep_last_prompts`
-// real user turns and everything after them). Returns the tightened vector
-// (it may be shorter than input).
+// modified, and neither is the protected tail (the newest real user turns that
+// fit the post-compaction target, always including the final prompt). Returns
+// the tightened vector (it may be shorter than input).
 std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size,
-                                      int keep_last_prompts = kDefaultCompressionKeepLastPrompts);
+                                      const CompressionConfig& cfg);
 
 // Enforce the post-compression target budget (context_size * target_pct / 100)
 // by archiving eligible oldest core messages into the compressed-context
