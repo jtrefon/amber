@@ -2346,10 +2346,19 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     }
 
     tui.send("i");
-    if (!require(tui.wait_for("Install for this project", 10000), "the scope prompt did not open",
-                 tui))
+    if (!require(tui.wait_for("review required", 10000), "the install sheet did not open", tui))
         return;
-    tui.send("1");
+    // The review gate: Enter is inert until the body has been read.
+    tui.send("\r");
+    tui.pump(300);
+    if (!require(!fs::exists(installed_dir), "Enter installed an unread skill", tui))
+        return;
+    tui.send("p");
+    if (!require(tui.wait_for("body one", 10000), "the body preview did not open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(300);
+    tui.send("\r");
     bool installed_on_disk = false;
     for (int i = 0; i < 200 && !installed_on_disk; ++i) {
         tui.pump(100);
