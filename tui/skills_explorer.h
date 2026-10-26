@@ -20,6 +20,10 @@ struct SkillsExplorerOptions {
     std::string global_root;  // ~/.config/amber/skills
     std::string cache_root;
     std::string token;
+    // Mirror/self-hosted endpoints; empty keeps the public defaults.
+    std::string index_base;
+    std::string github_api_base;
+    std::string github_raw_base;
     std::function<std::vector<SkillRow>()> installed;
     std::function<std::optional<agent::LedgerEntry>(const std::string&)> ledger;
     std::function<bool(const std::string&, const std::string&)> set_state;

@@ -620,6 +620,12 @@ void Tui::open_skills_explorer(const std::string& arg) {
     opts.cache_root = agent::skills_index_cache_dir();
     if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
         opts.token = token;
+    if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL"))
+        opts.index_base = base;
+    if (const char* api = std::getenv("AMBER_GITHUB_API_URL"))
+        opts.github_api_base = api;
+    if (const char* raw = std::getenv("AMBER_GITHUB_RAW_URL"))
+        opts.github_raw_base = raw;
 
     if (arg == "installed")
         opts.initial_tab = tui::SkillTab::Installed;

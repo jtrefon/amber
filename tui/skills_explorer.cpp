@@ -274,9 +274,15 @@ public:
         agent::SkillIndexOptions index_opts;
         index_opts.cache_root = options.cache_root;
         index_opts.token = options.token;
+        if (!options.index_base.empty())
+            index_opts.base_url = options.index_base;
         agent::GithubOptions github_opts;
         github_opts.cache_root = options.cache_root;
         github_opts.token = options.token;
+        if (!options.github_api_base.empty())
+            github_opts.api_base = options.github_api_base;
+        if (!options.github_raw_base.empty())
+            github_opts.raw_base = options.github_raw_base;
         service_ = std::make_unique<SkillsService>(make_skills_backends(index_opts, github_opts));
         life_ = std::make_unique<SkillsLifecycle>(
             SkillsLifecycleOptions{options.project_root, options.global_root, options.ledger,
