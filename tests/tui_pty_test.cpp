@@ -2356,6 +2356,9 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("p");
     if (!require(tui.wait_for("body one", 10000), "the body preview did not open", tui))
         return;
+    for (const char* key : {"j", "k", " ", "b", "g", "G"})
+        tui.send(key);
+    tui.pump(200);
     tui.send("\x1b");
     tui.pump(300);
     tui.send("\r");

@@ -1,9 +1,11 @@
 #ifndef AGENT_SKILL_CLI_H
 #define AGENT_SKILL_CLI_H
 
+#include "agent/skill_install.h"
 #include "agent/skill_index.h"
 #include "agent/skill_ledger.h"
 
+#include <functional>
 #include <iosfwd>
 #include <string>
 #include <vector>
@@ -76,8 +78,18 @@ std::string skill_detail_json(const SkillDetail& detail);
 std::string skill_list_text(const std::vector<InstalledPackage>& packages);
 std::string skill_list_json(const std::vector<InstalledPackage>& packages);
 
+// The adapters the CLI needs, injectable so a test can drive every verb
+// without a socket. Empty members default to the env-configured adapters.
+struct SkillCliBackends {
+    std::function<IndexResult(const std::string&, int)> search;
+    std::function<DetailResult(const SkillRef&)> detail;
+    std::function<AssetsResult(const SkillDetail&)> assets;
+    std::function<SkillInstallResult(const SkillInstallRequest&)> install;
+};
+
 // Returns the process exit code: 0 ok, 1 execution failure, 2 usage error.
-int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err);
+int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err,
+                  const SkillCliBackends& backends = {});
 
 } // namespace agent
 

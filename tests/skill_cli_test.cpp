@@ -1,6 +1,13 @@
 #include "agent/skill_cli.h"
+#include "agent/workspace.h"
 
 #include "tests/test_util.h"
+
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
+#include <sstream>
 
 #include <string>
 #include <vector>
@@ -125,4 +132,144 @@ TEST(skill_cli_list_json_empty_is_an_empty_array) {
     const std::string json = agent::skill_list_json({});
     ASSERT_TRUE(json.find("\"count\": 0") != std::string::npos);
     ASSERT_TRUE(json.find("\"skills\": []") != std::string::npos);
+}
+
+namespace {
+
+std::string read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
+// A private project root and XDG roots, restored on exit: the CLI reads the
+// workspace, the global config dir and the cache.
+struct CliSandbox {
+    CliSandbox() {
+        std::string tmpl =
+            (std::filesystem::temp_directory_path() / "amber_skill_cli_XXXXXX").string();
+        std::vector<char> buf(tmpl.begin(), tmpl.end());
+        buf.push_back('\0');
+        path = mkdtemp(buf.data());
+        capture("XDG_CONFIG_HOME", saved_config);
+        capture("XDG_STATE_HOME", saved_state);
+        capture("XDG_CACHE_HOME", saved_cache);
+        setenv("XDG_CONFIG_HOME", (path + "/config").c_str(), 1);
+        setenv("XDG_STATE_HOME", (path + "/state").c_str(), 1);
+        setenv("XDG_CACHE_HOME", (path + "/cache").c_str(), 1);
+    }
+    ~CliSandbox() {
+        restore("XDG_CONFIG_HOME", saved_config);
+        restore("XDG_STATE_HOME", saved_state);
+        restore("XDG_CACHE_HOME", saved_cache);
+        std::error_code ec;
+        std::filesystem::remove_all(path, ec);
+    }
+    CliSandbox(const CliSandbox&) = delete;
+    CliSandbox& operator=(const CliSandbox&) = delete;
+
+    std::string path;
+    std::string saved_config;
+    std::string saved_state;
+    std::string saved_cache;
+
+private:
+    static void capture(const char* name, std::string& out) {
+        if (const char* value = std::getenv(name))
+            out = value;
+    }
+    static void restore(const char* name, const std::string& value) {
+        if (value.empty())
+            unsetenv(name);
+        else
+            setenv(name, value.c_str(), 1);
+    }
+};
+
+agent::SkillCliBackends fake_backends(std::string& body, std::string& sha) {
+    agent::SkillCliBackends backends;
+    backends.search = [](const std::string& query, int) {
+        agent::SkillPage page;
+        page.total = 1;
+        page.skills.push_back({"acme/skills/tdd", "tdd", "acme/skills", 10, false});
+        (void)query;
+        return agent::IndexResult{page, {}};
+    };
+    backends.detail = [&body, &sha](const agent::SkillRef& ref) {
+        agent::SkillDetail detail;
+        detail.ref = ref;
+        detail.description = "Test-driven.";
+        detail.license = "MIT";
+        detail.default_branch = "main";
+        detail.skill_dir = "skills/tdd";
+        detail.hash = sha;
+        detail.body = body;
+        detail.assets.push_back({"SKILL.md", body.size(), sha});
+        return agent::DetailResult{detail, {}};
+    };
+    backends.assets = [&body, &sha](const agent::SkillDetail&) {
+        std::vector<agent::SkillAssetContent> files{{"SKILL.md", body}};
+        (void)sha;
+        return agent::AssetsResult{files, {}};
+    };
+    backends.install = [](const agent::SkillInstallRequest& request) {
+        return agent::install_skill_files(request);
+    };
+    return backends;
+}
+
+} // namespace
+
+TEST(skill_cli_end_to_end_against_injected_backends) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody one\n";
+    std::string sha = "sha-1";
+    const agent::SkillCliBackends backends = fake_backends(body, sha);
+    std::ostringstream out;
+    std::ostringstream err;
+
+    ASSERT_EQ(agent::run_skill_cli({"search", "tdd"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("1 of 1 results") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills/tdd"}, out, err, backends), 1);
+    ASSERT_TRUE(err.str().find("refusing to install") != std::string::npos);
+
+    err.str("");
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills/tdd", "--yes"}, out, err, backends), 0);
+    const std::string skill_md = sandbox.path + "/.amber/skills/tdd/SKILL.md";
+    ASSERT_TRUE(read_file(skill_md).find("body one") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"list"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("project · tdd · acme/skills/tdd") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"show", "tdd", "--json"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("\"name\": \"tdd\"") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"update", "--check"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("up to date") != std::string::npos);
+
+    // A second revision upstream is offered, then applied atomically.
+    sha = "sha-2";
+    body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody two\n";
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"update", "--check"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("update available") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"update"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("updated") != std::string::npos);
+    ASSERT_TRUE(read_file(skill_md).find("body two") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"sources", "--json"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("\"cache\"") != std::string::npos);
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"remove", "tdd"}, out, err, backends), 0);
+    ASSERT_TRUE(!std::filesystem::exists(sandbox.path + "/.amber/skills/tdd"));
 }

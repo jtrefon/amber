@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <sstream>
 
 #include <nlohmann/json.hpp>
@@ -162,9 +163,9 @@ GithubOptions github_options() {
     return options;
 }
 
-int run_search(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
-    SkillsShIndex index(index_options());
-    const IndexResult result = index.search(cmd.target, cmd.limit, CancellationToken{});
+int run_search(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
+               const SkillCliBackends& backends) {
+    const IndexResult result = backends.search(cmd.target, cmd.limit);
     if (!result.page) {
         err << "skills search: " << result.error.detail << "\n";
         return 1;
@@ -189,7 +190,8 @@ int run_list(const SkillCliCommand& cmd, std::ostream& out) {
     return 0;
 }
 
-int run_show(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
+int run_show(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
+             const SkillCliBackends& backends) {
     Config cfg;
     SkillCatalog catalog(cfg);
     const auto entries = catalog.entries();
@@ -209,8 +211,7 @@ int run_show(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
         err << "skills show: no installed skill named '" << cmd.target << "'\n";
         return 1;
     }
-    GitHubIndex github(github_options());
-    const DetailResult detail = github.detail(ref, CancellationToken{});
+    const DetailResult detail = backends.detail(ref);
     if (!detail.detail) {
         err << "skills show: " << detail.error.detail << "\n";
         return 1;
@@ -243,9 +244,8 @@ int confirm_unattended(const SkillCliCommand& cmd, const SkillRef& ref, std::ost
 }
 
 int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDetail& detail,
-                  std::ostream& out, std::ostream& err) {
-    const AssetsResult assets =
-        GitHubIndex(github_options()).fetch_assets(detail, CancellationToken{});
+                  std::ostream& out, std::ostream& err, const SkillCliBackends& backends) {
+    const AssetsResult assets = backends.assets(detail);
     if (!assets.files) {
         err << "skills install: " << assets.error.detail << "\n";
         return 1;
@@ -255,7 +255,7 @@ int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDe
     request.dest_root = scope_root(cmd.global ? "global" : "project");
     for (const auto& file : *assets.files)
         request.files.push_back({file.path, file.contents});
-    const SkillInstallResult result = install_skill_files(request);
+    const SkillInstallResult result = backends.install(request);
     if (!result.ok) {
         err << "skills install: " << result.error << "\n";
         return 1;
@@ -280,22 +280,22 @@ int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDe
     return 0;
 }
 
-int install_registry(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
+int install_registry(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
+                     const SkillCliBackends& backends) {
     SkillRef ref;
     std::string error;
     if (!split_target(cmd.target, ref, error)) {
         err << "skills install: " << error << "\n";
         return 2;
     }
-    GitHubIndex github(github_options());
-    const DetailResult detail = github.detail(ref, CancellationToken{});
+    const DetailResult detail = backends.detail(ref);
     if (!detail.detail) {
         err << "skills install: " << detail.error.detail << "\n";
         return 1;
     }
     if (const int rc = confirm_unattended(cmd, ref, err); rc != 0)
         return rc;
-    return write_install(cmd, ref, *detail.detail, out, err);
+    return write_install(cmd, ref, *detail.detail, out, err, backends);
 }
 
 struct UpdatePlan {
@@ -313,9 +313,9 @@ SkillRef ref_of(const InstalledPackage& package) {
     return ref;
 }
 
-UpdatePlan plan_update(GitHubIndex& github, const InstalledPackage& package) {
+UpdatePlan plan_update(const SkillCliBackends& backends, const InstalledPackage& package) {
     UpdatePlan plan;
-    const DetailResult detail = github.detail(ref_of(package), CancellationToken{});
+    const DetailResult detail = backends.detail(ref_of(package));
     if (!detail.detail) {
         plan.error = detail.error.detail;
         return plan;
@@ -328,9 +328,9 @@ UpdatePlan plan_update(GitHubIndex& github, const InstalledPackage& package) {
     return plan;
 }
 
-std::string apply_plan(const InstalledPackage& package, const SkillDetail& detail) {
-    const AssetsResult assets =
-        GitHubIndex(github_options()).fetch_assets(detail, CancellationToken{});
+std::string apply_plan(const SkillCliBackends& backends, const InstalledPackage& package,
+                       const SkillDetail& detail) {
+    const AssetsResult assets = backends.assets(detail);
     if (!assets.files)
         return "error: " + assets.error.detail;
     SkillInstallRequest request;
@@ -339,7 +339,7 @@ std::string apply_plan(const InstalledPackage& package, const SkillDetail& detai
     for (const auto& file : *assets.files)
         request.files.push_back({file.path, file.contents});
     request.replace = true;
-    const SkillInstallResult result = install_skill_files(request);
+    const SkillInstallResult result = backends.install(request);
     if (!result.ok)
         return "error: " + result.error;
     SkillLedger ledger = SkillLedger::for_root(request.dest_root);
@@ -349,8 +349,8 @@ std::string apply_plan(const InstalledPackage& package, const SkillDetail& detai
     return "updated";
 }
 
-std::string update_status(const SkillCliCommand& cmd, const InstalledPackage& package,
-                          const UpdatePlan& plan, int& failures) {
+std::string update_status(const SkillCliCommand& cmd, const SkillCliBackends& backends,
+                          const InstalledPackage& package, const UpdatePlan& plan, int& failures) {
     if (!plan.error.empty()) {
         ++failures;
         return "error: " + plan.error;
@@ -361,13 +361,14 @@ std::string update_status(const SkillCliCommand& cmd, const InstalledPackage& pa
         return "up to date";
     if (cmd.check)
         return "update available";
-    const std::string status = apply_plan(package, plan.detail);
+    const std::string status = apply_plan(backends, package, plan.detail);
     if (status.rfind("error:", 0) == 0)
         ++failures;
     return status;
 }
 
-int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
+int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
+               const SkillCliBackends& backends) {
     (void)err; // failures are reported per row, not as a single line
     Config cfg;
     SkillCatalog catalog(cfg);
@@ -376,7 +377,6 @@ int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err)
     const auto global_packages = packages_from("global", entries);
     packages.insert(packages.end(), global_packages.begin(), global_packages.end());
 
-    GitHubIndex github(github_options());
     json report = json::array();
     int failures = 0;
     for (const auto& package : packages) {
@@ -384,8 +384,8 @@ int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err)
             continue;
         if (cmd.global && package.scope != "global")
             continue;
-        const UpdatePlan plan = plan_update(github, package);
-        const std::string status = update_status(cmd, package, plan, failures);
+        const UpdatePlan plan = plan_update(backends, package);
+        const std::string status = update_status(cmd, backends, package, plan, failures);
         report.push_back({{"name", package.name},
                           {"scope", package.scope},
                           {"status", status},
@@ -594,25 +594,46 @@ std::string skill_list_json(const std::vector<InstalledPackage>& packages) {
     return json{{"skills", rows}, {"count", rows.size()}}.dump(2) + "\n";
 }
 
-int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err) {
+SkillCliBackends default_backends() {
+    auto index = std::make_shared<SkillsShIndex>(index_options());
+    auto github = std::make_shared<GitHubIndex>(github_options());
+    SkillCliBackends backends;
+    backends.search = [index](const std::string& query, int limit) {
+        return index->search(query, limit, CancellationToken{});
+    };
+    backends.detail = [github](const SkillRef& ref) {
+        return github->detail(ref, CancellationToken{});
+    };
+    backends.assets = [github](const SkillDetail& detail) {
+        return github->fetch_assets(detail, CancellationToken{});
+    };
+    backends.install = [](const SkillInstallRequest& request) {
+        return install_skill_files(request);
+    };
+    return backends;
+}
+
+int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::ostream& err,
+                  const SkillCliBackends& backends) {
     const SkillCliCommand cmd = parse_skill_cli(args);
     if (cmd.verb == SkillVerb::None || !cmd.error.empty()) {
         err << "skills: " << (cmd.error.empty() ? "a verb is required" : cmd.error) << "\n"
             << kUsage;
         return 2;
     }
+    const SkillCliBackends wired = backends.search ? backends : default_backends();
     switch (cmd.verb) {
     case SkillVerb::Search:
-        return run_search(cmd, out, err);
+        return run_search(cmd, out, err, wired);
     case SkillVerb::List:
         return run_list(cmd, out);
     case SkillVerb::Show:
-        return run_show(cmd, out, err);
+        return run_show(cmd, out, err, wired);
     case SkillVerb::Install:
         return looks_like_pack(cmd.target) ? install_pack(cmd, out, err)
-                                           : install_registry(cmd, out, err);
+                                           : install_registry(cmd, out, err, wired);
     case SkillVerb::Update:
-        return run_update(cmd, out, err);
+        return run_update(cmd, out, err, wired);
     case SkillVerb::Remove:
         return run_remove(cmd, out, err);
     case SkillVerb::Sources:
