@@ -611,6 +611,10 @@ void Tui::open_skills_explorer(const std::string& arg) {
         append_line(P_STATUS, "no agent in this window");
         return;
     }
+    // Reflect what is on disk now: a skill installed from this explorer (or by
+    // a pack/CLI in the same session) must appear on the Installed shelf
+    // without a restart.
+    win().agent->skills().refresh();
     tui::SkillsExplorerOptions opts;
     opts.rows = LINES;
     opts.cols = COLS;
