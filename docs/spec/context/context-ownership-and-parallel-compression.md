@@ -15,8 +15,9 @@ Two goals, one architectural stance:
    thread (the agent/compress worker) mutates a given `Context`; the UI
    interacts only through immutable snapshots taken when the owner is quiescent
    or via context/progress events. Compression runs on the background worker
-   with a pure copy-based pipeline whose two LLM calls share a KV prefix by
-   content identity, and the `CompressionObserver` progress events drive a live,
+   with a pure copy-based pipeline whose classify call replays the live request
+   prefix (injected blocks + tool schemas) and whose extract call replays the
+   classify request, and the `CompressionObserver` progress events drive a live,
    decreasing context gauge.
 
 This locks in the `Context` contract, documents the ownership model the
@@ -137,17 +138,22 @@ after a `CompressionFinished`, and a monotonic decrease during
 
 ### The KV-reuse mechanism (implemented, not push/pop)
 
-The two compression LLM calls share a KV prefix by **content identity**, not by
+The compression LLM calls share a KV prefix by **content identity**, not by
 mutating the live deque:
 
-- The classify request = `[post-collapse history] + [classify prompt]`.
-- The extract request = `[same post-collapse history] + [classify prompt] +
-  [classify response] + [extract prompt]`, the extract call's prefix is
-  byte-identical to the classify call's, so the server extends the first call's
-  KV cache (no full prefill between them).
+- The classify request = `[system][head blocks][history][tail blocks][classify
+  prompt]` with the turn's tool schemas. The blocks and tools are the ones the
+  host injects for a normal request (`CompressionRequestPrefix`), so the server
+  matches the prefix it cached for the last turn.
+- The extract request replays the classify request (same prefix, same prompt)
+  plus the classify reply and the extract prompt; its prefix is byte-identical,
+  so the second call extends the first's cache.
+- The free reduction pass (loop collapse, tool digests, reasoning strip) runs
+  **after** classification, on the output: the history the classifier is sent is
+  the live history, never a rewritten copy.
 - The pipeline is **pure**: it reads the live context into a working copy
-  (`context.get_all()`), collapses/prunes/classifies on the copy, and never
-  touches the live deque. The caller applies the result with one atomic
+  (`context.get_all()`) and never touches the live deque. The caller applies the
+  result with one atomic
   `clear()` + `push()` on success. Invariant 7 holds by construction.
 
 This is safer than the older push/pop design: message indices stay aligned
@@ -226,8 +232,9 @@ chain.
 The pipeline's KV-reuse mechanism is **content-identical prefixes on a pure
 copy**, not live-context push/pop:
 
-- The extract request replays the classify request as a prefix, so the second
-  LLM call extends the first's KV cache (no full prefill between them).
+- The classify request replays the live request prefix (injected blocks + tool
+  schemas); the extract request replays the classify request, so the second LLM
+  call extends the first's KV cache (no full prefill between them).
 - The pipeline reads the live context into a working copy and never mutates
   the deque, invariant 7 (failed compression leaves context untouched) holds
   by construction, and message indices stay aligned between the classify
