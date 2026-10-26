@@ -109,6 +109,13 @@ public:
             return rc;
         return memory_detail::deprecate_one_map(content, skills_);
     }
+    int deprecate_named(const std::string& name) override {
+        std::scoped_lock lk(mtx_);
+        int rc = memory_detail::deprecate_one_map_by_name(name, memories_);
+        if (rc >= 0)
+            return rc;
+        return memory_detail::deprecate_one_map_by_name(name, skills_);
+    }
     int memory_promote_threshold() const override { return cfg_.memory_promote_threshold; }
     int skill_promote_threshold() const override { return cfg_.skill_promote_threshold; }
 
