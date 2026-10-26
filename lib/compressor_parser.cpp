@@ -126,12 +126,15 @@ KnowledgeOp parse_knowledge_op(const json& obj, bool is_skill) {
     return op;
 }
 
-// Only ops with content are kept: an empty upsert would erase the store entry.
+// An upsert without content would erase the store entry, so it is dropped. A
+// deprecation is identified by NAME: it needs no content, and requiring one was
+// the first of three layers that made deprecation unreachable.
 std::vector<KnowledgeOp> parse_knowledge_ops(const json& arr, bool is_skill) {
     std::vector<KnowledgeOp> out;
     for (const auto& obj : arr) {
         KnowledgeOp op = parse_knowledge_op(obj, is_skill);
-        if (!op.content.empty())
+        const bool retires = op.action == "deprecate" && !op.name.empty();
+        if (!op.content.empty() || retires)
             out.push_back(std::move(op));
     }
     return out;

@@ -64,5 +64,21 @@ int deprecate_one_map(const std::string& content, std::unordered_map<std::string
     return item.evidence_count;
 }
 
+template <typename T>
+int deprecate_one_map_by_name(const std::string& name, std::unordered_map<std::string, T>& items) {
+    for (auto it = items.begin(); it != items.end(); ++it) {
+        if (it->second.name != name)
+            continue;
+        T& item = it->second;
+        item.evidence_count = std::max(0, item.evidence_count - 1);
+        if (item.evidence_count == 0) {
+            items.erase(it);
+            return 0;
+        }
+        return item.evidence_count;
+    }
+    return -1;
+}
+
 } // namespace memory_detail
 } // namespace agent
