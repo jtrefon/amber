@@ -143,12 +143,21 @@ std::string elapsed_label(size_t secs) {
     return agent::compact::duration_ms(static_cast<long>(secs) * 1000);
 }
 
+WorkingParts working_parts(const std::string& frame, const std::string& verb, size_t elapsed_secs,
+                           const std::string& task) {
+    WorkingParts parts;
+    parts.glyph = frame;
+    parts.verb = verb;
+    parts.tail = " " + elapsed_label(elapsed_secs);
+    if (!task.empty())
+        parts.tail += " \u00b7 " + truncate(task, kTaskCap);
+    return parts;
+}
+
 std::string working_label(const std::string& frame, const std::string& verb, size_t elapsed_secs,
                           const std::string& task) {
-    std::string out = frame + " " + verb + " " + elapsed_label(elapsed_secs);
-    if (!task.empty())
-        out += " \u00b7 " + truncate(task, kTaskCap);
-    return out;
+    const WorkingParts parts = working_parts(frame, verb, elapsed_secs, task);
+    return parts.glyph + " " + parts.verb + parts.tail;
 }
 
 std::string reasoning_badge(const std::string& effort) {

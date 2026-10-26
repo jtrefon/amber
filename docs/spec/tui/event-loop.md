@@ -41,7 +41,7 @@ terminal, and manage the command drawer, input line, and status bar.
 
 - **Given**: No key pressed, no agent events pending
 - **Input**: `timeout(50)` expires → `getch()` returns `ERR`
-- **Expected**: Every 150ms, `tick_clock()` redraws status bar (clock + activity wave). `draw_input()` repositions cursor. `doupdate()` flushes.
+- **Expected**: Every 150ms, `tick_clock()` redraws the status bar (clock + gauge); while the active window runs, `tick_pulse()` repaints the working line and the bar on every loop tick, with the transcript's `draw()` still gated to 150ms. `draw_input()` repositions cursor. `doupdate()` flushes.
 - **On failure**: Busy-spin at 100% CPU, or screen never updates.
 
 #### [EL-02] Agent event arrives mid-tick
@@ -150,18 +150,18 @@ deltas are not tracked at all: no live text and no summary line.
 - **Expected**: Oldest lines removed from the front until `lines.size() <= max_lines_`. `scroll_top` adjusted to keep viewport stable.
 - **On failure**: Memory growth unbounded.
 
-#### [EL-16] Status bar — activity wave
+#### [EL-16] Status bar — working pulse
 
-- **Given**: Agent busy, `idle_tick()` repainting (a busy window redraws via `draw()`, an idle one via `tick_clock()`)
-- **Input**: `anim_phase_` increments every 150ms
-- **Expected**: Wave pattern (`│ ▏▎▍▌▋▊▉█▉▊▋▌▍▎▏│`) renders in the columns the layout reserves for it (`status_bar_layout::activity_x`, the same column as the left zone's budget, so the left flow cannot crowd it out). Right-justified clock updates.
-- **On failure**: `anim_phase_` grows without bound (modulo handles display, but value grows forever).
+- **Given**: Agent busy, `idle_tick()` repainting (the two animated rows via `tick_pulse()`, the transcript via `draw()`)
+- **Input**: the wall clock (`anim_phase01()`), plus `anim_phase_` advancing every 150 ms for the ◐ glyph
+- **Expected**: a soft band sweeps left to right over the context gauge and over the verb on the working line: the cell shade moves through the base pair, a bright fade and a white core, while the glyphs stay exactly what the fill (or the word) says. Period 1.8 s, read from the clock, so the sweep speed does not depend on the paint rate, and the transcript keeps its 150 ms cadence. The clock keeps updating on the right.
+- **On failure**: the sweep freezes, or its speed tracks the frame rate because the position was taken from `anim_phase_`.
 
 #### [EL-17] Context gauge in status bar
 
 - **Given**: `stats_.prompt_tokens` = 4000, context window = 8192
 - **Input**: `draw_status_bar()` called
-- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% 4k/8.2k`. Proportional to utilisation; counts and percentages come from `agent::compact` (at most two significant digits, so the readout cannot widen with magnitude).
+- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% 4k/8.2k`. Proportional to utilisation; counts and percentages come from `agent::compact` (at most two significant digits, so the readout cannot widen with magnitude). While a run is live the moving band shades a few cells; the fill never changes.
 - **On failure**: Division by zero if `context_size == 0`, or negative percentage.
 
 #### [EL-18] Signal handler — save and exit

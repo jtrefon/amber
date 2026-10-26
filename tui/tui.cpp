@@ -778,13 +778,17 @@ void Tui::poll_watch_usage() {
     }
 }
 
-// No key this tick: repaint what changed, and keep the clock and the tool
-// spinners alive.
+// No key this tick: repaint what changed, and keep the clock, the pulse and the
+// tool spinners alive. The transcript keeps its 150 ms cadence; the two rows
+// that animate (the working line and the status bar) repaint on every tick, so
+// the sweep moves in the event loop's own steps instead of jumping at 150 ms.
 void Tui::idle_tick(bool had_events, CommandLine& cl) {
     if (had_events) {
         draw();
     } else {
         auto now = std::chrono::steady_clock::now();
+        if (runs_.busy(win().id))
+            render_engine_->tick_pulse();
         if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
             render_engine_->set_last_status_tick(now);
             router_->advance_tool_spinners();

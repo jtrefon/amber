@@ -997,6 +997,17 @@ TEST(tool_display_working_label) {
     ASSERT(w.find("12s") != std::string::npos);
 }
 
+// The painter sweeps a highlight over the verb alone, so the label has to come
+// apart at the verb's boundaries without losing a byte.
+TEST(tool_display_working_parts_split_out_the_verb) {
+    const auto p = tui::tool_display::working_parts("◐", "searching", 12, "grep x");
+    ASSERT_EQ(p.glyph, "◐");
+    ASSERT_EQ(p.verb, "searching");
+    ASSERT_EQ(p.tail, " 12s · grep x");
+    ASSERT_EQ(p.glyph + " " + p.verb + p.tail,
+              tui::tool_display::working_label("◐", "searching", 12, "grep x"));
+}
+
 TEST(tool_display_working_label_with_task) {
     std::string w =
         tui::tool_display::working_label("◐", "searching", 12, "grep -rn CancellationToken src/");
@@ -2234,51 +2245,27 @@ TEST(status_bar_layout_splits_by_alignment) {
     ASSERT_EQ(p.right[0].text, "right1");
 }
 
-TEST(status_bar_layout_budget_reserves_right_zone_and_activity) {
+TEST(status_bar_layout_budget_reserves_the_right_zone) {
     std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right}};
     auto p = tui::status_bar_layout::plan(segs, 80);
     ASSERT_EQ(p.right_cols, 3);
-    ASSERT_EQ(p.budget, 80 - (3 + 1 + 13)); // right + separator + activity
+    ASSERT_EQ(p.budget, 80 - (3 + 1)); // right zone + the separating column
 }
 
-TEST(status_bar_layout_no_right_zone_reserves_only_activity) {
+TEST(status_bar_layout_budget_is_the_whole_bar_without_a_right_zone) {
     std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left}};
     auto p = tui::status_bar_layout::plan(segs, 40);
     ASSERT_EQ(p.right_cols, 0);
-    ASSERT_EQ(p.budget, 40 - 13);
+    ASSERT_EQ(p.budget, 40);
 }
 
-// The wave sits in the first column the left zone may not use, so the painter
-// can always draw it. The bug this pins: the painter used to drop the wave
-// whenever the left flow reached its budget (the ctx gauge routinely did), which
-// read as the activity indicator vanishing exactly while the agent worked.
-TEST(status_bar_layout_activity_slot_is_the_left_budget) {
-    for (int w : {20, 40, 80, 120, 200}) {
-        for (int right : {0, 3, 10}) {
-            std::vector<BarSeg> segs;
-            if (right > 0)
-                segs.push_back({std::string(static_cast<size_t>(right), 'r'), 0, 0,
-                                agent::StatusAlign::Right});
-            const auto p = tui::status_bar_layout::plan(segs, w);
-            const int x = tui::status_bar_layout::activity_x(w, p.right_cols);
-            if (x < 0) {
-                ASSERT_EQ(p.budget, 0); // nothing fits: the bar has no left budget either
-                continue;
-            }
-            ASSERT_EQ(x, p.budget);
-            ASSERT(x >= 0);
-            ASSERT(x + 12 <= w); // the wave's own columns fit
-            if (right > 0)
-                ASSERT(x + 12 <= w - right - 1); // and the clock keeps its gap
-        }
-    }
-}
-
-TEST(status_bar_layout_activity_slot_is_negative_when_it_cannot_fit) {
-    ASSERT_EQ(tui::status_bar_layout::activity_x(10, 0), -1);
-    ASSERT_EQ(tui::status_bar_layout::activity_x(12, 0), -1);
-    ASSERT_EQ(tui::status_bar_layout::activity_x(13, 0), 0);
-    ASSERT_EQ(tui::status_bar_layout::activity_x(20, 8), -1);
+TEST(status_bar_layout_budget_never_goes_negative) {
+    // A right zone wider than the terminal leaves the left zone nothing to
+    // paint, rather than a negative budget the painters would have to defend
+    // against.
+    std::vector<BarSeg> segs = {{"0123456789", 0, 0, agent::StatusAlign::Right}};
+    auto p = tui::status_bar_layout::plan(segs, 5);
+    ASSERT_EQ(p.budget, 0);
 }
 
 // scroll_top counts from the TOP of the buffer, so the live edge is max_top.

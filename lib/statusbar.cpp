@@ -1,6 +1,7 @@
 
 #include "agent/statusbar.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,33 @@ Pressure pressure(double frac) {
     if (frac >= 0.60)
         return Pressure::Warn;
     return Pressure::Ok;
+}
+
+int shine_band(int cells) {
+    return std::max(3, cells / 3);
+}
+
+int shine_level(int cell, int cells, double phase, int band) {
+    if (cells <= 0 || cell < 0 || cell >= cells || !std::isfinite(phase))
+        return 0;
+    const bool fixed = band > 0;
+    if (!fixed)
+        band = shine_band(cells);
+    band = std::min(band, cells);
+    const double half = band / 2.0;
+    phase -= std::floor(phase);
+    // Travel one band past each edge, so the sweep enters and leaves cleanly.
+    double centre = -half + phase * (cells + band);
+    // A fixed-width band is a glint: snap it to whole cells so it keeps that
+    // width instead of breathing between two and three cells as it crosses a
+    // cell boundary. The proportional band keeps the sub-cell travel that makes
+    // a word read as a sweep.
+    if (fixed)
+        centre = std::round(centre);
+    const double d = std::fabs(static_cast<double>(cell) - centre);
+    if (d >= half)
+        return 0;
+    return d < half / 3.0 ? 2 : 1;
 }
 
 int gauge_full_cells(double frac, int cells) {

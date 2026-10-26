@@ -1,5 +1,6 @@
 #include "tui/status_bar_layout.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "tui/textutil.h"
@@ -16,23 +17,15 @@ int zone_cols(const std::vector<Segment>& zone) {
     return c;
 }
 
-} // namespace
-
-// The activity indicator owns its columns outright: its start column is also
-// the left zone's budget, so a left flow that fills the budget still cannot
-// reach it.
-int activity_x(int width, int right_cols) {
-    const int reserved = right_cols > 0 ? right_cols + 1 + kActivityWidth : kActivityWidth;
-    const int x = width - reserved;
-    return x < 0 ? -1 : x;
-}
-
-// The right zone is reserved whatever it holds: with the clock switched off the space
-// goes back to the left zone instead of staying reserved.
+// The left zone may use every column except the right zone and the one that
+// separates them. A terminal too narrow for the right zone leaves the left zone
+// nothing rather than a negative budget.
 int budget_for(int width, int right_cols) {
-    const int x = activity_x(width, right_cols);
-    return x < 0 ? 0 : x;
+    const int reserved = right_cols > 0 ? right_cols + 1 : 0;
+    return std::max(0, width - reserved);
 }
+
+} // namespace
 
 int scroll_pct(int scroll_top, int max_top) {
     if (max_top <= 0)

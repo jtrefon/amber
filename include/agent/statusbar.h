@@ -30,6 +30,26 @@ std::string gauge_bar_ascii(double frac, int cells);
 // Count of filled whole cells (used by tests to assert fill precision).
 int gauge_full_cells(double frac, int cells);
 
+// Width of the moving band over a region `cells` wide: a third of the region,
+// never narrower than three cells. The caller may override it: the gauge runs a
+// three-cell glint while the verb keeps the proportional band.
+int shine_band(int cells);
+
+// The moving highlight swept across a gauge (or a word) while a run is live.
+// `cell` is a column in a region `cells` wide, `phase` its position in [0,1)
+// around the sweep. Returns 0 at rest, 1 for the fade and 2 for the core, so a
+// caller can group neighbouring cells into at most three shades.
+//
+// `band` is the band's width in cells (see shine_band); 0 means a third of the
+// region. A band wider than the region is clamped to the region. A fixed band
+// snaps its centre to whole cells, so its width stays the same as it travels;
+// the proportional band keeps sub-cell travel.
+//
+// The band travels from just outside the left edge to just outside the right
+// one, so a sweep enters and leaves cleanly instead of popping at the ends. The
+// glyphs never change: only the shade does.
+int shine_level(int cell, int cells, double phase, int band = 0);
+
 // Terminal capability: true unless the user opted out with AMBER_ASCII.
 // Deliberately not keyed on nl_langinfo(CODESET) — a failed or partial
 // setlocale() would otherwise silently smear every glyph into garbage.
