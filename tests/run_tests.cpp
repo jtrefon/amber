@@ -6759,6 +6759,28 @@ TEST(apply_skill_ops_deprecate_decreases_evidence) {
 // Headroom enforcement
 // ---------------------------------------------------------------------------
 
+TEST(headroom_budget_is_below_the_trigger_threshold) {
+    // A compaction must not finish in a state that satisfies the trigger again
+    // the moment the cooldown lapses. The headroom budget is derived from the
+    // trigger, not a fixed 75% that sits above a 70% threshold.
+    std::vector<agent::Message> hist = {msg("system", "Amber")};
+    for (int i = 0; i < 5; ++i)
+        hist.push_back(msg("user", std::string(500, 'a') + std::to_string(i)));
+    hist.push_back(msg("user", "active task"));
+    hist.push_back(compressed_ctx_msg());
+
+    agent::CompressionConfig cfg;
+    cfg.context_size = 1000;
+    cfg.threshold = 0.7;
+    cfg.keep_last_prompts = 1;
+    // ~665 tokens: below the old fixed 75% budget (750, no trim) and above the
+    // derived 60% budget (600, trim).
+    ASSERT(agent::estimate_tokens(hist) > 600u);
+    ASSERT(agent::estimate_tokens(hist) < 750u);
+    auto out = agent::enforce_headroom(hist, 1000, cfg);
+    ASSERT(agent::estimate_tokens(out) <= 600u);
+}
+
 TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     // Over-budget messages were replaced with fake "[over-budget archived]"
     // system messages that polluted the prompt. They must instead be dropped
