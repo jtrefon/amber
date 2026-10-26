@@ -6700,6 +6700,29 @@ TEST(integration_apply_and_retrieve) {
 // Agent memory extraction (FIX-002)
 // ---------------------------------------------------------------------------
 
+TEST(deprecate_op_reaches_the_store_by_name) {
+    // The extract step documents deprecation by name. A name-only op was
+    // filtered out by the parser (empty content) and the store only matched by
+    // content, so the path was unreachable at both ends.
+    auto cr = agent::parse_compression_response(
+        R"({"memories":[{"name":"make-fact","action":"deprecate"}]})");
+    ASSERT_EQ(cr.memory_ops.size(), size_t{1});
+    ASSERT_EQ(cr.memory_ops[0].action, std::string("deprecate"));
+
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory mem;
+    mem.name = "make-fact";
+    mem.content = "project uses make";
+    mem.evidence_count = 2;
+    mem.promoted = true;
+    store->upsert(mem);
+    agent::apply_memory_ops(*store, cr.memory_ops, "");
+    auto all = store->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, 1);
+}
+
 TEST(apply_memory_ops_deprecate_decreases_evidence) {
     // A "deprecate" op must actually lower evidence — it previously decremented
     // then upserted, and the store's upsert always increments: net zero (or

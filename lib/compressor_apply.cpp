@@ -501,7 +501,8 @@ void apply_memory_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
                       const std::string& store_path, std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
-            int evidence = store.deprecate(op.content);
+            const int evidence =
+                op.name.empty() ? store.deprecate(op.content) : store.deprecate_named(op.name);
             if (evidence >= 0 && items) {
                 items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate",
                                   evidence, evidence > 0});
@@ -509,8 +510,8 @@ void apply_memory_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
             continue;
         }
         // Validate name uniqueness: if a memory with the same name but
-        // different content exists, flag as conflict so the LLM picks
-        // a different name rather than silently overwriting.
+        // different content exists, report the conflict to the host. This is a
+        // report channel (UI), not feedback the model sees.
         std::string label = op.name.empty() ? op.content.substr(0, 40) : op.name;
         auto existing = store.find_memory(label);
         if (existing && existing->content != op.content) {
@@ -539,7 +540,8 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
                      const std::string& store_path, std::vector<ExtractionItem>* items) {
     for (const auto& op : ops) {
         if (op.action == "deprecate") {
-            int evidence = store.deprecate(op.content);
+            const int evidence =
+                op.name.empty() ? store.deprecate(op.content) : store.deprecate_named(op.name);
             if (evidence >= 0 && items) {
                 items->push_back({op.name.empty() ? op.content.substr(0, 40) : op.name, "deprecate",
                                   evidence, evidence > 0});
