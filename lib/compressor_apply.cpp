@@ -5,6 +5,7 @@
 #include "agent/experience.h"
 
 #include <algorithm>
+#include <limits>
 #include <set>
 #include <unordered_set>
 
@@ -42,22 +43,11 @@ TaggedTurns tag_turns(const std::vector<Message>& history, const CompressionResp
     return out;
 }
 
-// Safety net: the last `keep_prompts` REAL user prompts and everything after
-// them survive verbatim — a misclassification must never drop the active task.
-// Internal confirmation probes ("Are you finished?") are not real prompts and
-// must not count toward (or inflate) the protected tail.
-void protect_active_task(const std::vector<Message>& history, std::vector<Classification>& tags,
-                         int keep_prompts) {
-    std::vector<size_t> user_positions;
-    for (size_t i = 1; i < history.size(); ++i)
-        if (history[i].role == "user" && !is_harness_notice(history[i]))
-            user_positions.push_back(i);
-    if (user_positions.empty())
-        return;
-    auto protect = static_cast<size_t>(keep_prompts);
-    if (protect > user_positions.size())
-        protect = user_positions.size();
-    for (size_t i = user_positions[user_positions.size() - protect]; i < tags.size(); ++i)
+// Safety net: the protected tail (from `tail_start` to the end) survives
+// verbatim — a misclassification must never drop the active task. The boundary
+// is computed once by protected_tail_start.
+void protect_active_task(std::vector<Classification>& tags, size_t tail_start) {
+    for (size_t i = tail_start; i < tags.size(); ++i)
         tags[i] = Classification::core;
 }
 
@@ -187,9 +177,60 @@ size_t find_compressed_context(const std::vector<Message>& messages) {
     return messages.size();
 }
 
-// Boundary of the protected tail: the last `keep` real user messages (and
-// everything after them) stay verbatim — the same rule as the classify guard.
-// The compressed-context message is a trailing system message; ignore it.
+// Tokens in [from, to).
+size_t tokens_in_range(const std::vector<Message>& messages, size_t from, size_t to) {
+    size_t n = 0;
+    for (size_t i = from; i < to && i < messages.size(); ++i)
+        n += message_tokens(messages[i]);
+    return n;
+}
+
+// Token budget the protected tail may occupy: the post-compression target minus
+// a reserve for the compressed-context message the pass writes. With no known
+// window there is no token bound — the prompt cap rules.
+size_t tail_budget_tokens(size_t context_size, const CompressionConfig& cfg) {
+    if (context_size == 0)
+        return std::numeric_limits<size_t>::max();
+    const size_t target = target_tokens(context_size, cfg.target_pct);
+    if (target == 0)
+        return std::numeric_limits<size_t>::max();
+    const size_t reserve = std::max<size_t>(512, target / 10);
+    return target > reserve ? target - reserve : target;
+}
+
+// Boundary of the protected tail: the newest real user turns (at most
+// `keep_last_prompts`) that fit the tail budget, always including the final
+// prompt and everything after it. The final prompt survives even when it alone
+// exceeds the budget — a safety net that drops the task is not a safety net.
+size_t protected_tail_start(const std::vector<Message>& messages, const CompressionConfig& cfg,
+                            size_t context_size) {
+    std::vector<size_t> users;
+    for (size_t i = 1; i < messages.size(); ++i)
+        if (messages[i].role == "user" && !is_harness_notice(messages[i]))
+            users.push_back(i);
+    if (users.empty())
+        return messages.size();
+    const auto keep_max = static_cast<size_t>(
+        cfg.keep_last_prompts > 0 ? cfg.keep_last_prompts : kDefaultCompressionKeepLastPrompts);
+    const size_t budget = tail_budget_tokens(context_size, cfg);
+    size_t start = users.back();
+    size_t used = tokens_in_range(messages, start, messages.size());
+    size_t kept = 1;
+    for (size_t idx = users.size() - 1; idx > 0; --idx) {
+        if (kept >= keep_max)
+            break;
+        const size_t candidate = users[idx - 1];
+        const size_t turn = tokens_in_range(messages, candidate, start);
+        if (used + turn > budget)
+            break;
+        used += turn;
+        start = candidate;
+        ++kept;
+    }
+    return start;
+}
+
+// Legacy boundary for callers with no config: the last `keep` prompts.
 size_t protected_tail_start(const std::vector<Message>& messages, int keep) {
     std::vector<size_t> users;
     for (size_t i = 1; i < messages.size(); ++i)
@@ -263,18 +304,18 @@ bool drop_oldest_to_fit(std::vector<Message>& messages, size_t budget, size_t ta
 // even when the tail alone exceeds the budget. After every pass the history is
 // repaired (tool pairing) and re-checked, so the budget accounts for the archive
 // the pass just wrote.
-void archive_until_under_budget(std::vector<Message>& compressed, size_t budget, int keep_prompts,
+void archive_until_under_budget(std::vector<Message>& compressed, size_t budget,
+                                const CompressionConfig& cfg, size_t context_size,
                                 const char* note) {
     if (estimate_tokens(compressed) <= budget)
         return;
     const std::vector<Message> before = compressed;
-    const int keep = keep_prompts > 0 ? keep_prompts : kDefaultCompressionKeepLastPrompts;
     for (int pass = 0; pass < kMaxBudgetPasses; ++pass) {
         if (estimate_tokens(compressed) <= budget)
             break;
         std::vector<size_t> dropped;
-        if (!drop_oldest_to_fit(compressed, budget, protected_tail_start(compressed, keep),
-                                dropped))
+        if (!drop_oldest_to_fit(compressed, budget,
+                                protected_tail_start(compressed, cfg, context_size), dropped))
             break;
         const size_t ctx_idx = find_compressed_context(compressed);
         if (ctx_idx != compressed.size())
@@ -322,13 +363,15 @@ std::vector<Message> apply_classification(const std::vector<Message>& history,
     if (history.empty() || response.segments.empty())
         return history;
 
-    // How many of the most-recent user prompts survive verbatim (the active
-    // task guard). The pipeline passes cfg (default 10); direct callers
-    // without cfg keep the legacy 2.
-    const int keep_prompts = cfg && cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts : 2;
+    // How many of the most-recent user prompts survive verbatim, and how much
+    // tail the token budget allows. Direct callers without cfg keep the legacy
+    // two-prompt guard.
+    const size_t tail_start =
+        cfg ? protected_tail_start(history, *cfg, static_cast<size_t>(cfg->context_size))
+            : protected_tail_start(history, /*keep=*/2);
 
     TaggedTurns turns = tag_turns(history, response);
-    protect_active_task(history, turns.tags, keep_prompts);
+    protect_active_task(turns.tags, tail_start);
 
     // Always preserve the system prompt (index 0) regardless of how the
     // classifier tagged it — the classifier treats message indices as "turn"
@@ -383,9 +426,10 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
     if (find_compressed_context(compressed) == compressed.size())
         return compressed;
 
-    const int keep =
-        cfg.keep_last_prompts > 0 ? cfg.keep_last_prompts : kDefaultCompressionKeepLastPrompts;
-    archive_until_under_budget(compressed, target, keep, "(compressed to meet target budget)");
+    // The archive writes backwards from the protected tail; it computes the
+    // boundary itself so the target and headroom passes share one rule.
+    archive_until_under_budget(compressed, target, cfg, context_size,
+                               "(compressed to meet target budget)");
     return compressed;
 }
 
@@ -398,9 +442,7 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
     // legacy callers) only messages older than the two-user guard are pruned.
     size_t limit;
     if (cfg) {
-        const int keep = cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts
-                                                    : kDefaultCompressionKeepLastPrompts;
-        limit = protected_tail_start(history, keep);
+        limit = protected_tail_start(history, *cfg, static_cast<size_t>(cfg->context_size));
     } else {
         // Legacy: prune only messages before the second-to-last user turn.
         size_t last_user = history.size();
@@ -528,13 +570,13 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 // (the last `keep_last_prompts` real user turns and everything after them) is
 // never touched: a safety net that deletes the task is not a safety net.
 std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size,
-                                      int keep_last_prompts) {
+                                      const CompressionConfig& cfg) {
     if (context_size == 0)
         return compressed;
     // Last-resort guard: a fixed 75% of the window. The compressed-context
     // message is a system role, so the walk never reaches it.
     const auto budget = static_cast<size_t>(static_cast<double>(context_size) * 0.75);
-    archive_until_under_budget(compressed, budget, keep_last_prompts, "(over-budget archived)");
+    archive_until_under_budget(compressed, budget, cfg, context_size, "(over-budget archived)");
     return compressed;
 }
 
