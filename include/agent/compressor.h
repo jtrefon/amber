@@ -118,6 +118,17 @@ struct CompressionResponse {
                        // callers must keep the context untouched
 };
 
+// The request prefix a host sends on a normal turn: the blocks injected after
+// the system prompt, the blocks appended after the conversation, and the tool
+// schemas. Replaying it makes the classify/extract calls extensions of the
+// cached prefix instead of a cold re-prefill of the whole context. The pipeline
+// only reads it; the host owns the blocks and the tool leases.
+struct CompressionRequestPrefix {
+    std::vector<Message> head_blocks;
+    std::vector<Message> tail_blocks;
+    std::vector<std::shared_ptr<Tool>> tools;
+};
+
 // ---------------------------------------------------------------------------
 // Ports
 // ---------------------------------------------------------------------------
@@ -164,15 +175,19 @@ class CompressionStrategy {
 public:
     virtual ~CompressionStrategy() = default;
     // Compress the conversation in `context`. Pure: the context is only
-    // READ — classify/extract requests are assembled from a working copy of
-    // the snapshot, so a failed pipeline leaves the context untouched by
-    // construction (spec invariant 7). The caller rebuilds the context from
-    // the returned message list on success.
-    // Returns the compressed message list.
+    // READ — classify/extract requests are assembled from the snapshot plus
+    // `prefix`, so a failed pipeline leaves the context untouched by
+    // construction (spec invariant 7). The caller rebuilds the context from the
+    // returned message list on success.
+    // `prefix` is the live request's head/tail blocks and tool schemas. Passing
+    // it is what lets both LLM calls extend the server's cached prefix; an empty
+    // prefix still works (a cold prefill, as a host with no injected blocks and
+    // no tools would see).
     virtual std::vector<Message> compress(Context& context, const CompressionConfig& cfg,
                                           LLMClient& client,
                                           CompressionObserver* observer = nullptr,
-                                          CompressionResponse* response_out = nullptr) = 0;
+                                          CompressionResponse* response_out = nullptr,
+                                          const CompressionRequestPrefix& prefix = {}) = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -183,10 +198,12 @@ public:
 void collapse_loops(std::vector<Message>& history);
 
 // Phase-0 cheap pass: replace bulky tool outputs (>200 chars) with a short
-// placeholder. When `cfg` is non-null the ENTIRE history is pruned (including
-// the recent tail — bulky tool output is the largest token class; the session
-// log retains the original). With cfg null only messages older than the legacy
-// two-user guard are pruned. Returns the number of messages replaced.
+// placeholder. When `cfg` is non-null the whole history is pruned EXCEPT the
+// protected tail (the last keep_last_prompts real user turns and everything
+// after them): the gate fires at the top of a request, so the newest results
+// belong to the turn the model is about to reason about. With cfg null only
+// messages older than the legacy two-user guard are pruned. Returns the number
+// of messages replaced.
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg = nullptr);
 
 // Repair tool_call/tool_result group splits left by classification: orphaned
@@ -227,8 +244,11 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 // Enforce that the compressed context leaves at least 25% headroom.
 // Drops oldest non-system messages, recording them as archive entries on
 // the compressed-context message. The system prompt at index 0 is never
-// modified. Returns the tightened vector (it may be shorter than input).
-std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size);
+// modified, and neither is the protected tail (the last `keep_last_prompts`
+// real user turns and everything after them). Returns the tightened vector
+// (it may be shorter than input).
+std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size,
+                                      int keep_last_prompts = kDefaultCompressionKeepLastPrompts);
 
 // Enforce the post-compression target budget (context_size * target_pct / 100)
 // by archiving eligible oldest core messages into the compressed-context

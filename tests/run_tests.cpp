@@ -5523,6 +5523,76 @@ static agent::Message msg(const std::string& role, const std::string& content,
     return {role, content, "", "", name, json::object(), false, ""};
 }
 
+// An assistant message carrying one tool call, with the id a result must echo.
+static agent::Message tool_call_msg(const std::string& id, const std::string& tool,
+                                    const std::string& args = "{}") {
+    agent::Message m = msg("assistant", "");
+    m.tool_calls = json::array();
+    m.tool_calls.push_back(
+        {{"id", id}, {"type", "function"}, {"function", {{"name", tool}, {"arguments", args}}}});
+    return m;
+}
+
+// The result of a tool call, carrying the id the model's call declared.
+static agent::Message tool_result_msg(const std::string& id, const std::string& content) {
+    agent::Message m = msg("tool", content, "read");
+    m.tool_call_id = id;
+    return m;
+}
+
+// Provider-valid pairing: a tool result must follow an assistant message that
+// declares its id. The harness's own repair pass only checks the message kind,
+// so this is the stricter check a real endpoint applies.
+static std::size_t orphan_tool_results(const std::vector<agent::Message>& hist) {
+    std::size_t orphans = 0;
+    for (std::size_t i = 0; i < hist.size(); ++i) {
+        if (hist[i].role != "tool")
+            continue;
+        bool matched = false;
+        if (i > 0 && hist[i - 1].role == "assistant" && hist[i - 1].tool_calls.is_array())
+            for (const auto& call : hist[i - 1].tool_calls)
+                if (call.contains("id") && call["id"] == hist[i].tool_call_id)
+                    matched = true;
+        if (!matched)
+            ++orphans;
+    }
+    return orphans;
+}
+
+// The other half of the pairing contract: every declared call has a result.
+static std::size_t dangling_tool_calls(const std::vector<agent::Message>& hist) {
+    std::size_t dangling = 0;
+    for (std::size_t i = 0; i < hist.size(); ++i) {
+        if (hist[i].role != "assistant" || !hist[i].tool_calls.is_array())
+            continue;
+        for (const auto& call : hist[i].tool_calls) {
+            if (!call.contains("id"))
+                continue;
+            bool answered = false;
+            for (std::size_t j = i + 1; j < hist.size() && hist[j].role == "tool"; ++j)
+                if (hist[j].tool_call_id == call["id"])
+                    answered = true;
+            if (!answered)
+                ++dangling;
+        }
+    }
+    return dangling;
+}
+
+static bool has_real_user(const std::vector<agent::Message>& hist) {
+    for (const auto& m : hist)
+        if (m.role == "user" && !agent::is_harness_notice(m))
+            return true;
+    return false;
+}
+
+static agent::Message compressed_ctx_msg() {
+    agent::Message ctx;
+    ctx.role = "system";
+    ctx.content = "Compressed conversation context:\n{\"archive\":[]}";
+    return ctx;
+}
+
 // =========================================================================
 // Scanner tests
 // =========================================================================
@@ -6012,6 +6082,47 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
     ASSERT(hist[3].content.size() < 300u);  // pruned to a digest, not the payload
     ASSERT_EQ(hist[6].content, "short");    // kept
     ASSERT(hist[9].content.size() == 500u); // tail kept
+}
+
+TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
+    // The pipeline runs the prune at the top of every request, i.e. right after
+    // tool results were pushed. The current turn's evidence must survive; only
+    // output the agent has moved past may be replaced by a digest.
+    agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1;
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "old task"),
+        tool_call_msg("c1", "read"),
+        tool_result_msg("c1", std::string(600, 'o')), // old: prunable
+        msg("user", "current task"),
+        tool_call_msg("c2", "read"),
+        tool_result_msg("c2", std::string(600, 'n')), // active turn: must survive
+        tool_call_msg("c3", "bash"),
+        tool_result_msg("c3", std::string(600, 'm')), // multi-call tail: must survive
+    };
+    agent::prune_tool_io(hist, &cc);
+    ASSERT(hist[3].content.size() < 300u);
+    ASSERT_EQ(hist[6].content, std::string(600, 'n'));
+    ASSERT_EQ(hist[8].content, std::string(600, 'm'));
+}
+
+TEST(prune_tool_io_legacy_path_keeps_its_two_prompt_guard) {
+    // cfg == nullptr is the legacy direct call: it prunes only output before the
+    // second-to-last user turn. That boundary is unchanged.
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", "task a"),
+        msg("tool", std::string(600, 'a'), "bash"),
+        msg("user", "task b"),
+        msg("tool", std::string(600, 'b'), "bash"),
+        msg("user", "task c"),
+        msg("tool", std::string(600, 'c'), "bash"),
+    };
+    agent::prune_tool_io(hist);
+    ASSERT(hist[2].content.size() < 300u); // before the second-to-last prompt
+    ASSERT_EQ(hist[4].content, std::string(600, 'b'));
+    ASSERT_EQ(hist[6].content, std::string(600, 'c'));
 }
 
 TEST(prune_tool_io_keeps_a_readable_digest) {
@@ -6605,8 +6716,9 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
         ctx_msg,
     };
     // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
-    // (~1004 tokens each) put us at ~3033 — one must go.
-    auto out = agent::enforce_headroom(std::move(msgs), 3000);
+    // (~1004 tokens each) put us at ~3033 — one must go. keep_last_prompts=1
+    // protects only the active prompt, so the older user turn is archivable.
+    auto out = agent::enforce_headroom(std::move(msgs), 3000, 1);
     ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") == std::string::npos);
@@ -6616,6 +6728,72 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
             archived = m.content.find("archive") != std::string::npos &&
                        m.content.find("over-budget") != std::string::npos;
     ASSERT(archived);
+}
+
+TEST(compression_preserves_tool_pairing_across_budget_sweep) {
+    // Every budget must yield a provider-valid history. A cut that lands between
+    // an assistant tool_calls message and its result used to leave an orphan
+    // (or a dangling call) because the repair runs before the budget passes.
+    for (int window = 300; window <= 4200; window += 13) {
+        std::vector<agent::Message> hist = {msg("system", "Amber")};
+        for (int r = 0; r < 8; ++r) {
+            const std::string id = "c" + std::to_string(r);
+            hist.push_back(msg("user", "task " + std::to_string(r) + ": " + std::string(80, 'u')));
+            hist.push_back(tool_call_msg(id, "read"));
+            hist.push_back(tool_result_msg(id, std::string(400, 'x')));
+        }
+        hist.push_back(msg("user", "the active task"));
+        hist.push_back(compressed_ctx_msg());
+
+        agent::CompressionConfig cfg;
+        cfg.target_pct = 100; // target == window, so the sweep moves the cut
+        cfg.keep_last_prompts = 1;
+        auto out = agent::enforce_target_budget(hist, static_cast<size_t>(window), cfg);
+        ASSERT_EQ(orphan_tool_results(out), 0u);
+        ASSERT_EQ(dangling_tool_calls(out), 0u);
+        ASSERT(has_real_user(out));
+    }
+}
+
+TEST(compression_never_drops_the_active_user_message) {
+    // The protected tail can exceed the headroom budget on its own. Dropping it
+    // leaves a history with no task at all — the minimum-context invariant is a
+    // post-condition of the pipeline, not of one intermediate step.
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),
+        msg("user", std::string(4000, 'a')),
+        msg("assistant", std::string(4000, 'b')),
+        compressed_ctx_msg(),
+        msg("user", "THE ACTIVE TASK: finish the refactor " + std::string(4000, 't')),
+    };
+    auto out = agent::enforce_headroom(std::move(hist), 900); // budget 675 < the tail
+    bool active = false;
+    for (const auto& m : out)
+        if (m.content.find("THE ACTIVE TASK") != std::string::npos)
+            active = true;
+    ASSERT(active);
+    ASSERT(has_real_user(out));
+}
+
+TEST(compression_budget_is_measured_after_the_archive_is_written) {
+    // The archive is grown by the pass that trims to the budget. Measured before
+    // the write, the post-condition was optimistic: 24 drops added ~480 tokens
+    // of bookkeeping on top of a budget that had just been met.
+    std::vector<agent::Message> hist = {msg("system", "Amber")};
+    for (int r = 0; r < 40; ++r) {
+        const std::string id = "c" + std::to_string(r);
+        hist.push_back(tool_call_msg(id, "read"));
+        hist.push_back(tool_result_msg(id, std::string(200, 'x')));
+    }
+    hist.push_back(msg("user", "the active task"));
+    hist.push_back(compressed_ctx_msg());
+
+    agent::CompressionConfig cfg;
+    cfg.target_pct = 100;
+    cfg.keep_last_prompts = 1;
+    const size_t budget = 1600;
+    auto out = agent::enforce_target_budget(hist, budget, cfg);
+    ASSERT(agent::estimate_tokens(out) <= budget);
 }
 
 TEST(enforce_target_budget_archives_oldest_and_keeps_the_active_task) {

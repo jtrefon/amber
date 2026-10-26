@@ -158,13 +158,15 @@ Message compressed_context_message(const CompressionResponse& response, const js
     return out;
 }
 
-// Minimum context invariant: at least one user message must survive, or the
-// agent has no task to continue from.
+// Minimum context invariant: at least one real user message must survive, or the
+// agent has no task to continue from. Harness notices ride the user role but are
+// the environment speaking, so they do not count as a task.
 void ensure_user_message(std::vector<Message>& core, const std::vector<Message>& history) {
-    if (std::any_of(core.begin(), core.end(), [](const Message& m) { return m.role == "user"; }))
+    const auto is_task = [](const Message& m) { return m.role == "user" && !is_harness_notice(m); };
+    if (std::any_of(core.begin(), core.end(), is_task))
         return;
     for (auto it = history.rbegin(); it != history.rend(); ++it) {
-        if (it->role == "user") {
+        if (is_task(*it)) {
             core.push_back(*it);
             return;
         }
@@ -199,53 +201,89 @@ size_t protected_tail_start(const std::vector<Message>& messages, int keep) {
     return protect > 0 ? users[users.size() - protect] : messages.size();
 }
 
-// Append the dropped messages to the archive block as compact entries, so the
-// carried summary still reflects what was removed.
+// Append the dropped messages to the archive block as one compact entry, so the
+// carried summary still reflects what was removed without spending a token per
+// dropped message. `dropped` holds the pre-erase indices, so the entry names the
+// span that went.
 void append_archived_turns(std::vector<Message>& messages, size_t ctx_idx,
-                           const std::vector<size_t>& archived, const char* note) {
+                           const std::vector<size_t>& dropped, const char* note) {
+    if (dropped.empty())
+        return;
     const std::string json_part =
         messages[ctx_idx].content.substr(sizeof(kCompressedContextPrefix) - 1);
     json body = json::parse(json_part, nullptr, false);
     if (body.is_discarded() || !body.is_object())
         return;
     json archive = body.value("archive", json::array());
-    for (const size_t idx : archived)
-        archive.push_back({{"turns", std::to_string(idx)}, {"summary", note}});
+    const std::string range =
+        dropped.front() == dropped.back()
+            ? std::to_string(dropped.front())
+            : std::to_string(dropped.front()) + "-" + std::to_string(dropped.back());
+    archive.push_back({{"turns", range}, {"summary", note}});
     body["archive"] = std::move(archive);
     messages[ctx_idx].content = std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
 }
 
-// Drop oldest non-system messages until the estimated tokens fit `budget`, then
-// record each dropped message in the compressed-context archive under `note`.
-// Messages at or after `tail_start` are never touched. The archive message is a
-// system role, so the walk never reaches it.
-void archive_until_under_budget(std::vector<Message>& compressed, size_t budget, size_t tail_start,
-                                const char* note) {
-    size_t used = estimate_tokens(compressed);
-    if (used <= budget)
-        return;
-    std::vector<size_t> dropped;
-    for (size_t i = 1; i < tail_start && i < compressed.size(); ++i) {
-        if (compressed[i].role == "system")
+// Estimated tokens one archive entry adds. A drop must free at least this much
+// for the budget to converge, so the entry cost is reserved before measuring.
+constexpr size_t kArchiveEntryTokenReserve = 32;
+
+// A pass may need more than one round: the repair injects stubs, which the next
+// measurement accounts for. Bounded so an unbounded tail cannot livelock it.
+constexpr int kMaxBudgetPasses = 8;
+
+// Drop the oldest non-system messages before `tail_start` until the history fits
+// `budget` minus the entry that records the drop. Returns true when it removed
+// anything. `dropped` receives the pre-erase indices.
+bool drop_oldest_to_fit(std::vector<Message>& messages, size_t budget, size_t tail_start,
+                        std::vector<size_t>& dropped) {
+    if (budget <= kArchiveEntryTokenReserve)
+        return false;
+    const size_t target = budget - kArchiveEntryTokenReserve;
+    size_t used = estimate_tokens(messages);
+    for (size_t i = 1; i < tail_start && i < messages.size();) {
+        if (messages[i].role == "system") {
+            ++i;
             continue;
-        used -= message_tokens(compressed[i]);
-        dropped.push_back(i);
-        if (used <= budget)
+        }
+        if (used <= target)
             break;
+        used -= message_tokens(messages[i]);
+        dropped.push_back(i);
+        messages.erase(messages.begin() + static_cast<ptrdiff_t>(i));
+        // The body only runs while 1 < tail_start, so this cannot underflow.
+        --tail_start;
     }
-    if (dropped.empty())
-        return;
+    return !dropped.empty();
+}
 
-    // Remove dropped messages (descending so indices stay valid).
-    for (auto it = dropped.rbegin(); it != dropped.rend(); ++it)
-        compressed.erase(compressed.begin() + static_cast<ptrdiff_t>(*it));
-
-    // Re-locate the archive message after the erase (indices shifted) and
-    // record what went. A missing archive block still leaves the drops in place.
-    const size_t ctx_idx = find_compressed_context(compressed);
-    if (ctx_idx == compressed.size())
+// Drop oldest non-system messages until the estimated tokens fit `budget`, then
+// record each run in the compressed-context archive under `note`. Messages at or
+// after the protected tail start are never touched, so the active task survives
+// even when the tail alone exceeds the budget. After every pass the history is
+// repaired (tool pairing) and re-checked, so the budget accounts for the archive
+// the pass just wrote.
+void archive_until_under_budget(std::vector<Message>& compressed, size_t budget, int keep_prompts,
+                                const char* note) {
+    if (estimate_tokens(compressed) <= budget)
         return;
-    append_archived_turns(compressed, ctx_idx, dropped, note);
+    const std::vector<Message> before = compressed;
+    const int keep = keep_prompts > 0 ? keep_prompts : kDefaultCompressionKeepLastPrompts;
+    for (int pass = 0; pass < kMaxBudgetPasses; ++pass) {
+        if (estimate_tokens(compressed) <= budget)
+            break;
+        std::vector<size_t> dropped;
+        if (!drop_oldest_to_fit(compressed, budget, protected_tail_start(compressed, keep),
+                                dropped))
+            break;
+        const size_t ctx_idx = find_compressed_context(compressed);
+        if (ctx_idx != compressed.size())
+            append_archived_turns(compressed, ctx_idx, dropped, note);
+        sanitize_tool_pairs(compressed);
+        ensure_user_message(compressed, before);
+    }
+    sanitize_tool_pairs(compressed);
+    ensure_user_message(compressed, before);
 }
 
 // An assistant message carrying a usable tool_calls array.
@@ -347,20 +385,23 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
 
     const int keep =
         cfg.keep_last_prompts > 0 ? cfg.keep_last_prompts : kDefaultCompressionKeepLastPrompts;
-    archive_until_under_budget(compressed, target, protected_tail_start(compressed, keep),
-                               "(compressed to meet target budget)");
+    archive_until_under_budget(compressed, target, keep, "(compressed to meet target budget)");
     return compressed;
 }
 
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg) {
     // Bulky tool outputs are the largest single token class in agent sessions
-    // (multi-KB bash/read results). When the pipeline runs (cfg non-null) we
-    // prune them across the WHOLE history INCLUDING the recent tail — the
-    // session log retains the original, and sanitize_tool_pairs keeps the
-    // message sequence API-valid. With cfg null (direct legacy callers) only
-    // messages older than the two-user guard are pruned.
-    size_t limit = history.size(); // cfg path: prune everything
-    if (!cfg) {
+    // (multi-KB bash/read results). When the pipeline runs (cfg non-null) the
+    // WHOLE history is eligible EXCEPT the protected tail: the gate fires at the
+    // top of a request, so the newest results belong to the turn the model is
+    // about to reason about and must survive verbatim. With cfg null (direct
+    // legacy callers) only messages older than the two-user guard are pruned.
+    size_t limit;
+    if (cfg) {
+        const int keep = cfg->keep_last_prompts > 0 ? cfg->keep_last_prompts
+                                                    : kDefaultCompressionKeepLastPrompts;
+        limit = protected_tail_start(history, keep);
+    } else {
         // Legacy: prune only messages before the second-to-last user turn.
         size_t last_user = history.size();
         size_t prev_user = history.size();
@@ -481,16 +522,19 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 // ---------------------------------------------------------------------------
 
 // Enforce that the compressed context leaves at least 25% headroom.
-// Oldest non-system messages are dropped oldest-first and recorded as
-// archive entries on the compressed-context message — never replaced by
-// placeholder messages (the LLM must not see fabricated system turns).
-std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size) {
+// Oldest non-system messages are dropped oldest-first and recorded as archive
+// entries on the compressed-context message — never replaced by placeholder
+// messages (the LLM must not see fabricated system turns). The protected tail
+// (the last `keep_last_prompts` real user turns and everything after them) is
+// never touched: a safety net that deletes the task is not a safety net.
+std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size,
+                                      int keep_last_prompts) {
     if (context_size == 0)
         return compressed;
     // Last-resort guard: a fixed 75% of the window. The compressed-context
     // message is a system role, so the walk never reaches it.
     const auto budget = static_cast<size_t>(static_cast<double>(context_size) * 0.75);
-    archive_until_under_budget(compressed, budget, compressed.size(), "(over-budget archived)");
+    archive_until_under_budget(compressed, budget, keep_last_prompts, "(over-budget archived)");
     return compressed;
 }
 

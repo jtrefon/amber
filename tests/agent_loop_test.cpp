@@ -104,6 +104,16 @@ void push_tool_call(agent_test::FakeLLMClient& fake, const std::string& fn, cons
     fake.script.push_back(std::move(r));
 }
 
+// A registered tool for prefix tests: the schema never runs, only its presence
+// in the compression request matters.
+class PrefixProbeTool : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "prefix_probe"; }
+    std::string description() const noexcept override { return "prefix probe"; }
+    agent::json parameters_schema() const override { return agent::json::object(); }
+    agent::ToolResult execute(const agent::json&) const override { return {}; }
+};
+
 } // namespace
 
 // [BENCH] A long read with and without the context budget: the tool message,
@@ -690,6 +700,65 @@ TEST(agent_loop_learned_window_clamps_gate) {
 // The pipeline must forward BOTH the classification segments and the
 // memory/skill ops to the caller — previously only the ops survived, so the
 // reported core/context/prune counts were always zero.
+// The classify and extract calls must replay the live request prefix — the
+// injected blocks and the tool schemas — or the server re-prefills the whole
+// conversation, which is the cost the pipeline exists to avoid. The blocks are
+// request-only: they never enter the compressed context.
+TEST(compression_request_replays_the_live_prefix) {
+    agent::CompressionConfig cc;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(
+        *fake,
+        R"({"summary":"work state","classification":[{"turns":"1-1","tag":"core","summary":""}]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    ctx.push(std::move(user));
+
+    agent::CompressionRequestPrefix prefix;
+    agent::Message head;
+    head.role = "system";
+    head.content = "MEMORY-BLOCK";
+    prefix.head_blocks.push_back(head);
+    agent::Message tail;
+    tail.role = "system";
+    tail.content = "BRIEF-BLOCK";
+    prefix.tail_blocks.push_back(tail);
+    prefix.tools.push_back(std::make_shared<PrefixProbeTool>());
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr, prefix);
+    ASSERT_EQ(raw->requests.size(), size_t{2});
+    const auto& classify_req = raw->requests[0];
+    // [system][memory][conversation][brief][instruction]
+    ASSERT_EQ(classify_req.size(), size_t{5});
+    ASSERT_EQ(classify_req[0].content, std::string("Amber"));
+    ASSERT_EQ(classify_req[1].content, std::string("MEMORY-BLOCK"));
+    ASSERT_EQ(classify_req[2].content, std::string("hello"));
+    ASSERT_EQ(classify_req[3].content, std::string("BRIEF-BLOCK"));
+    ASSERT_EQ(raw->tool_counts[0], size_t{1});
+
+    // The extract call replays the same prefix, then the classify pair.
+    const auto& extract_req = raw->requests[1];
+    for (size_t i = 0; i < classify_req.size(); ++i) {
+        ASSERT_EQ(extract_req[i].role, classify_req[i].role);
+        ASSERT_EQ(extract_req[i].content, classify_req[i].content);
+    }
+    ASSERT_EQ(raw->tool_counts[1], size_t{1});
+
+    for (const auto& m : out)
+        ASSERT(m.content.find("MEMORY-BLOCK") == std::string::npos);
+}
+
 TEST(compression_pipeline_forwards_segments_and_ops) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor(cc);
@@ -2635,7 +2704,8 @@ class SystemOnlyCompressor : public agent::CompressionStrategy {
 public:
     std::vector<agent::Message> compress(agent::Context& context, const agent::CompressionConfig&,
                                          agent::LLMClient&, agent::CompressionObserver* = nullptr,
-                                         agent::CompressionResponse* = nullptr) override {
+                                         agent::CompressionResponse* = nullptr,
+                                         const agent::CompressionRequestPrefix& = {}) override {
         std::vector<agent::Message> out;
         for (const auto& m : context.get_all())
             if (m.role == "system")
@@ -2700,6 +2770,45 @@ TEST(agent_keeps_injected_blocks_when_compression_fires) {
     // model: it is injected fresh for every turn, so a compressing turn is no
     // different from any other.
     ASSERT(request_contains(*raw, "the build system is make"));
+}
+
+TEST(agent_compression_replays_the_injected_prefix_and_tools) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.compression_threshold = 0.7;
+    cfg.compression_threshold_explicit = true;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<PrefixProbeTool>());
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, R"({"summary":"work state","classification":[{"turns":"0-0","tag":"core"}]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+    push_text(*fake, "done");
+
+    auto cc = agent::load_compression_config(cfg);
+    auto gate = std::make_unique<AlwaysCompressGate>();
+    auto compressor = agent::make_compressor(cc);
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
+
+    ag.run("how do I build this?");
+
+    std::size_t idx = raw->requests.size();
+    for (std::size_t i = 0; i < raw->requests.size(); ++i)
+        for (const auto& m : raw->requests[i])
+            if (m.content.find("WORK-STATE SUMMARY") != std::string::npos)
+                idx = i;
+    ASSERT(idx < raw->requests.size());
+    const auto& req = raw->requests[idx];
+    // [system][memory block][conversation...]
+    ASSERT(req.size() >= 3);
+    ASSERT_EQ(req[1].role, std::string("system"));
+    ASSERT(req[1].content.find("the build system is make") != std::string::npos);
+    ASSERT_EQ(req[2].content, std::string("how do I build this?"));
+    ASSERT_EQ(raw->tool_counts[idx], size_t{1});
 }
 
 TEST(agent_injects_in_memory_blocks_without_compression) {

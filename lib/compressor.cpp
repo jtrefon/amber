@@ -231,19 +231,31 @@ bool has_compressed_context(const std::vector<Message>& msgs) {
     return false;
 }
 
-// Append one message to a request vector (classify/extract tails).
-std::vector<Message> append_message(std::vector<Message> base, Message m) {
-    base.push_back(std::move(m));
-    return base;
+// The live request prefix, replayed: head blocks after the system prompt, then
+// the conversation, then tail blocks. This is the order the host's
+// insert_prompt_blocks produces, so the server's cached prefix is reused
+// instead of re-prefilled. The instruction is appended by the caller.
+std::vector<Message> with_request_prefix(const std::vector<Message>& history,
+                                         const CompressionRequestPrefix& prefix) {
+    std::vector<Message> out;
+    out.reserve(history.size() + prefix.head_blocks.size() + prefix.tail_blocks.size());
+    auto body = history.begin();
+    if (!history.empty() && history.front().role == "system") {
+        out.push_back(history.front());
+        ++body;
+    }
+    out.insert(out.end(), prefix.head_blocks.begin(), prefix.head_blocks.end());
+    out.insert(out.end(), body, history.end());
+    out.insert(out.end(), prefix.tail_blocks.begin(), prefix.tail_blocks.end());
+    return out;
 }
 
-// The free pre-pass: collapse loops, prune bulky tool output, drop reasoning
-// text. All three run BEFORE the classifier so the classify request and the
-// apply pass consume the SAME message list — no index shift between them.
+// The free reduction pass: collapse loops, prune bulky tool output, drop
+// reasoning text. It runs AFTER classification, on the output, so it cannot
+// change the history the classifier saw (or the prefix the server cached).
 // Reasoning is never sent back to the server (the dialect emits only content +
-// tool_calls); in thinking models it is by far the largest token class (a 262k
-// window can be 80%+ reasoning), so dropping it here is the single biggest
-// reduction and loses nothing the model needs to continue.
+// tool_calls); in thinking models it is by far the largest token class, so
+// dropping it is the single biggest reduction and loses nothing the model needs.
 void collapse_and_prune(std::vector<Message>& copy, const CompressionConfig& cfg,
                         CompressionObserver* observer) {
     const size_t pre_loop = copy.size();
@@ -263,21 +275,21 @@ void collapse_and_prune(std::vector<Message>& copy, const CompressionConfig& cfg
 
 enum class ClassifyOutcome { Ok, LlmFailed, Unparseable };
 
-// Step 2: classify turns, then apply the result and enforce the budgets. The
-// request is assembled from the working copy, so the LLM sees exactly what
-// apply will consume. On failure `cr.error` is set and reported to the observer;
-// the caller returns the untouched original history.
-ClassifyOutcome run_classify(std::vector<Message>& copy, const CompressionConfig& cfg,
-                             LLMClient& client, CompressionObserver* observer,
+// Step 2: classify turns. The request is the LIVE prefix plus one instruction,
+// so the server extends its cache instead of re-prefilling the conversation.
+// On failure `cr.error` is set and reported to the observer; the caller returns
+// the untouched original history.
+ClassifyOutcome run_classify(const std::vector<Message>& history, LLMClient& client,
+                             const CompressionRequestPrefix& prefix, CompressionObserver* observer,
                              CompressionResponse& cr, Message& class_reply) {
-    Message class_req = build_classify_request(has_compressed_context(copy));
-    auto request = append_message(copy, class_req);
+    auto request = with_request_prefix(history, prefix);
+    request.push_back(build_classify_request(has_compressed_context(history)));
 
     if (observer)
         observer->on_llm_request_sent();
     try {
         Stats stats;
-        class_reply = client.chat(request, {}, &stats);
+        class_reply = client.chat(request, prefix.tools, &stats);
         if (observer)
             observer->on_llm_usage(stats);
     } catch (const std::exception& e) {
@@ -296,48 +308,31 @@ ClassifyOutcome run_classify(std::vector<Message>& copy, const CompressionConfig
     }
     if (observer)
         observer->on_parse_result(cr);
-
-    copy = apply_classification(copy, cr, &cfg);
-    // Enforce the post-compression target budget (context_size * target_pct /
-    // 100): archive older core messages until the output fits the target — the
-    // real lever for aggressive compression.
-    copy = enforce_target_budget(std::move(copy), static_cast<size_t>(cfg.context_size), cfg);
-    // Enforce headroom: leave at least 25% free (final safety net; normally
-    // already satisfied by the target budget).
-    copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size));
-
-    if (observer) {
-        observer->on_apply_result({});
-        // The working set just shrank to its final size — surface it so the
-        // host's gauge drops before the swap completes.
-        observer->on_progress(estimate_tokens(copy), copy.size());
-    }
     return ClassifyOutcome::Ok;
 }
 
 // Step 3: extract memories/skills (the second LLM call). The request replays the
-// classify pair on the ORIGINAL (post-collapse) prefix so the two calls share a
-// KV prefix — the extract step says "Review the classification above", and the
-// classify prompt + its response are replayed before the extract prompt.
-// Extraction failure is non-fatal: the classification result stands (spec
-// CP-08: degraded but safe).
+// classify request (same live prefix, same instruction) plus the classify reply,
+// so the two calls share a KV prefix — the extract step says "Review the
+// classification above". Extraction failure is non-fatal: the classification
+// result stands (spec CP-08: degraded but safe).
 void run_extract(const std::vector<Message>& classify_prefix, const Message& class_reply,
-                 LLMClient& client, CompressionObserver* observer, CompressionResponse& cr) {
-    Message class_req = build_classify_request(has_compressed_context(classify_prefix));
-    Message ext_req = build_extract_request();
-    auto request = append_message(classify_prefix, class_req);
+                 const CompressionRequestPrefix& prefix, LLMClient& client,
+                 CompressionObserver* observer, CompressionResponse& cr) {
+    auto request = with_request_prefix(classify_prefix, prefix);
+    request.push_back(build_classify_request(has_compressed_context(classify_prefix)));
     Message stored_reply;
     stored_reply.role = "assistant";
     stored_reply.content = class_reply.content;
-    request = append_message(std::move(request), std::move(stored_reply));
-    request = append_message(std::move(request), ext_req);
+    request.push_back(std::move(stored_reply));
+    request.push_back(build_extract_request());
 
     if (observer)
         observer->on_llm_request_sent();
     Message ext_reply;
     try {
         Stats stats;
-        ext_reply = client.chat(request, {}, &stats);
+        ext_reply = client.chat(request, prefix.tools, &stats);
         if (observer)
             observer->on_llm_usage(stats);
     } catch (const std::exception&) {
@@ -362,43 +357,54 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 class CompressionPipeline : public CompressionStrategy {
 public:
     std::vector<Message> compress(Context& context, const CompressionConfig& cfg, LLMClient& client,
-                                  CompressionObserver* observer,
-                                  CompressionResponse* response_out) override {
+                                  CompressionObserver* observer, CompressionResponse* response_out,
+                                  const CompressionRequestPrefix& prefix) override {
         // Pristine snapshot: the spec's atomicity invariant — any classify
         // failure returns the ORIGINAL history untouched. The context is only
-        // ever read; all mutations happen on the working copy, which is also the
-        // exact message list the classifier sees — segment indices stay aligned
-        // between request and apply.
+        // ever read, and the classifier sees exactly that snapshot (plus the
+        // live request prefix), so its indices stay aligned with apply.
         auto msgs = context.get_all();
         std::vector<Message> original(msgs.begin(), msgs.end());
-        std::vector<Message> copy = original;
 
         if (observer)
-            observer->on_compress_start(copy.size(), estimate_tokens(copy));
-
-        collapse_and_prune(copy, cfg, observer);
-
-        // The classify prefix is the post-collapse history (the message list the
-        // classifier sees). The extract request replays this SAME prefix plus
-        // the classify prompt + response, so the second LLM call shares the
-        // first's KV cache (no full prefill between the compression calls). Keep
-        // it aside — apply_classification below must not clobber the prefix the
-        // extract step replays.
-        const std::vector<Message> classify_prefix = copy;
+            observer->on_compress_start(original.size(), estimate_tokens(original));
 
         CompressionResponse cr;
         Message class_reply;
-        if (run_classify(copy, cfg, client, observer, cr, class_reply) != ClassifyOutcome::Ok) {
+        if (run_classify(original, client, prefix, observer, cr, class_reply) !=
+            ClassifyOutcome::Ok) {
             if (response_out)
                 *response_out = std::move(cr);
             return original;
         }
 
-        run_extract(classify_prefix, class_reply, client, observer, cr);
+        run_extract(original, class_reply, prefix, client, observer, cr);
 
+        // Assemble, then reduce. The free pass runs on the OUTPUT so the
+        // classifier sees the full tool evidence it needs to summarise, and the
+        // live KV prefix it was sent against stays intact.
+        std::vector<Message> compressed = apply_classification(original, cr, &cfg);
+        collapse_and_prune(compressed, cfg, observer);
+
+        // Enforce the post-compression target budget (context_size * target_pct
+        // / 100): archive older core messages until the output fits the target.
+        compressed = enforce_target_budget(std::move(compressed),
+                                           static_cast<size_t>(cfg.context_size), cfg);
+        // Enforce headroom: leave at least 25% free (final safety net; normally
+        // already satisfied by the target budget). The protected tail is never
+        // touched, so the active task survives even when it alone exceeds it.
+        compressed = enforce_headroom(std::move(compressed), static_cast<size_t>(cfg.context_size),
+                                      cfg.keep_last_prompts);
+
+        if (observer) {
+            observer->on_apply_result({});
+            // The working set just shrank to its final size — surface it so the
+            // host's gauge drops before the swap completes.
+            observer->on_progress(estimate_tokens(compressed), compressed.size());
+        }
         if (response_out)
             *response_out = std::move(cr);
-        return copy;
+        return compressed;
     }
 };
 
