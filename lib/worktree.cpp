@@ -70,10 +70,17 @@ GitResult run_git(const std::string& repo, const std::vector<std::string>& args)
     return result;
 }
 
-std::string trimmed(std::string text) {
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' '))
-        text.pop_back();
-    return text;
+// Trimming in place on a by-value copy tripped GCC 15.2's
+// -Wfree-nonheap-object: a known false positive whose warning fired from the
+// vector destructor inlined into every caller that returned a string
+// (`git_head_oid`, `worktree_branch`, `is_git_repo`). Reading through a const
+// reference and returning the substring keeps the same result without that
+// inlining pattern.
+std::string trimmed(const std::string& text) {
+    std::size_t end = text.size();
+    while (end > 0 && (text[end - 1] == '\n' || text[end - 1] == '\r' || text[end - 1] == ' '))
+        --end;
+    return text.substr(0, end);
 }
 
 // Worktrees live under shared /tmp: 0700 keeps a checkout unreadable to other
