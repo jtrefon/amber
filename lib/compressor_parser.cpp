@@ -1,6 +1,7 @@
 
 #include "agent/compressor.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <sstream>
 
@@ -26,17 +27,25 @@ bool parses(const std::string& text) {
     return !json::parse(text, nullptr, false).is_discarded();
 }
 
-void erase_all(std::string& t, const std::string& pat) {
-    for (auto p = t.find(pat); p != std::string::npos; p = t.find(pat))
-        t.erase(p, pat.size());
-}
-
-// The prose a model wraps JSON in: code fences and escaped newlines removed.
+// A markdown code fence around the JSON: the opener (token plus its language
+// word) and the closing token. Nothing else is touched — escape sequences inside
+// the JSON are part of the document and must reach the parser byte-for-byte.
 std::string strip_fences(const std::string& raw) {
     std::string s = raw;
-    erase_all(s, "```json");
-    erase_all(s, "```");
-    erase_all(s, "\\n");
+    const size_t open = s.find("```");
+    if (open != std::string::npos) {
+        size_t end = open + 3;
+        while (end < s.size() &&
+               (std::isalnum(static_cast<unsigned char>(s[end])) || s[end] == '-' || s[end] == '_'))
+            ++end;
+        s.erase(open, end - open);
+    }
+    // Only a fence AFTER the value is a closer; a ``` inside a summary string is
+    // content, and truncating at it would lose the rest of the reply.
+    const size_t close = s.rfind("```");
+    const size_t last_value = s.find_last_of("}]");
+    if (close != std::string::npos && (last_value == std::string::npos || close > last_value))
+        s.erase(close);
     return s;
 }
 

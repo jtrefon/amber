@@ -5678,6 +5678,43 @@ TEST(parse_compression_response_null_fields_are_survivable) {
     ASSERT(cr.brief->done.size() == 1u);
 }
 
+// A fenced reply is the case the fence stripper exists for. It used to delete
+// the two characters `\n` anywhere in the text, so an escaped newline inside a
+// valid JSON string was silently rewritten ("line oneline two") and an escaped
+// backslash before an `n` could become an invalid escape that cost the whole
+// classification.
+TEST(parser_survives_escaped_newlines_in_a_fenced_reply) {
+    const std::string payload =
+        "```json\n"
+        R"({"summary":"line one\nline two","classification":[{"turns":"1-2","tag":"prune"}]})"
+        "\n```";
+    auto cr = agent::parse_compression_response(payload);
+    ASSERT_EQ(cr.segments.size(), 1u);
+    ASSERT_EQ(cr.summary, std::string("line one\nline two"));
+}
+
+TEST(parser_preserves_escaped_backslashes_in_a_fenced_reply) {
+    const std::string payload =
+        "```json\n"
+        R"({"summary":"see C:\\new\\file.txt","classification":[{"turns":"1-2","tag":"core"}]})"
+        "\n```";
+    auto cr = agent::parse_compression_response(payload);
+    ASSERT_EQ(cr.segments.size(), 1u);
+    ASSERT(cr.summary.find("C:\\new\\file.txt") != std::string::npos);
+}
+
+TEST(parser_keeps_fence_tokens_inside_a_string) {
+    // A summary may quote the very syntax the stripper looks for. Only a fence
+    // outside the JSON value is a fence.
+    const std::string payload =
+        "```json\n"
+        R"({"summary":"wrap code in ``` fences","classification":[{"turns":"1-2","tag":"core"}]})"
+        "\n```";
+    auto cr = agent::parse_compression_response(payload);
+    ASSERT_EQ(cr.segments.size(), 1u);
+    ASSERT_EQ(cr.summary, std::string("wrap code in ``` fences"));
+}
+
 // =========================================================================
 // Applier tests
 // =========================================================================
