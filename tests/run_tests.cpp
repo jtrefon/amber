@@ -6702,8 +6702,9 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
         ctx_msg,
     };
     // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
-    // (~1004 tokens each) put us at ~3033 — one must go.
-    auto out = agent::enforce_headroom(std::move(msgs), 3000);
+    // (~1004 tokens each) put us at ~3033 — one must go. keep_last_prompts=1
+    // protects only the active prompt, so the older user turn is archivable.
+    auto out = agent::enforce_headroom(std::move(msgs), 3000, 1);
     ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") == std::string::npos);

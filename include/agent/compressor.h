@@ -183,10 +183,12 @@ public:
 void collapse_loops(std::vector<Message>& history);
 
 // Phase-0 cheap pass: replace bulky tool outputs (>200 chars) with a short
-// placeholder. When `cfg` is non-null the ENTIRE history is pruned (including
-// the recent tail — bulky tool output is the largest token class; the session
-// log retains the original). With cfg null only messages older than the legacy
-// two-user guard are pruned. Returns the number of messages replaced.
+// placeholder. When `cfg` is non-null the whole history is pruned EXCEPT the
+// protected tail (the last keep_last_prompts real user turns and everything
+// after them): the gate fires at the top of a request, so the newest results
+// belong to the turn the model is about to reason about. With cfg null only
+// messages older than the legacy two-user guard are pruned. Returns the number
+// of messages replaced.
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg = nullptr);
 
 // Repair tool_call/tool_result group splits left by classification: orphaned
@@ -227,8 +229,11 @@ void apply_skill_ops(MemoryStore& store, const std::vector<KnowledgeOp>& ops,
 // Enforce that the compressed context leaves at least 25% headroom.
 // Drops oldest non-system messages, recording them as archive entries on
 // the compressed-context message. The system prompt at index 0 is never
-// modified. Returns the tightened vector (it may be shorter than input).
-std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size);
+// modified, and neither is the protected tail (the last `keep_last_prompts`
+// real user turns and everything after them). Returns the tightened vector
+// (it may be shorter than input).
+std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t context_size,
+                                      int keep_last_prompts = kDefaultCompressionKeepLastPrompts);
 
 // Enforce the post-compression target budget (context_size * target_pct / 100)
 // by archiving eligible oldest core messages into the compressed-context

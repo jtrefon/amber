@@ -303,8 +303,10 @@ ClassifyOutcome run_classify(std::vector<Message>& copy, const CompressionConfig
     // real lever for aggressive compression.
     copy = enforce_target_budget(std::move(copy), static_cast<size_t>(cfg.context_size), cfg);
     // Enforce headroom: leave at least 25% free (final safety net; normally
-    // already satisfied by the target budget).
-    copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size));
+    // already satisfied by the target budget). The protected tail is never
+    // touched, so the active task survives even when it alone exceeds it.
+    copy = enforce_headroom(std::move(copy), static_cast<size_t>(cfg.context_size),
+                            cfg.keep_last_prompts);
 
     if (observer) {
         observer->on_apply_result({});
