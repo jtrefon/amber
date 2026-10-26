@@ -611,6 +611,8 @@ bool Agent::fail_compression_after(CompressionResult& r, const std::string& erro
     // that is the model's business too.
     inject_harness_note("[harness] context compression failed (" + error +
                         "); the conversation is unchanged and the window is unchanged.");
+    if (hooks_.on_compression)
+        hooks_.on_compression(r);
     publish_compression_done(false, static_cast<long>(tokens_before));
     publish_error("compression", error);
     if (out)
@@ -664,6 +666,19 @@ void Agent::count_segments(const CompressionResponse& cr, CompressionResult& r) 
     }
 }
 
+namespace {
+
+// Tokens outside the immutable system prompt: the part compaction can change.
+size_t conversation_token_count(const std::deque<Message>& msgs) {
+    size_t n = 0;
+    for (const auto& m : msgs)
+        if (m.role != "system")
+            n += message_tokens(m);
+    return n;
+}
+
+} // namespace
+
 // Record the outcome, tell the host, and hand the result back.
 void Agent::finish_compression(CompressionResult& r, const CompressionResponse& cr,
                                size_t msgs_before, size_t tokens_before,
@@ -674,7 +689,14 @@ void Agent::finish_compression(CompressionResult& r, const CompressionResponse& 
     r.tokens_before = tokens_before;
     r.tokens_after = context_.token_count();
     count_segments(cr, r);
+    // The bookkeeping the pass wrote: what the archive actually costs.
+    for (const auto& m : context_.get_all())
+        if (m.content.rfind(kCompressedContextPrefix, 0) == 0)
+            r.archive_tokens = message_tokens(m);
+    r.payload_tokens_after = conversation_token_count(context_.get_all()) + r.archive_tokens;
     reporter.on_compress_done(r);
+    if (hooks_.on_compression)
+        hooks_.on_compression(r);
     publish_compression_done(true, r.tokens_after);
     if (out)
         *out = std::move(r);
@@ -716,6 +738,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     }
 
     CompressionResult r;
+    r.payload_tokens_before = conversation_token_count(before);
     CompressionReporter reporter(hooks_, r, std::move(progress_cb));
     reporter.set_before(msgs_before, tokens_before);
 

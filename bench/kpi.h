@@ -21,7 +21,15 @@ struct Kpi {
     double tool_call_accuracy = 0.0;
     double arg_precision = 0.0;
     int steps = 0;
-    int compressions = 0;   // context compactions that ran
+    int compressions = 0; // context compactions that ran
+    // Compaction accounting (zero when none ran). before = the first attempt's
+    // input; after = the last SUCCESSFUL attempt's output, so a re-compaction
+    // reports the whole run's reduction. ratio = after/before.
+    long compaction_tokens_before = 0;
+    long compaction_tokens_after = 0;
+    double compaction_ratio = 1.0;
+    long compaction_archive_tokens = 0;
+    int compaction_failures = 0;
     int bash_cd_prefix = 0; // bash calls prefixed with `cd <workspace> &&` (redundant)
     int tool_calls = 0;     // executed tool calls (all statuses)
     int tool_failures = 0;  // calls that returned an error

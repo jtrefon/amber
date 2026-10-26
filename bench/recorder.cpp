@@ -76,7 +76,12 @@ agent::AgentHooks Recorder::hooks() {
     h.on_debug = [this](const std::string& t) { on_debug(t); };
     h.on_stats = [this](const agent::Stats& s) { on_stats(s); };
     h.on_state = [this](agent::RunState st) { on_state(st); };
+    h.on_compression = [this](const agent::CompressionResult& r) { on_compression(r); };
     return h;
+}
+
+void Recorder::on_compression(const agent::CompressionResult& r) {
+    stream_.compactions.push_back(r);
 }
 
 void Recorder::on_tool_call(const std::string& name, const agent::json& args) {

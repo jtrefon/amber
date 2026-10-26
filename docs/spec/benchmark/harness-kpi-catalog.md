@@ -42,6 +42,7 @@ actionable signal.
 |---|---|---|---|---|---|
 | `chain_integrity` | bool | FNV hash chain survives push/pop/clear/rebuild | hermetic | context_chain_survives | assert in debug → any in-place mutation is caught |
 | `compression_preservation` | bool | compression rebuild preserves message content and chain | hermetic | (new) context_compression | compression drops/alters messages silently |
+| `compaction_ratio` | float | conversation tokens after / before, archive included; 1.0 when none ran | hermetic + live | budget.max_compaction_ratio | ratio grows or is measured against the system prompt |
 | `token_count_fidelity` | 0..1 | `token_count()` matches content after rebuild | hermetic | (new) context_tokens | budget decisions based on wrong tokens |
 
 ## 4. Loop control — the engine must terminate and break out correctly

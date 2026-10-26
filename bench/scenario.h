@@ -61,10 +61,14 @@ struct Scenario {
     // over the single read-step bullseye. Default 0.2 reproduces the v2
     // non-template formula.
     double checks_weight = 0.2;
-    int difficulty = 3;               // 1..5 — scoring weight
-    int expected_steps = 0;           // 0 = oracle size (or 5) — efficiency baseline
-    int max_steps = 0;                // 0 = unlimited
-    long max_wall_ms = 0;             // 0 = unlimited
+    int difficulty = 3;      // 1..5 — scoring weight
+    int expected_steps = 0;  // 0 = oracle size (or 5) — efficiency baseline
+    int max_steps = 0;       // 0 = unlimited
+    long max_wall_ms = 0;    // 0 = unlimited
+    int min_compactions = 0; // 0 = unchecked
+    // 0 = unchecked. When set, the run must have compacted and the compaction's
+    // last output/input token ratio must be at most this (1.0 = no growth).
+    double max_compaction_ratio = 0.0;
     bool detection_loop = false;      // enable tool/text-loop detection
     bool detection_duplicate = false; // enable duplicate-call detection
 };

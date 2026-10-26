@@ -86,6 +86,11 @@ struct AgentHooks {
     // stream; this is what a session ledger accumulates.
     std::function<void(const UsageSample&)> on_usage;
 
+    // One completed context-compaction attempt, success or failure. Hosts use
+    // it for the session ledger and the benchmark KPI; the prose status lines
+    // stay for humans.
+    std::function<void(const CompressionResult&)> on_compression;
+
     // Consulted before running a tool whose requires_approval() is true. Given
     // the tool name and a human-readable summary of the action, returns the
     // host's decision. If unset, approval-gated tools are DENIED by default
