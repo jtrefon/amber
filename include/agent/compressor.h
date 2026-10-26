@@ -118,6 +118,17 @@ struct CompressionResponse {
                        // callers must keep the context untouched
 };
 
+// The request prefix a host sends on a normal turn: the blocks injected after
+// the system prompt, the blocks appended after the conversation, and the tool
+// schemas. Replaying it makes the classify/extract calls extensions of the
+// cached prefix instead of a cold re-prefill of the whole context. The pipeline
+// only reads it; the host owns the blocks and the tool leases.
+struct CompressionRequestPrefix {
+    std::vector<Message> head_blocks;
+    std::vector<Message> tail_blocks;
+    std::vector<std::shared_ptr<Tool>> tools;
+};
+
 // ---------------------------------------------------------------------------
 // Ports
 // ---------------------------------------------------------------------------
@@ -164,15 +175,19 @@ class CompressionStrategy {
 public:
     virtual ~CompressionStrategy() = default;
     // Compress the conversation in `context`. Pure: the context is only
-    // READ — classify/extract requests are assembled from a working copy of
-    // the snapshot, so a failed pipeline leaves the context untouched by
-    // construction (spec invariant 7). The caller rebuilds the context from
-    // the returned message list on success.
-    // Returns the compressed message list.
+    // READ — classify/extract requests are assembled from the snapshot plus
+    // `prefix`, so a failed pipeline leaves the context untouched by
+    // construction (spec invariant 7). The caller rebuilds the context from the
+    // returned message list on success.
+    // `prefix` is the live request's head/tail blocks and tool schemas. Passing
+    // it is what lets both LLM calls extend the server's cached prefix; an empty
+    // prefix still works (a cold prefill, as a host with no injected blocks and
+    // no tools would see).
     virtual std::vector<Message> compress(Context& context, const CompressionConfig& cfg,
                                           LLMClient& client,
                                           CompressionObserver* observer = nullptr,
-                                          CompressionResponse* response_out = nullptr) = 0;
+                                          CompressionResponse* response_out = nullptr,
+                                          const CompressionRequestPrefix& prefix = {}) = 0;
 };
 
 // ---------------------------------------------------------------------------

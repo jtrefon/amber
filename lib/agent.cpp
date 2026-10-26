@@ -422,7 +422,8 @@ void Agent::fork_from(const Agent& src) {
 
 // Compression gate: if it triggers, compress and persist, then rebuild the
 // prompt from the new context for this call. Returns true when it rebuilt.
-bool Agent::maybe_compress(std::vector<Message>& prompt_copy) {
+bool Agent::maybe_compress(std::vector<Message>& prompt_copy,
+                           const std::vector<std::shared_ptr<Tool>>& tools) {
     if (!gate_ || !compression_)
         return false;
     resolve_window();
@@ -445,7 +446,11 @@ bool Agent::maybe_compress(std::vector<Message>& prompt_copy) {
     triggered.budget = static_cast<long>(budget);
     triggered.threshold = threshold;
     publish_event(triggered);
-    if (!run_compression(std::function<void()>(), nullptr))
+    // The live request prefix is captured BEFORE the rebuild: the classify call
+    // must replay exactly what the last turn sent (blocks + tool schemas), or the
+    // server re-prefills the whole conversation instead of extending its cache.
+    const CompressionRequestPrefix prefix = compression_prefix(prompt_copy, tools);
+    if (!run_compression(std::function<void()>(), nullptr, &prefix))
         return false;
     // Build prompt_copy from the new compressed context for the current LLM call.
     auto new_msgs = context_.get_all();
@@ -512,7 +517,7 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     cfg_.turn_counter = turn_counter_;
 
     // Check compression gate. If triggered, compress and persist.
-    maybe_compress(prompt_copy);
+    maybe_compress(prompt_copy, tools);
 
     // Every injected block is assembled here, ONCE, and only after the gate.
     // Injection used to be spread across four sites above and below this point,
@@ -619,9 +624,10 @@ bool Agent::fail_compression_after(CompressionResult& r, const std::string& erro
 // extract request replays the classify request), not from mutating the live
 // context. Returns false when the classifier reported an error.
 bool Agent::run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
-                                     std::vector<Message>& compressed) {
+                                     std::vector<Message>& compressed,
+                                     const CompressionRequestPrefix& prefix) {
     const auto cc = load_compression_config(cfg_);
-    compressed = compression_->compress(context_, cc, *client_, &reporter, &cr);
+    compressed = compression_->compress(context_, cc, *client_, &reporter, &cr, prefix);
     // Cooldown applies to the attempt, not just the success: a failing
     // classifier must not re-fire the pipeline on every following turn and burn
     // two LLM calls each time — the gate stays silent for the cooldown window and
@@ -674,7 +680,8 @@ void Agent::finish_compression(CompressionResult& r, const CompressionResponse& 
         *out = std::move(r);
 }
 
-bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out) {
+bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out,
+                            const CompressionRequestPrefix* prefix) {
     // Same scope as a turn: compression may run on its own worker thread,
     // where it still needs this agent's cancel token and catalog.
     cfg_.cancel_token.clear(); // a requested flag must not outlive its run
@@ -698,13 +705,23 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     const size_t msgs_before = before.size();
     const size_t tokens_before = context_.token_count();
 
+    // A host that did not hand us the live prefix (manual /compress) can still
+    // reproduce it: the injected blocks are derived from this context and the
+    // tool set from the registry's snapshot.
+    CompressionRequestPrefix live_prefix;
+    if (!prefix) {
+        const std::vector<Message> history(before.begin(), before.end());
+        live_prefix = compression_prefix(history, resolve_tools());
+        prefix = &live_prefix;
+    }
+
     CompressionResult r;
     CompressionReporter reporter(hooks_, r, std::move(progress_cb));
     reporter.set_before(msgs_before, tokens_before);
 
     CompressionResponse cr;
     std::vector<Message> compressed;
-    if (!run_compression_pipeline(reporter, cr, compressed))
+    if (!run_compression_pipeline(reporter, cr, compressed, *prefix))
         return fail_compression_after(r, cr.error, msgs_before, tokens_before, reporter, out);
 
     rebuild_context(compressed);
@@ -1038,9 +1055,9 @@ void Agent::collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<Pro
                         "[activated skill: " + act.name + "]\n" + act.body});
 }
 
-void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
-    std::vector<PromptBlock> head;
-    std::vector<PromptBlock> tail;
+void Agent::collect_prompt_blocks(const std::vector<Message>& prompt_copy,
+                                  std::vector<PromptBlock>& head,
+                                  std::vector<PromptBlock>& tail) const {
     std::size_t seq = 0;
 
     std::string suffix = retrieve_memory_suffix(prompt_copy);
@@ -1069,8 +1086,46 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
         for (auto& text : prompt_registry_->render_all(PromptPlacement::Tail))
             tail.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
     }
+}
 
+void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    collect_prompt_blocks(prompt_copy, head, tail);
     insert_prompt_blocks(prompt_copy, head, tail);
+}
+
+namespace {
+
+// A rendered block as the system message the request carries. Order is the
+// caller's (the block list is sorted before conversion).
+std::vector<Message> block_messages(const std::vector<Agent::PromptBlock>& blocks) {
+    std::vector<Message> out;
+    out.reserve(blocks.size());
+    for (const auto& block : blocks) {
+        Message m;
+        m.role = "system";
+        m.content = block.text;
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
+} // namespace
+
+CompressionRequestPrefix
+Agent::compression_prefix(const std::vector<Message>& history,
+                          const std::vector<std::shared_ptr<Tool>>& tools) const {
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    collect_prompt_blocks(history, head, tail);
+    std::sort(head.begin(), head.end(), block_before);
+    std::sort(tail.begin(), tail.end(), block_before);
+    CompressionRequestPrefix prefix;
+    prefix.head_blocks = block_messages(head);
+    prefix.tail_blocks = block_messages(tail);
+    prefix.tools = tools;
+    return prefix;
 }
 
 // Wall-clock budget: the engine enforces max_wall_ms, not just the post-hoc

@@ -165,7 +165,8 @@ public:
     // Run the compression pipeline (gate already decided). Rebuilds the
     // context only on success — a failed pipeline leaves the context
     // untouched (spec invariant 7). Optionally fills `out` with stats.
-    bool run_compression(std::function<void()> progress_cb, CompressionResult* out);
+    bool run_compression(std::function<void()> progress_cb, CompressionResult* out,
+                         const CompressionRequestPrefix* prefix = nullptr);
 
     // Internal metadata — never sent to the LLM.  Persisted alongside
     // history_ in the session file for future internal use.
@@ -361,13 +362,23 @@ private:
     // `prompt_priority`. The sealed Context is never touched — this is the
     // prompt copy.
     void inject_prompt_blocks(std::vector<Message>& prompt_copy) const;
+    // The blocks that injection would add, in request order. Compression
+    // replays them so its classify/extract calls are extensions of the cached
+    // prefix (see CompressionRequestPrefix).
+    void collect_prompt_blocks(const std::vector<Message>& prompt_copy,
+                               std::vector<PromptBlock>& head,
+                               std::vector<PromptBlock>& tail) const;
+    CompressionRequestPrefix
+    compression_prefix(const std::vector<Message>& history,
+                       const std::vector<std::shared_ptr<Tool>>& tools) const;
 
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
 
     // One model round-trip (stream or buffered).
     Message chat_once(const std::vector<std::shared_ptr<Tool>>& tools);
-    bool maybe_compress(std::vector<Message>& prompt_copy);
+    bool maybe_compress(std::vector<Message>& prompt_copy,
+                        const std::vector<std::shared_ptr<Tool>>& tools);
     void on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const;
     void record_stats(const Stats& stats);
     void publish_llm_response(const Stats& stats);
@@ -390,7 +401,8 @@ private:
                                 size_t tokens_before, CompressionReporter& reporter,
                                 CompressionResult* out);
     bool run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
-                                  std::vector<Message>& compressed);
+                                  std::vector<Message>& compressed,
+                                  const CompressionRequestPrefix& prefix);
     void rebuild_context(std::vector<Message>& compressed);
     void count_segments(const CompressionResponse& cr, CompressionResult& r);
     void finish_compression(CompressionResult& r, const CompressionResponse& cr, size_t msgs_before,
