@@ -34,6 +34,7 @@ struct SkillRow {
     agent::SkillRef ref;
     std::string description;
     std::string category;
+    std::string state; // installed: enabled | disabled | blocked | suppressed
     agent::TrustTier tier = agent::TrustTier::Unverified;
     bool installed = false;
     bool update = false;
@@ -110,7 +111,7 @@ public:
     bool stale() const noexcept { return stale_; }
     const agent::IndexFailure& error() const noexcept { return error_; }
     int selection() const noexcept { return selection_; }
-    int scroll() const noexcept { return scroll_; }
+    int scroll_offset() const noexcept { return scroll_; }
     int detail_scroll() const noexcept { return detail_scroll_; }
     bool marked(const std::string& id) const { return marked_.count(id) != 0; }
     const std::set<std::string>& marks() const noexcept { return marked_; }

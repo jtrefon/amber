@@ -1,5 +1,10 @@
 {
  "commands": {
+  "skills": {
+   "action": "core.skills",
+   "help": "Find and install skills.",
+   "man": "Opens the Skills Explorer: search the skills.sh index, read a result's details, and install it into the project (.amber/skills) or globally (~/.config/amber/skills). The explorer keeps the search local-first and only fetches a detail when you ask for it. Type at least two characters to search; Enter loads a detail; i installs it."
+  },
   "help": {
    "action": "core.help",
    "help": "Show command help. Use '/help <command>' for details, or type '?' at the end of any command path.",

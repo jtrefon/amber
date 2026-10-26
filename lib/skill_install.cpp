@@ -5,8 +5,11 @@
 #include "agent/skill_file.h"
 
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <sstream>
 #include <unistd.h>
@@ -256,6 +259,74 @@ std::string uninstall_skill(const std::string& name, const std::string& dest_roo
 
 bool is_safe_skill_path(const std::string& relative_path) noexcept {
     return safe_relative(relative_path);
+}
+
+std::string skill_content_hash(const std::string& contents) {
+    uint64_t h = 1469598103934665603ULL;
+    for (const unsigned char c : contents) {
+        h ^= c;
+        h *= 1099511628211ULL;
+    }
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%016llx", static_cast<unsigned long long>(h));
+    return buf;
+}
+
+namespace {
+
+bool absorb_skill_file(const std::filesystem::path& dir, const std::filesystem::path& path,
+                       LedgerEntry& entry, bool& has_skill_md) {
+    if (std::filesystem::is_symlink(path))
+        return false;
+    if (!std::filesystem::is_regular_file(path))
+        return true;
+
+    std::error_code ec;
+    const std::string relative = std::filesystem::relative(path, dir, ec).generic_string();
+    if (ec || !is_safe_skill_path(relative))
+        return false;
+
+    ++entry.files;
+    const auto size = std::filesystem::file_size(path, ec);
+    if (!ec)
+        entry.bytes += static_cast<long long>(size);
+
+    if (relative != "SKILL.md")
+        return true;
+    std::ifstream in(path, std::ios::binary);
+    const std::string body((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (!parse_skill_meta(body))
+        return false;
+    entry.local_hash = skill_content_hash(body);
+    has_skill_md = true;
+    return true;
+}
+
+} // namespace
+
+std::optional<LedgerEntry> adopt_skill(const std::string& root, const std::string& name) {
+    if (!is_kebab_name(name))
+        return std::nullopt;
+    const std::filesystem::path dir = std::filesystem::path(root) / name;
+    if (!std::filesystem::is_directory(dir))
+        return std::nullopt;
+
+    LedgerEntry entry;
+    entry.slug = name;
+    entry.installed_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    entry.enabled = true;
+
+    bool has_skill_md = false;
+    std::error_code ec;
+    for (const auto& it : std::filesystem::recursive_directory_iterator(dir, ec)) {
+        if (ec || !absorb_skill_file(dir, it.path(), entry, has_skill_md))
+            return std::nullopt;
+    }
+    if (!has_skill_md)
+        return std::nullopt;
+    return entry;
 }
 
 SkillInstallResult install_skill_files(const SkillInstallRequest& request) {

@@ -276,3 +276,76 @@ TEST(github_fetch_assets_caps_file_count) {
     ASSERT_TRUE(!r.ok());
     ASSERT_TRUE(r.error.kind == agent::IndexError::Malformed);
 }
+
+TEST(github_detail_offline_is_typed) {
+    TempDir tmp("offline");
+    Router router;
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).detail(tdd_ref(), {});
+    ASSERT_TRUE(!r.ok());
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Offline);
+}
+
+TEST(github_malformed_repo_and_missing_branch_are_errors) {
+    TempDir tmp("repo_bad");
+    Router router;
+    router.routes[kRepoUrl] = reply(200, "not json");
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).detail(tdd_ref(), {});
+    ASSERT_TRUE(!r.ok());
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Malformed);
+
+    Router no_branch;
+    no_branch.routes[kRepoUrl] = reply(200, R"({"license":{"spdx_id":"MIT"}})");
+    const auto second = agent::GitHubIndex(options(no_branch, tmp.path)).detail(tdd_ref(), {});
+    ASSERT_TRUE(!second.ok());
+    ASSERT_TRUE(second.error.kind == agent::IndexError::Malformed);
+}
+
+TEST(github_marketplace_is_optional) {
+    TempDir tmp("no_market");
+    Router router;
+    router.routes[kRepoUrl] = reply(200, kRepoJson);
+    router.routes[kTreeUrl] = reply(200, kTreeJson);
+    router.routes[kSkillUrl] = reply(200, kSkillMd);
+
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).detail(tdd_ref(), {});
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(r.detail->category, std::string(""));
+}
+
+TEST(github_asset_404_is_typed) {
+    TempDir tmp("asset404");
+    Router router;
+    router.routes[kSkillUrl] = reply(404, R"({"message":"Not Found"})");
+    agent::SkillDetail d;
+    d.ref = tdd_ref();
+    d.default_branch = "main";
+    d.skill_dir = "skills/tdd";
+    d.assets = {{"SKILL.md", 10, "aaa"}};
+
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).fetch_assets(d, {});
+    ASSERT_TRUE(!r.ok());
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Http);
+    ASSERT_EQ(r.error.status, 404);
+}
+
+TEST(github_asset_declared_oversize_is_rejected) {
+    TempDir tmp("assetbig");
+    Router router;
+    agent::SkillDetail d;
+    d.ref = tdd_ref();
+    d.default_branch = "main";
+    d.assets = {{"SKILL.md", 11 * 1024 * 1024, "aaa"}};
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).fetch_assets(d, {});
+    ASSERT_TRUE(!r.ok());
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Malformed);
+}
+
+TEST(github_bad_source_is_rejected) {
+    TempDir tmp("badsource");
+    Router router;
+    agent::SkillRef ref = tdd_ref();
+    ref.source = "../etc";
+    const auto r = agent::GitHubIndex(options(router, tmp.path)).detail(ref, {});
+    ASSERT_TRUE(!r.ok());
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Malformed);
+}
