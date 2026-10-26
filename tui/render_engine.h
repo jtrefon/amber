@@ -168,8 +168,9 @@ private:
     Tui& tui_;
     Canvas chat_canvas_;
     md::Style md_style_;
-    // Worker-side: the only place that forks git. current_project_name() is a
-    // getcwd (no fork), used to seed the prompt before the first refresh lands.
+    // Worker-side: the prompt's only git entry point (git_reads owns the
+    // subprocesses). current_project_name() is a getcwd (no fork), used to seed
+    // the prompt before the first refresh lands.
     static GitState read_git_state(const std::string& root);
     // The display name of a tree: its last path component, or the process's
     // working directory when root is empty.

@@ -1,4 +1,5 @@
 #include "render_engine.h"
+#include "git_reads.h"
 #include "tui.h"
 #include "welcome.h"
 #include "tool_display.h"
@@ -9,7 +10,6 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
-#include <cstdio>
 #include <unistd.h>
 
 namespace tui {
@@ -789,45 +789,13 @@ std::shared_ptr<const RenderEngine::GitState> RenderEngine::git_state() const {
     return std::atomic_load_explicit(&git_pub_->state, std::memory_order_acquire);
 }
 
-namespace {
-
-std::string read_stdout(const std::string& cmd) {
-    std::string result;
-    FILE* pipe = popen(cmd.c_str(), "r");
-    if (!pipe)
-        return result;
-    char buf[256];
-    while (fgets(buf, sizeof(buf), pipe))
-        result += buf;
-    pclose(pipe);
-    return result;
-}
-
-// A workspace path reaches a shell here, so it is quoted rather than trusted to
-// be free of spaces or quotes (a worktree sits under $TMPDIR, which a user may
-// set to anything).
-std::string shell_quoted(const std::string& s) {
-    std::string out = "'";
-    for (const char c : s)
-        out += (c == '\'') ? std::string("'\\''") : std::string(1, c);
-    return out + "'";
-}
-
-} // namespace
-
 RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
-    const std::string dir = root.empty() ? std::string(".") : shell_quoted(root);
-
     GitState st;
     st.project = current_project_name(root);
 
     // One process for branch, oid and every entry class. The pathspec matches
     // the diff's exclusions, so the two reads describe the same tree.
-    const std::string status = read_stdout(
-        "git -C " + dir +
-        " status --porcelain=v2 --branch -- . ':!bench/results' ':!*.o' ':!*.a' ':!*.d' "
-        "2>/dev/null");
-    const text::GitStatus parsed = text::parse_git_status_v2(status);
+    const text::GitStatus parsed = git_reads::read_status(root);
     st.branch = parsed.branch;
     if (st.branch.empty())
         return st;
@@ -835,22 +803,9 @@ RenderEngine::GitState RenderEngine::read_git_state(const std::string& root) {
     // A diff read is only needed when the status reported tracked changes;
     // untracked-only work is the `*` case below.
     if (parsed.tracked) {
-        std::string stat = read_stdout("git -C " + dir +
-                                       " diff --shortstat -- . ':!bench/results' ':!*.o' "
-                                       "':!*.a' ':!*.d' 2>/dev/null");
-        if (!stat.empty()) {
-            auto extract = [&](const std::string& needle) -> int {
-                size_t pos = stat.find(needle);
-                if (pos == std::string::npos)
-                    return 0;
-                size_t begin = pos;
-                while (begin > 0 && isdigit(static_cast<unsigned char>(stat[begin - 1])))
-                    --begin;
-                return std::stoi(stat.substr(begin, pos - begin));
-            };
-            st.ins = extract(" insertion");
-            st.del = extract(" deletion");
-        }
+        const text::DiffStat stat = git_reads::read_diff_stat(root);
+        st.ins = stat.ins;
+        st.del = stat.del;
     }
     st.dirty = parsed.dirty;
     if (st.dirty && st.ins == 0 && st.del == 0)
