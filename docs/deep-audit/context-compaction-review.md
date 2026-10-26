@@ -558,7 +558,7 @@ when to start. GitHub holds the live state; this table is the static plan.
 | CC-09 | [#425](https://github.com/jtrefon/amber/issues/425) | One budget relation: headroom below trigger | P2 | next | CC-05 | `compressor.cpp`, `compressor_apply.cpp` |
 | CC-10 | [#426](https://github.com/jtrefon/amber/issues/426) | Gate guards count messages/calls; add a saturation bypass | P2 | next | — | `compressor.cpp` |
 | CC-11 | [#427](https://github.com/jtrefon/amber/issues/427) | Knowledge deprecation reachable, or deleted | P2 | next | D5 | `compressor_parser.cpp`, `compressor_apply.cpp`, `compressor_request.cpp` |
-| CC-12 | [#428](https://github.com/jtrefon/amber/issues/428) | Reconcile the three docs with the code | P2 | now | — | `docs/**` |
+| CC-12 | [#428](https://github.com/jtrefon/amber/issues/428) | Reconcile the three docs with the code | P2 | now | — | `docs/**` (done: `compression-pipeline.md`, `context-compression.md`, `loop-collapse.md`, `turn-classification.md`, `INDEX.md`, ownership claim) |
 | CC-13 | [#429](https://github.com/jtrefon/amber/issues/429) | Module linkage, const-correctness and copy hygiene | P3 | later | all above | `compressor*.{h,cpp}` |
 
 ### Findings → tasks

@@ -2,13 +2,17 @@
 
 ### Purpose
 Detect and remove consecutive identical tool-call sequences (3+ repetitions of
-the same tool with the same arguments) from the conversation history before
-the LLM classification pass. This reduces noise and token waste from tool-loop
-behaviour.
+the same tool with the same arguments) from the assembled output of a
+compression pass. It runs **after** classification, on the output, so the
+history the classifier sees (and the cached prefix it was sent with) stays
+byte-identical; it is free, requires no LLM call, and is not gated by anything.
+
+A live tool loop is stopped by the agent's own dispatch guard; this pass removes
+the evidence of one from the conversation so a later turn does not re-read it.
 
 ### Ownership
 - **Source files**: `lib/compressor_scanner.cpp` (`collapse_loops()`, 83 lines), `lib/agent_helpers.cpp` (`fingerprint_tool_calls()`)
-- **Test files**: `tests/run_tests.cpp` — 3 collapse tests (lines 1555–1609)
+- **Test files**: `tests/run_tests.cpp` — `collapse_loops_*` (no-op on short/no-loop histories, and the 3-call collapse)
 
 ---
 
@@ -16,11 +20,11 @@ behaviour.
 
 | Dimension | Detail |
 |-----------|--------|
-| **Input** | `std::vector<Message>` (conversation history) |
+| **Input** | `std::vector<Message>` (the assembled compressed output) |
 | **Output** | Modified vector with loop sequences removed and a `[loop collapsed]` note inserted |
 | **Error states** | History <4 messages → no-op (return unchanged). |
 | **Invariants** | See below. |
-| **Thread safety** | Called synchronously from compression pipeline. |
+| **Thread safety** | Called synchronously by the pipeline, on the owner thread. |
 
 ### Invariants
 
@@ -73,11 +77,16 @@ behaviour.
 
 ### Cross-references
 
-- **Depends on**: `compression/compression-pipeline.md` (called as first step)
+- **Depends on**: `compression/compression-pipeline.md` (runs on the assembled output)
 - **Depended on by**: `agent-loop/error-recovery.md` (tool-loop detection is separate from compression loop collapse)
-- **Test coverage**: `tests/run_tests.cpp`: `collapse_loops_noop_on_short_history` (1555), `collapse_loops_noop_on_no_loop` (1565), `collapse_loops_removes_tool_loop` (1579)
+- **Test coverage**: `tests/run_tests.cpp`: `collapse_loops_noop_on_short_history`, `collapse_loops_noop_on_no_loop`, `collapse_loops_removes_tool_loop`
 
 ### Known gaps
 
-1. **Brittle trailing message removal** — The logic removes ANY trailing tool/assistant messages after the loop, which may consume legitimate content that doesn't depend on the loop.
-2. **Fingerprint includes full arguments** — Even trivial differences (different whitespace) produce different fingerprints. Only exact argument-equivalent calls are detected.
+1. **Trailing removal is broad by design.** The messages that follow a collapsed
+   run would otherwise reference results that no longer exist; the pass removes
+   the whole tail of the loop. If that ever consumes legitimate work, the
+   classifier's summary is the channel that preserves it.
+2. **Fingerprints are exact.** The fingerprint is tool name + serialised
+   arguments, so whitespace differences defeat detection. That is deliberate:
+   a fuzzy match could collapse calls that were not the same request.
