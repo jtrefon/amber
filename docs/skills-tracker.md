@@ -2,6 +2,8 @@
 
 - **Status:** 🟢 Complete — SK-IMP-001..007 implemented on `feat/skills-system`, all gates green
 - **Next:** acquisition (explorer, index, install lifecycle) — epic #391, sub-issues #392–#412, spec `docs/spec/skills/skill-acquisition.md`
+- **P0 shipped:** #413 (foundation) and #414 (explorer/lifecycle) are merged; user guide: `docs/skills-acquisition.md`
+- **Remaining:** #397–#403 polish, #404/#446 TUI coverage, #405–#412 P1/P2/docs
 - **Reference:** `docs/spec/skills/agent-skills.md`, `docs/spec/skills/skill-files.md`, `docs/spec/skills/skill-catalog.md`
 - **Issues register:** `docs/issues.md`
 
