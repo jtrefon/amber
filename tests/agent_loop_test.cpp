@@ -704,6 +704,53 @@ TEST(agent_loop_learned_window_clamps_gate) {
 // injected blocks and the tool schemas — or the server re-prefills the whole
 // conversation, which is the cost the pipeline exists to avoid. The blocks are
 // request-only: they never enter the compressed context.
+// A compaction that cannot reduce the history must not replace it: the summary
+// alone would cost tokens and change the prefix for nothing. A single-turn
+// session protects its whole turn, so the honest outcome is "unchanged".
+TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
+    agent::CompressionConfig cc;
+    cc.context_size = 4096;
+    cc.target_pct = 10;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor(cc);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake,
+              R"({"summary":"work state","classification":[{"turns":"1-30","tag":"core"}]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "one long turn";
+    ctx.push(std::move(user));
+    for (int r = 0; r < 10; ++r) {
+        agent::Message call;
+        call.role = "assistant";
+        call.tool_calls =
+            json::array({{{"id", "c" + std::to_string(r)},
+                          {"type", "function"},
+                          {"function",
+                           {{"name", "read"}, {"arguments", "{\"path\":\"f" +
+                                                               std::to_string(r) + "\"}"}}}}});
+        ctx.push(std::move(call));
+        agent::Message result;
+        result.role = "tool";
+        result.tool_call_id = "c" + std::to_string(r);
+        result.name = "read";
+        result.content = std::string(100, 'x'); // too small to prune
+        ctx.push(std::move(result));
+    }
+    const std::size_t before_tokens = ctx.token_count();
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
+    ASSERT(agent::estimate_tokens(out) <= before_tokens);
+}
+
 TEST(compression_request_replays_the_live_prefix) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor(cc);
