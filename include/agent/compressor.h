@@ -44,6 +44,11 @@ inline constexpr std::size_t kMaxSummaryChars = 200;
 inline constexpr char kToolOutputOmitted[] =
     "[tool output omitted \u2014 session log retains the original]";
 
+// The archive is bookkeeping: a hard cap keeps it from eating the budget the
+// pass is trying to reach. Oldest entries merge into one line.
+inline constexpr std::size_t kMaxArchiveEntries = 32;
+inline constexpr std::size_t kMaxArchiveTokens = 800;
+
 // Prefix of the compressed-context message produced by apply_classification;
 // enforce_headroom locates it by this prefix to append archive entries.
 inline constexpr char kCompressedContextPrefix[] = "Compressed conversation context:";
