@@ -1,8 +1,15 @@
 # Context Compression Architecture
 
-- **Status:** Active design
+- **Status:** Active design — **⚠ under remediation (2026-10-26)**
 - **Applies to:** `lib/` (core domain), `include/agent/` (ports)
 - **Design patterns:** Strategy, Observer, Memento, Command, Null Object
+
+> **⚠ Read the review first.** The 2026-10 review found this document describes
+> a pre-pure-pipeline design: it claims push/pop on the live context, a
+> post-turn gate, `enforce_minimum_context` and `split_classify_response`, none
+> of which exist. See
+> [`docs/deep-audit/context-compaction-review.md`](../deep-audit/context-compaction-review.md);
+> reconciliation is tracked as CC-12.
 
 ---
 
