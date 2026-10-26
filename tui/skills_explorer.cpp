@@ -3,6 +3,7 @@
 #include "agent/github_index.h"
 #include "agent/skill_install.h"
 #include "tui/dialog.h"
+#include "tui/skills_lifecycle.h"
 #include "tui/skills_service.h"
 
 #include <algorithm>
@@ -64,14 +65,6 @@ std::string compact_installs(int installs) {
     if (installs >= 1000)
         return std::to_string(installs / 1000) + "K";
     return std::to_string(installs);
-}
-
-std::string local_skill_hash(const std::string& root, const std::string& name) {
-    std::ifstream f(root + "/" + name + "/SKILL.md", std::ios::binary);
-    if (!f)
-        return {};
-    const std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    return agent::skill_content_hash(body);
 }
 
 const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::string& name) {
@@ -285,6 +278,10 @@ public:
         github_opts.cache_root = options.cache_root;
         github_opts.token = options.token;
         service_ = std::make_unique<SkillsService>(make_skills_backends(index_opts, github_opts));
+        life_ = std::make_unique<SkillsLifecycle>(
+            SkillsLifecycleOptions{options.project_root, options.global_root, options.ledger,
+                                   options.set_state},
+            *service_);
         core_.set_sort(SkillSort::Relevance);
         core_.set_tab(options_.initial_tab);
         refresh_installed();
@@ -312,8 +309,9 @@ private:
         installed_names_.clear();
         for (auto& row : installed_rows_) {
             installed_names_.insert(row.ref.name);
-            row.update = updates_.count(row.ref.name) != 0;
+            row.update = life_->has_update(row.ref.name);
         }
+        life_->set_installed(installed_rows_);
         core_.set_installed(installed_rows_);
     }
 
@@ -341,21 +339,16 @@ private:
     void on_detail(const SkillsEvent& event);
     void on_install(const SkillsEvent& event);
     void prompt_install(const std::string& id);
-    void adopt_current();
-    void remove_current();
-    void update_current(const std::string& id);
-    void apply_update(const std::string& name);
     bool apply_lifecycle(const SkillIntent& intent);
-    void finish_update(const agent::SkillDetail& detail);
-    void toggle_state(const std::string& id);
-    void block_current(const std::string& id);
-    std::string root_for(const SkillRow& row) const;
+    void remove_current(const SkillRow& row);
+    void update_current(const SkillRow& row);
     bool confirm(const std::string& title, const std::string& text) const;
 
     SkillsExplorerOptions options_;
     std::function<void(const std::string&)> status_;
     std::unique_ptr<Dialog> dlg_;
     std::unique_ptr<SkillsService> service_;
+    std::unique_ptr<SkillsLifecycle> life_;
     SkillsBrowseCore core_;
     std::vector<SkillRow> installed_rows_;
     std::set<std::string> installed_names_;
@@ -365,8 +358,6 @@ private:
     std::string pending_install_;
     std::string pending_update_;
     std::string last_status_;
-    std::set<std::string> updates_;
-    std::set<std::string> update_ready_;
     bool pending_search_ = false;
     Clock::time_point last_input_{};
 };
@@ -402,22 +393,56 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
     }
 }
 
+void SkillsExplorer::remove_current(const SkillRow& row) {
+    const std::string root = life_->install_root(row);
+    if (root.empty()) {
+        last_status_ = "only project/global skills can be removed here";
+        return;
+    }
+    if (!confirm("Remove skill", "Remove " + row.ref.name + " from " + root + "?"))
+        return;
+    last_status_ = life_->remove(row);
+    details_.erase(row.ref.id);
+    raw_details_.erase(row.ref.id);
+    refresh_installed();
+}
+
+void SkillsExplorer::update_current(const SkillRow& row) {
+    agent::SkillRef ref;
+    const UpdateAction action = life_->prepare_update(row, ref, last_status_);
+    if (action == UpdateAction::Fetch) {
+        pending_update_ = row.ref.name;
+        service_->detail(ref);
+    } else if (action == UpdateAction::Apply) {
+        last_status_ = life_->apply_update(row);
+        refresh_installed();
+    }
+}
+
 bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
+    const auto row = core_.current();
+    if (!row) {
+        last_status_ = "no skill selected";
+        return true;
+    }
     switch (intent.kind) {
     case SkillIntent::Kind::Adopt:
-        adopt_current();
+        last_status_ = life_->adopt(*row);
+        refresh_installed();
         return true;
     case SkillIntent::Kind::Remove:
-        remove_current();
+        remove_current(*row);
         return true;
     case SkillIntent::Kind::Update:
-        update_current(intent.id);
+        update_current(*row);
         return true;
     case SkillIntent::Kind::ToggleEnabled:
-        toggle_state(intent.id);
+        last_status_ = life_->toggle(*row);
+        refresh_installed();
         return true;
     case SkillIntent::Kind::Block:
-        block_current(intent.id);
+        last_status_ = life_->block(*row);
+        refresh_installed();
         return true;
     default:
         last_status_ = "not available yet";
@@ -481,7 +506,12 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
     raw_details_[detail.ref.id] = detail;
     last_status_ = "loaded " + detail.ref.name;
     if (!pending_update_.empty()) {
-        finish_update(detail);
+        const std::string name = pending_update_;
+        pending_update_.clear();
+        if (const SkillRow* row = installed_row(installed_rows_, name)) {
+            last_status_ = life_->check_update(*row, detail);
+            refresh_installed();
+        }
         return;
     }
     if (pending_install_ == detail.ref.id) {
@@ -519,21 +549,6 @@ void SkillsExplorer::prompt_install(const std::string& id) {
     last_status_ = "installing " + agent::skill_slug(id) + "...";
 }
 
-std::string SkillsExplorer::root_for(const SkillRow& row) const {
-    // Installed rows carry their directory path as the id; deriving the root
-    // from it is exact even when a scope label and a configured path disagree.
-    if (row.ref.id.find('/') != std::string::npos) {
-        const std::filesystem::path path(row.ref.id);
-        if (path.has_parent_path())
-            return path.parent_path().string();
-    }
-    if (row.ref.source == "project")
-        return options_.project_root;
-    if (row.ref.source == "global")
-        return options_.global_root;
-    return {};
-}
-
 bool SkillsExplorer::confirm(const std::string& title, const std::string& text) const {
     Dialog dlg(std::min(9, options_.rows - 2), std::min(64, options_.cols - 4), title);
     dlg.set_footer({{"y", "confirm"}, {"n", "cancel"}});
@@ -547,174 +562,6 @@ bool SkillsExplorer::confirm(const std::string& title, const std::string& text) 
         if (ch == 'n' || ch == 'N' || ch == 27 || ch == 'q')
             return false;
     }
-}
-
-void SkillsExplorer::adopt_current() {
-    const auto row = core_.current();
-    if (!row || !row->installed) {
-        last_status_ = "only installed skills can be adopted";
-        return;
-    }
-    if (options_.ledger && options_.ledger(row->ref.name)) {
-        last_status_ = row->ref.name + " is already managed";
-        return;
-    }
-    const std::string root = root_for(*row);
-    if (root.empty()) {
-        last_status_ = "only project/global skills can be adopted";
-        return;
-    }
-    const auto entry = agent::adopt_skill(root, row->ref.name);
-    if (!entry) {
-        last_status_ = "cannot adopt " + row->ref.name;
-        return;
-    }
-    agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
-    ledger.load();
-    ledger.upsert(row->ref.name, *entry);
-    last_status_ = "adopted " + row->ref.name;
-    refresh_installed();
-}
-
-void SkillsExplorer::remove_current() {
-    const auto row = core_.current();
-    if (!row || !row->installed) {
-        last_status_ = "only installed skills can be removed";
-        return;
-    }
-    const std::string root = root_for(*row);
-    if (root.empty()) {
-        last_status_ = "only project/global skills can be removed here";
-        return;
-    }
-    if (!confirm("Remove skill", "Remove " + row->ref.name + " from " + root + "?"))
-        return;
-    const std::string error = agent::uninstall_skill(row->ref.name, root);
-    if (!error.empty()) {
-        last_status_ = error;
-        return;
-    }
-    agent::SkillLedger ledger = agent::SkillLedger::for_root(root);
-    ledger.load();
-    ledger.remove(row->ref.name);
-    updates_.erase(row->ref.name);
-    update_ready_.erase(row->ref.name);
-    details_.erase(row->ref.id);
-    raw_details_.erase(row->ref.id);
-    last_status_ = "removed " + row->ref.name;
-    refresh_installed();
-}
-
-void SkillsExplorer::update_current(const std::string& id) {
-    const auto row = core_.current();
-    if (!row || row->ref.id != id || !row->installed) {
-        last_status_ = "only an installed skill can be updated";
-        return;
-    }
-    const std::string name = row->ref.name;
-    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
-    if (!entry) {
-        last_status_ = name + " is unmanaged (press A to adopt)";
-        return;
-    }
-    if (update_ready_.count(name) != 0) {
-        apply_update(name);
-        return;
-    }
-    agent::SkillRef ref;
-    ref.id = entry->id;
-    ref.source = entry->source;
-    ref.name = name;
-    ref.installs = row->ref.installs;
-    pending_update_ = name;
-    service_->detail(ref);
-    last_status_ = "checking " + name + "...";
-}
-
-void SkillsExplorer::finish_update(const agent::SkillDetail& detail) {
-    const std::string name = pending_update_;
-    pending_update_.clear();
-    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
-    if (!entry || entry->id != detail.ref.id) {
-        last_status_ = "no provenance recorded for " + name;
-        return;
-    }
-    if (detail.hash == entry->hash) {
-        last_status_ = name + " is up to date";
-        return;
-    }
-    const SkillRow* row = installed_row(installed_rows_, name);
-    const std::string root = row ? root_for(*row) : std::string();
-    if (root.empty()) {
-        last_status_ = "unknown install root for " + name;
-        return;
-    }
-    if (local_skill_hash(root, name) != entry->local_hash) {
-        last_status_ = name + " has local edits; update refused";
-        return;
-    }
-    update_ready_.insert(name);
-    updates_.insert(name);
-    refresh_installed();
-    last_status_ = "update available for " + name + " (u applies)";
-}
-
-void SkillsExplorer::toggle_state(const std::string& id) {
-    const auto row = core_.current();
-    if (!row || row->ref.id != id || !row->installed) {
-        last_status_ = "only an installed skill can be toggled";
-        return;
-    }
-    const bool off = row->state == "disabled" || row->state == "blocked";
-    if (!options_.set_state || !options_.set_state(row->ref.name, off ? "enable" : "disable")) {
-        last_status_ = "cannot change " + row->ref.name;
-        return;
-    }
-    last_status_ = row->ref.name + (off ? " enabled" : " disabled");
-    refresh_installed();
-}
-
-void SkillsExplorer::block_current(const std::string& id) {
-    const auto row = core_.current();
-    if (!row || row->ref.id != id || !row->installed) {
-        last_status_ = "only an installed skill can be blocked";
-        return;
-    }
-    if (!options_.set_state || !options_.set_state(row->ref.name, "block")) {
-        last_status_ = "cannot block " + row->ref.name;
-        return;
-    }
-    last_status_ = row->ref.name + " blocked";
-    refresh_installed();
-}
-
-void SkillsExplorer::apply_update(const std::string& name) {
-    const auto entry = options_.ledger ? options_.ledger(name) : std::nullopt;
-    if (!entry) {
-        last_status_ = name + " is unmanaged";
-        return;
-    }
-    const SkillRow* row = installed_row(installed_rows_, name);
-    const std::string root = row ? root_for(*row) : std::string();
-    if (root.empty()) {
-        last_status_ = "unknown install root for " + name;
-        return;
-    }
-    const auto raw = raw_details_.find(entry->id);
-    if (raw == raw_details_.end()) {
-        last_status_ = "load " + name + " details first";
-        return;
-    }
-    if (local_skill_hash(root, name) != entry->local_hash) {
-        updates_.erase(name);
-        update_ready_.erase(name);
-        refresh_installed();
-        last_status_ = name + " has local edits; update refused";
-        return;
-    }
-    service_->install(raw->second, name, root, true, entry->enabled);
-    update_ready_.erase(name);
-    last_status_ = "updating " + name + "...";
 }
 
 } // namespace
