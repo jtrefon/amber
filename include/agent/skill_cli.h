@@ -30,7 +30,7 @@ struct SkillCliCommand {
     SkillVerb verb = SkillVerb::None;
     std::string target; // query, id, or skill name
     int limit = 20;
-    bool json = false;
+    bool json{false};
     bool global = false;
     bool yes = false;
     bool all = false;

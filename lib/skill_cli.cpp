@@ -58,7 +58,17 @@ std::string scope_root(const std::string& scope) {
 }
 
 std::string local_hash(const std::string& root, const std::string& name) {
-    std::ifstream f(root + "/" + name + "/SKILL.md", std::ios::binary);
+    if (!is_kebab_name(name))
+        return {};
+    std::error_code ec;
+    const std::filesystem::path base = std::filesystem::weakly_canonical(root, ec);
+    if (ec)
+        return {};
+    const std::filesystem::path file =
+        std::filesystem::weakly_canonical(base / name / "SKILL.md", ec);
+    if (ec || file.string().rfind(base.string() + "/", 0) != 0)
+        return {};
+    std::ifstream f(file, std::ios::binary);
     if (!f)
         return {};
     const std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
@@ -94,14 +104,6 @@ bool looks_like_pack(const std::string& target) {
            (target.size() > 4 && target.compare(target.size() - 4, 4, ".tgz") == 0);
 }
 
-std::string state_for(const std::vector<SkillEntry>& entries, const std::string& name) {
-    for (const auto& entry : entries) {
-        if (entry.name == name && !entry.state.empty())
-            return entry.state;
-    }
-    return "enabled";
-}
-
 std::vector<InstalledPackage> packages_from(const std::string& scope,
                                             const std::vector<SkillEntry>& entries) {
     std::vector<InstalledPackage> packages;
@@ -119,7 +121,13 @@ std::vector<InstalledPackage> packages_from(const std::string& scope,
         package.files = entry.files;
         package.bytes = entry.bytes;
         package.enabled = entry.enabled;
-        package.state = state_for(entries, name);
+        package.state = "enabled";
+        for (const auto& catalog_entry : entries) {
+            if (catalog_entry.name == name && !catalog_entry.state.empty()) {
+                package.state = catalog_entry.state;
+                break;
+            }
+        }
         packages.push_back(std::move(package));
     }
     return packages;
@@ -486,7 +494,7 @@ bool parse_cli_flag(const std::string& arg, size_t& i, const std::vector<std::st
 }
 
 SkillCliCommand parse_skill_cli(const std::vector<std::string>& args) {
-    SkillCliCommand cmd;
+    SkillCliCommand cmd{};
     if (args.empty()) {
         cmd.error = "a verb is required";
         return cmd;
