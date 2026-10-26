@@ -72,6 +72,13 @@ public:
         return -1;
     }
 
+    // Decrement by the item's stable name, which is what the extract step
+    // produces. Falls back to nothing when no item carries that name.
+    virtual int deprecate_named(const std::string& name) {
+        (void)name;
+        return -1;
+    }
+
     // Promotion thresholds — the store owns them (single source). New
     // LLM-confirmed items start at the threshold and are promoted at once.
     virtual int memory_promote_threshold() const {

@@ -81,6 +81,9 @@ SKILLS (reusable procedures):
   {"name": "<kebab-case-id>", "content": "One-sentence description.",
    "trigger_phrase": "<word>", "action": "upsert"}
 
+RETIREMENTS (a stored memory or skill is wrong or obsolete):
+  {"name": "<the stored item's name>", "action": "deprecate"}
+
 The trigger_phrase is the word the user might say that should activate this skill.
 If nothing to extract, omit the array.
 
