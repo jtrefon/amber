@@ -35,10 +35,18 @@ int gauge_full_cells(double frac, int cells);
 // three-cell glint while the verb keeps the proportional band.
 int shine_band(int cells);
 
+// How the lit band is shaded. Gradient fades from the base through a mid shade
+// to the core (the verb, where the sweep should look like light moving across
+// the word). Solid keeps one shade for every lit cell -- the light/core colour
+// only (the gauge, where a coloured fade reads as a second, more intense signal).
+enum class ShineStyle : std::uint8_t { Gradient, Solid };
+
 // The moving highlight swept across a gauge (or a word) while a run is live.
 // `cell` is a column in a region `cells` wide, `phase` its position in [0,1)
-// around the sweep. Returns 0 at rest, 1 for the fade and 2 for the core, so a
-// caller can group neighbouring cells into at most three shades.
+// around the sweep. Returns 0 at rest, and for a gradient 1 for the fade and 2
+// for the core, so a caller can group neighbouring cells into at most three
+// shades. With ShineStyle::Solid every lit cell is 2 (the core shade); there is
+// no 1.
 //
 // `band` is the band's width in cells (see shine_band); 0 means a third of the
 // region. A band wider than the region is clamped to the region. A fixed band
@@ -48,7 +56,8 @@ int shine_band(int cells);
 // The band travels from just outside the left edge to just outside the right
 // one, so a sweep enters and leaves cleanly instead of popping at the ends. The
 // glyphs never change: only the shade does.
-int shine_level(int cell, int cells, double phase, int band = 0);
+int shine_level(int cell, int cells, double phase, int band = 0,
+                ShineStyle style = ShineStyle::Gradient);
 
 // Terminal capability: true unless the user opted out with AMBER_ASCII.
 // Deliberately not keyed on nl_langinfo(CODESET) — a failed or partial

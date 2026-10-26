@@ -295,7 +295,7 @@ void RenderEngine::draw_working_indicator(int row) {
     const int w = width();
     int x = 0;
     put_wsegment(row, w, x, to_wide(parts.glyph + " "), P_STATUS);
-    draw_shine(row, w, x, to_wide(parts.verb), P_STATUS, 0);
+    draw_shine(row, w, x, to_wide(parts.verb), P_STATUS, {0, agent::bar::ShineStyle::Gradient});
     put_wsegment(row, w, x, to_wide(parts.tail), P_STATUS);
 }
 
@@ -345,9 +345,9 @@ namespace {
 constexpr double kPulsePeriodMs = 1800.0;
 constexpr int kFrameMs = 150;
 
-// The gauge's band is a glint, not a wash: three lit cells whatever the gauge is
-// wide. The verb keeps the proportional band, which is what makes a word read as
-// a sweep rather than a dot.
+// The gauge's band is a glint, not a wash: three lit cells in the single light
+// shade, whatever the gauge is wide. The verb keeps the proportional band with
+// its fade, which is what makes a word read as a sweep rather than a dot.
 constexpr int kGaugeShineCells = 3;
 
 } // namespace
@@ -373,13 +373,15 @@ void RenderEngine::put_wsegment(int y, int budget, int& x, const std::wstring& w
 int RenderEngine::shine_pair(int base_pair, int level) {
     if (level <= 0)
         return base_pair;
+    // The gauge runs a solid band, so its lit cells are always the core shade;
+    // only the verb asks for the fade step.
     struct Shade {
         int base, mid, hi;
     };
     static constexpr Shade kShades[] = {
-        {P_GAUGE_OK, P_GAUGE_OK_MID, P_GAUGE_OK_HI},
-        {P_GAUGE_WARN, P_GAUGE_WARN_MID, P_GAUGE_WARN_HI},
-        {P_GAUGE_CRIT, P_GAUGE_CRIT_MID, P_GAUGE_CRIT_HI},
+        {P_GAUGE_OK, P_GAUGE_OK_HI, P_GAUGE_OK_HI},
+        {P_GAUGE_WARN, P_GAUGE_WARN_HI, P_GAUGE_WARN_HI},
+        {P_GAUGE_CRIT, P_GAUGE_CRIT_HI, P_GAUGE_CRIT_HI},
         {P_STATUS, P_TEXT_SHINE_MID, P_TEXT_SHINE_HI},
     };
     for (const Shade& s : kShades) {
@@ -393,9 +395,10 @@ int RenderEngine::shine_pair(int base_pair, int level) {
 // run is live; at rest the whole run keeps the base shade, so an idle bar does
 // not appear to be working. Cells are wide-string indices: every glyph the gauge
 // and the verb use is one column, which is what makes the two the same
-// coordinate. `band` is the band's width in cells (0 = a third of the run).
+// coordinate. `band` is the band's width in cells (0 = a third of the run);
+// `style` decides whether the band fades or is one solid shade.
 void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair,
-                              int band) {
+                              Shine shine) {
     if (cells.empty())
         return;
     if (!tui_.runs_.busy(tui_.win().id)) {
@@ -405,9 +408,9 @@ void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cel
     const int n = static_cast<int>(cells.size());
     const double phase = anim_phase01();
     for (int i = 0; i < n;) {
-        const int level = agent::bar::shine_level(i, n, phase, band);
+        const int level = agent::bar::shine_level(i, n, phase, shine.band, shine.style);
         int end = i + 1;
-        while (end < n && agent::bar::shine_level(end, n, phase, band) == level)
+        while (end < n && agent::bar::shine_level(end, n, phase, shine.band, shine.style) == level)
             ++end;
         put_wsegment(y, budget, x,
                      cells.substr(static_cast<size_t>(i), static_cast<size_t>(end - i)),
@@ -449,7 +452,8 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     put_segment(y, budget, x, text::glyph::block_l(), P_BAR_DIM);
     const std::string bar = text::glyph::utf8() ? agent::bar::gauge_bar(frac, cells)
                                                 : agent::bar::gauge_bar_ascii(frac, cells);
-    draw_shine(y, budget, x, to_wide(bar), gauge_pair(frac), kGaugeShineCells);
+    draw_shine(y, budget, x, to_wide(bar), gauge_pair(frac),
+               {kGaugeShineCells, agent::bar::ShineStyle::Solid});
     put_segment(y, budget, x, text::glyph::block_r(), P_BAR_DIM);
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +

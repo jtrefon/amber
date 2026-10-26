@@ -154,14 +154,14 @@ deltas are not tracked at all: no live text and no summary line.
 
 - **Given**: Agent busy, `idle_tick()` repainting (the two animated rows via `tick_pulse()`, the transcript via `draw()`)
 - **Input**: the wall clock (`anim_phase01()`), plus `anim_phase_` advancing every 150 ms for the ◐ glyph
-- **Expected**: a soft band sweeps left to right over the context gauge and over the verb on the working line: the cell shade moves through the base pair, a bright fade and a white core, while the glyphs stay exactly what the fill (or the word) says. Period 1.8 s, read from the clock, so the sweep speed does not depend on the paint rate, and the transcript keeps its 150 ms cadence. The clock keeps updating on the right.
+- **Expected**: a soft band sweeps left to right over the context gauge and over the verb on the working line, while the glyphs stay exactly what the fill (or the word) says. The gauge's band is **three cells in one shade** (the light/core colour), so it reads as a glint rather than as a second, more saturated signal; the verb's band fades through a bright mid step into that core. Period 1.8 s, read from the clock, so the sweep speed does not depend on the paint rate, and the transcript keeps its 150 ms cadence. The clock keeps updating on the right.
 - **On failure**: the sweep freezes, or its speed tracks the frame rate because the position was taken from `anim_phase_`.
 
 #### [EL-17] Context gauge in status bar
 
 - **Given**: `stats_.prompt_tokens` = 4000, context window = 8192
 - **Input**: `draw_status_bar()` called
-- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% 4k/8.2k`. Proportional to utilisation; counts and percentages come from `agent::compact` (at most two significant digits, so the readout cannot widen with magnitude). While a run is live the moving band shades a few cells; the fill never changes.
+- **Expected**: Gauge shows `▐███░░░░░░░▌ 49% 4k/8.2k`. Proportional to utilisation; counts and percentages come from `agent::compact` (at most two significant digits, so the readout cannot widen with magnitude). While a run is live a three-cell glint in the one light shade sweeps across it; the fill never changes.
 - **On failure**: Division by zero if `context_size == 0`, or negative percentage.
 
 #### [EL-18] Signal handler — save and exit
