@@ -388,8 +388,8 @@
       },
       "min_turns": {
        "action": "core.config.get.compression.min_turns",
-       "help": "Minimum conversation turns before compression activates.",
-       "man": "Compression will not activate until the conversation has at least this many turns. Prevents premature compression of short conversations.",
+       "help": "Minimum messages before compression activates.",
+       "man": "Compression will not activate until the conversation has at least this many messages (tool results count). A history at 90%+ of the window bypasses the floor.",
        "type": "int",
        "range": [
         1,
@@ -625,8 +625,8 @@
       },
       "min_turns": {
        "action": "core.config.set.compression.min_turns",
-       "help": "Minimum turns before compression.",
-       "man": "Compression will not activate until the conversation has at least this many turns. Prevents compression of short conversations where context is not yet scarce.",
+       "help": "Minimum messages before compression.",
+       "man": "Compression will not activate until the conversation has at least this many messages (tool results count). Prevents compression of short conversations where context is not yet scarce.",
        "type": "int",
        "range": [
         1,
