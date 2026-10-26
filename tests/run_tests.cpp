@@ -5862,7 +5862,8 @@ TEST(apply_classification_context_creates_archive_entry) {
     ASSERT(result.size() >= 2u);
     bool has_archive = false;
     for (const auto& m : result)
-        if (m.content.find("compressed_context") != std::string::npos)
+        if (m.content.compare(0, sizeof(agent::kCompressedContextPrefix) - 1,
+                              agent::kCompressedContextPrefix) == 0)
             has_archive = true;
     ASSERT(has_archive);
 }
