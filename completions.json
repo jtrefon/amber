@@ -2,8 +2,50 @@
  "commands": {
   "skills": {
    "action": "core.skills",
-   "help": "Find and install skills.",
-   "man": "Opens the Skills Explorer: search the skills.sh index, read a result's details, and install it into the project (.amber/skills) or globally (~/.config/amber/skills). The explorer keeps the search local-first and only fetches a detail when you ask for it. Type at least two characters to search; Enter loads a detail; i installs it."
+   "help": "Find, install and update skills.",
+   "man": "Opens the Skills Explorer: search the skills.sh index, read a skill's evidence and body, and install it into the project (.amber/skills) or globally (~/.config/amber/skills). Every screen action has a command form: browse, search <query>, list, show <name>, install <id> [--global], update, remove <name> and sources. Installing is gated by a review sheet: a community source needs its body read (p) or an explicit unread install (x) first.",
+   "children": {
+    "browse": {
+     "action": "core.skills.browse",
+     "help": "Open the explorer.",
+     "man": "Opens the explorer at an empty search. Type at least two characters to search, Enter loads a detail, i opens the install sheet."
+    },
+    "search": {
+     "action": "core.skills.search",
+     "help": "Open the explorer with a query.",
+     "man": "Opens the explorer with the query already typed and searched, so /skills search tdd reaches the result list in one command."
+    },
+    "list": {
+     "action": "core.skills.list",
+     "help": "List installed skill packages.",
+     "man": "Prints every discovered skill package with its scope, origin and state. Use /skills installed for the managed shelf with updates and removal."
+    },
+    "show": {
+     "action": "core.skills.show",
+     "help": "Show one installed skill.",
+     "man": "Prints one skill's scope, state and description from the catalog. For a registry id (owner/repo/skill), amber-cli skills show <id> reads the remote detail and body."
+    },
+    "install": {
+     "action": "core.skills.install",
+     "help": "Install a skill by id.",
+     "man": "Fetches the skill, then opens the install sheet for scope, review and collision. Pass --global to preselect the global scope: /skills install owner/repo/skill --global."
+    },
+    "update": {
+     "action": "core.skills.update",
+     "help": "Check for or apply updates.",
+     "man": "Opens the Installed shelf: u checks the selected managed skill against its recorded hash, and a second u applies the update. Local edits refuse the update instead of overwriting."
+    },
+    "remove": {
+     "action": "core.skills.remove",
+     "help": "Remove an installed skill.",
+     "man": "Opens the Installed shelf filtered to the named skill; D removes it after a confirmation. A skill active in this session is called out in the dialog."
+    },
+    "sources": {
+     "action": "core.skills.sources",
+     "help": "Show index sources and cache.",
+     "man": "Prints the registry endpoint, the GitHub API/raw endpoints (including mirror overrides) and the cache size. The cache is regenerable and safe to delete."
+    }
+   }
   },
   "help": {
    "action": "core.help",

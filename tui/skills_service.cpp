@@ -187,22 +187,7 @@ agent::SkillInstallResult SkillsService::run_install(const Job& job, bool& ledge
 agent::LedgerEntry
 SkillsService::entry_for(const Job& job, const agent::SkillInstallResult& result,
                          const std::vector<agent::SkillPayloadFile>& files) const {
-    agent::LedgerEntry entry;
-    entry.id = job.detail.ref.id;
-    entry.source = job.detail.ref.source;
-    entry.slug = agent::skill_slug(job.detail.ref.id);
-    entry.ref = job.detail.default_branch;
-    entry.hash = job.detail.hash;
-    entry.category = job.detail.category;
-    for (const auto& file : files) {
-        if (file.path == "SKILL.md")
-            entry.local_hash = agent::skill_content_hash(file.contents);
-    }
-    entry.installed_at_ms = wall_ms();
-    entry.files = result.files;
-    entry.bytes = result.bytes;
-    entry.enabled = job.enabled;
-    return entry;
+    return agent::ledger_entry_for(job.detail, job.name, files, result, job.enabled);
 }
 
 SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,

@@ -170,6 +170,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/coding/library_lookup_tool.o \
               $(BUILD_DIR)/lib/archive_util.o \
              $(BUILD_DIR)/lib/skill_install.o \
+             $(BUILD_DIR)/lib/skill_cli.o \
              $(BUILD_DIR)/lib/skill_ledger.o \
              $(BUILD_DIR)/lib/tools_default.o \
              $(BUILD_DIR)/lib/tool_call_parser.o \
@@ -297,7 +298,8 @@ $(BUILD_DIR)/tests/skill_install_test.o \
 $(BUILD_DIR)/tests/skills_browse_core_test.o \
 $(BUILD_DIR)/tests/skills_service_test.o \
 $(BUILD_DIR)/tests/skills_lifecycle_test.o \
-$(BUILD_DIR)/tests/skills_install_sheet_test.o
+$(BUILD_DIR)/tests/skills_install_sheet_test.o \
+$(BUILD_DIR)/tests/skill_cli_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o

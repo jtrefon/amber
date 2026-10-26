@@ -304,6 +304,29 @@ bool absorb_skill_file(const std::filesystem::path& dir, const std::filesystem::
 
 } // namespace
 
+LedgerEntry ledger_entry_for(const SkillDetail& detail, const std::string& name,
+                             const std::vector<SkillPayloadFile>& files,
+                             const SkillInstallResult& result, bool enabled) {
+    LedgerEntry entry;
+    entry.id = detail.ref.id;
+    entry.source = detail.ref.source;
+    entry.slug = name;
+    entry.ref = detail.default_branch;
+    entry.hash = detail.hash;
+    entry.category = detail.category;
+    for (const auto& file : files) {
+        if (file.path == "SKILL.md")
+            entry.local_hash = skill_content_hash(file.contents);
+    }
+    entry.installed_at_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    entry.files = result.files;
+    entry.bytes = result.bytes;
+    entry.enabled = enabled;
+    return entry;
+}
+
 std::optional<LedgerEntry> adopt_skill(const std::string& root, const std::string& name) {
     if (!is_kebab_name(name))
         return std::nullopt;

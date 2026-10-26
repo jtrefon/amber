@@ -69,6 +69,16 @@ std::string compact_installs(int installs) {
     return std::to_string(installs);
 }
 
+agent::SkillRef ref_from_id(const std::string& id) {
+    agent::SkillRef ref;
+    ref.id = id;
+    ref.name = agent::skill_slug(id);
+    const auto slash = id.rfind('/');
+    if (slash != std::string::npos)
+        ref.source = id.substr(0, slash);
+    return ref;
+}
+
 const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::string& name) {
     for (const auto& row : rows) {
         if (row.ref.name == name)
@@ -268,7 +278,8 @@ public:
         dlg_->set_footer({{"/", "search"},
                           {"Enter", "detail"},
                           {"i", "install"},
-                          {"1/2", "tab"},
+                          {"u", "update"},
+                          {"6", "installed"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
         nodelay(dlg_->win(), TRUE);
@@ -290,9 +301,7 @@ public:
             SkillsLifecycleOptions{options.project_root, options.global_root, options.ledger,
                                    options.set_state},
             *service_);
-        core_.set_sort(SkillSort::Relevance);
-        core_.set_tab(options_.initial_tab);
-        refresh_installed();
+        apply_initial_state();
     }
 
     void run() {
@@ -344,6 +353,7 @@ private:
     }
 
     bool apply(const SkillIntent& intent);
+    void apply_initial_state();
     void apply_tab(SkillTab tab);
     void tick();
     void on_search(const SkillsEvent& event);
@@ -376,6 +386,26 @@ private:
     bool pending_search_ = false;
     Clock::time_point last_input_{};
 };
+
+void SkillsExplorer::apply_initial_state() {
+    core_.set_sort(SkillSort::Relevance);
+    core_.set_tab(options_.initial_tab);
+    if (!options_.initial_query.empty()) {
+        core_.set_filter(options_.initial_query);
+        query_ = options_.initial_query;
+        pending_search_ = true;
+        last_input_ = Clock::now() - std::chrono::milliseconds(300);
+    }
+    if (!options_.initial_filter.empty()) {
+        core_.set_filter(options_.initial_filter);
+        query_ = options_.initial_filter;
+    }
+    refresh_installed();
+    if (!options_.install_id.empty()) {
+        pending_install_ = options_.install_id;
+        service_->detail(ref_from_id(options_.install_id));
+    }
+}
 
 bool SkillsExplorer::apply(const SkillIntent& intent) {
     switch (intent.kind) {
