@@ -477,3 +477,22 @@ TEST(skill_index_corrupt_cache_falls_back_to_live) {
     ASSERT_TRUE(r.ok());
     ASSERT_EQ(calls, 2);
 }
+
+TEST(skill_index_live_loopback_search_parses) {
+    CacheGuard guard("live");
+    const std::string body = kSearchBody;
+    const std::string response =
+        "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) +
+        "\r\nConnection: close\r\n\r\n" + body;
+    OneShotServer server(response);
+
+    agent::SkillIndexOptions opts;
+    opts.base_url = server.url("");
+    opts.now_ms = [] { return 1000LL; };
+    const auto r = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    server.join();
+
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(static_cast<int>(r.page->skills.size()), 2);
+    ASSERT_EQ(r.page->skills[0].source, std::string("mattpocock/skills"));
+}
