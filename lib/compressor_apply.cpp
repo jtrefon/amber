@@ -276,6 +276,11 @@ void append_archived_turns(std::vector<Message>& messages, size_t ctx_idx,
 // for the budget to converge, so the entry cost is reserved before measuring.
 constexpr size_t kArchiveEntryTokenReserve = 32;
 
+// Headroom leaves the history below the trigger plus this margin, never above
+// 75% even when the trigger is configured that high.
+constexpr double kHeadroomMargin = 0.10;
+constexpr double kHeadroomCeiling = 0.75;
+
 // A pass may need more than one round: the repair injects stubs, which the next
 // measurement accounts for. Bounded so an unbounded tail cannot livelock it.
 constexpr int kMaxBudgetPasses = 8;
@@ -580,9 +585,13 @@ std::vector<Message> enforce_headroom(std::vector<Message> compressed, size_t co
                                       const CompressionConfig& cfg) {
     if (context_size == 0)
         return compressed;
-    // Last-resort guard: a fixed 75% of the window. The compressed-context
-    // message is a system role, so the walk never reaches it.
-    const auto budget = static_cast<size_t>(static_cast<double>(context_size) * 0.75);
+    // The safety net must leave the history BELOW the trigger that fired it, or
+    // a compaction can finish in a state that qualifies again as soon as the
+    // cooldown lapses. Derive it from the threshold (with a margin) instead of
+    // a fixed 75% that sits above the default 70%.
+    const double fraction =
+        std::min(kHeadroomCeiling, std::max(0.10, cfg.threshold - kHeadroomMargin));
+    const auto budget = static_cast<size_t>(static_cast<double>(context_size) * fraction);
     archive_until_under_budget(compressed, budget, cfg, context_size, "(over-budget archived)");
     return compressed;
 }
