@@ -1,0 +1,10 @@
+# Text is LF in the repository and in every checkout. A worktree whose line
+# endings differ from the index (a Windows checkout opened from WSL, where the
+# two gits disagree on core.autocrlf) makes git report every line as changed.
+* text=auto eol=lf
+
+# Never normalize binary content. `text=auto` is a heuristic, and the fuzz
+# corpus is arbitrary bytes that can look like text.
+fuzz/corpus/** -text
+*.woff2 -text
+*.webp -text
