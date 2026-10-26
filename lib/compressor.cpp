@@ -393,8 +393,18 @@ public:
         // Enforce headroom: leave at least 25% free (final safety net; normally
         // already satisfied by the target budget). The protected tail is never
         // touched, so the active task survives even when it alone exceeds it.
-        compressed = enforce_headroom(std::move(compressed), static_cast<size_t>(cfg.context_size),
-                                      cfg.keep_last_prompts);
+        compressed =
+            enforce_headroom(std::move(compressed), static_cast<size_t>(cfg.context_size), cfg);
+
+        // Invariant 1: a compaction that does not reduce the history must not
+        // replace it. Appending a summary to an identical list would cost tokens
+        // and change the prefix for nothing. This is the honest outcome for a
+        // single-turn session, whose whole turn is the protected tail.
+        if (estimate_tokens(compressed) >= estimate_tokens(original)) {
+            if (response_out)
+                *response_out = std::move(cr);
+            return original;
+        }
 
         if (observer) {
             observer->on_apply_result({});
