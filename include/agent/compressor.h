@@ -227,10 +227,12 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
 void sanitize_tool_pairs(std::vector<Message>& history);
 
 // Build a classification-only request (returns array of turn tags).
-// This is the first step of the multi-step pipeline. When `update_previous`
-// is true the conversation already carries a compressed-context message:
-// the classifier is told to extend its archive instead of re-summarizing.
-Message build_classify_request(bool update_previous = false);
+// This is the first step of the multi-step pipeline. `history` supplies the
+// index legend the classifier needs; the legend is appended to the instruction,
+// so the conversation prefix stays byte-identical (KV reuse). When
+// `update_previous` is true the conversation already carries a compressed-context
+// block: the classifier is told to extend its archive instead of re-summarising.
+Message build_classify_request(bool update_previous, const std::vector<Message>& history);
 
 // Build an extraction request (returns memories + skills).
 // This is the second step, appended after the classification response.
