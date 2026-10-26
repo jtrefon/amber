@@ -90,6 +90,8 @@ std::string extract_json_block(const std::string& raw) {
 
 } // namespace
 
+namespace {
+
 // "start-end" → (start, end). A missing dash leaves both at 0.
 void parse_turn_range(const std::string& turns, ClassifiedSegment& cs) {
     const size_t dash = turns.find('-');
@@ -189,6 +191,8 @@ void parse_response_body(const json& j, CompressionResponse& cr) {
             cr.brief = std::move(brief);
     }
 }
+
+} // namespace
 
 CompressionResponse parse_compression_response(const std::string& json_str) {
     CompressionResponse cr;

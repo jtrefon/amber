@@ -147,9 +147,8 @@ struct RunComponents {
 
     explicit RunComponents(const agent::Config& cfg)
         : comp_cfg(agent::load_compression_config(cfg)),
-          gate(agent::make_compression_gate(comp_cfg)),
-          compressor(agent::make_compressor(comp_cfg)), exp_cfg(agent::load_experience_config(cfg)),
-          mem_store(agent::make_memory_store(exp_cfg)),
+          gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
+          exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
           retriever(std::make_unique<agent::MemoryRetriever>(*mem_store)), hooks(recorder.hooks()) {
         // Benchmark approval policy: workspace-confined process tools are always
         // allowed; anything else approval-gated (dangerous bash) is denied —

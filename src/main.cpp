@@ -497,9 +497,8 @@ struct CliHost {
         : plugin_runtime(registry, cfg, workspace),
           host_services{&jobs, &todos, &subagents, &cfg.cancel_token}, cli_ui(tty),
           comp_cfg(agent::load_compression_config(cfg)),
-          gate(agent::make_compression_gate(comp_cfg)),
-          compressor(agent::make_compressor(comp_cfg)), exp_cfg(agent::load_experience_config(cfg)),
-          mem_store(agent::make_memory_store(exp_cfg)),
+          gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
+          exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
           retriever(std::make_unique<agent::MemoryRetriever>(*mem_store)) {
         // Tools (including the core set) are plugin contributions now: the tool
         // plugins build them from the host services above.
