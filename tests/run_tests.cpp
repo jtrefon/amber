@@ -6718,7 +6718,11 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
     // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
     // (~1004 tokens each) put us at ~3033 — one must go. keep_last_prompts=1
     // protects only the active prompt, so the older user turn is archivable.
-    auto out = agent::enforce_headroom(std::move(msgs), 3000, 1);
+    agent::CompressionConfig cfg;
+    cfg.context_size = 3000;
+    cfg.target_pct = 10;
+    cfg.keep_last_prompts = 1;
+    auto out = agent::enforce_headroom(std::move(msgs), 3000, cfg);
     ASSERT_EQ(out.size(), size_t{4});
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") == std::string::npos);
@@ -6766,7 +6770,11 @@ TEST(compression_never_drops_the_active_user_message) {
         compressed_ctx_msg(),
         msg("user", "THE ACTIVE TASK: finish the refactor " + std::string(4000, 't')),
     };
-    auto out = agent::enforce_headroom(std::move(hist), 900); // budget 675 < the tail
+    agent::CompressionConfig cfg;
+    cfg.context_size = 900;
+    cfg.target_pct = 10;
+    cfg.keep_last_prompts = 10;
+    auto out = agent::enforce_headroom(std::move(hist), 900, cfg); // budget 675 < the tail
     bool active = false;
     for (const auto& m : out)
         if (m.content.find("THE ACTIVE TASK") != std::string::npos)
@@ -6794,6 +6802,35 @@ TEST(compression_budget_is_measured_after_the_archive_is_written) {
     const size_t budget = 1600;
     auto out = agent::enforce_target_budget(hist, budget, cfg);
     ASSERT(agent::estimate_tokens(out) <= budget);
+}
+
+TEST(protected_tail_is_bounded_by_tokens_not_prompt_count) {
+    // Three turns of ~1000 tokens each. A 4096-token window with a 10% target
+    // gives the protected tail ~409 tokens, so only the final turn fits; the
+    // prompt-count rule (10) protected all three and made the pass a no-op.
+    std::vector<agent::Message> hist = {msg("system", "Amber")};
+    for (int t = 0; t < 3; ++t) {
+        const std::string id = "c" + std::to_string(t);
+        hist.push_back(msg("user", "task " + std::to_string(t)));
+        hist.push_back(tool_call_msg(id, "read"));
+        hist.push_back(tool_result_msg(id, std::string(4000, 'x')));
+    }
+    hist.push_back(msg("user", "the active task"));
+    hist.push_back(compressed_ctx_msg());
+
+    agent::CompressionConfig cfg;
+    cfg.context_size = 4096;
+    cfg.target_pct = 10;        // target 409 tokens
+    cfg.keep_last_prompts = 10; // the old rule protected every turn
+
+    const std::size_t before = hist.size();
+    auto out = agent::enforce_target_budget(hist, cfg.context_size, cfg);
+    ASSERT(out.size() < before);
+    bool active = false;
+    for (const auto& m : out)
+        if (m.content == "the active task")
+            active = true;
+    ASSERT(active);
 }
 
 TEST(enforce_target_budget_archives_oldest_and_keeps_the_active_task) {
