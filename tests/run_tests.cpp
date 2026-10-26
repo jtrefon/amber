@@ -6795,15 +6795,16 @@ TEST(enforce_headroom_archives_oldest_instead_of_placeholders) {
         msg("user", std::string(4000, 'c')),
         ctx_msg,
     };
-    // budget = 0.75 * 3000 = 2250 tokens; the three 4000-char messages
-    // (~1004 tokens each) put us at ~3033 — one must go. keep_last_prompts=1
-    // protects only the active prompt, so the older user turn is archivable.
+    // The derived headroom budget is 60% of 3000 = 1800 tokens; the three
+    // 4000-char messages (~1004 tokens each) put us at ~3033, so the two oldest
+    // go. keep_last_prompts=1 protects only the active prompt.
     agent::CompressionConfig cfg;
     cfg.context_size = 3000;
     cfg.target_pct = 10;
     cfg.keep_last_prompts = 1;
     auto out = agent::enforce_headroom(std::move(msgs), 3000, cfg);
-    ASSERT_EQ(out.size(), size_t{4});
+    ASSERT(agent::estimate_tokens(out) <= 1800u);
+    ASSERT_EQ(out[1].content, std::string(4000, 'c')); // the active prompt survives
     for (const auto& m : out)
         ASSERT(m.content.find("[over-budget archived]") == std::string::npos);
     bool archived = false;
