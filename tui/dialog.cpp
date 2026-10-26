@@ -55,14 +55,12 @@ void init_pairs() {
     init_pair(P_MD_HR, COLOR_CYAN, -1);
     // The completion hint must be visible: gray on the default background.
     init_pair(P_INPUT_SHADOW, 245, -1);
-    // The working pulse. The fade steps are the terminal's bright row (9..11)
-    // rather than cube indices, so they follow the user's theme; the core is
-    // white on both a filled cell and the light-shade track.
-    init_pair(P_GAUGE_OK_MID, 10, COLOR_BLUE);
+    // The working pulse. The gauge is one light shade (white on the bar, over
+    // both a filled cell and the track) so the glint cannot be mistaken for a
+    // pressure colour. The verb fades through the terminal's bright row (11)
+    // into white, so it follows the user's theme.
     init_pair(P_GAUGE_OK_HI, COLOR_WHITE, COLOR_BLUE);
-    init_pair(P_GAUGE_WARN_MID, 11, COLOR_BLUE);
     init_pair(P_GAUGE_WARN_HI, COLOR_WHITE, COLOR_BLUE);
-    init_pair(P_GAUGE_CRIT_MID, 9, COLOR_BLUE);
     init_pair(P_GAUGE_CRIT_HI, COLOR_WHITE, COLOR_BLUE);
     init_pair(P_TEXT_SHINE_MID, 11, -1);
     init_pair(P_TEXT_SHINE_HI, COLOR_WHITE, -1);
