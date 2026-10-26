@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <cstdlib>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -269,7 +270,7 @@ public:
                           {"1/2", "tab"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
-        wtimeout(dlg_->win(), 100);
+        nodelay(dlg_->win(), TRUE);
 
         agent::SkillIndexOptions index_opts;
         index_opts.cache_root = options.cache_root;
@@ -297,11 +298,14 @@ public:
         while (true) {
             paint_explorer(dlg_->content(), core_, query_, last_status_, details_, options_.budget);
             const int ch = wgetch(dlg_->win());
-            if (ch != ERR) {
-                const SkillIntent intent = core_.key(ch, list_height());
-                if (!apply(intent))
-                    return;
+            if (ch == ERR) {
+                tick();
+                napms(50);
+                continue;
             }
+            const SkillIntent intent = core_.key(ch, list_height());
+            if (!apply(intent))
+                return;
             tick();
         }
     }
