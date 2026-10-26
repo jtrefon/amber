@@ -60,8 +60,9 @@ public:
     // The same for a string that is already wide: the gauge and the verb are
     // sliced by display column, which is a wide-string index.
     void put_wsegment(int y, int budget, int& x, const std::wstring& s, int pair);
-    // Paint `cells` one per display column, shading the moving band.
-    void draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair);
+    // Paint `cells` one per display column, shading the moving band (at most
+    // `band` cells wide; 0 means a third of the region).
+    void draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair, int band);
     // The window the ACTIVE agent will actually use. Reading the template
     // (tui_.cfg_) is what made the gauge stay at a stale 130k after a switch.
     int context_window() const;

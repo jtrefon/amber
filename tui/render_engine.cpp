@@ -295,7 +295,7 @@ void RenderEngine::draw_working_indicator(int row) {
     const int w = width();
     int x = 0;
     put_wsegment(row, w, x, to_wide(parts.glyph + " "), P_STATUS);
-    draw_shine(row, w, x, to_wide(parts.verb), P_STATUS);
+    draw_shine(row, w, x, to_wide(parts.verb), P_STATUS, 0);
     put_wsegment(row, w, x, to_wide(parts.tail), P_STATUS);
 }
 
@@ -345,6 +345,11 @@ namespace {
 constexpr double kPulsePeriodMs = 1800.0;
 constexpr int kFrameMs = 150;
 
+// The gauge's band is a glint, not a wash: three lit cells whatever the gauge is
+// wide. The verb keeps the proportional band, which is what makes a word read as
+// a sweep rather than a dot.
+constexpr int kGaugeShineCells = 3;
+
 } // namespace
 
 // Paint `s` at x within the budget, clipping by display columns; advances x.
@@ -388,8 +393,9 @@ int RenderEngine::shine_pair(int base_pair, int level) {
 // run is live; at rest the whole run keeps the base shade, so an idle bar does
 // not appear to be working. Cells are wide-string indices: every glyph the gauge
 // and the verb use is one column, which is what makes the two the same
-// coordinate.
-void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair) {
+// coordinate. `band` is the band's width in cells (0 = a third of the run).
+void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cells, int base_pair,
+                              int band) {
     if (cells.empty())
         return;
     if (!tui_.runs_.busy(tui_.win().id)) {
@@ -399,9 +405,9 @@ void RenderEngine::draw_shine(int y, int budget, int& x, const std::wstring& cel
     const int n = static_cast<int>(cells.size());
     const double phase = anim_phase01();
     for (int i = 0; i < n;) {
-        const int level = agent::bar::shine_level(i, n, phase);
+        const int level = agent::bar::shine_level(i, n, phase, band);
         int end = i + 1;
-        while (end < n && agent::bar::shine_level(end, n, phase) == level)
+        while (end < n && agent::bar::shine_level(end, n, phase, band) == level)
             ++end;
         put_wsegment(y, budget, x,
                      cells.substr(static_cast<size_t>(i), static_cast<size_t>(end - i)),
@@ -443,7 +449,7 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     put_segment(y, budget, x, text::glyph::block_l(), P_BAR_DIM);
     const std::string bar = text::glyph::utf8() ? agent::bar::gauge_bar(frac, cells)
                                                 : agent::bar::gauge_bar_ascii(frac, cells);
-    draw_shine(y, budget, x, to_wide(bar), gauge_pair(frac));
+    draw_shine(y, budget, x, to_wide(bar), gauge_pair(frac), kGaugeShineCells);
     put_segment(y, budget, x, text::glyph::block_r(), P_BAR_DIM);
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +

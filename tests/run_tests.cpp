@@ -2519,6 +2519,40 @@ TEST(statusbar_shine_band_is_a_soft_third_of_the_region) {
     ASSERT_EQ(agent::bar::shine_level(16, 24, 0.5), 0);
 }
 
+// The gauge narrows its band to a three-cell glint, so the highlight stays a
+// glint on a 24-cell bar instead of washing out a third of it. The verb keeps
+// the proportional band.
+TEST(statusbar_shine_band_width_can_be_fixed) {
+    // 24 cells, a 3-cell band: cell 12 is the core, 11 and 13 the fade, and
+    // nothing else lights up at the halfway point.
+    ASSERT_EQ(agent::bar::shine_level(12, 24, 0.5, 3), 2);
+    ASSERT_EQ(agent::bar::shine_level(11, 24, 0.5, 3), 1);
+    ASSERT_EQ(agent::bar::shine_level(13, 24, 0.5, 3), 1);
+    ASSERT_EQ(agent::bar::shine_level(10, 24, 0.5, 3), 0);
+    ASSERT_EQ(agent::bar::shine_level(14, 24, 0.5, 3), 0);
+}
+
+TEST(statusbar_shine_fixed_band_keeps_its_width) {
+    // A three-cell glint never breathes into two cells: in the middle of the
+    // sweep exactly three cells are lit at every phase, one core and a fade on
+    // each side.
+    for (double phase = 0.2; phase <= 0.8; phase += 0.05) {
+        int lit = 0;
+        for (int c = 0; c < 24; ++c)
+            lit += agent::bar::shine_level(c, 24, phase, 3) > 0 ? 1 : 0;
+        ASSERT_EQ(lit, 3);
+    }
+}
+
+TEST(statusbar_shine_band_defaults_to_the_proportional_width) {
+    ASSERT_EQ(agent::bar::shine_band(24), 8);
+    ASSERT_EQ(agent::bar::shine_band(5), 3);
+    // 0 asks for the proportional band, so both spellings agree.
+    ASSERT_EQ(agent::bar::shine_level(9, 24, 0.5, 0), agent::bar::shine_level(9, 24, 0.5));
+    // A band wider than the region is clamped to the region.
+    ASSERT_EQ(agent::bar::shine_level(2, 4, 0.5, 9), 2);
+}
+
 TEST(statusbar_shine_band_travels_left_to_right) {
     int early = -1;
     int late = -1;
