@@ -1,0 +1,7 @@
+root = true
+
+# .gitattributes pins LF in git; this keeps editors from writing CRLF into a
+# checkout in the first place.
+[*]
+charset = utf-8
+end_of_line = lf

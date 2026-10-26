@@ -44,6 +44,11 @@ CI runs the same steps on `g++` and `clang++`.
 - Keep the core library (`lib/`, `include/agent/`) free of UI concerns. UI code
   lives in `tui/` and depends on the library through `AgentHooks`, never the
   reverse.
+- Text files are LF in the repository and in every checkout; `.gitattributes`
+  enforces it. WSL reading a Windows clone is the case to watch: the worktree is
+  CRLF while WSL git defaults to `core.autocrlf=false`, so every line reads as
+  changed. Run `git config core.autocrlf input` there, and restore a tree that
+  already has CRLF files with `git checkout -- .` once it has no uncommitted work.
 - Do not add comments that merely restate the code.
 - New source files carry no copyright or SPDX header, keep the first line
   functional, matching the rest of the tree.

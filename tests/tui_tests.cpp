@@ -12,6 +12,7 @@
 #include "tui/usage_report.h"
 #include "tui/work_auto_attach.h"
 #include "tui/textutil.h"
+#include "tui/git_reads.h"
 #include "tui/palette.h"
 #include "tui/reasoning_block.h"
 #include "tui/panel_view_state.h"
@@ -54,6 +55,7 @@
 #include <set>
 #include <thread>
 #include <clocale>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -664,6 +666,44 @@ TEST(palette_usage_and_common_prefix) {
     ASSERT_EQ(tui::palette::common_prefix({}), "");
 }
 
+namespace {
+
+// A throwaway repository for the prompt's git reads. Only real git behaviour
+// can pin what `--shortstat` reports for a worktree whose line endings differ
+// from the index, so the fixture is a repository rather than a canned string.
+struct PromptRepo {
+    std::filesystem::path dir;
+
+    explicit PromptRepo(const std::string& name) {
+        static int counter = 0;
+        dir = std::filesystem::temp_directory_path() /
+              ("amber_git_prompt_" + name + "_" + std::to_string(::getpid()) + "_" +
+               std::to_string(counter++));
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+        std::filesystem::create_directories(dir);
+        run("git init -q -b main . && printf 'one\\ntwo\\n' > a.txt && git add a.txt && "
+            "git -c user.email=t@t -c user.name=t commit -qm init");
+    }
+
+    ~PromptRepo() {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    void run(const std::string& cmd) const {
+        if (std::system(("cd '" + dir.string() + "' && " + cmd).c_str()) != 0)
+            agent::test::fail("prompt git fixture failed: " + cmd);
+    }
+
+    void write(const std::string& name, const std::string& content) const {
+        std::ofstream out(dir / name, std::ios::binary | std::ios::trunc);
+        out << content;
+    }
+};
+
+} // namespace
+
 TEST(git_prompt_branch_label_handles_a_detached_head) {
     // Every window worktree starts detached: show the commit it sits at rather
     // than dropping the branch readout (and with it the diff counts).
@@ -699,6 +739,46 @@ TEST(git_refresh_is_coalesced) {
     const auto t0 = std::chrono::steady_clock::time_point{};
     ASSERT_FALSE(tui::text::git_refresh_due(t0, t0 + std::chrono::milliseconds(100)));
     ASSERT_TRUE(tui::text::git_refresh_due(t0, t0 + std::chrono::milliseconds(250)));
+}
+
+TEST(git_shortstat_parses_counts) {
+    const auto both =
+        tui::text::parse_git_shortstat(" 3 files changed, 10 insertions(+), 2 deletions(-)\n");
+    ASSERT_EQ(both.ins, 10);
+    ASSERT_EQ(both.del, 2);
+    ASSERT_EQ(tui::text::parse_git_shortstat(" 1 file changed, 1 insertion(+)\n").ins, 1);
+    ASSERT_EQ(tui::text::parse_git_shortstat(" 1 file changed, 5 deletions(-)\n").del, 5);
+    const auto empty = tui::text::parse_git_shortstat("");
+    ASSERT_EQ(empty.ins, 0);
+    ASSERT_EQ(empty.del, 0);
+}
+
+TEST(git_diff_stat_ignores_crlf_only_line_churn) {
+    // A Windows checkout read from WSL: the worktree is CRLF, the index is LF.
+    // Every line differs byte-for-byte, but nothing changed, so the prompt must
+    // not report the whole tree as one insertion and one deletion per line.
+    PromptRepo repo("crlf");
+    repo.write("a.txt", "one\r\ntwo\r\n");
+    const auto stat = tui::git_reads::read_diff_stat(repo.dir.string());
+    ASSERT_EQ(stat.ins, 0);
+    ASSERT_EQ(stat.del, 0);
+}
+
+TEST(git_diff_stat_still_counts_real_changes) {
+    PromptRepo repo("real");
+    repo.write("a.txt", "one\r\nTWO\r\nthree\r\n");
+    const auto stat = tui::git_reads::read_diff_stat(repo.dir.string());
+    ASSERT_EQ(stat.ins, 2);
+    ASSERT_EQ(stat.del, 1);
+}
+
+TEST(git_status_read_reports_branch_and_tracked_work) {
+    PromptRepo repo("status");
+    repo.write("a.txt", "one\r\nTWO\r\n");
+    const auto st = tui::git_reads::read_status(repo.dir.string());
+    ASSERT_EQ(st.branch, "main");
+    ASSERT(st.tracked);
+    ASSERT(st.dirty);
 }
 
 TEST(git_prompt_no_diff) {

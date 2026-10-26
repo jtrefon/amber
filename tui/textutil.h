@@ -112,6 +112,14 @@ struct GitStatus {
 };
 GitStatus parse_git_status_v2(const std::string& output);
 
+// Insertions/deletions from one `git diff --shortstat` read. Empty output (a
+// clean read, or git refusing to run) is 0/0.
+struct DiffStat {
+    int ins = 0;
+    int del = 0;
+};
+DiffStat parse_git_shortstat(const std::string& output);
+
 // The coalescing window for prompt refreshes: a burst of tool results produces
 // one read. The window is 250 ms.
 bool git_refresh_due(std::chrono::steady_clock::time_point last,

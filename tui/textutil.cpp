@@ -3,6 +3,7 @@
 
 #include "agent/statusbar.h"
 
+#include <cctype>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -158,6 +159,21 @@ GitStatus parse_git_status_v2(const std::string& output) {
         (oid.size() >= 7 && oid.front() != '(') ? oid.substr(0, 7) : std::string();
     st.branch = git_branch_label(detached ? std::string() : head, short_oid);
     return st;
+}
+
+DiffStat parse_git_shortstat(const std::string& output) {
+    const auto count_before = [&output](const std::string& needle) -> int {
+        const size_t pos = output.find(needle);
+        if (pos == std::string::npos)
+            return 0;
+        size_t begin = pos;
+        while (begin > 0 && std::isdigit(static_cast<unsigned char>(output[begin - 1])))
+            --begin;
+        if (begin == pos)
+            return 0;
+        return std::stoi(output.substr(begin, pos - begin));
+    };
+    return {count_before(" insertion"), count_before(" deletion")};
 }
 
 bool git_refresh_due(std::chrono::steady_clock::time_point last,
