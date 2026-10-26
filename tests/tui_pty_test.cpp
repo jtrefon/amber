@@ -702,6 +702,175 @@ private:
     std::vector<std::string> paths_;
 };
 
+// A loopback stand-in for skills.sh + GitHub. The explorer talks to three
+// hosts; pointing all three at this server keeps the install/update/remove
+// scenario hermetic. `publish(true)` serves a second revision of the skill so
+// an update check has something to find.
+class SkillsMirrorEndpoint {
+public:
+    ~SkillsMirrorEndpoint() { stop(); }
+
+    bool start() {
+        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_fd_ < 0)
+            return false;
+        int opt = 1;
+        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        addr.sin_port = 0;
+        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+            return false;
+        socklen_t len = sizeof(addr);
+        if (getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) < 0)
+            return false;
+        port_ = ntohs(addr.sin_port);
+        if (listen(listen_fd_, 8) < 0)
+            return false;
+        thread_ = std::thread([this] { serve(); });
+        return true;
+    }
+
+    std::string base() const { return "http://127.0.0.1:" + std::to_string(port_); }
+
+    std::vector<std::string> paths() {
+        std::scoped_lock lk(mtx_);
+        return paths_;
+    }
+
+    void publish(bool updated) {
+        std::scoped_lock lk(mtx_);
+        updated_ = updated;
+    }
+
+    void stop() {
+        stopping_ = true;
+        if (thread_.joinable())
+            thread_.join();
+        if (listen_fd_ >= 0) {
+            close(listen_fd_);
+            listen_fd_ = -1;
+        }
+    }
+
+private:
+    void serve() {
+        while (!stopping_) {
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(listen_fd_, &rfds);
+            timeval tv{0, 200000};
+            if (select(listen_fd_ + 1, &rfds, nullptr, nullptr, &tv) <= 0)
+                continue;
+            int c = accept(listen_fd_, nullptr, nullptr);
+            if (c < 0)
+                continue;
+            handle(c);
+            close(c);
+        }
+    }
+
+    static std::string request_path(const std::string& req) {
+        const size_t sp1 = req.find(' ');
+        const size_t sp2 = sp1 == std::string::npos ? std::string::npos : req.find(' ', sp1 + 1);
+        if (sp1 == std::string::npos || sp2 == std::string::npos)
+            return "/";
+        std::string path = req.substr(sp1 + 1, sp2 - sp1 - 1);
+        const size_t q = path.find('?');
+        if (q != std::string::npos)
+            path.resize(q);
+        return path;
+    }
+
+    std::string body_for(const std::string& path, bool& ok) const {
+        bool updated = false;
+        {
+            std::scoped_lock lk(mtx_);
+            updated = updated_;
+        }
+        ok = true;
+        if (path == "/api/search")
+            return R"({"skills":[{"id":"acme/skills/tdd","name":"tdd",)"
+                   R"("source":"acme/skills","installs":1234}],"count":1})";
+        if (path == "/repos/acme/skills")
+            return R"({"default_branch":"main","license":{"spdx_id":"MIT"}})";
+        if (path == "/repos/acme/skills/git/trees/main") {
+            const char* sha = updated ? "sha-tdd-2" : "sha-tdd-1";
+            return std::string(R"({"truncated":false,"tree":[)") +
+                   R"({"path":"skills/tdd/SKILL.md","type":"blob","size":64,"sha":")" + sha +
+                   R"("},)" + R"({"path":"skills/tdd/reference.md","type":"blob","size":8,)" +
+                   R"("sha":"sha-ref"}]})";
+        }
+        if (path == "/acme/skills/main/skills/tdd/SKILL.md") {
+            return updated
+                       ? "---\nname: tdd\ndescription: Test-driven development v2.\n---\nbody two\n"
+                       : "---\nname: tdd\ndescription: Test-driven development.\n---\nbody one\n";
+        }
+        if (path == "/acme/skills/main/skills/tdd/reference.md")
+            return updated ? "ref two\n" : "ref one\n";
+        ok = false;
+        return R"({"message":"not found"})";
+    }
+
+    void handle(int c) {
+        std::string req;
+        char buf[4096];
+        while (req.find("\r\n\r\n") == std::string::npos) {
+            const ssize_t n = recv(c, buf, sizeof(buf), 0);
+            if (n <= 0)
+                return;
+            req.append(buf, static_cast<size_t>(n));
+        }
+        const std::string path = request_path(req);
+        {
+            std::scoped_lock lk(mtx_);
+            paths_.push_back(path);
+        }
+        bool ok = false;
+        const std::string body = body_for(path, ok);
+        const std::string http =
+            std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
+            "\r\nContent-Type: application/json\r\nContent-Length: " + std::to_string(body.size()) +
+            "\r\nConnection: close\r\n\r\n" + body;
+        size_t sent = 0;
+        while (sent < http.size()) {
+            const ssize_t n = send(c, http.c_str() + sent, http.size() - sent, 0);
+            if (n <= 0)
+                return;
+            sent += static_cast<size_t>(n);
+        }
+    }
+
+    int listen_fd_ = -1;
+    int port_ = 0;
+    std::atomic<bool> stopping_{false};
+    mutable std::mutex mtx_;
+    bool updated_ = false;
+    std::vector<std::string> paths_;
+    std::thread thread_;
+};
+
+// Point the app at the mirror for the duration of one scenario. Restored on
+// scope exit so a later test cannot accidentally talk to a dead endpoint.
+struct MirrorEnv {
+    explicit MirrorEnv(const std::string& base) {
+        setenv("AMBER_SKILLS_INDEX_URL", base.c_str(), 1);
+        setenv("AMBER_GITHUB_API_URL", base.c_str(), 1);
+        setenv("AMBER_GITHUB_RAW_URL", base.c_str(), 1);
+    }
+    ~MirrorEnv() {
+        unsetenv("AMBER_SKILLS_INDEX_URL");
+        unsetenv("AMBER_GITHUB_API_URL");
+        unsetenv("AMBER_GITHUB_RAW_URL");
+    }
+};
+
+std::string read_text_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+}
+
 } // namespace
 
 // ── Down moves the selection; it must not cancel the browser ──
@@ -2123,6 +2292,123 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }
 
+// One hermetic pass through the whole acquisition loop: search the mirror,
+// load a detail, install at project scope, find it on the installed shelf,
+// notice a second revision, apply it, then remove it. The mirror serves the
+// registry API, the repository tree and the raw files, so no network is used.
+// Markers are painted into previously blank cells (or read from disk): a
+// status line that shrinks is diff-painted, so only its changed tail reaches
+// the pty and matching the whole sentence would be a false negative.
+TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
+    SkillsMirrorEndpoint mirror;
+    if (!mirror.start()) {
+        std::cerr << "FAIL: the skills mirror did not start\n";
+        failed++;
+        return;
+    }
+    MirrorEnv env(mirror.base());
+
+    Tui tui;
+    tui.name = "skills_explorer_installs_updates_and_removes_a_mirrored_skill";
+    // Wide enough for the detail pane, which the 80x24 default suppresses.
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 40, 140, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const std::string installed_dir = fixture().workspace + "/.amber/skills/tdd";
+    std::error_code ec;
+    fs::remove_all(installed_dir, ec);
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+    tui.pump(300);
+    tui.send("/");
+    tui.pump(100);
+    tui.send("tdd");
+    if (!require(tui.wait_for("acme/skill", 15000), "the mirror search never landed", tui)) {
+        std::cerr << "mirror saw:";
+        for (const auto& p : mirror.paths())
+            std::cerr << " " << p;
+        std::cerr << "\n";
+        return;
+    }
+
+    tui.send("\r"); // leave the search field
+    tui.pump(100);
+    tui.send("\r"); // load the selected detail
+    if (!require(tui.wait_for("Test-driven development.", 15000), "the detail never loaded", tui)) {
+        std::cerr << "mirror saw:";
+        for (const auto& p : mirror.paths())
+            std::cerr << " " << p;
+        std::cerr << "\n";
+        return;
+    }
+
+    tui.send("i");
+    if (!require(tui.wait_for("Install for this project", 10000), "the scope prompt did not open",
+                 tui))
+        return;
+    tui.send("1");
+    bool installed_on_disk = false;
+    for (int i = 0; i < 200 && !installed_on_disk; ++i) {
+        tui.pump(100);
+        installed_on_disk =
+            read_text_file(installed_dir + "/SKILL.md").find("body one") != std::string::npos;
+    }
+    if (!require(installed_on_disk, "the mirror install never reached the disk", tui))
+        return;
+
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    // A second revision upstream, and a cold cache so the bundle is refetched.
+    mirror.publish(true);
+    fs::remove_all(fixture().workspace + "/cache/amber", ec);
+    tui.raw.clear();
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not reopen", tui))
+        return;
+    tui.send("6"); // installed shelf
+    if (!require(tui.wait_for("installed skills", 10000), "the installed shelf did not open", tui))
+        return;
+    // The shelf also lists bundled skills; filter down to the mirrored one.
+    tui.send("/tdd\r");
+    if (!require(tui.wait_for("project", 10000), "the installed row was not found", tui))
+        return;
+
+    tui.send("u");
+    if (!require(tui.wait_for("update available", 20000), "the update was not detected", tui))
+        return;
+
+    tui.send("u");
+    bool updated_on_disk = false;
+    for (int i = 0; i < 200 && !updated_on_disk; ++i) {
+        tui.pump(100);
+        updated_on_disk =
+            read_text_file(installed_dir + "/SKILL.md").find("body two") != std::string::npos;
+    }
+    if (!require(updated_on_disk, "the updated body never reached the disk", tui))
+        return;
+
+    tui.send("D");
+    if (!require(tui.wait_for("Remove skill", 10000), "the remove confirmation did not open", tui))
+        return;
+    tui.send("y");
+    bool removed_on_disk = false;
+    for (int i = 0; i < 200 && !removed_on_disk; ++i) {
+        tui.pump(100);
+        removed_on_disk = !fs::exists(installed_dir);
+    }
+    if (!require(removed_on_disk, "the removed skill directory is still on disk", tui))
+        return;
+
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -2156,6 +2442,7 @@ int main(int argc, char** argv) {
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
     skills_explorer_opens_switches_tabs_and_closes();
+    skills_explorer_installs_updates_and_removes_a_mirrored_skill();
     system_commands_do_not_freeze_the_ui();
     input_scroll_keeps_tail_visible();
     worktree_setting_reports_itself_and_persists();
