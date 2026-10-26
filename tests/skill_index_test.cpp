@@ -414,3 +414,85 @@ TEST(http_get_pre_cancelled_is_nullopt) {
     const auto r = agent::http_get("http://127.0.0.1:1/x", "", 1, cancel);
     ASSERT_TRUE(!r.has_value());
 }
+
+TEST(skill_index_empty_query_is_malformed) {
+    CacheGuard guard("empty");
+    agent::SkillIndexOptions opts;
+    opts.now_ms = [] { return 1000LL; };
+    opts.http = [](const std::string&, const std::string&, long,
+                   const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        return ok_body(kSearchBody);
+    };
+    const auto r = agent::SkillsShIndex(opts).search("", 20, {});
+    ASSERT_TRUE(r.error.kind == agent::IndexError::Malformed);
+}
+
+TEST(skill_index_parse_skips_incomplete_entries) {
+    const std::string body = R"({"skills":[
+      {"id":"ok/source/one","source":"ok/source","name":"one","installs":3},
+      {"id":"missing/source/two","name":"two"},
+      {"id":"bad/source/three","source":"bad/source","name":42},
+      "not an object"],"count":4})";
+    const auto r = agent::parse_skills_search(body, 20, false);
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(static_cast<int>(r.page->skills.size()), 1);
+    ASSERT_EQ(r.page->total, 4);
+}
+
+TEST(skill_index_limit_is_clamped_in_the_url) {
+    const std::string url = agent::skills_search_url("https://skills.sh", "tdd", 999);
+    ASSERT_TRUE(url.find("limit=200") != std::string::npos);
+}
+
+TEST(skill_index_corrupt_cache_falls_back_to_live) {
+    CacheGuard guard("corrupt");
+    agent::SkillIndexOptions opts;
+    long long now = 1000;
+    int calls = 0;
+    opts.now_ms = [&now] { return now; };
+    opts.http = [&calls](const std::string&, const std::string&, long,
+                         const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        ++calls;
+        return ok_body(kSearchBody);
+    };
+
+    const agent::SkillsShIndex index(opts);
+    ASSERT_TRUE(index.search("tdd", 20, {}).ok());
+    ASSERT_EQ(calls, 1);
+
+    const std::filesystem::path cache = std::filesystem::path(guard.dir) / "amber" / "skill-index";
+    bool overwritten = false;
+    for (const auto& entry : std::filesystem::directory_iterator(cache)) {
+        if (entry.path().extension() == ".json") {
+            std::ofstream f(entry.path(), std::ios::trunc);
+            f << "not json";
+            overwritten = true;
+            break;
+        }
+    }
+    ASSERT_TRUE(overwritten);
+
+    now = 2000;
+    const auto r = index.search("tdd", 20, {});
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(calls, 2);
+}
+
+TEST(skill_index_live_loopback_search_parses) {
+    CacheGuard guard("live");
+    const std::string body = kSearchBody;
+    const std::string response =
+        "HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(body.size()) +
+        "\r\nConnection: close\r\n\r\n" + body;
+    OneShotServer server(response);
+
+    agent::SkillIndexOptions opts;
+    opts.base_url = server.url("");
+    opts.now_ms = [] { return 1000LL; };
+    const auto r = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    server.join();
+
+    ASSERT_TRUE(r.ok());
+    ASSERT_EQ(static_cast<int>(r.page->skills.size()), 2);
+    ASSERT_EQ(r.page->skills[0].source, std::string("mattpocock/skills"));
+}

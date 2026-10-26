@@ -76,8 +76,9 @@ std::string cache_root(const SkillIndexOptions& opts) {
 
 std::string cache_path(const SkillIndexOptions& opts, const std::string& query, int limit) {
     char name[48];
+    const std::string key = opts.base_url + "\n" + query + "\n" + std::to_string(limit);
     std::snprintf(name, sizeof(name), "search-%016llx.json",
-                  static_cast<unsigned long long>(fnv1a(query + "\n" + std::to_string(limit))));
+                  static_cast<unsigned long long>(fnv1a(key)));
     return cache_root(opts) + "/" + name;
 }
 

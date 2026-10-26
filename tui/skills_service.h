@@ -4,6 +4,7 @@
 #include "agent/github_index.h"
 #include "agent/skill_index.h"
 #include "agent/skill_install.h"
+#include "agent/skill_ledger.h"
 
 #include <condition_variable>
 #include <deque>
@@ -84,6 +85,8 @@ private:
     void run(const Job& job);
     void emit(SkillsEvent event);
     agent::SkillInstallResult run_install(const Job& job, bool& ledger_saved);
+    agent::LedgerEntry entry_for(const Job& job, const agent::SkillInstallResult& result,
+                                 const std::vector<agent::SkillPayloadFile>& files) const;
 
     SkillsBackends backends_;
     std::thread worker_;

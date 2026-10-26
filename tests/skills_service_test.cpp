@@ -158,3 +158,24 @@ TEST(skills_service_cancel_stops_an_in_flight_search) {
     ASSERT_TRUE(!event->search.ok());
     ASSERT_TRUE(event->search.error.kind == agent::IndexError::Cancelled);
 }
+
+TEST(skills_service_without_backends_reports_unsupported) {
+    tui::SkillsService service(tui::SkillsBackends{});
+    service.search("tdd");
+    auto event = wait_for(service, tui::SkillsEvent::Kind::SearchDone);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(!event->search.ok());
+    ASSERT_TRUE(event->search.error.kind == agent::IndexError::Unsupported);
+
+    service.detail(tdd_ref());
+    event = wait_for(service, tui::SkillsEvent::Kind::DetailDone);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(!event->detail.ok());
+    ASSERT_TRUE(event->detail.error.kind == agent::IndexError::Unsupported);
+
+    service.install(tdd_detail(), "tdd", "/tmp/amber_no_assets", false, true);
+    event = wait_for(service, tui::SkillsEvent::Kind::InstallDone);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(!event->install.ok);
+    ASSERT_TRUE(event->install.error.find("asset") != std::string::npos);
+}

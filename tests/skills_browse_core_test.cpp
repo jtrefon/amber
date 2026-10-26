@@ -92,15 +92,15 @@ TEST(skills_browse_selection_and_scroll) {
     core.key('j', 2);
     core.key('j', 2);
     ASSERT_EQ(core.selection(), 2);
-    ASSERT_EQ(core.scroll(), 1);
+    ASSERT_EQ(core.scroll_offset(), 1);
 
     core.key('g', 2);
     ASSERT_EQ(core.selection(), 0);
-    ASSERT_EQ(core.scroll(), 0);
+    ASSERT_EQ(core.scroll_offset(), 0);
 
     core.key('G', 2);
     ASSERT_EQ(core.selection(), 2);
-    ASSERT_EQ(core.scroll(), 1);
+    ASSERT_EQ(core.scroll_offset(), 1);
 }
 
 TEST(skills_browse_search_pane_types_and_unwinds) {
@@ -193,6 +193,11 @@ TEST(skills_browse_tabs_and_lifecycle_intents) {
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::ToggleEnabled);
     i = core.key('A');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Adopt);
+    i = core.key('6');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::SetTab);
+    ASSERT_TRUE(i.tab == tui::SkillTab::Installed);
+    ASSERT_TRUE(core.tab() == tui::SkillTab::Installed);
+
     i = core.key('q');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Close);
 }
@@ -215,4 +220,51 @@ TEST(skills_browse_empty_set_is_safe) {
     ASSERT_TRUE(core.key('j').kind == tui::SkillIntent::Kind::None);
     ASSERT_TRUE(core.key('\n').kind == tui::SkillIntent::Kind::None);
     ASSERT_TRUE(core.key('i').kind == tui::SkillIntent::Kind::None);
+}
+
+TEST(skills_browse_action_table_covers_row_actions) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    core.set_sort(tui::SkillSort::Relevance);
+
+    struct Case {
+        int ch;
+        tui::SkillIntent::Kind kind;
+    };
+    const Case cases[] = {
+        {'u', tui::SkillIntent::Kind::Update},        {'D', tui::SkillIntent::Kind::Remove},
+        {'x', tui::SkillIntent::Kind::ToggleEnabled}, {'b', tui::SkillIntent::Kind::Block},
+        {'A', tui::SkillIntent::Kind::Adopt},         {'d', tui::SkillIntent::Kind::Diff},
+        {'p', tui::SkillIntent::Kind::Preview},       {'v', tui::SkillIntent::Kind::Audit},
+        {'o', tui::SkillIntent::Kind::SourceUrl},     {'y', tui::SkillIntent::Kind::Copy},
+    };
+    for (const auto& c : cases) {
+        const auto intent = core.key(c.ch);
+        ASSERT_TRUE(intent.kind == c.kind);
+        ASSERT_EQ(intent.id, std::string("acme/skills/tdd"));
+    }
+}
+
+TEST(skills_browse_navigation_keys_are_handled) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    ASSERT_TRUE(core.key(tui::keys::kNPage, 2).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.key(tui::keys::kPPage, 2).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.key(4, 2).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.key(21, 2).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.key(tui::keys::kHome, 2).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.key(tui::keys::kEnd, 2).kind == tui::SkillIntent::Kind::None);
+}
+
+TEST(skills_browse_detail_scrolls_and_tab_cycles) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    core.key('\n');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Detail);
+    core.key('j');
+    ASSERT_EQ(core.detail_scroll(), 1);
+    core.key('k');
+    ASSERT_EQ(core.detail_scroll(), 0);
+    core.key('\t');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::List);
 }

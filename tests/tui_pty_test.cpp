@@ -31,6 +31,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -2102,6 +2103,26 @@ void watch_cli_does_not_wake_by_default_and_opts_in() {
     }
 }
 
+// ── the skills explorer is a real modal, not a dead command ──
+//
+// It must paint its own search line inside the dialog, survive a tab switch
+// (which reads the installed catalog on the UI thread), and close back to the
+// transcript. No network: with an empty query the explorer issues no request.
+TEST(skills_explorer_opens_switches_tabs_and_closes) {
+    Tui tui;
+    tui.name = "skills_explorer_opens_switches_tabs_and_closes";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -2134,6 +2155,7 @@ int main(int argc, char** argv) {
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
+    skills_explorer_opens_switches_tabs_and_closes();
     system_commands_do_not_freeze_the_ui();
     input_scroll_keeps_tail_visible();
     worktree_setting_reports_itself_and_persists();
