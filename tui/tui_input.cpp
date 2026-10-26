@@ -606,16 +606,7 @@ installed_skill_rows(const agent::SkillCatalog& catalog,
     return rows;
 }
 
-void Tui::open_skills_explorer(const std::string& arg) {
-    if (!win().agent) {
-        append_line(P_STATUS, "no agent in this window");
-        return;
-    }
-    // Reflect what is on disk now: a skill installed from this explorer (or by
-    // a pack/CLI in the same session) must appear on the Installed shelf
-    // without a restart.
-    win().agent->skills().refresh();
-    tui::SkillsExplorerOptions opts;
+void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
     opts.rows = LINES;
     opts.cols = COLS;
     const agent::SkillScanPaths paths = agent::default_scan_paths();
@@ -641,8 +632,27 @@ void Tui::open_skills_explorer(const std::string& arg) {
     opts.set_state = [this](const std::string& name, const std::string& state) {
         return win().agent->skills().apply_override(name, state);
     };
+    opts.is_active = [this](const std::string& name) {
+        const auto active = win().agent->activated_skills();
+        return std::any_of(
+            active.begin(), active.end(),
+            [&name](const agent::ActivatedSkill& skill) { return skill.name == name; });
+    };
     opts.budget = skill_budget_text(win().agent->skills());
     opts.installed = [this, ledger] { return installed_skill_rows(win().agent->skills(), ledger); };
+}
+
+void Tui::open_skills_explorer(const std::string& arg) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    // Reflect what is on disk now: a skill installed from this explorer (or by
+    // a pack/CLI in the same session) must appear on the Installed shelf
+    // without a restart.
+    win().agent->skills().refresh();
+    tui::SkillsExplorerOptions opts;
+    configure_skills_explorer(opts, arg);
     tui::run_skills_explorer(opts,
                              [this](const std::string& line) { append_line(P_STATUS, line); });
     redraw_after_modal();
