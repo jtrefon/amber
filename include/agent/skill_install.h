@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/skill_index.h"
 #include "agent/skill_ledger.h"
 
 namespace agent {
@@ -61,6 +62,13 @@ std::string skill_content_hash(const std::string& contents);
 // rewriting a byte. Nullopt when the directory is missing, unsafe, or has no
 // parseable SKILL.md.
 std::optional<LedgerEntry> adopt_skill(const std::string& root, const std::string& name);
+
+// Provenance for a just-installed skill: the remote hash, the local SKILL.md
+// hash, sizes and the enabled state. Shared by the explorer and the CLI so the
+// two write the same ledger.
+LedgerEntry ledger_entry_for(const SkillDetail& detail, const std::string& name,
+                             const std::vector<SkillPayloadFile>& files,
+                             const SkillInstallResult& result, bool enabled);
 
 } // namespace agent
 
