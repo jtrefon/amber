@@ -27,6 +27,9 @@ struct SkillsExplorerOptions {
     std::function<std::vector<SkillRow>()> installed;
     std::function<std::optional<agent::LedgerEntry>(const std::string&)> ledger;
     std::function<bool(const std::string&, const std::string&)> set_state;
+    // True when the conversation has activated this skill. Removal names it,
+    // because an activated body already sits in the prompt copy.
+    std::function<bool(const std::string&)> is_active;
     std::string budget; // installed-tab summary, e.g. "14 lines · ~480 tok/turn"
     SkillTab initial_tab = SkillTab::Top;
 };

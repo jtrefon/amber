@@ -5,6 +5,7 @@
 #include "tui/dialog.h"
 #include "tui/skills_lifecycle.h"
 #include "tui/skills_service.h"
+#include "tui/skills_sheet_view.h"
 
 #include <algorithm>
 #include <chrono>
@@ -177,28 +178,23 @@ void draw_detail(WINDOW* w, int top, int left, int height, int width,
         mvwaddnstr(w, y, left, "i installs · Esc back", width);
 }
 
-int choose_scope(int rows, int cols) {
-    Dialog dlg(std::min(10, rows - 2), std::min(58, cols - 4), "Install skill");
-    dlg.set_footer({{"1", "project"}, {"2", "global"}, {"Esc", "cancel"}});
-    WINDOW* w = dlg.content();
-    const int aw = dlg.cols() - 2;
-    mvwaddnstr(w, 1, 0, "Install for this project, or for every project?", aw);
-    mvwaddnstr(w, 3, 0, "project  .amber/skills", aw);
-    mvwaddnstr(w, 4, 0, "global   ~/.config/amber/skills", aw);
-    // Reading the content window refreshes the body, but the panel's frame and
-    // title are drawn on the parent; without an explicit show they stay blank
-    // until some later repaint.
-    dlg.show();
-    keypad(w, TRUE);
-    while (true) {
-        const int ch = wgetch(w);
-        if (ch == '1')
-            return 1;
-        if (ch == '2')
-            return 2;
-        if (ch == 27 || ch == 'q')
-            return 0;
-    }
+InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string& name) {
+    InstallEvidence evidence;
+    evidence.name = name;
+    evidence.source = detail.ref.source;
+    evidence.category = detail.category;
+    evidence.license = detail.license;
+    evidence.files = static_cast<int>(detail.assets.size());
+    for (const auto& asset : detail.assets)
+        evidence.bytes += static_cast<long long>(asset.bytes);
+    evidence.tokens = static_cast<int>(detail.body.size() / 4);
+    evidence.risks = agent::scan_skill_body(detail.body);
+    // The anonymous registry exposes no audits, so "community" is the honest
+    // tier for a GitHub source and nothing is claimed as vetted.
+    evidence.tier = agent::trust_tier(false, false, false,
+                                      detail.ref.source.find('/') != std::string::npos, false);
+    evidence.audited = false;
+    return evidence;
 }
 
 void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& query, int top,
@@ -355,9 +351,12 @@ private:
     void on_install(const SkillsEvent& event);
     void prompt_install(const std::string& id);
     bool apply_lifecycle(const SkillIntent& intent);
+    bool preview(const SkillRow& row);
+    bool audit(const SkillRow& row);
     void remove_current(const SkillRow& row);
     void update_current(const SkillRow& row);
-    bool confirm(const std::string& title, const std::string& text) const;
+    bool confirm(const std::string& title, const std::string& text,
+                 const std::string& note = {}) const;
 
     SkillsExplorerOptions options_;
     std::function<void(const std::string&)> status_;
@@ -372,6 +371,7 @@ private:
     std::string query_;
     std::string pending_install_;
     std::string pending_update_;
+    std::string pending_preview_;
     std::string last_status_;
     bool pending_search_ = false;
     Clock::time_point last_input_{};
@@ -414,7 +414,9 @@ void SkillsExplorer::remove_current(const SkillRow& row) {
         last_status_ = "only project/global skills can be removed here";
         return;
     }
-    if (!confirm("Remove skill", "Remove " + row.ref.name + " from " + root + "?"))
+    const bool active = options_.is_active && options_.is_active(row.ref.name);
+    if (!confirm("Remove skill", "Remove " + row.ref.name + " from " + root + "?",
+                 active ? "active in this session until the conversation ends" : ""))
         return;
     last_status_ = life_->remove(row);
     details_.erase(row.ref.id);
@@ -459,10 +461,48 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
         last_status_ = life_->block(*row);
         refresh_installed();
         return true;
+    case SkillIntent::Kind::Preview:
+        return preview(*row);
+    case SkillIntent::Kind::Audit:
+        return audit(*row);
     default:
         last_status_ = "not available yet";
         return true;
     }
+}
+
+bool SkillsExplorer::preview(const SkillRow& row) {
+    const auto raw = raw_details_.find(row.ref.id);
+    if (raw == raw_details_.end()) {
+        pending_preview_ = row.ref.id;
+        if (const auto ref = find_ref(row.ref.id))
+            service_->detail(*ref);
+        last_status_ = "loading body...";
+        return true;
+    }
+    run_body_preview(row.ref.name, raw->second.body);
+    last_status_ = "preview closed";
+    return true;
+}
+
+bool SkillsExplorer::audit(const SkillRow& row) {
+    const auto raw = raw_details_.find(row.ref.id);
+    if (raw == raw_details_.end()) {
+        last_status_ = "load details first (Enter)";
+        return true;
+    }
+    const auto risks = agent::scan_skill_body(raw->second.body);
+    int shell = 0;
+    int network = 0;
+    for (const auto& signal : risks) {
+        if (signal.kind == "shell")
+            ++shell;
+        else if (signal.kind == "network")
+            ++network;
+    }
+    last_status_ = "not audited \u00b7 " + std::to_string(risks.size()) + " signals (" +
+                   std::to_string(shell) + " shell, " + std::to_string(network) + " network)";
+    return true;
 }
 
 void SkillsExplorer::apply_tab(SkillTab tab) {
@@ -522,6 +562,12 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
     details_[detail.ref.id] = view_of(detail);
     raw_details_[detail.ref.id] = detail;
     last_status_ = "loaded " + detail.ref.name;
+    if (pending_preview_ == detail.ref.id) {
+        pending_preview_.clear();
+        run_body_preview(detail.ref.name, detail.body);
+        last_status_ = "preview closed";
+        return;
+    }
     if (!pending_update_.empty()) {
         const std::string name = pending_update_;
         pending_update_.clear();
@@ -556,21 +602,30 @@ void SkillsExplorer::prompt_install(const std::string& id) {
         last_status_ = "loading skill...";
         return;
     }
-    const int scope = choose_scope(options_.rows, options_.cols);
+    const std::string name = agent::skill_slug(id);
+    InstallSheetOptions sheet_options;
+    sheet_options.project_exists = std::filesystem::exists(options_.project_root + "/" + name);
+    sheet_options.global_exists = std::filesystem::exists(options_.global_root + "/" + name);
+    const InstallDecision decision =
+        run_install_sheet(evidence_of(raw->second, name), raw->second.body, sheet_options);
     touchwin(dlg_->win());
     wrefresh(dlg_->win());
-    if (scope == 0)
+    if (!decision.confirmed)
         return;
-    service_->install(raw->second, agent::skill_slug(id),
-                      scope == 1 ? options_.project_root : options_.global_root, false, true);
-    last_status_ = "installing " + agent::skill_slug(id) + "...";
+    const std::string root =
+        decision.scope == InstallScope::Project ? options_.project_root : options_.global_root;
+    service_->install(raw->second, name, root, decision.replace, decision.enabled);
+    last_status_ = "installing " + name + "...";
 }
 
-bool SkillsExplorer::confirm(const std::string& title, const std::string& text) const {
-    Dialog dlg(std::min(9, options_.rows - 2), std::min(64, options_.cols - 4), title);
+bool SkillsExplorer::confirm(const std::string& title, const std::string& text,
+                             const std::string& note) const {
+    Dialog dlg(std::min(10, options_.rows - 2), std::min(68, options_.cols - 4), title);
     dlg.set_footer({{"y", "confirm"}, {"n", "cancel"}});
     WINDOW* w = dlg.content();
     mvwaddnstr(w, 1, 0, text.c_str(), dlg.cols() - 2);
+    if (!note.empty())
+        mvwaddnstr(w, 3, 0, note.c_str(), dlg.cols() - 2);
     dlg.show();
     keypad(w, TRUE);
     while (true) {
