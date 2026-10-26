@@ -606,7 +606,7 @@ installed_skill_rows(const agent::SkillCatalog& catalog,
     return rows;
 }
 
-void Tui::open_skills_explorer() {
+void Tui::open_skills_explorer(const std::string& arg) {
     if (!win().agent) {
         append_line(P_STATUS, "no agent in this window");
         return;
@@ -621,6 +621,8 @@ void Tui::open_skills_explorer() {
     if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
         opts.token = token;
 
+    if (arg == "installed")
+        opts.initial_tab = tui::SkillTab::Installed;
     const auto ledger = skill_ledger_entries(paths);
     opts.ledger = [ledger](const std::string& name) -> std::optional<agent::LedgerEntry> {
         const auto it = ledger.find(name);
@@ -1249,7 +1251,7 @@ void SlashDispatcher::register_set_feature_actions() {
             tui_.win().agent->set_thinking(v);
         tui_.append_line(P_STATUS, "thinking: " + v);
     });
-    register_action("core.skills", [this](const std::string&) { tui_.open_skills_explorer(); });
+    register_action("core.skills", [this](const std::string& a) { tui_.open_skills_explorer(a); });
     register_action("core.skills.browse",
                     [this](const std::string&) { tui_.open_skills_explorer(); });
     register_action("core.config.set.skills", [this](const std::string& a) { cmd_skills_set(a); });

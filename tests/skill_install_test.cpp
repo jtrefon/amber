@@ -222,3 +222,43 @@ TEST(skill_ledger_tolerates_corrupt_file) {
     ledger.load();
     ASSERT_EQ(static_cast<int>(ledger.entries().size()), 0);
 }
+
+TEST(skill_install_rejects_duplicate_paths) {
+    TempDir tmp("duplicate");
+    const auto r = agent::install_skill_files(
+        request(tmp.path, "tdd", {file("SKILL.md", kSkillMd), file("SKILL.md", kSkillMd)}));
+    ASSERT_TRUE(!r.ok);
+    ASSERT_TRUE(r.error.find("duplicate") != std::string::npos);
+}
+
+TEST(skill_install_rejects_the_size_cap) {
+    TempDir tmp("size");
+    const std::string huge(10 * 1024 * 1024 + 1, 'x');
+    const auto r = agent::install_skill_files(
+        request(tmp.path, "tdd", {file("SKILL.md", kSkillMd), file("big.bin", huge)}));
+    ASSERT_TRUE(!r.ok);
+    ASSERT_TRUE(r.error.find("size cap") != std::string::npos);
+}
+
+TEST(skill_install_rejects_an_empty_file_set) {
+    TempDir tmp("empty");
+    const auto r = agent::install_skill_files(request(tmp.path, "tdd", {}));
+    ASSERT_TRUE(!r.ok);
+    ASSERT_TRUE(r.error.find("number of files") != std::string::npos);
+}
+
+TEST(skill_install_adopt_rejects_a_symlink) {
+    TempDir tmp("adopt_symlink");
+    write(tmp.path + "/mine/SKILL.md", kSkillMd);
+    write(tmp.path + "/outside.md", "outside");
+    std::error_code ec;
+    fs::create_symlink(tmp.path + "/outside.md", tmp.path + "/mine/link.md", ec);
+    if (!ec)
+        ASSERT_TRUE(!agent::adopt_skill(tmp.path, "mine").has_value());
+}
+
+TEST(skill_install_adopt_rejects_bad_frontmatter) {
+    TempDir tmp("adopt_bad");
+    write(tmp.path + "/mine/SKILL.md", "no frontmatter");
+    ASSERT_TRUE(!agent::adopt_skill(tmp.path, "mine").has_value());
+}

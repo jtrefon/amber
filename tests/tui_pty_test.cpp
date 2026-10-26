@@ -2118,7 +2118,6 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
     if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
         return;
 
-    tui.send("6");
     tui.send("q");
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }

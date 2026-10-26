@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iterator>
@@ -285,6 +286,7 @@ public:
         github_opts.token = options.token;
         service_ = std::make_unique<SkillsService>(make_skills_backends(index_opts, github_opts));
         core_.set_sort(SkillSort::Relevance);
+        core_.set_tab(options_.initial_tab);
         refresh_installed();
     }
 
@@ -518,6 +520,13 @@ void SkillsExplorer::prompt_install(const std::string& id) {
 }
 
 std::string SkillsExplorer::root_for(const SkillRow& row) const {
+    // Installed rows carry their directory path as the id; deriving the root
+    // from it is exact even when a scope label and a configured path disagree.
+    if (row.ref.id.find('/') != std::string::npos) {
+        const std::filesystem::path path(row.ref.id);
+        if (path.has_parent_path())
+            return path.parent_path().string();
+    }
     if (row.ref.source == "project")
         return options_.project_root;
     if (row.ref.source == "global")
