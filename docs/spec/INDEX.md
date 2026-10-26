@@ -112,15 +112,15 @@ all layers (spec, implementation, strategy), prioritised by phase.
 
 | File | Covers |
 |------|--------|
-| `compression/compression-pipeline.md` | End-to-end: snapshot → collapse → LLM → parse → apply |
-| `compression/loop-collapse.md` | Consecutive tool-call merging rules, lossless vs lossy |
-| `compression/turn-classification.md` | Tag assignment: keep/drop/summarize per-turn logic |
+| `compression/compression-pipeline.md` | End-to-end: gate → live-prefix replay → classify/extract → assemble → free pass → budgets → invariant |
+| `compression/loop-collapse.md` | Consecutive tool-call merging, applied to the assembled output |
+| `compression/turn-classification.md` | Index space, tag application, protected tail, archive and summary |
 
 ## Context
 
 | File | Covers |
 |------|--------|
-| `context/context-ownership-and-parallel-compression.md` | Inviolable deque/immutability contract, single-owner-thread model, event-driven progress, parallel two-thread compression (KV-reuse + worker assemble) |
+| `context/context-ownership-and-parallel-compression.md` | Inviolable deque/immutability contract, single-owner-thread model, event-driven progress, live-prefix KV reuse |
 
 ## Skills
 
