@@ -269,7 +269,7 @@ public:
                           {"1/2", "tab"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
-        timeout(100);
+        wtimeout(dlg_->win(), 100);
 
         agent::SkillIndexOptions index_opts;
         index_opts.cache_root = options.cache_root;
