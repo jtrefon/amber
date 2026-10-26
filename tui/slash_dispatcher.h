@@ -184,7 +184,6 @@ public:
     void job_ls();
     void job_start(const std::string& cmd);
     void build_settings();
-    const std::vector<agent::ModelInfo>& model_info() const noexcept { return model_info_; }
     void set_model_info(std::vector<agent::ModelInfo> v) { model_info_ = std::move(v); }
 
 private:
@@ -204,6 +203,7 @@ private:
     void register_set_engine_actions();
     void register_set_policy_actions();
     void register_set_feature_actions();
+    void register_skills_actions();
     void register_get_config_actions();
     void register_get_plugin_policy_actions();
     // Seed / key-prompt ladder for /provider <name>; false when the user backs out.

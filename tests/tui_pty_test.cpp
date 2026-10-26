@@ -2415,7 +2415,56 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
 
     tui.send("q");
-    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    // The command tree reaches the same backends: sources, the catalog list,
+    // one local readout, a prefilled search, the filtered remove shelf and a
+    // pre-targeted install sheet.
+    tui.raw.clear();
+    tui.send("/skills sources\r");
+    if (!require(tui.wait_for("github api", 10000), "/skills sources printed nothing", tui))
+        return;
+    tui.send("/skills list\r");
+    if (!require(tui.wait_for("amber-config · enabled", 10000), "/skills list printed nothing",
+                 tui))
+        return;
+    tui.send("/skills show amber-config\r");
+    if (!require(tui.wait_for("system · authored · amber-config", 10000),
+                 "/skills show missed the entry", tui))
+        return;
+    tui.send("/skills show nope\r");
+    if (!require(tui.wait_for("no skill matching", 10000), "/skills show did not explain a miss",
+                 tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/skills search tdd\r");
+    if (!require(tui.wait_for("acme/skill", 15000), "/skills search did not prefill the query",
+                 tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the search", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/skills remove tdd\r");
+    if (!require(tui.wait_for("No installed skills", 10000),
+                 "/skills remove did not open the shelf", tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the remove shelf", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/skills install acme/skills/tdd\r");
+    if (!require(tui.wait_for("review required", 20000), "/skills install did not open the sheet",
+                 tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(300);
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui);
 }
 
 int main(int argc, char** argv) {
