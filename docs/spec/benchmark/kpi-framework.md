@@ -112,9 +112,20 @@ amber-bench report [--run ID] [--format text|json|markdown]
     "must_match": "regex:^ok.*"
   },
   "template": "coding/sorting",             // static-template engine (see below)
-  "budget": {"max_steps": 10, "max_wall_ms": 120000}
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 120000,
+    "min_compactions": 1,                   // optional: a compaction must run
+    "max_compaction_ratio": 0.9             // optional: after/before <= this
+  }
 }
 ```
+
+`max_compaction_ratio` is measured over **conversation tokens** (everything
+except `system` messages, plus the archive the pass wrote). Including the
+immutable system prompt hides the effect: 8.7K of an 8.8K context is the
+prompt. A ratio check requires a successful compaction — "no compaction" does
+not pass it.
 
 Matcher rules:
 

@@ -597,6 +597,72 @@ static Kpi kpi_of(bench::EventStream& stream, const OracleResult& oracle = {},
     return bench::compute_kpi(stream, oracle, meter, tmpl, pc, final_text, 0, 0);
 }
 
+TEST(kpi_reports_compaction_accounting) {
+    bench::EventStream stream;
+    stream.compressions = 3;
+    agent::CompressionResult first;
+    first.tokens_before = 1000;
+    first.payload_tokens_before = 1000;
+    first.payload_tokens_after = 400;
+    first.archive_tokens = 30;
+    agent::CompressionResult second;
+    second.tokens_before = 500;
+    second.payload_tokens_before = 500;
+    second.payload_tokens_after = 120;
+    second.archive_tokens = 25;
+    agent::CompressionResult failed;
+    failed.error = "no reduction";
+    stream.compactions = {first, second, failed};
+
+    Kpi k = kpi_of(stream);
+    // The run's reduction is first input -> last successful output.
+    ASSERT_EQ(k.compaction_tokens_before, 1000L);
+    ASSERT_EQ(k.compaction_tokens_after, 120L);
+    ASSERT_EQ(k.compaction_archive_tokens, 25L);
+    ASSERT_EQ(k.compaction_failures, 1);
+    ASSERT(k.compaction_ratio > 0.11 && k.compaction_ratio < 0.13);
+}
+
+TEST(kpi_without_a_compaction_is_neutral) {
+    bench::EventStream stream;
+    Kpi k = kpi_of(stream);
+    ASSERT_EQ(k.compaction_tokens_before, 0L);
+    ASSERT_EQ(k.compaction_ratio, 1.0);
+    ASSERT_EQ(k.compaction_failures, 0);
+}
+
+TEST(kpi_requires_a_real_compaction_when_a_ratio_is_requested) {
+    // "No compaction" must not pass a scenario that asked for one.
+    bench::Scenario s;
+    s.max_compaction_ratio = 0.9;
+    s.min_compactions = 1;
+    for (int i = 0; i < 2; ++i) {
+        bench::EventStream stream;
+        if (i == 1) {
+            agent::CompressionResult c;
+            c.payload_tokens_before = 1000;
+            c.payload_tokens_after = 800;
+            stream.compressions = 1;
+            stream.compactions = {c};
+        }
+        Kpi k = kpi_of(stream);
+        k.success = true;
+        ASSERT_EQ(bench::kpi_success(k, s), i == 1);
+    }
+}
+
+TEST(recorder_captures_compaction_results) {
+    bench::Recorder rec;
+    agent::CompressionResult r;
+    r.payload_tokens_before = 900;
+    r.payload_tokens_after = 90;
+    r.archive_tokens = 20;
+    rec.on_compression(r);
+    ASSERT_EQ(rec.stream().compactions.size(), 1u);
+    ASSERT_EQ(rec.stream().compactions[0].payload_tokens_before, 900u);
+    ASSERT_EQ(rec.stream().compactions[0].payload_tokens_after, 90u);
+}
+
 TEST(kpi_classifies_tool_failures) {
     bench::EventStream stream;
     stream.calls = {
