@@ -3,20 +3,9 @@
 #include "agent/skill_ledger.h"
 
 #include <algorithm>
-#include <chrono>
 #include <memory>
 
 namespace tui {
-
-namespace {
-
-long long wall_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-               std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
-} // namespace
 
 SkillsService::SkillsService(SkillsBackends backends) : backends_(std::move(backends)) {
     worker_ = std::thread([this] { work(); });
