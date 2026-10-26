@@ -108,8 +108,24 @@ Partition partition_messages(const std::vector<Message>& history,
     return out;
 }
 
+// Merge the oldest entries until the archive fits its cap. The exact spans stop
+// mattering once they are compressed; one line says they are still there.
+void cap_archive(json& archive) {
+    if (!archive.is_array())
+        return;
+    while (archive.size() > 1 &&
+           (archive.size() > kMaxArchiveEntries || archive.dump().size() / 4 > kMaxArchiveTokens)) {
+        json out = json::array();
+        out.push_back({{"turns", "earlier"}, {"summary", "earlier work, compressed"}});
+        for (std::size_t i = 2; i < archive.size(); ++i)
+            out.push_back(archive[i]);
+        archive = std::move(out);
+    }
+}
+
 // The archive carried on the compressed-context message: previous entries first
-// (re-compression carries them forward), then this pass's segments.
+// (re-compression carries them forward), then this pass's segments. Bounded:
+// the oldest entries merge into one line instead of riding along forever.
 json archive_json_for(const json& previous, const std::vector<ArchiveSeg>& segments) {
     json out = previous;
     for (const auto& seg : segments) {
@@ -119,28 +135,18 @@ json archive_json_for(const json& previous, const std::vector<ArchiveSeg>& segme
         out.push_back(
             {{"turns", range}, {"summary", seg.summary.empty() ? "(compressed)" : seg.summary}});
     }
+    cap_archive(out);
     return out;
 }
 
 // The classifier's work-state summary is the anchor the agent continues from
-// after compression; carry it, plus the last short user goal, on the message.
-Message compressed_context_message(const CompressionResponse& response, const json& archive,
-                                   const std::vector<Message>& core) {
+// after compression. The archive is the only other payload: everything the pass
+// used to write here (`type`, `version`, `facts.last_goal`) had no reader.
+Message compressed_context_message(const CompressionResponse& response, const json& archive) {
     json ctx;
-    ctx["type"] = "compressed_context";
-    ctx["version"] = 1;
     ctx["archive"] = archive;
     if (!response.summary.empty())
         ctx["summary"] = response.summary;
-
-    json facts = json::object();
-    for (const auto& msg : core) {
-        if (msg.role == "user" && msg.content.size() < 200) {
-            facts["last_goal"] = msg.content;
-            break;
-        }
-    }
-    ctx["facts"] = facts;
 
     Message out;
     out.role = "system";
@@ -261,6 +267,7 @@ void append_archived_turns(std::vector<Message>& messages, size_t ctx_idx,
             ? std::to_string(dropped.front())
             : std::to_string(dropped.front()) + "-" + std::to_string(dropped.back());
     archive.push_back({{"turns", range}, {"summary", note}});
+    cap_archive(archive);
     body["archive"] = std::move(archive);
     messages[ctx_idx].content = std::string(kCompressedContextPrefix) + "\n" + body.dump(2);
 }
@@ -385,7 +392,7 @@ std::vector<Message> apply_classification(const std::vector<Message>& history,
     // The facts scan sees the core turns only, so the message is built before
     // it is appended.
     Message compressed = compressed_context_message(
-        response, archive_json_for(carried_archive(history, start_idx), part.archive), part.core);
+        response, archive_json_for(carried_archive(history, start_idx), part.archive));
     part.core.push_back(std::move(compressed));
     ensure_user_message(part.core, history);
 
