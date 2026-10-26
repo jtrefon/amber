@@ -15,13 +15,13 @@ skill's GitHub repository. `skills.com` is not an agent-skill registry.
 
 The explorer opens. Press `/`, type at least two characters, and press Enter.
 Move the selection with `j`/`k`; press Enter again to load the detail (source,
-installs, license, category, file count). Press `i` to install.
+installs, license, category, file count). Press `i` for the install sheet.
 
 ```text
+/skills search tdd
+/skills install acme/skills/tdd
 /skills installed
 ```
-
-Opens the shelf of skills already on disk.
 
 ## Keys
 
@@ -30,18 +30,55 @@ Opens the shelf of skills already on disk.
 | `/` | focus the search field |
 | `j`/`k`, arrows | move |
 | `Enter` | leave the search field / load the selected detail |
-| `i` | install (asks project or global) |
+| `i` | open the install sheet |
+| `p` | preview the skill body (also satisfies the review gate) |
+| `v` | audit readout: risk-signal counts, and "not audited" when there is no audit source |
 | `6` | Installed shelf |
+| `u` | check for an update; press again to apply |
+| `D` | remove (confirmation required) |
 | `A` | adopt an unmanaged skill directory (adds provenance, rewrites nothing) |
 | `x` | enable / disable through the catalog override |
 | `b` | block |
-| `u` | check for an update; press again to apply |
-| `D` | remove (confirmation required) |
-| `/skills installed` | open the Installed shelf directly |
 | `q`, `Esc` | close |
 
-Installing is atomic: files are staged beside the destination and renamed into
-place only when every file is written. A failed install leaves nothing behind.
+## Command forms
+
+Every screen action has a command form; the explorer is a view of the same
+backends.
+
+| Command | What it does |
+|---|---|
+| `/skills` | open the explorer |
+| `/skills browse` | the same, spelled out |
+| `/skills search <query>` | open the explorer with the query already searched |
+| `/skills list` | print the catalog (scope, origin, name, state) |
+| `/skills show <name>` | print one catalog entry |
+| `/skills install <id> [--global]` | fetch the skill and open the install sheet |
+| `/skills update` | open the Installed shelf, where `u` checks and applies |
+| `/skills remove <name>` | open the Installed shelf filtered to that skill |
+| `/skills sources` | print the index/GitHub endpoints and the cache size |
+
+`enable`, `disable` and `block` stay under `/set skills` — curation is not
+acquisition.
+
+## The install sheet
+
+`i` fetches the skill if needed, then opens one sheet: identity, trust tier,
+files/size/token cost, license, risk signals from the body scanner, scope
+(`project` is the default), name collisions, and whether to enable it now.
+
+Two gates are named in the status line rather than drawn as a dead button:
+
+- **Review.** A community or unverified source cannot be installed until `p`
+  has shown the body, or `x` explicitly opts into an unread install. Official
+  and audited sources bypass it.
+- **Collision.** If the selected scope already holds a directory of that name,
+  Enter replaces it and `r` refuses; Tab switches to the other scope, which
+  starts with its own collision state.
+
+The anonymous skills.sh API exposes no audits, so the sheet says **not
+audited** instead of implying a verdict. `v` in the explorer reports the
+risk-signal counts with the same honesty.
 
 ## Where skills live
 
@@ -52,7 +89,10 @@ place only when every file is written. A failed install leaves nothing behind.
 - index cache: `$XDG_CACHE_HOME/amber/skill-index/` (regenerable)
 
 The ledger records where a skill came from and hashes the installed `SKILL.md`,
-so a later update can refuse to overwrite local edits.
+so a later update can refuse to overwrite local edits. The Installed shelf is
+the union of the catalog and both ledgers: a package installed a moment ago is
+on the shelf without a restart, and its install path (which remove and update
+need) comes from the ledger.
 
 ## Updates and removal
 
@@ -63,12 +103,43 @@ installed `SKILL.md` no longer matches the ledger hash, the update is refused
 (`has local edits; update refused`).
 
 `D` removes the tree and its ledger entry. Overrides (`disable`, `block`) are
-deliberately left alone.
+deliberately left alone. If the conversation has activated the skill, the
+confirmation adds `active in this session until the conversation ends`.
+
+## Headless use
+
+`amber-cli` answers the acquisition surface before any model, plugin or config
+loading:
+
+```text
+amber-cli skills search <query> [--limit N] [--json]
+amber-cli skills list [--global] [--json]
+amber-cli skills show <name|owner/repo/skill> [--json]
+amber-cli skills install <id|owner/repo|url> [--global] [--yes] [--json]
+amber-cli skills update [<name>|--all] [--check] [--json]
+amber-cli skills remove <name> [--global] [--json]
+amber-cli skills sources [--refresh] [--json]
+```
+
+An unattended install refuses a community source without `--yes` and names the
+step that satisfies the gate:
+
+```console
+$ amber-cli skills install acme/skills/tdd
+skills install: refusing to install 'acme/skills/tdd' unattended (community
+source, no audit).
+  read it with 'amber-cli skills show acme/skills/tdd', then pass --yes.
+```
+
+`update` compares the recorded remote hash with the ledger, reports
+`up to date`, `update available`, `locally modified (update refused)` or
+`updated`, and exits non-zero only when a step errored. `sources --refresh`
+empties the regenerable cache.
 
 ## Mirrors and offline registries
 
-The explorer reads three environment overrides, useful for a self-hosted or
-air-gapped mirror:
+The explorer and the CLI read three environment overrides, useful for a
+self-hosted or air-gapped mirror:
 
 ```sh
 export AMBER_SKILLS_INDEX_URL=http://mirror.example
@@ -80,16 +151,14 @@ Empty values keep the public defaults.
 
 ## Current limits
 
-This is the first release of the surface. Not implemented yet:
+Not implemented yet:
 
-- markdown body preview / pager, file browser, audit verdicts and token cost
-  (#398);
-- the review/audit install gates, per-file progress and multi-select (#399);
-- the full `/skills` verb tree and `amber-cli skills … --json` (#400);
-- the diff pager and update-all (#402);
+- the update diff pager, update-all from the TUI and the explicit
+  remote-deleted/renamed states (#402);
+- per-file install progress, cancellation and multi-select installs (#399,
+  #408);
 - shelves (For you / Trending / Top / Official / Collections), facets and
-  offline/429 states (#405–#407).
-
-The explorer itself is exercised by the unit suite and an open/close PTY
-scenario; the hermetic install/update/remove PTY path and the remaining patch
-coverage are tracked in #446.
+  offline/429 states (#405–#407);
+- the skill pack/well-known index and the optional authenticated v1 adapter
+  (#409, #410);
+- scanning `.agents/skills` as an interop root (#412).
