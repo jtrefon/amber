@@ -2543,11 +2543,14 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
 
     tui.send("/set skills review on\r");
-    tui.pump(100);
+    if (!require(tui.wait_for("skills review: on", 10000), "review was not restored", tui))
+        return;
     tui.send("/set skills scope project\r");
-    tui.pump(100);
+    if (!require(tui.wait_for("skills install scope: project", 10000), "scope was not restored",
+                 tui))
+        return;
     tui.send("/set skills index skills.sh\r");
-    require(tui.wait_for("skills index: skills.sh", 10000), "settings were not restored", tui);
+    require(tui.wait_for("skills index: skills.sh", 10000), "index was not restored", tui);
 }
 
 int main(int argc, char** argv) {
