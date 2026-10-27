@@ -28,6 +28,8 @@
 #include "agent/worktree.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
+#include "agent/artifacts.h"
+#include "agent/context_shape.h"
 
 namespace {
 
@@ -844,6 +846,56 @@ TEST(compression_keeps_a_small_single_turn_untouched) {
     auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
     ASSERT_EQ(out.size(), before_msgs);
     ASSERT_EQ(out.back().content, std::string("short result"));
+}
+
+TEST(agent_applies_a_shape_plan_at_the_next_request) {
+    // The model names a live result; the next request carries its digest, and
+    // the payload is still a read_result away.
+    agent::test::XdgGuard xdg("agent_shape_apply");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "after shaping");
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::ShapeQueue queue;
+    ag.set_shape_queue(&queue);
+
+    agent::ToolResult r;
+    r.ok = true;
+    r.output = std::string(4000, 'q');
+    const std::string id = agent::store_digested_artifact(r.output);
+    ASSERT_EQ(id.size(), 16u);
+    r.meta = {{"result_id", id}};
+    const std::string env = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
+
+    std::vector<agent::Message> msgs;
+    msgs.push_back(agent::Message{"system", "Amber"});
+    msgs.push_back(agent::Message{"user", "start"});
+    agent::Message call = agent_test::tool_call_msg("read", json{{"path", "Makefile"}}, "c1");
+    msgs.push_back(std::move(call));
+    agent::Message result{"tool", env};
+    result.name = "read";
+    result.tool_call_id = "c1";
+    msgs.push_back(std::move(result));
+    ag.set_context(std::move(msgs));
+
+    agent::ShapePlan plan;
+    plan.result_ids = {id};
+    queue.push(plan);
+    ASSERT_EQ(ag.run("continue"), "after shaping");
+    ASSERT_EQ(raw->chat_calls, 1);
+
+    bool digested = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.role == "tool" && m.content.rfind("[tool output omitted", 0) == 0)
+            digested = true;
+    ASSERT(digested);
+    std::string error;
+    const auto payload = agent::read_tool_artifact(id, 0, 8192, "", error);
+    ASSERT(payload.has_value());
+    ASSERT_EQ(*payload, r.output);
 }
 
 TEST(compression_request_replays_the_live_prefix) {
