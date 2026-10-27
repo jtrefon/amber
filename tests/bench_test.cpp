@@ -3110,3 +3110,39 @@ TEST(shape_replay_in_turn_rule_matches_the_shipped_pass) {
     ASSERT_EQ(shaped.replaced, expected);
     ASSERT(expected > 0u);
 }
+
+TEST(shape_replay_parses_a_recorded_session) {
+    // The parser is the part every number in the PR depends on: a log line
+    // becomes the message the model saw, a tool call joins its assistant turn,
+    // and the report says what each rule bought.
+    const fs::path path = fs::temp_directory_path() / "amber_shape_replay_test.jsonl";
+    {
+        std::ofstream out(path);
+        out << R"({"event":"user","content":"read it"})" << "\n";
+        out << R"({"event":"tool_call","id":"c1","name":"read","args":{"path":"Makefile"}})"
+            << "\n";
+        out << R"({"event":"tool_result","id":"c1","name":"read","ok":true,"output":"alpha line to keep\n"})"
+            << "\n";
+        out << R"({"event":"tool_call","id":"c2","name":"read","args":{"path":"Makefile"}})"
+            << "\n";
+        out << R"({"event":"tool_result","id":"c2","name":"read","ok":true,"output":"beta line to keep\n"})"
+            << "\n";
+    }
+    const bench::ReplayLog log = bench::parse_session_log(path.string());
+    fs::remove(path);
+    ASSERT_EQ(log.messages.size(), 5u);
+    ASSERT_EQ(log.messages[0].role, std::string("user"));
+    ASSERT_EQ(log.messages[1].role, std::string("assistant"));
+    ASSERT_EQ(log.messages[1].tool_calls.size(), 1u);
+    ASSERT_EQ(log.messages[2].role, std::string("tool"));
+    ASSERT(log.messages[2].content.find("alpha") != std::string::npos);
+
+    // The same path read twice: supersede replaces the earlier read only.
+    const bench::ShapeStats sup = bench::replay_rule(log, "supersede", 262144);
+    ASSERT_EQ(sup.replaced, 1u);
+
+    const std::string report = bench::format_replay_report("session", {sup});
+    ASSERT(report.find("session") != std::string::npos);
+    ASSERT(report.find("supersede") != std::string::npos);
+    ASSERT(report.find("before") != std::string::npos);
+}

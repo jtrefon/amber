@@ -45,8 +45,9 @@ std::string header_field(const std::string& content, const std::string& key) {
     return to == std::string::npos ? std::string() : header.substr(from, to - from);
 }
 
-void append_tool_call(ReplayLog& log, const json& e) {
+void append_tool_call(ReplayLog& log, const json& e, std::map<std::string, json>& calls) {
     json args = e.contains("args") && !e["args"].is_null() ? e["args"] : json::object();
+    calls[e.value("id", "")] = args;
     json call = {{"id", e.value("id", "")},
                  {"type", "function"},
                  {"function", {{"name", e.value("name", "")}, {"arguments", args.dump()}}}};
@@ -63,7 +64,9 @@ void append_tool_call(ReplayLog& log, const json& e) {
     log.messages.push_back(std::move(m));
 }
 
-void append_tool_result(ReplayLog& log, const json& e) {
+void append_tool_result(ReplayLog& log, const json& e, const std::map<std::string, json>& calls) {
+    const auto call = calls.find(e.value("id", ""));
+    const json args = call == calls.end() ? json::object() : call->second;
     agent::ToolResult r;
     r.ok = e.value("ok", true);
     r.output = e.value("output", "");
@@ -71,8 +74,7 @@ void append_tool_result(ReplayLog& log, const json& e) {
     m.role = "tool";
     m.name = e.value("name", "");
     m.tool_call_id = e.value("id", "");
-    m.content = agent::utf8_sanitize(
-        agent::format_tool_envelope(m.name, json::object(), r, kEnvelopeBudget));
+    m.content = agent::utf8_sanitize(agent::format_tool_envelope(m.name, args, r, kEnvelopeBudget));
     log.messages.push_back(std::move(m));
 }
 
@@ -252,6 +254,7 @@ std::vector<std::size_t> apply_rule(std::vector<agent::Message>& msgs, const std
 ReplayLog parse_session_log(const std::string& path) {
     ReplayLog log;
     std::ifstream in(path);
+    std::map<std::string, json> calls;
     std::string line;
     while (std::getline(in, line)) {
         const json e = json::parse(line, nullptr, false);
@@ -265,9 +268,9 @@ ReplayLog parse_session_log(const std::string& path) {
             if (!m.content.empty())
                 log.messages.push_back(std::move(m));
         } else if (type == "tool_call" && !log.messages.empty()) {
-            append_tool_call(log, e);
+            append_tool_call(log, e, calls);
         } else if (type == "tool_result") {
-            append_tool_result(log, e);
+            append_tool_result(log, e, calls);
         }
     }
     return log;
