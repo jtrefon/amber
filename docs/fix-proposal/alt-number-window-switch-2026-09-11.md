@@ -240,7 +240,10 @@ public:
 
 `NcursesKeySource::read_key()` reads the first key; if it's ESC (27), it reads
 the followup with a 200ms timeout. Returns `{27, '3'}` or `{27, nullopt}`.
-Test mocks return followup directly — no terminal needed.
+Only a key from the ESC vocabulary (`esc_prefix_key`: a window digit, `b`/`B`,
+`m`/`M`) becomes a followup — anything else is put back for the next read, so a
+Ctrl+C that arrives behind ESC still quits instead of being swallowed as a
+prefix it is not. Test mocks return followup directly — no terminal needed.
 
 **5. `InputLoop` — the use case, port-driven**
 
