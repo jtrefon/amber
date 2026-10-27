@@ -189,18 +189,19 @@ reduced nothing left the size unchanged.
 
 ### Known gaps (measured, not assumed)
 
-1. **A single active turn cannot be compacted.** The protected tail is the whole
-   turn, so a session whose only content is one long turn has nothing older to
-   archive; the pass returns it unchanged (I1). Digesting older results *inside*
-   the turn is tracked as CC-14 (#439).
-2. **The archive is not LLM-summarised on re-compression.** It is capped and
+1. **The archive is not LLM-summarised on re-compression.** It is capped and
    merged; the classifier's summary is the semantic channel.
-3. **Per-provider prompt caching is not modelled.** The prefix replay is a
+2. **Per-provider prompt caching is not modelled.** The prefix replay is a
    token-prefix guarantee; Anthropic `cache_control` and provider-specific
    cache APIs are out of scope.
-4. **The classifier's index grounding is a heuristic.** The manifest gives it
+3. **The classifier's index grounding is a heuristic.** The manifest gives it
    numbers; a mis-tagged range is still possible. The tail and default-core
    rules make the failure safe, not accurate.
+4. **In-turn compaction keeps the newest evidence, not all of it.** Older
+   results of the active turn become digests once the tail budget is spent; they
+   are recallable through `read_result`, not present in the prompt. A session
+   with one enormous result that must be read whole gets one rebuild, not a
+   smaller reading of it.
 
 ### Scenarios
 
