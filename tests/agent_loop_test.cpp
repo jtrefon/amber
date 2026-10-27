@@ -750,6 +750,104 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     ASSERT(agent::estimate_tokens(out) <= before_tokens);
 }
 
+TEST(compression_digests_old_results_inside_a_single_active_turn) {
+    // A session whose only content is one oversized turn has nothing for the
+    // classifier to tag: its relief is its own older evidence, and that is a
+    // deterministic pass. The model's task, the newest result and the pairing
+    // must survive; the older results become recallable digests.
+    agent::test::XdgGuard xdg("in_turn_compact");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.min_turns = 2;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor(cc);
+    agent_test::FakeLLMClient fake;
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "the one long task";
+    ctx.push(std::move(user));
+    for (int r = 0; r < 40; ++r) {
+        agent::Message call;
+        call.role = "assistant";
+        call.tool_calls = json::array({{{"id", "c" + std::to_string(r)},
+                                        {"type", "function"},
+                                        {"function", {{"name", "read"}, {"arguments", "{}"}}}}});
+        ctx.push(std::move(call));
+        agent::Message result;
+        result.role = "tool";
+        result.tool_call_id = "c" + std::to_string(r);
+        result.name = "read";
+        result.content = "result " + std::to_string(r) + " " + std::string(8000, 'x');
+        ctx.push(std::move(result));
+    }
+    const std::size_t before = ctx.token_count();
+    ASSERT(before > 30000u);
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT_EQ(fake.chat_calls, 0); // no classify, no extract
+    ASSERT(agent::estimate_tokens(out) < before);
+    ASSERT_EQ(out[1].content, std::string("the one long task"));
+    ASSERT_EQ(out.back().content, "result 39 " + std::string(8000, 'x'));
+    std::size_t digests = 0;
+    std::size_t with_id = 0;
+    for (const auto& m : out) {
+        if (m.role != "tool" || m.content.rfind("[tool output omitted", 0) != 0)
+            continue;
+        ++digests;
+        if (m.content.find("result_id=") != std::string::npos)
+            ++with_id;
+    }
+    ASSERT(digests >= 30u);
+    ASSERT_EQ(digests, with_id);
+}
+
+TEST(compression_keeps_a_small_single_turn_untouched) {
+    // Nothing before the tail and nothing to digest: the pass is a no-op, and it
+    // must not spend two LLM calls to discover that.
+    agent::test::XdgGuard xdg("in_turn_noop");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.min_turns = 2;
+    auto compressor = agent::make_compressor(cc);
+    agent_test::FakeLLMClient fake;
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "a small task";
+    ctx.push(std::move(user));
+    agent::Message call;
+    call.role = "assistant";
+    call.tool_calls = json::array({{{"id", "c1"},
+                                    {"type", "function"},
+                                    {"function", {{"name", "read"}, {"arguments", "{}"}}}}});
+    ctx.push(std::move(call));
+    agent::Message result;
+    result.role = "tool";
+    result.tool_call_id = "c1";
+    result.name = "read";
+    result.content = "short result";
+    ctx.push(std::move(result));
+    const std::size_t before_msgs = ctx.size();
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT_EQ(fake.chat_calls, 0);
+    ASSERT_EQ(out.size(), before_msgs);
+    ASSERT_EQ(out.back().content, std::string("short result"));
+}
+
 TEST(compression_request_replays_the_live_prefix) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor();

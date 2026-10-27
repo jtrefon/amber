@@ -6158,6 +6158,26 @@ TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
     ASSERT_EQ(hist[8].content, std::string(600, 'm'));
 }
 
+TEST(prune_tool_io_keeps_the_newest_result_inside_the_active_turn) {
+    // The archive pass cannot touch the active turn, but the turn itself can
+    // exceed the window. The newest evidence survives; older results of the same
+    // turn become digests once the tail budget is spent.
+    XdgGuard xdg("prune_in_turn_budget");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "one long task")};
+    for (int r = 0; r < 20; ++r) {
+        hist.push_back(tool_call_msg("c" + std::to_string(r), "read"));
+        hist.push_back(
+            tool_result_msg("c" + std::to_string(r), "r" + std::to_string(r) + std::string(8000, 'x')));
+    }
+    const std::size_t replaced = agent::prune_tool_io(hist, &cc);
+    ASSERT(replaced >= 15u);
+    ASSERT_EQ(hist[1].content, std::string("one long task"));
+    ASSERT_EQ(hist.back().content, "r19" + std::string(8000, 'x'));
+    ASSERT(hist.back().content.find("[tool output omitted") == std::string::npos);
+}
+
 TEST(prune_tool_io_legacy_path_keeps_its_two_prompt_guard) {
     XdgGuard xdg("prune_legacy");
     // cfg == nullptr is the legacy direct call: it prunes only output before the
@@ -9142,6 +9162,30 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.turn_counter = 26;
     cfg.user_turn_counter = cfg.turn_counter; // 5 + 20 + 1
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_rearms_on_growth_inside_one_turn) {
+    // The cooldown is not a wall: a long turn that refills the context must be
+    // able to compact again without waiting for a user turn that may never come.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.7;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    cfg.prompt_tokens_used = 200000;
+    ASSERT(gate->should_compress(ctx, cfg));
+    gate->set_last_compress_turn(5);
+    cfg.turn_counter = 6;
+    cfg.prompt_tokens_used = 200000; // inside cooldown, no new consumption
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 230000; // a tenth of the window arrived
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
