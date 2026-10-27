@@ -19,6 +19,7 @@
 #include "agent/config_paths.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
+#include "agent/skill_cli.h"
 #include "agent/skill_commands.h"
 #include "agent/skill_install.h"
 #include "agent/skill_index.h"
@@ -535,6 +536,82 @@ const char* skill_scope_label(agent::SkillScope scope) {
     return "skill";
 }
 
+std::vector<std::string> skill_sources_lines() {
+    const agent::SkillSources sources = agent::skill_sources(false);
+    return {"index       " + sources.index_base + " (unauthenticated search)",
+            "github api  " + sources.github_api, "github raw  " + sources.github_raw,
+            "cache       " + sources.cache_dir + " (" + sources.cache_summary + ")"};
+}
+
+// "/skills install <target> [--global]" -> target + scope.
+struct InstallArg {
+    std::string target;
+    bool global = false;
+};
+
+InstallArg split_install_arg(const std::string& arg) {
+    InstallArg out;
+    out.target = arg;
+    const std::string flag = " --global";
+    if (out.target.size() > flag.size() &&
+        out.target.compare(out.target.size() - flag.size(), flag.size(), flag) == 0) {
+        out.global = true;
+        out.target.resize(out.target.size() - flag.size());
+    }
+    while (!out.target.empty() && out.target.back() == ' ')
+        out.target.pop_back();
+    return out;
+}
+
+// The explorer's verbs, wired as one unit so the dispatcher keeps a single
+// method for the whole skills domain.
+void wire_skills_explorer_verbs(
+    tui::ActionRegistry& registry, const std::function<void(tui::SkillsExplorerOptions)>& run,
+    const std::function<tui::SkillsExplorerOptions(const std::string&)>& options,
+    const std::function<bool()>& ready) {
+    for (const char* action : {"core.skills", "core.skills.browse"})
+        registry.register_action(action, [run, options](const std::string& a) { run(options(a)); });
+    registry.register_action("core.skills.search", [run, options, ready](const std::string& a) {
+        if (!ready())
+            return;
+        tui::SkillsExplorerOptions opts = options("");
+        opts.initial_query = a;
+        run(std::move(opts));
+    });
+    registry.register_action("core.skills.install", [run, options, ready](const std::string& a) {
+        if (!ready())
+            return;
+        const InstallArg parsed = split_install_arg(a);
+        tui::SkillsExplorerOptions opts = options("");
+        opts.install_id = parsed.target;
+        opts.install_global = parsed.global;
+        run(std::move(opts));
+    });
+    registry.register_action("core.skills.update",
+                             [run, options](const std::string&) { run(options("installed")); });
+    registry.register_action("core.skills.remove", [run, options, ready](const std::string& a) {
+        if (!ready())
+            return;
+        tui::SkillsExplorerOptions opts = options("installed");
+        opts.initial_filter = a;
+        run(std::move(opts));
+    });
+}
+
+// The readout verbs share the /set skills listing instead of duplicating it.
+void wire_skills_readouts(tui::ActionRegistry& registry,
+                          const std::function<std::vector<std::string>()>& list,
+                          const std::function<void(const std::string&)>& append,
+                          const std::function<void(const std::string&)>& show,
+                          const std::function<void()>& sources) {
+    registry.register_action("core.skills.list", [list, append](const std::string&) {
+        for (const auto& line : list())
+            append(line);
+    });
+    registry.register_action("core.skills.show", [show](const std::string& a) { show(a); });
+    registry.register_action("core.skills.sources", [sources](const std::string&) { sources(); });
+}
+
 const char* kSkillsUsage = "usage: /set skills interop on|off | refresh | show "
                            "| create <name> [--global] | delete <name> [--global] | export <name> "
                            "| install <path|url> | uninstall <name> | enable|disable|block <name>";
@@ -592,6 +669,7 @@ std::vector<tui::SkillRow>
 installed_skill_rows(const agent::SkillCatalog& catalog,
                      const std::map<std::string, agent::LedgerEntry>& ledger) {
     std::vector<tui::SkillRow> rows;
+    std::set<std::string> seen;
     for (const auto& entry : catalog.entries()) {
         tui::SkillRow row;
         row.ref.id = entry.path.empty() ? entry.name : entry.path;
@@ -601,21 +679,36 @@ installed_skill_rows(const agent::SkillCatalog& catalog,
         row.state = entry.state;
         row.installed = true;
         row.unmanaged = ledger.count(entry.name) == 0;
+        seen.insert(entry.name);
         rows.push_back(std::move(row));
+    }
+    // The ledger is the acquisition record: a package installed moments ago
+    // belongs on the shelf even if this window's catalog snapshot has not
+    // rescanned yet. It is also the only source for the install path, which is
+    // what remove and update need.
+    const agent::SkillScanPaths paths = agent::default_scan_paths();
+    for (const auto& [root, scope] :
+         {std::pair{paths.project, "project"}, std::pair{paths.global, "global"}}) {
+        agent::SkillLedger installed = agent::SkillLedger::for_root(root);
+        installed.load();
+        for (const auto& [name, entry] : installed.entries()) {
+            if (seen.count(name) != 0)
+                continue;
+            tui::SkillRow row;
+            row.ref.id = root;
+            row.ref.id += "/";
+            row.ref.id += name;
+            row.ref.name = name;
+            row.ref.source = scope;
+            row.state = entry.enabled ? "enabled" : "disabled";
+            row.installed = true;
+            rows.push_back(std::move(row));
+        }
     }
     return rows;
 }
 
-void Tui::open_skills_explorer(const std::string& arg) {
-    if (!win().agent) {
-        append_line(P_STATUS, "no agent in this window");
-        return;
-    }
-    // Reflect what is on disk now: a skill installed from this explorer (or by
-    // a pack/CLI in the same session) must appear on the Installed shelf
-    // without a restart.
-    win().agent->skills().refresh();
-    tui::SkillsExplorerOptions opts;
+void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
     opts.rows = LINES;
     opts.cols = COLS;
     const agent::SkillScanPaths paths = agent::default_scan_paths();
@@ -641,8 +734,27 @@ void Tui::open_skills_explorer(const std::string& arg) {
     opts.set_state = [this](const std::string& name, const std::string& state) {
         return win().agent->skills().apply_override(name, state);
     };
+    opts.is_active = [this](const std::string& name) {
+        const auto active = win().agent->activated_skills();
+        return std::any_of(
+            active.begin(), active.end(),
+            [&name](const agent::ActivatedSkill& skill) { return skill.name == name; });
+    };
     opts.budget = skill_budget_text(win().agent->skills());
     opts.installed = [this, ledger] { return installed_skill_rows(win().agent->skills(), ledger); };
+}
+
+void Tui::open_skills_explorer(const std::string& arg) {
+    if (!win().agent) {
+        append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    // Reflect what is on disk now: a skill installed from this explorer (or by
+    // a pack/CLI in the same session) must appear on the Installed shelf
+    // without a restart.
+    win().agent->skills().refresh();
+    tui::SkillsExplorerOptions opts;
+    configure_skills_explorer(opts, arg);
     tui::run_skills_explorer(opts,
                              [this](const std::string& line) { append_line(P_STATUS, line); });
     redraw_after_modal();
@@ -1241,6 +1353,36 @@ void SlashDispatcher::register_set_policy_actions() {
 }
 
 // /set compression, think and skills.
+void SlashDispatcher::register_skills_actions() {
+    auto run = [this](const tui::SkillsExplorerOptions& opts) {
+        tui::run_skills_explorer(
+            opts, [this](const std::string& line) { tui_.append_line(P_STATUS, line); });
+        tui_.redraw_after_modal();
+    };
+    auto options = [this](const std::string& arg) {
+        tui::SkillsExplorerOptions opts;
+        tui_.configure_skills_explorer(opts, arg);
+        return opts;
+    };
+    auto ready = [this] {
+        if (!tui_.win().agent) {
+            tui_.append_line(P_STATUS, "no agent in this window");
+            return false;
+        }
+        tui_.win().agent->skills().refresh();
+        return true;
+    };
+    wire_skills_explorer_verbs(action_registry_, run, options, ready);
+    wire_skills_readouts(
+        action_registry_, [this] { return agent::skill_show_lines(tui_.win().agent->skills()); },
+        [this](const std::string& line) { tui_.append_line(P_STATUS, line); },
+        [this](const std::string& a) { cmd_skills_get(a); },
+        [this] {
+            for (const auto& line : skill_sources_lines())
+                tui_.append_line(P_STATUS, line);
+        });
+}
+
 void SlashDispatcher::register_set_feature_actions() {
     register_action("core.config.set.compression.threshold",
                     [this](const std::string& v) { apply_compression_threshold(v); });
@@ -1261,9 +1403,7 @@ void SlashDispatcher::register_set_feature_actions() {
             tui_.win().agent->set_thinking(v);
         tui_.append_line(P_STATUS, "thinking: " + v);
     });
-    register_action("core.skills", [this](const std::string& a) { tui_.open_skills_explorer(a); });
-    register_action("core.skills.browse",
-                    [this](const std::string&) { tui_.open_skills_explorer(); });
+    register_skills_actions();
     register_action("core.config.set.skills", [this](const std::string& a) { cmd_skills_set(a); });
     register_action("core.config.set.skills.interop",
                     [this](const std::string& v) { cmd_skills_interop(v); });
