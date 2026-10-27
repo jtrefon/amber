@@ -6168,14 +6168,28 @@ TEST(prune_tool_io_keeps_the_newest_result_inside_the_active_turn) {
     std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "one long task")};
     for (int r = 0; r < 20; ++r) {
         hist.push_back(tool_call_msg("c" + std::to_string(r), "read"));
-        hist.push_back(
-            tool_result_msg("c" + std::to_string(r), "r" + std::to_string(r) + std::string(8000, 'x')));
+        hist.push_back(tool_result_msg("c" + std::to_string(r),
+                                       "r" + std::to_string(r) + std::string(8000, 'x')));
     }
     const std::size_t replaced = agent::prune_tool_io(hist, &cc);
     ASSERT(replaced >= 15u);
     ASSERT_EQ(hist[1].content, std::string("one long task"));
     ASSERT_EQ(hist.back().content, "r19" + std::string(8000, 'x'));
     ASSERT(hist.back().content.find("[tool output omitted") == std::string::npos);
+}
+
+TEST(prune_in_turn_results_needs_a_known_window) {
+    // The gate never guesses a window; neither does in-turn pruning. With no
+    // window there is no budget, so nothing is replaced.
+    XdgGuard xdg("prune_in_turn_nowindow");
+    agent::CompressionConfig cc; // context_size == 0
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "task")};
+    for (int r = 0; r < 3; ++r) {
+        hist.push_back(tool_call_msg("c" + std::to_string(r), "bash"));
+        hist.push_back(tool_result_msg("c" + std::to_string(r), std::string(4000, 'x')));
+    }
+    ASSERT_EQ(agent::prune_in_turn_results(hist, &cc), 0u);
+    ASSERT_EQ(hist.back().content, std::string(4000, 'x'));
 }
 
 TEST(prune_tool_io_legacy_path_keeps_its_two_prompt_guard) {

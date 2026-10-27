@@ -214,11 +214,25 @@ void collapse_loops(std::vector<Message>& history);
 // Phase-0 cheap pass: replace bulky tool outputs (>200 chars) with a short
 // placeholder. When `cfg` is non-null the whole history is pruned EXCEPT the
 // protected tail (the last keep_last_prompts real user turns and everything
-// after them): the gate fires at the top of a request, so the newest results
-// belong to the turn the model is about to reason about. With cfg null only
-// messages older than the legacy two-user guard are pruned. Returns the number
-// of messages replaced.
+// after them), and then the protected region is trimmed by
+// prune_in_turn_results. With cfg null only messages older than the legacy
+// two-user guard are pruned. Returns the number of messages replaced.
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg = nullptr);
+
+// Keep the newest tool results inside the protected tail that fit its token
+// budget and digest the older ones. This is what gives a single oversized turn
+// relief: the final user prompt and every assistant message always survive, the
+// newest evidence survives, and each replacement carries a `result_id` so
+// read_result can restore it. Deterministic: no LLM call, no summary. Returns
+// the number of messages replaced (0 for an unknown window or a turn already
+// inside the budget).
+std::size_t prune_in_turn_results(std::vector<Message>& history,
+                                  const CompressionConfig* cfg = nullptr);
+
+// True when the protected tail is the whole conversation: the final prompt and
+// everything after it, with no older turn for the classifier to archive. That
+// is the single-oversized-turn case, whose only relief is in-turn pruning.
+bool tail_is_whole_conversation(const std::vector<Message>& history, const CompressionConfig& cfg);
 
 // Repair tool_call/tool_result group splits left by classification: orphaned
 // tool messages (no preceding assistant tool_calls) are removed, and

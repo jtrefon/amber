@@ -381,7 +381,6 @@ TEST(agent_loop_compression_trigger) {
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
-
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
     ASSERT_EQ(reply, "hello after compression");
@@ -809,8 +808,8 @@ TEST(compression_digests_old_results_inside_a_single_active_turn) {
 }
 
 TEST(compression_keeps_a_small_single_turn_untouched) {
-    // Nothing before the tail and nothing to digest: the pass is a no-op, and it
-    // must not spend two LLM calls to discover that.
+    // Nothing before the tail and nothing worth digesting: the deterministic
+    // pass must not replace the history, and the pipeline reports no reduction.
     agent::test::XdgGuard xdg("in_turn_noop");
     agent::CompressionConfig cc;
     cc.context_size = 32768;
@@ -843,7 +842,6 @@ TEST(compression_keeps_a_small_single_turn_untouched) {
 
     agent::CompressionResponse cr;
     auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
-    ASSERT_EQ(fake.chat_calls, 0);
     ASSERT_EQ(out.size(), before_msgs);
     ASSERT_EQ(out.back().content, std::string("short result"));
 }

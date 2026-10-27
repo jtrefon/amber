@@ -26,7 +26,7 @@ Two consequences run through the code:
 ## Shape
 
 ```
-gate (threshold · message floor · reducible history · user-turn cooldown)
+gate (threshold · message floor · reducible history · consumption cooldown)
   → compress(context, cfg, client, live_prefix)
       classify  ── one instruction appended to the live prefix
       extract   ── replays the classify pair, same prefix
@@ -65,10 +65,10 @@ instruction says so when it updates a previous archive.
 | purity | any classify/parse failure returns the original history |
 | monotonicity | a pass that does not reduce returns the original (no summary for nothing) |
 | budgets | target (`target_pct`) and headroom (derived below the trigger), measured after the archive is written |
-| tail | token-budgeted; always includes the final prompt |
+| tail | token-budgeted; always includes the final prompt; older in-turn results digest to a recallable handle |
 | pairing | orphan tool results removed, missing results stubbed |
 | archive cap | 32 entries / ~800 tokens, oldest merged |
-| cooldown | user turns; covers failed attempts; never blocks the first pass |
+| cooldown | LLM requests, re-armed by window growth; covers failed attempts; never blocks the first pass |
 
 ## Entry points
 
