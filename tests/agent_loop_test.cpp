@@ -381,7 +381,6 @@ TEST(agent_loop_compression_trigger) {
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
-
     std::string big_prompt(8000, 'x');
     std::string reply = ag.run(big_prompt);
     ASSERT_EQ(reply, "hello after compression");
@@ -748,6 +747,103 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     agent::CompressionResponse cr;
     auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
     ASSERT(agent::estimate_tokens(out) <= before_tokens);
+}
+
+TEST(compression_digests_old_results_inside_a_single_active_turn) {
+    // A session whose only content is one oversized turn has nothing for the
+    // classifier to tag: its relief is its own older evidence, and that is a
+    // deterministic pass. The model's task, the newest result and the pairing
+    // must survive; the older results become recallable digests.
+    agent::test::XdgGuard xdg("in_turn_compact");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.min_turns = 2;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor();
+    agent_test::FakeLLMClient fake;
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "the one long task";
+    ctx.push(std::move(user));
+    for (int r = 0; r < 40; ++r) {
+        agent::Message call;
+        call.role = "assistant";
+        call.tool_calls = json::array({{{"id", "c" + std::to_string(r)},
+                                        {"type", "function"},
+                                        {"function", {{"name", "read"}, {"arguments", "{}"}}}}});
+        ctx.push(std::move(call));
+        agent::Message result;
+        result.role = "tool";
+        result.tool_call_id = "c" + std::to_string(r);
+        result.name = "read";
+        result.content = "result " + std::to_string(r) + " " + std::string(8000, 'x');
+        ctx.push(std::move(result));
+    }
+    const std::size_t before = ctx.token_count();
+    ASSERT(before > 30000u);
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT_EQ(fake.chat_calls, 0); // no classify, no extract
+    ASSERT(agent::estimate_tokens(out) < before);
+    ASSERT_EQ(out[1].content, std::string("the one long task"));
+    ASSERT_EQ(out.back().content, "result 39 " + std::string(8000, 'x'));
+    std::size_t digests = 0;
+    std::size_t with_id = 0;
+    for (const auto& m : out) {
+        if (m.role != "tool" || m.content.rfind("[tool output omitted", 0) != 0)
+            continue;
+        ++digests;
+        if (m.content.find("result_id=") != std::string::npos)
+            ++with_id;
+    }
+    ASSERT(digests >= 30u);
+    ASSERT_EQ(digests, with_id);
+}
+
+TEST(compression_keeps_a_small_single_turn_untouched) {
+    // Nothing before the tail and nothing worth digesting: the deterministic
+    // pass must not replace the history, and the pipeline reports no reduction.
+    agent::test::XdgGuard xdg("in_turn_noop");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.min_turns = 2;
+    auto compressor = agent::make_compressor();
+    agent_test::FakeLLMClient fake;
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message user;
+    user.role = "user";
+    user.content = "a small task";
+    ctx.push(std::move(user));
+    agent::Message call;
+    call.role = "assistant";
+    call.tool_calls = json::array({{{"id", "c1"},
+                                    {"type", "function"},
+                                    {"function", {{"name", "read"}, {"arguments", "{}"}}}}});
+    ctx.push(std::move(call));
+    agent::Message result;
+    result.role = "tool";
+    result.tool_call_id = "c1";
+    result.name = "read";
+    result.content = "short result";
+    ctx.push(std::move(result));
+    const std::size_t before_msgs = ctx.size();
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT_EQ(out.size(), before_msgs);
+    ASSERT_EQ(out.back().content, std::string("short result"));
 }
 
 TEST(compression_request_replays_the_live_prefix) {
@@ -1131,6 +1227,7 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
 // the classifier+guard kept too much. A 262k window with a ~200k-token context
 // and target_pct=10 must compress to ~26k estimated tokens.
 TEST(compression_target_budget_enforced) {
+    agent::test::XdgGuard xdg("compression_target_budget");
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
@@ -1188,6 +1285,7 @@ TEST(compression_target_budget_enforced) {
 // survive verbatim, and their bulky tool outputs are still pruned (the largest
 // token class is not exempt just because it is recent).
 TEST(compression_keep_last_prompts_and_prune_tail) {
+    agent::test::XdgGuard xdg("compression_prune_tail");
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     cfg.context_size = 32768;

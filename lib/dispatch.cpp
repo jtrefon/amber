@@ -9,6 +9,7 @@
 #include "agent/run_scope.h"
 #include "agent/subagent.h"
 
+#include <algorithm>
 #include <chrono>
 #include <future>
 #include <thread>
@@ -457,17 +458,31 @@ struct RecordDeps {
     std::size_t result_budget = 0;
 };
 
-// A payload larger than the boundary budget is paged out and replaced by a
-// handle, so the model can fetch the rest instead of losing it.
-void page_out_oversized(ToolResult& res, std::size_t budget) {
-    if (!res.ok || budget == 0 || res.output.size() <= budget)
-        return;
+// Bulky bash output is mostly noise (build logs, test runs) the model reads the
+// ends of, not the middle. The replay harness measured 3% of all tool tokens on
+// real sessions with no dropped span referenced later, so the envelope keeps a
+// head and a tail and pages the rest. `read` is never projected (the model asked
+// for that range) and `search` is already capped by its own `max`.
+constexpr std::size_t kSourceProjectionBytes = std::size_t{8} * 1024;
+
+// A payload over the boundary budget is paged out and replaced by a handle, so
+// the model can fetch the rest instead of losing it. Returns the budget the
+// envelope should use: the configured one, or the projection limit when this
+// result was projected.
+std::size_t page_out_oversized(ToolResult& res, const std::string& name, std::size_t budget) {
+    if (!res.ok || budget == 0)
+        return budget;
+    const bool over_page = res.output.size() > budget;
+    const bool over_projection = name == "bash" && res.output.size() > kSourceProjectionBytes;
+    if (!over_page && !over_projection)
+        return budget;
     const std::string id = store_tool_artifact(res.output);
     if (id.empty())
-        return;
+        return budget;
     json meta = (res.meta.is_null() || !res.meta.is_object()) ? json::object() : res.meta;
     meta["result_id"] = id;
     res.meta = std::move(meta);
+    return over_projection ? std::min(budget, kSourceProjectionBytes) : budget;
 }
 
 bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
@@ -492,8 +507,8 @@ bool finish_call(const Call& c, ToolResult res, const RecordDeps& deps) {
     tool_msg.role = "tool";
     tool_msg.tool_call_id = c.id;
     tool_msg.name = c.fn;
-    page_out_oversized(res, deps.result_budget);
-    tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, c.args, res, deps.result_budget));
+    const std::size_t budget = page_out_oversized(res, c.fn, deps.result_budget);
+    tool_msg.content = utf8_sanitize(format_tool_envelope(c.fn, c.args, res, budget));
     context->push(std::move(tool_msg));
     MessageAddedEvent added;
     added.message = &context->get_all().back();

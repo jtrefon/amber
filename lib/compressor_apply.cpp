@@ -1,6 +1,7 @@
 
 #include "agent/compressor.h"
 #include "agent/agent_helpers.h"
+#include "agent/artifacts.h"
 #include "agent/context.h"
 #include "agent/experience.h"
 
@@ -445,6 +446,20 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
     return compressed;
 }
 
+// Replace one tool message with a digest, storing the payload first when the
+// envelope carries no handle, so the digest never claims a recall it cannot
+// serve. Returns false for a message that is already a digest, which keeps the
+// pass idempotent (a digest of a digest would lose the index).
+bool digest_tool_message(Message& m) {
+    if (m.content.rfind("[tool output omitted", 0) == 0)
+        return false;
+    std::string id = result_id_of(m);
+    if (id.empty())
+        id = store_digested_artifact(m.content);
+    m.content = tool_result_digest(m, id);
+    return true;
+}
+
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg) {
     // Bulky tool outputs are the largest single token class in agent sessions
     // (multi-KB bash/read results). When the pipeline runs (cfg non-null) the
@@ -470,12 +485,57 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
     std::size_t replaced = 0;
     for (size_t i = 1; i < limit; ++i) {
         Message& m = history[i];
-        if (m.role == "tool" && m.content.size() > 200) {
-            m.content = tool_result_digest(m);
+        if (m.role == "tool" && m.content.size() > 200 && digest_tool_message(m))
             ++replaced;
-        }
     }
+    if (cfg)
+        replaced += prune_in_turn_results(history, cfg);
     return replaced;
+}
+
+std::vector<std::size_t> in_turn_digest_candidates(const std::vector<Message>& history,
+                                                   const CompressionConfig& cfg) {
+    std::vector<std::size_t> out;
+    if (history.empty())
+        return out;
+    const auto context_size = static_cast<size_t>(cfg.context_size);
+    const size_t tail = protected_tail_start(history, cfg, context_size);
+    if (tail >= history.size())
+        return out;
+    const size_t budget = tail_budget_tokens(context_size, cfg);
+    std::size_t kept_tokens = 0;
+    bool kept_newest = false;
+    // Walk backwards: the newest evidence is what the model is about to act on.
+    // It always survives, even when it alone exceeds the budget; the budget
+    // decides how much of the older tail joins it.
+    for (size_t i = history.size(); i > tail; --i) {
+        const Message& m = history[i - 1];
+        if (m.role != "tool")
+            continue;
+        const std::size_t tokens = message_tokens(m);
+        if (!kept_newest || kept_tokens + tokens <= budget) {
+            kept_newest = true;
+            kept_tokens += tokens;
+            continue;
+        }
+        if (m.content.size() > 200)
+            out.push_back(i - 1);
+    }
+    return out;
+}
+
+std::size_t prune_in_turn_results(std::vector<Message>& history, const CompressionConfig* cfg) {
+    if (!cfg)
+        return 0;
+    std::size_t replaced = 0;
+    for (const std::size_t i : in_turn_digest_candidates(history, *cfg))
+        if (digest_tool_message(history[i]))
+            ++replaced;
+    return replaced;
+}
+
+bool tail_is_whole_conversation(const std::vector<Message>& history, const CompressionConfig& cfg) {
+    return protected_tail_start(history, cfg, static_cast<size_t>(cfg.context_size)) <= 1;
 }
 
 void sanitize_tool_pairs(std::vector<Message>& history) {

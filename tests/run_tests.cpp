@@ -2770,54 +2770,7 @@ int spawn_counting_slow_mock(int port, std::atomic<int>& hits, int hold_ms,
 }
 } // namespace
 
-// Redirect the XDG roots to a scratch tree for the test body: the model
-// catalog cache lives under the cache root and per-project state under the
-// state root, and tests must never read or write the developer's real
-// ~/.config, ~/.cache or ~/.local/state.
-struct XdgGuard {
-    explicit XdgGuard(const std::string& name)
-        : dir("/tmp/amber_xdg_" + name), state(dir + "/state"), cache(dir + "/cache") {
-        std::filesystem::remove_all(dir);
-        capture("XDG_CONFIG_HOME", saved_config, had_config);
-        capture("XDG_STATE_HOME", saved_state, had_state);
-        capture("XDG_CACHE_HOME", saved_cache, had_cache);
-        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
-        setenv("XDG_STATE_HOME", state.c_str(), 1);
-        setenv("XDG_CACHE_HOME", cache.c_str(), 1);
-    }
-    ~XdgGuard() {
-        restore("XDG_CONFIG_HOME", saved_config, had_config);
-        restore("XDG_STATE_HOME", saved_state, had_state);
-        restore("XDG_CACHE_HOME", saved_cache, had_cache);
-        std::filesystem::remove_all(dir);
-    }
-    XdgGuard(const XdgGuard&) = delete;
-    XdgGuard& operator=(const XdgGuard&) = delete;
-
-    std::string dir;
-    std::string state;
-    std::string cache;
-    std::string saved_config;
-    std::string saved_state;
-    std::string saved_cache;
-    bool had_config = false;
-    bool had_state = false;
-    bool had_cache = false;
-
-private:
-    static void capture(const char* name, std::string& out, bool& had) {
-        const char* v = std::getenv(name);
-        had = v != nullptr;
-        if (v)
-            out = v;
-    }
-    static void restore(const char* name, const std::string& saved, bool had) {
-        if (had)
-            setenv(name, saved.c_str(), 1);
-        else
-            unsetenv(name);
-    }
-};
+using agent::test::XdgGuard;
 
 // ---------------------------------------------------------------------------
 // Private file modes (#373)
@@ -5284,6 +5237,18 @@ TEST(job_service_caps_output_at_one_mib) {
     jobs.stop(id);
 }
 
+// CC-16: a digest is an index, not a deletion. Anything the compactor replaces
+// must be recoverable byte-for-byte through the id the digest carries.
+static std::string result_id_from_text(const std::string& digest) {
+    const std::string key = "result_id=";
+    const std::size_t at = digest.find(key);
+    if (at == std::string::npos)
+        return {};
+    const std::size_t from = at + key.size();
+    const std::size_t end = digest.find_first_not_of("0123456789abcdef", from);
+    return digest.substr(from, end == std::string::npos ? std::string::npos : end - from);
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch / tool approval tests
 // ---------------------------------------------------------------------------
@@ -5328,6 +5293,36 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
             break;
         }
     ASSERT(found);
+}
+
+TEST(dispatch_projects_bulky_bash_output_at_the_source) {
+    // A build log is the one tool result where the middle is noise: keep the
+    // ends, hand the model a handle, and leave read untouched.
+    XdgGuard xdg("dispatch_bash_projection");
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_bash_tool());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::AgentHooks hooks;
+    agent::json calls = agent::json::array();
+    calls.push_back({{"id", "c1"},
+                     {"type", "function"},
+                     {"function", {{"name", "bash"}, {"arguments", {{"command", "seq 1 4000"}}}}}});
+    agent::Context dctx;
+    ASSERT(
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx));
+    const auto msgs = dctx.get_all();
+    const agent::Message& tool = msgs.back();
+    ASSERT_EQ(tool.role, "tool");
+    ASSERT(tool.content.size() < 10u * 1024);
+    const std::string id = result_id_from_text(tool.content);
+    ASSERT_EQ(id.size(), 16u);
+    std::string error;
+    const auto full = agent::read_tool_artifact(id, 0, 65536, "", error);
+    ASSERT(full.has_value());
+    ASSERT(full->size() > 12u * 1024);
 }
 
 TEST(dispatch_rejects_duplicate_tool_call) {
@@ -6156,6 +6151,7 @@ TEST(subagent_tail_is_bounded) {
 }
 
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {
+    XdgGuard xdg("prune_outside_tail");
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),
         msg("user", "task a"),
@@ -6181,6 +6177,7 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
 }
 
 TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
+    XdgGuard xdg("prune_active_turn");
     // The pipeline runs the prune at the top of every request, i.e. right after
     // tool results were pushed. The current turn's evidence must survive; only
     // output the agent has moved past may be replaced by a digest.
@@ -6203,7 +6200,42 @@ TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
     ASSERT_EQ(hist[8].content, std::string(600, 'm'));
 }
 
+TEST(prune_tool_io_keeps_the_newest_result_inside_the_active_turn) {
+    // The archive pass cannot touch the active turn, but the turn itself can
+    // exceed the window. The newest evidence survives; older results of the same
+    // turn become digests once the tail budget is spent.
+    XdgGuard xdg("prune_in_turn_budget");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "one long task")};
+    for (int r = 0; r < 20; ++r) {
+        hist.push_back(tool_call_msg("c" + std::to_string(r), "read"));
+        hist.push_back(tool_result_msg("c" + std::to_string(r),
+                                       "r" + std::to_string(r) + std::string(8000, 'x')));
+    }
+    const std::size_t replaced = agent::prune_tool_io(hist, &cc);
+    ASSERT(replaced >= 15u);
+    ASSERT_EQ(hist[1].content, std::string("one long task"));
+    ASSERT_EQ(hist.back().content, "r19" + std::string(8000, 'x'));
+    ASSERT(hist.back().content.find("[tool output omitted") == std::string::npos);
+}
+
+TEST(prune_in_turn_results_needs_a_known_window) {
+    // The gate never guesses a window; neither does in-turn pruning. With no
+    // window there is no budget, so nothing is replaced.
+    XdgGuard xdg("prune_in_turn_nowindow");
+    agent::CompressionConfig cc; // context_size == 0
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "task")};
+    for (int r = 0; r < 3; ++r) {
+        hist.push_back(tool_call_msg("c" + std::to_string(r), "bash"));
+        hist.push_back(tool_result_msg("c" + std::to_string(r), std::string(4000, 'x')));
+    }
+    ASSERT_EQ(agent::prune_in_turn_results(hist, &cc), 0u);
+    ASSERT_EQ(hist.back().content, std::string(4000, 'x'));
+}
+
 TEST(prune_tool_io_legacy_path_keeps_its_two_prompt_guard) {
+    XdgGuard xdg("prune_legacy");
     // cfg == nullptr is the legacy direct call: it prunes only output before the
     // second-to-last user turn. That boundary is unchanged.
     std::vector<agent::Message> hist = {
@@ -6245,6 +6277,46 @@ TEST(prune_tool_io_keeps_a_readable_digest) {
     ASSERT(digest.size() < 400u);
     agent::prune_tool_io(again);
     ASSERT_EQ(again[3].content, digest); // deterministic
+}
+
+TEST(digested_result_is_recallable_by_id) {
+    XdgGuard xdg("digest_recall_medium");
+    agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1;
+    std::string body = "[tool=read status=ok meta={}]\n";
+    for (int i = 0; i < 400; ++i)
+        body += "line " + std::to_string(i) + " of a file the agent already read\n";
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),      msg("user", "old task"),     tool_call_msg("c1", "read"),
+        tool_result_msg("c1", body), msg("user", "current task"),
+    };
+    ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
+    const std::string id = result_id_from_text(hist[3].content);
+    ASSERT_EQ(id.size(), 16u); // today the digest carries no id at all
+    ASSERT(agent::valid_artifact_id(id));
+    std::string error;
+    const auto stored = agent::read_tool_artifact(id, 0, 65536, "", error);
+    ASSERT(stored.has_value());
+    ASSERT_EQ(*stored, body);
+}
+
+TEST(read_result_serves_a_small_result_after_compaction) {
+    XdgGuard xdg("digest_recall_small");
+    agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1;
+    const std::string body = std::string(250, 's'); // under the 4 KB store floor
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),      msg("user", "old task"),     tool_call_msg("c1", "bash"),
+        tool_result_msg("c1", body), msg("user", "current task"),
+    };
+    ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
+    const std::string id = result_id_from_text(hist[3].content);
+    ASSERT_EQ(id.size(), 16u);
+    const auto tool = agent::make_read_result_tool();
+    const agent::ToolResult page =
+        tool->execute({{"result_id", id}, {"offset", 0}, {"limit", 4096}});
+    ASSERT(page.ok);
+    ASSERT_EQ(page.output, body);
 }
 
 TEST(tool_result_digest_falls_back_for_a_plain_message) {
@@ -9134,6 +9206,31 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.turn_counter = 26;
     cfg.user_turn_counter = cfg.turn_counter; // 5 + 20 + 1
+    ASSERT(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_rearms_on_growth_inside_one_turn) {
+    // The cooldown is not a wall: a long turn that refills the context must be
+    // able to compact again without waiting for a user turn that may never come.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.7;
+    cc.cooldown_turns = 20;
+    cc.min_turns = 2;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 262144;
+    cfg.user_turn_counter = 5;
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
+    cfg.prompt_tokens_used = 200000;
+    ASSERT(gate->should_compress(ctx, cfg));
+    gate->set_last_compress_turn(5);
+    cfg.user_turn_counter = 6;
+    cfg.prompt_tokens_used = 200000; // inside cooldown, no new consumption
+    ASSERT_FALSE(gate->should_compress(ctx, cfg));
+    cfg.prompt_tokens_used = 230000; // a tenth of the window arrived
     ASSERT(gate->should_compress(ctx, cfg));
 }
 

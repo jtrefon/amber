@@ -18,6 +18,7 @@
 #include "bench/report.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
+#include "bench/shape_replay.h"
 #include "bench/state_reaper.h"
 
 namespace fs = std::filesystem;
@@ -38,7 +39,10 @@ void print_usage(const char* prog) {
         << "                               failed-scenario diagnosis, signals\n"
         << "  calibrate <results.json>...  reference-anchored calibration: headroom, anchor\n"
         << "                               deviation, suggested difficulties\n"
-        << "  reap-state                   remove old bench scenario state; dry run by default\n\n"
+        << "  reap-state                   remove old bench scenario state; dry run by default\n"
+        << "  shape-replay <log.jsonl>...  replay recorded sessions through a context shaper;\n"
+        << "                               reports tokens saved and how often a dropped span\n"
+        << "                               is referenced later\n\n"
         << "Options:\n"
         << "  --suite NAME     filter by suite\n"
         << "  --scenario NAME  run a single scenario\n"
@@ -168,6 +172,7 @@ struct CliOptions {
     std::string disable;
     std::string format = "text";
     int older_than_days = 7;
+    std::size_t window = 262144;
     bool reap_apply = false;
     std::vector<std::string> rest;
 };
@@ -211,6 +216,8 @@ bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) 
         o.format = next("text");
     else if (a == "--cat" || a == "--category")
         o.category = next("both");
+    else if (a == "--window")
+        o.window = static_cast<std::size_t>(std::max(1, std::atoi(next("262144").c_str())));
     else
         return false;
     return true;
@@ -666,19 +673,36 @@ int cmd_reap_state(const CliOptions& args) {
     return report.errors.empty() ? 0 : 2;
 }
 
-// Dispatch the subcommand. Returns its exit code.
-int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
-    if (cmd == "reap-state")
-        return cmd_reap_state(o);
-    if (cmd == "list")
-        return cmd_list(o.suite);
-    if (cmd == "run") {
-        if (!o.rest.empty())
-            o.name = o.rest[0];
-        return cmd_run(o);
+namespace {
+
+const char* const kShapeRules[] = {"in-turn", "bash", "supersede", "drop-all"};
+
+// Replay each recorded session through every rule and print what each costs and
+// what it loses. Read-only: it parses logs and measures, it never runs tools or
+// calls a model.
+int cmd_shape_replay(const CliOptions& o) {
+    if (o.rest.empty()) {
+        std::cerr << "shape-replay: give at least one session log\n";
+        return 2;
     }
-    if (cmd == "validate-template" && !o.rest.empty())
-        return cmd_validate(o.rest[0]);
+    for (const std::string& path : o.rest) {
+        const bench::ReplayLog log = bench::parse_session_log(path);
+        if (log.messages.empty()) {
+            std::cerr << path << ": no replayable messages\n";
+            continue;
+        }
+        std::vector<bench::ShapeStats> stats;
+        for (const char* rule : kShapeRules)
+            stats.push_back(bench::replay_rule(log, rule, o.window));
+        std::cout << bench::format_replay_report(path, stats) << "\n";
+    }
+    return 0;
+}
+
+} // namespace
+
+// Commands that read a stored artefact rather than run a scenario.
+std::optional<int> dispatch_report_cmd(const std::string& cmd, CliOptions& o) {
     if (cmd == "report")
         return cmd_report(o.rest, o.format);
     if (cmd == "delta")
@@ -693,6 +717,26 @@ int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
     }
     if (cmd == "calibrate" && !o.rest.empty())
         return cmd_calibrate(o.rest);
+    if (cmd == "shape-replay")
+        return cmd_shape_replay(o);
+    return std::nullopt;
+}
+
+// Dispatch the subcommand. Returns its exit code.
+int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
+    if (cmd == "reap-state")
+        return cmd_reap_state(o);
+    if (cmd == "list")
+        return cmd_list(o.suite);
+    if (cmd == "run") {
+        if (!o.rest.empty())
+            o.name = o.rest[0];
+        return cmd_run(o);
+    }
+    if (cmd == "validate-template" && !o.rest.empty())
+        return cmd_validate(o.rest[0]);
+    if (const std::optional<int> rc = dispatch_report_cmd(cmd, o))
+        return *rc;
     print_usage(argv0);
     return 1;
 }

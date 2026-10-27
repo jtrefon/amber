@@ -11,6 +11,7 @@
 #include "bench/resources.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
+#include "bench/shape_replay.h"
 #include "bench/state_reaper.h"
 #include "bench/template.h"
 
@@ -3008,4 +3009,140 @@ TEST(reaper_reports_a_size_error_but_still_removes) {
     ASSERT_EQ(r.errors.size(), 1u);
     ASSERT_TRUE(!fs::exists(old));
     fs::remove_all(root);
+}
+
+// ---------------------------------------------------------------------------
+// Context shaping replay (CC-15)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// A tool message whose envelope is what format_tool_envelope would produce.
+agent::Message tool_msg(const std::string& name, const std::string& body) {
+    agent::ToolResult r;
+    r.ok = true;
+    r.output = body;
+    agent::Message m;
+    m.role = "tool";
+    m.name = name;
+    m.tool_call_id = "c1";
+    m.content = agent::format_tool_envelope(name, json::object(), r, 64 * 1024);
+    return m;
+}
+
+agent::Message text_msg(const std::string& role, const std::string& content) {
+    agent::Message m;
+    m.role = role;
+    m.content = content;
+    return m;
+}
+
+std::string big_bash_body(const std::string& needle) {
+    std::string body;
+    for (int i = 0; i < 400; ++i)
+        body += "compiling translation unit " + std::to_string(i) + "\n";
+    body += needle + "\n";
+    for (int i = 0; i < 400; ++i)
+        body += "linking object " + std::to_string(i) + "\n";
+    return body;
+}
+
+} // namespace
+
+TEST(shape_replay_flags_a_referenced_line_it_dropped) {
+    // The test of the test: a shaper that drops everything must be caught when a
+    // later message quotes a line it dropped.
+    bench::ReplayLog log;
+    log.messages.push_back(text_msg("user", "build it"));
+    log.messages.push_back(tool_msg("bash", big_bash_body("error: NEEDLE-42 undefined")));
+    log.messages.push_back(text_msg("user", "why does it say error: NEEDLE-42 undefined?"));
+    const bench::ShapeStats bad = bench::replay_rule(log, "drop-all", 262144);
+    ASSERT_EQ(bad.replaced, 1u);
+    ASSERT_EQ(bad.referenced, 1u);
+}
+
+TEST(shape_replay_does_not_flag_a_line_nobody_uses) {
+    bench::ReplayLog log;
+    log.messages.push_back(text_msg("user", "build it"));
+    log.messages.push_back(tool_msg("bash", big_bash_body("warning: nothing depends on this")));
+    log.messages.push_back(text_msg("user", "ship it"));
+    const bench::ShapeStats bad = bench::replay_rule(log, "drop-all", 262144);
+    ASSERT_EQ(bad.replaced, 1u);
+    ASSERT_EQ(bad.referenced, 0u);
+}
+
+TEST(context_shape_keeps_the_needed_collateral_line) {
+    // The bash projection drops the middle of a build log but keeps the line
+    // that carries signal, which is exactly the collateral a naive truncation
+    // would lose.
+    bench::ReplayLog log;
+    log.messages.push_back(text_msg("user", "build it"));
+    log.messages.push_back(tool_msg("bash", big_bash_body("error: NEEDLE-42 undefined")));
+    const bench::ShapeStats shaped = bench::replay_rule(log, "bash", 262144);
+    ASSERT_EQ(shaped.replaced, 1u);
+    ASSERT(shaped.tokens_after < shaped.tokens_before);
+
+    bench::ReplayLog kept = log;
+    (void)bench::replay_rule(kept, "bash", 262144);
+    ASSERT(kept.messages.at(1).content.find("NEEDLE-42") != std::string::npos);
+}
+
+TEST(shape_replay_reconstructs_the_envelope_not_the_raw_log) {
+    // A broken session log (empty) is reported, not replayed as a zero-token
+    // conversation that would flatter every ratio.
+    const bench::ReplayLog empty = bench::parse_session_log("/nonexistent/session.jsonl");
+    ASSERT_TRUE(empty.messages.empty());
+}
+
+TEST(shape_replay_in_turn_rule_matches_the_shipped_pass) {
+    // The shipped in-turn pass and the replay rule agree on what they replace,
+    // so the numbers in the PR describe the code, not a prototype.
+    bench::ReplayLog log;
+    log.messages.push_back(text_msg("system", "Amber"));
+    log.messages.push_back(text_msg("user", "one long turn"));
+    for (int i = 0; i < 12; ++i) {
+        log.messages.push_back(tool_msg("read", std::string(8000, 'r')));
+    }
+    const bench::ShapeStats shaped = bench::replay_rule(log, "in-turn", 32768);
+    agent::CompressionConfig cfg;
+    cfg.context_size = 32768;
+    const std::size_t expected = agent::in_turn_digest_candidates(log.messages, cfg).size();
+    ASSERT_EQ(shaped.replaced, expected);
+    ASSERT(expected > 0u);
+}
+
+TEST(shape_replay_parses_a_recorded_session) {
+    // The parser is the part every number in the PR depends on: a log line
+    // becomes the message the model saw, a tool call joins its assistant turn,
+    // and the report says what each rule bought.
+    const fs::path path = fs::temp_directory_path() / "amber_shape_replay_test.jsonl";
+    {
+        std::ofstream out(path);
+        out << R"({"event":"user","content":"read it"})" << "\n";
+        out << R"({"event":"tool_call","id":"c1","name":"read","args":{"path":"Makefile"}})"
+            << "\n";
+        out << R"({"event":"tool_result","id":"c1","name":"read","ok":true,"output":"alpha line to keep\n"})"
+            << "\n";
+        out << R"({"event":"tool_call","id":"c2","name":"read","args":{"path":"Makefile"}})"
+            << "\n";
+        out << R"({"event":"tool_result","id":"c2","name":"read","ok":true,"output":"beta line to keep\n"})"
+            << "\n";
+    }
+    const bench::ReplayLog log = bench::parse_session_log(path.string());
+    fs::remove(path);
+    ASSERT_EQ(log.messages.size(), 5u);
+    ASSERT_EQ(log.messages[0].role, std::string("user"));
+    ASSERT_EQ(log.messages[1].role, std::string("assistant"));
+    ASSERT_EQ(log.messages[1].tool_calls.size(), 1u);
+    ASSERT_EQ(log.messages[2].role, std::string("tool"));
+    ASSERT(log.messages[2].content.find("alpha") != std::string::npos);
+
+    // The same path read twice: supersede replaces the earlier read only.
+    const bench::ShapeStats sup = bench::replay_rule(log, "supersede", 262144);
+    ASSERT_EQ(sup.replaced, 1u);
+
+    const std::string report = bench::format_replay_report("session", {sup});
+    ASSERT(report.find("session") != std::string::npos);
+    ASSERT(report.find("supersede") != std::string::npos);
+    ASSERT(report.find("before") != std::string::npos);
 }

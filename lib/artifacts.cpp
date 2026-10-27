@@ -193,8 +193,10 @@ bool valid_artifact_id(const std::string& id) {
            std::all_of(id.begin(), id.end(), [](unsigned char c) { return std::isxdigit(c); });
 }
 
-std::string store_tool_artifact(const std::string& payload) {
-    if (payload.size() < kArtifactMinBytes || payload.size() > kArtifactMaxBytes)
+namespace {
+
+std::string store_payload(const std::string& payload, std::size_t min_bytes) {
+    if (payload.size() < min_bytes || payload.size() > kArtifactMaxBytes)
         return {};
     std::string dir_error;
     const auto resolved = canonical_dir(fs::path(artifact_dir()), dir_error);
@@ -206,6 +208,16 @@ std::string store_tool_artifact(const std::string& payload) {
     if (!write_private_file((dir / id).string(), payload))
         return {};
     return id;
+}
+
+} // namespace
+
+std::string store_tool_artifact(const std::string& payload) {
+    return store_payload(payload, kArtifactMinBytes);
+}
+
+std::string store_digested_artifact(const std::string& payload) {
+    return store_payload(payload, 1);
 }
 
 std::optional<std::string> read_tool_artifact(const std::string& id, std::size_t offset,

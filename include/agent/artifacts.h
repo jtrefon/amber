@@ -28,6 +28,12 @@ bool valid_artifact_id(const std::string& id);
 // the write failed (the envelope budget still protects the context).
 std::string store_tool_artifact(const std::string& payload);
 
+// Store a payload the compactor is about to replace with a digest. The 4 KiB
+// floor above exists so a small page-out does not create a file; a digest is
+// different: the message is being destroyed, so anything the compactor will
+// replace must stay recallable. Same retention, same id validation.
+std::string store_digested_artifact(const std::string& payload);
+
 // A slice of a stored artifact. A non-empty `grep` returns matching lines
 // prefixed with their line numbers instead of a byte range. Nullopt with a
 // human-readable `error` when the id is unknown/expired or the read fails.

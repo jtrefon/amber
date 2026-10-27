@@ -86,7 +86,9 @@ transcript.
 - the **protected tail** — the newest real user turns that fit the tail budget,
   always including the final prompt and everything after it — is forced to
   `core`. The tail budget is `target − max(512, target/10)` tokens; with an
-  unknown window the prompt count (`keep_last_prompts`, default 10) is the cap;
+  unknown window the prompt count (`keep_last_prompts`, default 10) is the cap.
+  The classifier cannot tag *within* a turn (`ClassifiedSegment` is
+  `turn_start`/`turn_end`), so in-turn relief comes from the free pass below;
 - harness notices (`Message::harness`) do not count as user turns;
 - `context`-tagged turns become one archive entry per contiguous run;
 - `prune`-tagged turns are removed;
@@ -109,6 +111,48 @@ summary}`. Nothing else: `type`, `version` and `facts` had no reader.
 - Both passes protect the same tail and end with the same finaliser (pairing
   repair + minimum-context guarantee + re-measure).
 
+### In-turn pruning
+
+A session whose only content is one oversized turn has nothing older for the
+classifier to archive: the protected tail is the whole conversation. The free
+pass therefore also trims *inside* the tail — newest first, keeping the tool
+results that fit the tail budget and digesting the older ones. The properties:
+
+- **Deterministic.** No classify, no extract, no summary: a classify request
+  replays the live prefix, so using it to decide what to prune would pay three
+  context-sized prefills to do what pruning does for one. The pipeline takes this
+  path only when the turn actually has something to digest; otherwise it runs
+  the classifier and reports its honest "no reduction".
+- **Newest survives.** The most recent tool result is never replaced, even when
+  it alone exceeds the budget; the budget decides how much older evidence joins
+  it. Assistant messages and the final prompt are never touched.
+- **Recallable.** Every digest carries a `result_id` (stored on demand by the
+  compactor, not only by the 32 KiB page-out), so `read_result` restores the
+  exact envelope the model saw.
+- **Idempotent.** A message that is already a digest is skipped, so a second
+  pass cannot digest the index away.
+
+### Source projection (before the context)
+
+The cheapest shaping happens before a result is ever pushed: `page_out_oversized`
+stores bulky `bash` output and caps its envelope at **8 KiB**, keeping the head
+and the tail (the command echo and the failure) around an omission marker with a
+`read_result` handle. `read` is never projected — the model asked for that
+range — and `search` is already capped by its own `max`. Measured on 24 recorded
+sessions: 3% of tool tokens, 7 results, one dropped span later named (and
+therefore served by the handle).
+
+### Re-arming a compaction
+
+`compression_cooldown_turns` counts **real user turns**
+(`Config::user_turn_counter`), so one tool-using turn — many LLM calls — cannot
+expire it. That is the right unit for rate-limiting a user, and the wrong wall
+for a long turn: a single turn can refill the window several times and would get
+no relief until the next message. The gate therefore re-arms as soon as the
+prompt has grown by 10% of the window (minimum 1024 tokens) since the last
+attempt. That is a real consumption step and cannot spin: an attempt that
+reduced nothing left the size unchanged.
+
 ### Invariants
 
 | ID | Invariant |
@@ -116,7 +160,7 @@ summary}`. Nothing else: `type`, `version` and `facts` had no reader.
 | I1 | A compaction never returns a history larger than its input; if it cannot reduce, the original is returned untouched. |
 | I2 | The rebuilt history is provider-valid: every `tool` result follows an assistant `tool_calls` that names it, and every call has a result or a stub. |
 | I3 | At least one real user message survives. |
-| I4 | No tool result at or after the protected tail start is replaced or dropped. |
+| I4 | The final user prompt, every assistant message and the newest tool results of the active turn survive. Older results of that turn may be replaced by a digest that carries a `result_id` (recallable through `read_result`); nothing newer than the digest cut is touched. |
 | I5 | The output fits the target budget, measured **after** the archive is written. |
 | I6 | `headroom_budget < trigger` for every configuration. |
 | I7 | The classify request replays the live request prefix (blocks + tools); the extract request replays the classify request. |
@@ -139,7 +183,7 @@ summary}`. Nothing else: `type`, `version` and `facts` had no reader.
 |---|---|---|
 | `compression_threshold` | 0.70 | fraction of the window that triggers a pass |
 | `compression_min_turns` | 10 | message floor (bypassed at 90% conversation saturation) |
-| `compression_cooldown_turns` | 20 | user turns between attempts (attempts, not just successes) |
+| `compression_cooldown_turns` | 20 | user turns between attempts (attempts, not just successes); re-arms early on 10% window growth |
 | `compression_target_pct` | 10 | post-compaction target, % of the window |
 | `compression_keep_last_prompts` | 10 | maximum user turns kept verbatim (the token budget decides the rest) |
 

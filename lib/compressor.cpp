@@ -4,9 +4,11 @@
 #include "agent/experience.h"
 #include "agent/agent.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <optional>
 #include <string>
 namespace agent {
 
@@ -14,14 +16,19 @@ namespace agent {
 // DefaultCompressionGate
 // =========================================================================
 
+// Re-arm a compaction that is still inside its cooldown once the prompt has
+// grown by this share of the window (10%) or this many tokens, whichever is
+// larger. The share keeps a large window from re-arming on noise; the floor
+// keeps a small one from doing the same.
+constexpr double kRearmGrowthShare = 0.10;
+constexpr double kRearmFloorTokens = 1024.0;
+
 class DefaultCompressionGate : public CompressionGate {
 public:
     explicit DefaultCompressionGate(const CompressionConfig& cfg) : cfg_(cfg) {}
 
     bool should_compress(const Context& context, const Config& agent_cfg) const override {
         std::scoped_lock lk(mtx_);
-        if (cooldown_active(agent_cfg.user_turn_counter))
-            return false;
         if (!threshold_exceeded(context, agent_cfg))
             return false;
         // A short history that is already nearly full must still compact: a
@@ -35,12 +42,19 @@ public:
         if (!sufficient_turns(context) &&
             conversation_utilisation(context) < kSaturationUtilisation)
             return false;
+        // The cooldown is counted in user turns, and one tool-using turn can
+        // refill the window several times: the gate re-arms once consumption has
+        // grown by a share of the window instead of waiting for the next turn.
+        if (cooldown_active(agent_cfg.user_turn_counter) && !regrown_since_attempt())
+            return false;
         return true;
     }
 
     void set_last_compress_turn(size_t turn) override {
         std::scoped_lock lk(mtx_);
         last_compress_turn_ = turn;
+        last_attempt_tokens_ = last_tokens_;
+        attempted_ = true;
     }
 
     void set_threshold(double t) override {
@@ -135,10 +149,25 @@ private:
         return (current_turn - last_compress_turn_) < static_cast<size_t>(cfg_.cooldown_turns);
     }
 
+    // Consumption, not elapsed requests: how much the prompt has grown since the
+    // last attempt, as a share of the window (with a floor so a tiny window does
+    // not re-arm on noise). A compaction that could not reduce leaves the size
+    // unchanged, so this cannot spin.
+    bool regrown_since_attempt() const {
+        // Before the first attempt there is nothing to grow from: the cooldown
+        // special case for a freshly restored session must stand.
+        if (!attempted_ || last_budget_ <= 0)
+            return false;
+        const double need = std::max(kRearmFloorTokens, last_budget_ * kRearmGrowthShare);
+        return last_tokens_ - last_attempt_tokens_ >= need;
+    }
+
     CompressionConfig cfg_;
     mutable std::mutex mtx_;
     mutable size_t last_compress_turn_ = 0;
     mutable double last_tokens_ = 0;
+    mutable double last_attempt_tokens_ = 0;
+    mutable bool attempted_ = false;
     mutable double last_budget_ = 0;
     mutable double last_threshold_ = 0;
 };
@@ -275,6 +304,40 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 
 } // namespace
 
+// A single oversized turn has no older history for the classifier to archive:
+// its only relief is its own older evidence, which is a deterministic pass
+// (D11). Returns the trimmed history, or nullopt when the normal pipeline should
+// run (nothing to digest, or there is older history to classify). Paying
+// classify + extract to summarise one turn costs three context-sized prefills to
+// do what pruning does for one.
+// The snapshot the pipeline works on: the live stack is only ever read.
+std::vector<Message> snapshot_history(const Context& context) {
+    const auto msgs = context.get_all();
+    return {msgs.begin(), msgs.end()};
+}
+
+// The working set just shrank to its final size: surface it so the host's gauge
+// drops before the swap completes.
+void notify_applied(CompressionObserver* observer, const std::vector<Message>& messages) {
+    if (!observer)
+        return;
+    observer->on_apply_result({});
+    observer->on_progress(estimate_tokens(messages), messages.size());
+}
+
+std::optional<std::vector<Message>> compress_in_turn(const std::vector<Message>& original,
+                                                     const CompressionConfig& cfg,
+                                                     CompressionObserver* observer) {
+    if (!tail_is_whole_conversation(original, cfg))
+        return std::nullopt;
+    std::vector<Message> trimmed = original;
+    if (prune_in_turn_results(trimmed, &cfg) == 0 ||
+        estimate_tokens(trimmed) >= estimate_tokens(original))
+        return std::nullopt;
+    notify_applied(observer, trimmed);
+    return trimmed;
+}
+
 // =========================================================================
 // CompressionPipeline  —  orchestrates the full LLM-based compression
 // =========================================================================
@@ -289,13 +352,18 @@ public:
         // failure returns the ORIGINAL history untouched. The context is only
         // ever read, and the classifier sees exactly that snapshot (plus the
         // live request prefix), so its indices stay aligned with apply.
-        auto msgs = context.get_all();
-        std::vector<Message> original(msgs.begin(), msgs.end());
+        std::vector<Message> original = snapshot_history(context);
 
         if (observer)
             observer->on_compress_start(original.size(), estimate_tokens(original));
 
         CompressionResponse cr;
+        if (std::optional<std::vector<Message>> trimmed =
+                compress_in_turn(original, cfg, observer)) {
+            if (response_out)
+                *response_out = std::move(cr);
+            return *trimmed;
+        }
         Message class_reply;
         if (run_classify(original, client, prefix, observer, cr, class_reply) !=
             ClassifyOutcome::Ok) {
@@ -332,12 +400,7 @@ public:
             return original;
         }
 
-        if (observer) {
-            observer->on_apply_result({});
-            // The working set just shrank to its final size — surface it so the
-            // host's gauge drops before the swap completes.
-            observer->on_progress(estimate_tokens(compressed), compressed.size());
-        }
+        notify_applied(observer, compressed);
         if (response_out)
             *response_out = std::move(cr);
         return compressed;
