@@ -268,3 +268,42 @@ TEST(skills_browse_detail_scrolls_and_tab_cycles) {
     core.key('\t');
     ASSERT_TRUE(core.pane() == tui::SkillPane::List);
 }
+
+TEST(skills_updates_shelf_lists_only_skills_with_an_update) {
+    tui::SkillsBrowseCore core;
+    tui::SkillRow fresh = row("fresh", 1);
+    fresh.installed = true;
+    fresh.update = false;
+    tui::SkillRow stale = row("stale", 2);
+    stale.installed = true;
+    stale.update = true;
+    core.set_installed({fresh, stale});
+    core.set_tab(tui::SkillTab::Updates);
+    const auto visible = core.visible();
+    ASSERT_EQ(visible.size(), static_cast<size_t>(1));
+    ASSERT_EQ(visible[0].ref.name, std::string("stale"));
+}
+
+TEST(skills_shelf_availability_is_explicit) {
+    ASSERT_TRUE(tui::skill_tab_available(tui::SkillTab::Top));
+    ASSERT_TRUE(tui::skill_tab_available(tui::SkillTab::Installed));
+    ASSERT_TRUE(tui::skill_tab_available(tui::SkillTab::Updates));
+    ASSERT_FALSE(tui::skill_tab_available(tui::SkillTab::Trending));
+    ASSERT_FALSE(tui::skill_tab_available(tui::SkillTab::Collections));
+    ASSERT_EQ(std::string(tui::skill_tab_name(tui::SkillTab::ForYou)), std::string("For you"));
+    ASSERT_EQ(std::string(tui::skill_tab_name(tui::SkillTab::Updates)), std::string("Updates"));
+}
+
+TEST(skills_categories_count_visible_rows) {
+    tui::SkillsBrowseCore core;
+    tui::SkillRow a = row("a", 1, "", "engineering");
+    tui::SkillRow b = row("b", 2, "", "engineering");
+    tui::SkillRow c = row("c", 3, "", "testing");
+    tui::SkillRow none = row("d", 4);
+    core.set_rows({a, b, c, none});
+    const auto categories = core.categories();
+    ASSERT_EQ(categories.size(), static_cast<size_t>(2));
+    ASSERT_EQ(categories[0].first, std::string("engineering"));
+    ASSERT_EQ(categories[0].second, 2);
+    ASSERT_EQ(categories[1].first, std::string("testing"));
+}

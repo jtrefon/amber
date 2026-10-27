@@ -7,7 +7,7 @@ fix). The plan file is updated as features land.
 | Feature | Closes | State |
 |---|---|---|
 | **F1 settings & truth** — the documented gates, scope and index become real; docs/help/website/MISSION stop overstating | #401, #411 residual | in progress |
-| **F2 browse surface** — shelves, facets, responsive layout | #397, #405, #406 | queued |
+| **F2 browse surface** — shelves, facets, responsive layout | #397 (shell), #405 (Updates shelf), #406 (facets/sort) | in review |
 | **F3 update review** — diff pager, update-all, update settings | #402 | queued |
 | **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | queued |
 | **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | queued |
