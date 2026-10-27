@@ -6241,7 +6241,8 @@ TEST(compression_gate_above_threshold) {
     agent::Context ctx;
     for (int i = 0; i < 10; ++i)
         ctx.push(msg("user", std::string(100, 'a')));
-    cfg.turn_counter = 25; // past the 20-turn cooldown
+    cfg.turn_counter = 25;
+    cfg.user_turn_counter = cfg.turn_counter; // past the 20-turn cooldown
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -6265,8 +6266,11 @@ TEST(compression_gate_default_threshold_is_70_percent) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 25;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 183000; // ~69.8%
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 184000; // ~70.2%
@@ -6284,6 +6288,7 @@ TEST(compression_gate_does_not_cap_large_window) {
     cfg.context_size = 262144;
     cfg.prompt_tokens_used = 30000;
     cfg.turn_counter = 25;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
@@ -6298,6 +6303,7 @@ TEST(compression_gate_unknown_window_never_fires) {
     agent::Config cfg; // context_size == 0
     cfg.prompt_tokens_used = 100000;
     cfg.turn_counter = 25;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
@@ -6414,8 +6420,11 @@ TEST(compression_gate_respects_threshold_setter) {
     agent::Config cfg;
     cfg.context_size = 100000;
     cfg.turn_counter = 25;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
+    ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 89000;
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 91000;
@@ -8988,9 +8997,11 @@ TEST(compression_gate_large_window_fires_at_threshold_fraction) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 20000; // ~7.6% of the window: below threshold
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 150000; // ~57% of the window: above threshold
@@ -9008,9 +9019,11 @@ TEST(compression_gate_explicit_window_honored) {
     agent::Config cfg;
     cfg.context_size = 100000;
     cfg.turn_counter = 5;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 50000; // 50% of the window: below threshold
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 70000; // 70% of the window: at threshold
@@ -9029,13 +9042,34 @@ TEST(compression_gate_unknown_window_never_auto_fires) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg; // context_size stays 0 (unknown)
     cfg.turn_counter = 5;
+    cfg.user_turn_counter = cfg.turn_counter;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 15000;
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 100000; // even a huge estimate must not fire
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
+}
+
+TEST(compression_gate_ignores_the_turn_floor_near_saturation) {
+    // A short history that is nearly full has nowhere left to grow: the message
+    // floor (10) must not block it at 95% utilisation.
+    agent::CompressionConfig cc;
+    cc.threshold = 0.7;
+    cc.min_turns = 10;
+    auto gate = agent::make_compression_gate(cc);
+    agent::Config cfg;
+    cfg.context_size = 1000;
+    cfg.prompt_tokens_used = 950; // 95%: saturated
+    cfg.user_turn_counter = 2;    // past the first-turn cooldown special case
+    agent::Context ctx;
+    ctx.push(msg("system", "s"));
+    ctx.push(msg("user", std::string(3700, 'u')));
+    ctx.push(msg("assistant", "working")); // 3 messages: under the floor, reducible
+    ASSERT_EQ(ctx.size(), size_t{3});
+    ASSERT(gate->should_compress(ctx, cfg));
 }
 
 TEST(compression_gate_first_compress_not_cooldown_blocked) {
@@ -9050,15 +9084,18 @@ TEST(compression_gate_first_compress_not_cooldown_blocked) {
     agent::Config cfg;
     cfg.context_size = 262144;
     cfg.turn_counter = 5;
+    cfg.user_turn_counter = cfg.turn_counter;
     cfg.prompt_tokens_used = 200000; // > 50% of the window: threshold met
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     ASSERT(gate->should_compress(ctx, cfg));
     // After the first compression, cooldown applies normally.
     gate->set_last_compress_turn(5);
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
-    cfg.turn_counter = 26; // 5 + 20 + 1
+    cfg.turn_counter = 26;
+    cfg.user_turn_counter = cfg.turn_counter; // 5 + 20 + 1
     ASSERT(gate->should_compress(ctx, cfg));
 }
 
@@ -9072,6 +9109,7 @@ TEST(compression_gate_hermetic_conditions) {
     agent::Config cfg;
     cfg.context_size = 4096;
     cfg.turn_counter = 4;
+    cfg.user_turn_counter = cfg.turn_counter;
     cfg.prompt_tokens_used = 3000;
     agent::Context ctx;
     ctx.push(msg("system", "sys"));

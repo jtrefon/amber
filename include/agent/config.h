@@ -165,6 +165,8 @@ struct Config {
     // keeps the pipeline default; an explicit 0 disables the gate.
     double compression_threshold = 0.0;
     bool compression_threshold_explicit = false;
+    // Counts MESSAGES (tool results included), not user turns; the name is
+    // historical. A history at 90%+ of the window bypasses the floor.
     int compression_min_turns = 0;
     bool compression_min_turns_explicit = false;
     int compression_cooldown_turns = 0;
@@ -178,9 +180,14 @@ struct Config {
     int compression_keep_last_prompts = 0;
     bool compression_keep_last_prompts_explicit = false;
 
-    // Current turn counter, updated by Agent after each chat_once.
-    // Used by the compression gate for cooldown tracking.
+    // Current LLM-call counter, updated by Agent after each chat_once. Used for
+    // per-call pacing (memory freshness); the compression cooldown uses
+    // user_turn_counter instead, because one tool-using turn is many calls.
     mutable size_t turn_counter = 0;
+    // Real user prompts in this session, updated by Agent when a prompt is
+    // pushed. The compression cooldown is expressed in these: a long
+    // tool-using turn must not expire it.
+    mutable size_t user_turn_counter = 0;
 
     // Master switch for the permission/approval system in Write mode.
     // When off, gated tools run without prompting (pre-policy behavior).
