@@ -67,6 +67,7 @@ struct SkillIntent {
         Refresh,
         SetTab,
         Sort,
+        Help,
         Close,
     };
 
@@ -89,6 +90,11 @@ struct SkillsLayout {
 
 SkillsLayout skills_layout(int cols, int rows);
 
+// Whether a shelf has a data source today. The remaining shelves are shown so
+// the UI is honest about them instead of silently mapping them to Top.
+bool skill_tab_available(SkillTab tab) noexcept;
+const char* skill_tab_name(SkillTab tab) noexcept;
+
 // L1 state machine. Owns the filter, selection, scroll, marks and pane focus;
 // every key either changes that state or returns an intent.
 class SkillsBrowseCore {
@@ -98,6 +104,9 @@ public:
     // Replace the visible set. `stale` and `error` are status, not rows: the
     // header can say "cached" without the list disappearing.
     void set_rows(std::vector<SkillRow> rows, bool stale = false, agent::IndexFailure error = {});
+    // Learn a row's category from its detail so facets can count it without a
+    // second fetch.
+    void set_row_category(const std::string& id, std::string category);
     void set_installed(std::vector<SkillRow> installed);
     void set_status(std::string status);
 
@@ -116,6 +125,10 @@ public:
     bool marked(const std::string& id) const { return marked_.count(id) != 0; }
     const std::set<std::string>& marks() const noexcept { return marked_; }
     std::size_t visible_count() const;
+
+    // Category counts among the visible rows, highest first. Empty categories
+    // are skipped; the renderer shows an honest "load a detail" state.
+    std::vector<std::pair<std::string, int>> categories() const;
 
     // The filtered/sorted rows, by value so a caller cannot hold a reference
     // across a set_rows(). `visible()` is the display order.
@@ -140,6 +153,7 @@ private:
     std::optional<SkillIntent> jump_key(int ch, int visible_rows);
     std::optional<SkillIntent> page_key(int ch, int visible_rows);
     std::optional<SkillIntent> global_key(int ch);
+    std::optional<SkillIntent> shelf_key(int ch);
     SkillIntent action_key(int ch);
     std::optional<SkillIntent> special_action(int ch, const SkillRow& row);
     SkillIntent table_action(int ch, const SkillRow& row);

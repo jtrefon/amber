@@ -88,20 +88,29 @@ const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::stri
 }
 
 void draw_tabs(WINDOW* w, int row, int width, SkillTab tab) {
-    const std::pair<SkillTab, const char*> tabs[] = {{SkillTab::Top, "Top"},
-                                                     {SkillTab::Installed, "Installed"}};
+    const SkillTab tabs[] = {SkillTab::ForYou,   SkillTab::Trending,    SkillTab::Top,
+                             SkillTab::Official, SkillTab::Collections, SkillTab::Installed,
+                             SkillTab::Updates};
     int x = 0;
-    for (const auto& [kind, label] : tabs) {
+    for (std::size_t i = 0; i < std::size(tabs); ++i) {
+        const SkillTab kind = tabs[i];
+        const std::string label = std::to_string(i + 1) + " " + skill_tab_name(kind);
         if (kind == tab)
             wattron(w, A_REVERSE);
-        mvwaddnstr(w, row, x, label, std::max(0, width - x));
+        else if (!skill_tab_available(kind))
+            wattron(w, A_DIM);
+        mvwaddnstr(w, row, x, label.c_str(), std::max(0, width - x));
         if (kind == tab)
             wattroff(w, A_REVERSE);
-        x += static_cast<int>(std::string(label).size()) + 3;
+        else if (!skill_tab_available(kind))
+            wattroff(w, A_DIM);
+        x += static_cast<int>(label.size()) + 2;
+        if (x >= width)
+            break;
     }
 }
 
-void draw_row(WINDOW* w, int y, int width, const SkillRow& row, bool selected) {
+void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, bool selected) {
     std::string badges;
     if (row.installed)
         badges += "*";
@@ -121,16 +130,16 @@ void draw_row(WINDOW* w, int y, int width, const SkillRow& row, bool selected) {
 
     if (selected)
         wattron(w, A_REVERSE);
-    mvwhline(w, y, 0, ' ', std::max(0, width));
-    mvwaddnstr(w, y, 0, name.c_str(), 27);
+    mvwhline(w, y, x, ' ', std::max(0, width));
+    mvwaddnstr(w, y, x, name.c_str(), 27);
     if (!badges.empty())
-        mvwaddnstr(w, y, 28, badges.c_str(), 4);
+        mvwaddnstr(w, y, x + 28, badges.c_str(), 4);
     if (width > 40) {
         const std::string source =
             row.state.empty() ? row.ref.source : row.ref.source + " · " + row.state;
-        mvwaddnstr(w, y, 32, source.c_str(), std::max(0, tail_x - 33));
+        mvwaddnstr(w, y, x + 32, source.c_str(), std::max(0, tail_x - 33));
     }
-    mvwaddnstr(w, y, tail_x, tail.c_str(), static_cast<int>(tail.size()));
+    mvwaddnstr(w, y, x + tail_x, tail.c_str(), static_cast<int>(tail.size()));
     if (selected)
         wattroff(w, A_REVERSE);
 }
@@ -207,24 +216,81 @@ InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string&
     return evidence;
 }
 
-void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& query, int top,
-                int height, int list_w) {
+void draw_facets(WINDOW* w, const SkillsBrowseCore& core, int top, int height, int width) {
+    if (width < 8 || height < 3)
+        return;
+    mvwaddnstr(w, top, 0, "Categories", std::max(0, width - 1));
+    int y = top + 2;
+    const auto categories = core.categories();
+    if (categories.empty()) {
+        mvwaddnstr(w, y, 0, "load a detail", std::max(0, width - 1));
+        if (y + 1 < top + height)
+            mvwaddnstr(w, y + 1, 0, "to see categories", std::max(0, width - 1));
+        return;
+    }
+    for (const auto& [name, count] : categories) {
+        if (y >= top + height)
+            break;
+        const std::string line = name + " (" + std::to_string(count) + ")";
+        mvwaddnstr(w, y++, 0, line.c_str(), std::max(0, width - 1));
+    }
+}
+
+struct ListRect {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
+                const ListRect& rect) {
     const auto rows_now = core.visible();
-    for (int i = 0; i < height; ++i) {
+    for (int i = 0; i < rect.height; ++i) {
         const int index = core.scroll_offset() + i;
         if (index >= static_cast<int>(rows_now.size()))
             break;
-        draw_row(w, top + i, list_w, rows_now[static_cast<size_t>(index)],
+        draw_row(w, rect.y + i, rect.x, rect.width, rows_now[static_cast<size_t>(index)],
                  index == core.selection());
     }
     if (rows_now.empty()) {
         const char* message = "Type a query to search.";
         if (core.tab() == SkillTab::Installed)
             message = "No installed skills. Press 1 and search.";
+        else if (core.tab() == SkillTab::Updates)
+            message = "No updates. Press 6, then u to check.";
+        else if (!skill_tab_available(core.tab()))
+            message = "This shelf has no source yet; Top shows the proven list.";
         else if (!query.empty())
             message = "No matches.";
-        mvwaddnstr(w, top, 0, message, std::max(0, list_w - 1));
+        mvwaddnstr(w, rect.y, rect.x, message, std::max(0, rect.width - 1));
     }
+}
+
+void paint_detail_pane(WINDOW* w, const SkillsBrowseCore& core,
+                       const std::map<std::string, SkillDetailView>& details,
+                       const ListRect& rect) {
+    if (rect.width < 12)
+        return;
+    std::optional<SkillDetailView> view;
+    if (const auto current = core.current()) {
+        const auto it = details.find(current->ref.id);
+        if (it != details.end())
+            view = it->second;
+    }
+    draw_detail(w, rect.y, rect.x, rect.height, rect.width, view);
+}
+
+const char* sort_name(SkillSort sort) {
+    switch (sort) {
+    case SkillSort::Relevance:
+        return "relevance";
+    case SkillSort::Installs:
+        return "installs";
+    case SkillSort::Name:
+        return "name";
+    }
+    return "?";
 }
 
 void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
@@ -236,33 +302,38 @@ void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& 
     werase(w);
 
     const std::string field = query.empty() ? "type to search (2+ chars)" : query;
-    mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, aw - 12));
+    mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, aw - 24));
     if (core.stale())
         mvwaddnstr(w, 0, std::max(0, aw - 8), "[cached]", 8);
+    const std::string sort_label = std::string("sort: ") + sort_name(core.sort());
+    mvwaddnstr(w, 0, std::max(0, aw - static_cast<int>(sort_label.size()) - 1), sort_label.c_str(),
+               static_cast<int>(sort_label.size()));
+
     draw_tabs(w, 1, aw, core.tab());
-    if (!budget.empty() && core.tab() == SkillTab::Installed)
+    if (!budget.empty() && (core.tab() == SkillTab::Installed || core.tab() == SkillTab::Updates))
         mvwaddnstr(w, 1, std::max(0, aw - static_cast<int>(budget.size()) - 1), budget.c_str(),
                    static_cast<int>(budget.size()));
     mvwhline(w, 2, 0, ACS_HLINE, std::max(0, aw));
 
-    const int list_w = aw >= 80 ? std::min(46, aw - 24) : aw;
+    const SkillsLayout layout = skills_layout(aw, ah);
+    const int facet_w = layout.show_facets ? layout.facets_w : 0;
+    const int list_x = facet_w;
+    const int list_w = std::max(10, layout.list_w);
+    const int detail_x = list_x + list_w + 2;
+    const int detail_w = std::max(0, aw - detail_x - 1);
     const int top = 3;
     const int height = std::max(1, ah - 4);
-    paint_rows(w, core, query, top, height, list_w);
+
+    if (layout.show_facets)
+        draw_facets(w, core, top, height, facet_w - 1);
+    paint_rows(w, core, query, ListRect{list_x, top, list_w, height});
     const std::string footer =
         core.error().kind != agent::IndexError::None ? failure_text(core.error()) : last_status;
     if (!footer.empty())
         mvwaddnstr(w, top + height, 0, footer.c_str(), std::max(0, aw - 1));
 
-    if (aw >= 80) {
-        std::optional<SkillDetailView> view;
-        if (const auto current = core.current()) {
-            const auto it = details.find(current->ref.id);
-            if (it != details.end())
-                view = it->second;
-        }
-        draw_detail(w, top, list_w + 2, height, aw - list_w - 3, view);
-    }
+    if (layout.show_detail)
+        paint_detail_pane(w, core, details, ListRect{detail_x, top, detail_w, height});
     wnoutrefresh(w);
     update_panels();
     doupdate();
@@ -279,7 +350,7 @@ public:
                           {"Enter", "detail"},
                           {"i", "install"},
                           {"u", "update"},
-                          {"6", "installed"},
+                          {"?", "help"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
         nodelay(dlg_->win(), TRUE);
@@ -355,6 +426,7 @@ private:
     }
 
     bool apply(const SkillIntent& intent);
+    void help() const;
     void apply_initial_state();
     void apply_tab(SkillTab tab);
     void tick();
@@ -429,6 +501,9 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
         return true;
     case SkillIntent::Kind::Refresh:
         pending_search_ = true;
+        return true;
+    case SkillIntent::Kind::Help:
+        help();
         return true;
     case SkillIntent::Kind::Close:
         status_("skills closed");
@@ -538,14 +613,51 @@ bool SkillsExplorer::audit(const SkillRow& row) {
 }
 
 void SkillsExplorer::apply_tab(SkillTab tab) {
+    core_.set_tab(tab);
     if (tab == SkillTab::Installed) {
         refresh_installed();
         last_status_ = "installed skills";
+    } else if (tab == SkillTab::Updates) {
+        refresh_installed();
+        last_status_ = "updates: u checks, u again applies";
     } else if (tab == SkillTab::Top) {
         pending_search_ = !query_.empty();
+        last_status_ = "top skills";
     } else {
-        core_.set_tab(SkillTab::Top);
-        last_status_ = "that shelf is not wired yet";
+        last_status_ = std::string(skill_tab_name(tab)) + " has no source yet";
+    }
+}
+
+void SkillsExplorer::help() const {
+    Dialog dlg(std::min(18, options_.rows - 2), std::min(64, options_.cols - 4), "Skills keys");
+    dlg.set_footer({{"Esc", "close"}});
+    WINDOW* w = dlg.content();
+    const char* lines[] = {
+        "/          focus the search field",
+        "Enter      leave search / load the selected detail",
+        "i          install sheet (review gate)",
+        "p          preview the body",
+        "v          audit readout (risk signals)",
+        "u          check for an update; again to apply",
+        "D          remove the selected skill",
+        "x / b      disable / block",
+        "A          adopt an unmanaged directory",
+        "1..7       shelves (Top, Installed, Updates have data)",
+        "s          cycle sort: relevance, installs, name",
+        "Tab        move focus between panes",
+        "?          this help; Esc closes",
+    };
+    int y = 0;
+    for (const char* line : lines) {
+        if (y >= dlg.rows() - 2)
+            break;
+        mvwaddnstr(w, y++, 0, line, dlg.cols() - 2);
+    }
+    dlg.show();
+    while (true) {
+        const int ch = wgetch(w);
+        if (ch == 27 || ch == 'q' || ch == '?')
+            return;
     }
 }
 
@@ -593,6 +705,7 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
     const agent::SkillDetail& detail = *event.detail.detail;
     details_[detail.ref.id] = view_of(detail);
     raw_details_[detail.ref.id] = detail;
+    core_.set_row_category(detail.ref.id, detail.category);
     last_status_ = "loaded " + detail.ref.name;
     if (pending_preview_ == detail.ref.id) {
         pending_preview_.clear();
