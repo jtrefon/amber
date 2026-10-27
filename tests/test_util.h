@@ -21,6 +21,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -136,6 +137,55 @@ inline int run_all(int argc = 0, char** argv = nullptr) {
 [[noreturn]] inline void fail(const std::string& msg) {
     throw msg;
 }
+
+// Redirect the XDG roots to a scratch tree for a test body: the model catalog
+// cache lives under the cache root, per-project state (sessions, artifacts)
+// under the state root, and tests must never read or write the developer's real
+// ~/.config, ~/.cache or ~/.local/state.
+struct XdgGuard {
+    explicit XdgGuard(const std::string& name)
+        : dir("/tmp/amber_xdg_" + name), state(dir + "/state"), cache(dir + "/cache") {
+        std::filesystem::remove_all(dir);
+        capture("XDG_CONFIG_HOME", saved_config, had_config);
+        capture("XDG_STATE_HOME", saved_state, had_state);
+        capture("XDG_CACHE_HOME", saved_cache, had_cache);
+        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
+        setenv("XDG_STATE_HOME", state.c_str(), 1);
+        setenv("XDG_CACHE_HOME", cache.c_str(), 1);
+    }
+    ~XdgGuard() {
+        restore("XDG_CONFIG_HOME", saved_config, had_config);
+        restore("XDG_STATE_HOME", saved_state, had_state);
+        restore("XDG_CACHE_HOME", saved_cache, had_cache);
+        std::filesystem::remove_all(dir);
+    }
+    XdgGuard(const XdgGuard&) = delete;
+    XdgGuard& operator=(const XdgGuard&) = delete;
+
+    std::string dir;
+    std::string state;
+    std::string cache;
+    std::string saved_config;
+    std::string saved_state;
+    std::string saved_cache;
+    bool had_config = false;
+    bool had_state = false;
+    bool had_cache = false;
+
+private:
+    static void capture(const char* name, std::string& out, bool& had) {
+        const char* v = std::getenv(name);
+        had = v != nullptr;
+        if (v)
+            out = v;
+    }
+    static void restore(const char* name, const std::string& saved, bool had) {
+        if (had)
+            setenv(name, saved.c_str(), 1);
+        else
+            unsetenv(name);
+    }
+};
 
 } // namespace test
 } // namespace agent

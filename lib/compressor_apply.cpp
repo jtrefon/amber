@@ -1,6 +1,7 @@
 
 #include "agent/compressor.h"
 #include "agent/agent_helpers.h"
+#include "agent/artifacts.h"
 #include "agent/context.h"
 #include "agent/experience.h"
 
@@ -445,6 +446,20 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
     return compressed;
 }
 
+// Replace one tool message with a digest, storing the payload first when the
+// envelope carries no handle, so the digest never claims a recall it cannot
+// serve. Returns false for a message that is already a digest, which keeps the
+// pass idempotent (a digest of a digest would lose the index).
+bool digest_tool_message(Message& m) {
+    if (m.content.rfind("[tool output omitted", 0) == 0)
+        return false;
+    std::string id = result_id_of(m);
+    if (id.empty())
+        id = store_digested_artifact(m.content);
+    m.content = tool_result_digest(m, id);
+    return true;
+}
+
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg) {
     // Bulky tool outputs are the largest single token class in agent sessions
     // (multi-KB bash/read results). When the pipeline runs (cfg non-null) the
@@ -470,10 +485,8 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
     std::size_t replaced = 0;
     for (size_t i = 1; i < limit; ++i) {
         Message& m = history[i];
-        if (m.role == "tool" && m.content.size() > 200) {
-            m.content = tool_result_digest(m);
+        if (m.role == "tool" && m.content.size() > 200 && digest_tool_message(m))
             ++replaced;
-        }
     }
     return replaced;
 }

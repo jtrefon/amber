@@ -2770,54 +2770,7 @@ int spawn_counting_slow_mock(int port, std::atomic<int>& hits, int hold_ms,
 }
 } // namespace
 
-// Redirect the XDG roots to a scratch tree for the test body: the model
-// catalog cache lives under the cache root and per-project state under the
-// state root, and tests must never read or write the developer's real
-// ~/.config, ~/.cache or ~/.local/state.
-struct XdgGuard {
-    explicit XdgGuard(const std::string& name)
-        : dir("/tmp/amber_xdg_" + name), state(dir + "/state"), cache(dir + "/cache") {
-        std::filesystem::remove_all(dir);
-        capture("XDG_CONFIG_HOME", saved_config, had_config);
-        capture("XDG_STATE_HOME", saved_state, had_state);
-        capture("XDG_CACHE_HOME", saved_cache, had_cache);
-        setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
-        setenv("XDG_STATE_HOME", state.c_str(), 1);
-        setenv("XDG_CACHE_HOME", cache.c_str(), 1);
-    }
-    ~XdgGuard() {
-        restore("XDG_CONFIG_HOME", saved_config, had_config);
-        restore("XDG_STATE_HOME", saved_state, had_state);
-        restore("XDG_CACHE_HOME", saved_cache, had_cache);
-        std::filesystem::remove_all(dir);
-    }
-    XdgGuard(const XdgGuard&) = delete;
-    XdgGuard& operator=(const XdgGuard&) = delete;
-
-    std::string dir;
-    std::string state;
-    std::string cache;
-    std::string saved_config;
-    std::string saved_state;
-    std::string saved_cache;
-    bool had_config = false;
-    bool had_state = false;
-    bool had_cache = false;
-
-private:
-    static void capture(const char* name, std::string& out, bool& had) {
-        const char* v = std::getenv(name);
-        had = v != nullptr;
-        if (v)
-            out = v;
-    }
-    static void restore(const char* name, const std::string& saved, bool had) {
-        if (had)
-            setenv(name, saved.c_str(), 1);
-        else
-            unsetenv(name);
-    }
-};
+using agent::test::XdgGuard;
 
 // ---------------------------------------------------------------------------
 // Private file modes (#373)
@@ -6156,6 +6109,7 @@ TEST(subagent_tail_is_bounded) {
 }
 
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {
+    XdgGuard xdg("prune_outside_tail");
     std::vector<agent::Message> hist = {
         msg("system", "Amber"),
         msg("user", "task a"),
@@ -6181,6 +6135,7 @@ TEST(prune_tool_io_removes_bulky_output_outside_tail) {
 }
 
 TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
+    XdgGuard xdg("prune_active_turn");
     // The pipeline runs the prune at the top of every request, i.e. right after
     // tool results were pushed. The current turn's evidence must survive; only
     // output the agent has moved past may be replaced by a digest.
@@ -6204,6 +6159,7 @@ TEST(prune_tool_io_keeps_the_last_tool_result_of_the_active_turn) {
 }
 
 TEST(prune_tool_io_legacy_path_keeps_its_two_prompt_guard) {
+    XdgGuard xdg("prune_legacy");
     // cfg == nullptr is the legacy direct call: it prunes only output before the
     // second-to-last user turn. That boundary is unchanged.
     std::vector<agent::Message> hist = {
@@ -6267,7 +6223,7 @@ TEST(digested_result_is_recallable_by_id) {
     for (int i = 0; i < 400; ++i)
         body += "line " + std::to_string(i) + " of a file the agent already read\n";
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"), msg("user", "old task"), tool_call_msg("c1", "read"),
+        msg("system", "Amber"),      msg("user", "old task"),     tool_call_msg("c1", "read"),
         tool_result_msg("c1", body), msg("user", "current task"),
     };
     ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
@@ -6286,7 +6242,7 @@ TEST(read_result_serves_a_small_result_after_compaction) {
     cc.keep_last_prompts = 1;
     const std::string body = std::string(250, 's'); // under the 4 KB store floor
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"), msg("user", "old task"), tool_call_msg("c1", "bash"),
+        msg("system", "Amber"),      msg("user", "old task"),     tool_call_msg("c1", "bash"),
         tool_result_msg("c1", body), msg("user", "current task"),
     };
     ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);

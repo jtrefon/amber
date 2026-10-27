@@ -1131,6 +1131,7 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
 // the classifier+guard kept too much. A 262k window with a ~200k-token context
 // and target_pct=10 must compress to ~26k estimated tokens.
 TEST(compression_target_budget_enforced) {
+    agent::test::XdgGuard xdg("compression_target_budget");
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
@@ -1188,6 +1189,7 @@ TEST(compression_target_budget_enforced) {
 // survive verbatim, and their bulky tool outputs are still pruned (the largest
 // token class is not exempt just because it is recent).
 TEST(compression_keep_last_prompts_and_prune_tail) {
+    agent::test::XdgGuard xdg("compression_prune_tail");
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     cfg.context_size = 32768;

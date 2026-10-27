@@ -102,10 +102,17 @@ std::string format_tool_envelope(const std::string& name, const json& args,
                                  const ToolResult& result,
                                  std::size_t budget = kToolResultBudgetDefault);
 
+// The `result_id` an envelope already carries, or empty when it has none. The
+// id is what `read_result` needs, so a caller that is about to replace the
+// payload asks first and stores it only when the answer is empty.
+std::string result_id_of(const Message& message);
+
 // Deterministic replacement for a bulky tool message pruned during
 // compression: tool, status, original bytes and first/last line excerpts, so
-// the model keeps an index instead of an opaque placeholder.
-std::string tool_result_digest(const Message& message);
+// the model keeps an index instead of an opaque placeholder. `result_id` is
+// used when the envelope did not carry one (the compactor stores the payload
+// on demand); without either id the digest cannot promise recall.
+std::string tool_result_digest(const Message& message, const std::string& result_id = {});
 
 } // namespace agent
 

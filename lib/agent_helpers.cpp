@@ -225,7 +225,11 @@ std::string last_line(const std::string& body) {
 
 } // namespace
 
-std::string tool_result_digest(const Message& message) {
+std::string result_id_of(const Message& message) {
+    return meta_string(header_meta(message.content), "result_id");
+}
+
+std::string tool_result_digest(const Message& message, const std::string& result_id) {
     const std::string meta = header_meta(message.content);
     std::string bytes = meta_number(meta, "bytes");
     if (bytes.empty())
@@ -233,7 +237,7 @@ std::string tool_result_digest(const Message& message) {
     std::string out = "[tool output omitted: tool=" +
                       (message.name.empty() ? std::string("unknown") : message.name) +
                       " status=" + header_status(message.content) + " bytes=" + bytes;
-    const std::string id = meta_string(meta, "result_id");
+    const std::string id = result_id.empty() ? meta_string(meta, "result_id") : result_id;
     if (!id.empty())
         out += " result_id=" + id;
     const std::string body = envelope_body(message.content);
