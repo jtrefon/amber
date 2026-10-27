@@ -9223,6 +9223,7 @@ TEST(compression_gate_rearms_on_growth_inside_one_turn) {
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
+    ctx.push(msg("assistant", "working"));
     cfg.prompt_tokens_used = 200000;
     ASSERT(gate->should_compress(ctx, cfg));
     gate->set_last_compress_turn(5);
