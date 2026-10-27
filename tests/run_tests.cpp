@@ -6247,6 +6247,58 @@ TEST(prune_tool_io_keeps_a_readable_digest) {
     ASSERT_EQ(again[3].content, digest); // deterministic
 }
 
+// CC-16: a digest is an index, not a deletion. Anything the compactor replaces
+// must be recoverable byte-for-byte through the id the digest carries.
+static std::string result_id_from_digest(const std::string& digest) {
+    const std::string key = "result_id=";
+    const std::size_t at = digest.find(key);
+    if (at == std::string::npos)
+        return {};
+    const std::size_t from = at + key.size();
+    const std::size_t end = digest.find_first_not_of("0123456789abcdef", from);
+    return digest.substr(from, end == std::string::npos ? std::string::npos : end - from);
+}
+
+TEST(digested_result_is_recallable_by_id) {
+    XdgGuard xdg("digest_recall_medium");
+    agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1;
+    std::string body = "[tool=read status=ok meta={}]\n";
+    for (int i = 0; i < 400; ++i)
+        body += "line " + std::to_string(i) + " of a file the agent already read\n";
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"), msg("user", "old task"), tool_call_msg("c1", "read"),
+        tool_result_msg("c1", body), msg("user", "current task"),
+    };
+    ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
+    const std::string id = result_id_from_digest(hist[3].content);
+    ASSERT_EQ(id.size(), 16u); // today the digest carries no id at all
+    ASSERT(agent::valid_artifact_id(id));
+    std::string error;
+    const auto stored = agent::read_tool_artifact(id, 0, 65536, "", error);
+    ASSERT(stored.has_value());
+    ASSERT_EQ(*stored, body);
+}
+
+TEST(read_result_serves_a_small_result_after_compaction) {
+    XdgGuard xdg("digest_recall_small");
+    agent::CompressionConfig cc;
+    cc.keep_last_prompts = 1;
+    const std::string body = std::string(250, 's'); // under the 4 KB store floor
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"), msg("user", "old task"), tool_call_msg("c1", "bash"),
+        tool_result_msg("c1", body), msg("user", "current task"),
+    };
+    ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
+    const std::string id = result_id_from_digest(hist[3].content);
+    ASSERT_EQ(id.size(), 16u);
+    const auto tool = agent::make_read_result_tool();
+    const agent::ToolResult page =
+        tool->execute({{"result_id", id}, {"offset", 0}, {"limit", 4096}});
+    ASSERT(page.ok);
+    ASSERT_EQ(page.output, body);
+}
+
 TEST(tool_result_digest_falls_back_for_a_plain_message) {
     // Messages recorded before the envelope existed (or by a tool that returns
     // raw text) still digest to something actionable, never to an empty line.
