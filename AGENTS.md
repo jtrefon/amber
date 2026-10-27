@@ -734,46 +734,51 @@ you scan later: `<area>: <imperative summary>`, one area per commit. The
 
 | Unit | What it is | Where it lives |
 |---|---|---|
-| **Feature** | The epic or the coherent user-visible change ("context compaction remediation", "skills explorer") | one branch, **one PR** |
-| **Task** | An issue from the epic/tracker that the feature closes | one or more commits on that branch |
+| **Milestone** | A coherent batch of features shipped together ("context shaping", "observability") | one branch, **one PR** |
+| **Feature** | One user-visible change inside the milestone ("agent-proposed trims") | a commit group on that branch |
+| **Task** | An issue the milestone closes | one or more commits |
 | **Step** | A red test, a green fix, a refactor, a doc correction | **one commit** |
-| **PR** | The feature's review and gate unit | opened once (draft from the start, or when the first task is reviewable) |
+| **PR** | The milestone's review and gate unit | opened once (draft from the start, or when the first feature is reviewable) |
 
-- **One PR per feature.** The body lists the issues it closes (`Closes #…` once
-  per task). The epic/tracker carries task status; the PR carries the diff.
+- **One PR per milestone.** The body lists the issues it closes (`Closes #…` once
+  per task). The milestone/tracker carries task status; the PR carries the diff.
+  A plan of milestones lives in `docs/plan/` (for example
+  `context-shaping-milestones.md`).
 - **Commit freely.** Push every completed step. A red commit followed by its
   green fix is the expected shape and survives in the PR's commit list.
 - **CI is a merge gate, not a checkpoint.** A push starts the workflow; keep
-  working while it runs. A red run mid-feature is normal — the run that matters
-  is the one on the completed feature. Use `make test` / `make lint` for the
+  working while it runs. A red run mid-milestone is normal — the run that matters
+  is the one on the completed milestone. Use `make test` / `make lint` for the
   fast local loop; do not wait three hours to learn whether one commit is fine.
-- **One proposal, one sign-off, one review** for the feature. The proposal is
-  the epic or the PR description; do not re-propose per task.
-- **Squash-merge once**, when every task in the feature is green and the PR's
-  gates pass. `main` stays linear; one revert undoes one feature.
+- **One proposal, one sign-off, one review** for the milestone. The proposal is
+  the `docs/plan/` entry or the PR description; do not re-propose per feature.
+- **Squash-merge once**, when every issue the milestone closes is green and the
+  PR's gates pass. `main` stays linear; one revert undoes one milestone.
 - **Exceptions are about landing risk, not task size.** A security fix, a hotfix
   that must ship alone, or a change a reviewer cannot assess inside the larger
-  feature gets its own PR. "It is a small task" is not an exception — it is a
-  commit.
+  milestone gets its own PR. "It is a small task" is not an exception — it is a
+  commit, and "it is one feature" is not one either.
 
-### Anti-pattern: one PR per task
+### Anti-pattern: one PR per task, or per feature
 
 A PR per issue (one for the tests, one for the docs, one per file) is the
 slowest way to work, and it happened here: on the compaction remediation each
 task PR spent ~3 minutes of work behind ~3 hours of queueing, the feature was
 never reviewable as a whole, and CI cost multiplied by the task count while
-`main` gained a history of fragments.
+`main` gained a history of fragments. The correction — one PR per feature — still
+split a single coherent batch into three PRs and three CI queues.
 
-Detection: if the next commit is "another issue done", it belongs on the branch
-you already have. If a second PR exists for the same epic, close it,
-cherry-pick its commits onto the feature branch, and continue there.
+Detection: if the next commit is "another issue done", or "the next feature
+started", it belongs on the branch you already have. If a second PR exists for
+the same milestone, close it, cherry-pick its commits onto the milestone branch,
+and continue there.
 
 ### Branching strategy
 
 - **`main`** is the stable, release-ready branch. Always green. No direct pushes.
-- **One feature branch per feature**, named `<type>/<feature>` (e.g.
-  `fix/context-compaction`, `feat/skills-explorer`), not
-  `<type>/<micro-task>`. It lives for the feature — days, not weeks.
+- **One branch per milestone**, named `<type>/<milestone>` (e.g.
+  `fix/context-compaction`, `feat/context-shaping`), not `<type>/<micro-task>`
+  and not one per feature. It lives for the milestone — days, not weeks.
 - Push to the feature branch as often as work completes; open or update its PR
   and mark it draft while the feature is incomplete.
 - Parallel sessions on the same feature push to the same branch and coordinate
