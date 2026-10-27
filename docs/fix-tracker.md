@@ -9,15 +9,20 @@
 
 ## How to Use This Tracker
 
-1. Every fix follows the **Red → Proposal → Sign-off → Green → PR** workflow
-   (see AGENTS.md). On a fresh branch named `<type>/<short-description>`:
-   - **Red**: Write a failing test first, commit it.
-   - **Proposal**: Link to `docs/fix-tracker.md` or inline the architecture spec.
-   - **Sign-off**: Reviewer approves the proposed architecture.
-   - **Green**: Implement the fix; make the test pass; refactor to zero debt.
-   - **PR**: Open/update the pull request. All checks must pass.
+1. Work is delivered **per feature**: one branch and one PR for the tracker
+   group, with each task as commits on it. The Red → Proposal → Sign-off →
+   Green → merge workflow (AGENTS.md) repeats steps 1 and 4 per task and runs
+   steps 2, 3 and 5 once for the feature.
+   - **Red** (per task): write a failing test first, commit it.
+   - **Proposal** (per feature): link this tracker or inline the architecture
+     spec in the PR/epic.
+   - **Sign-off** (per feature): reviewer approves the proposed architecture.
+   - **Green** (per task): implement the fix; make the test pass; refactor to
+     zero debt; commit.
+   - **Merge** (per feature): one PR, all checks pass, squash-merge. Do not open
+     a PR per task.
 2. Each task below is **self-contained**: an agent or developer can pick it up
-   independently.
+   independently, as a commit on the feature branch.
 3. Tasks are ordered by dependency (prerequisites first).
 4. Each task has a **refactor spec** describing the target architecture, not just
    the diff.

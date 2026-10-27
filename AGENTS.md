@@ -190,7 +190,9 @@ driven by an OpenAI-compatible LLM API.
   that needs to happen promptly may depend on them. It never touches an
   unlabelled PR, a draft, a `DIRTY` one, or one whose gates have not passed — a
   train cannot resolve a conflict, and merging past a red gate is the failure the
-  gates exist to prevent. After a merge it dispatches `ci.yml` on `main` itself:
+  gates exist to prevent. With feature-batched delivery there are only a handful
+  of feature PRs in flight, so the train is a landing mechanism, not a queue for
+  task PRs. After a merge it dispatches `ci.yml` on `main` itself:
   a merge made with `GITHUB_TOKEN` creates no push event, so without that the run
   that validates `main` (the full suite, and `lint-full`, which only runs there)
   would silently never start.
@@ -720,13 +722,63 @@ known mess, even in adjacent code.
 
 ## Development workflow
 
-A commit is a snapshot of one completed step, and its subject is the index you
-scan later: `<area>: <imperative summary>`, one area per commit. The
+**A feature is the unit of delivery; a commit is the unit of progress.** Work is
+reviewed, gated and merged per feature. Tasks, red tests and refactors are
+commits inside that feature's pull request — never their own PRs.
+
+A commit is still a snapshot of one completed step, and its subject is the index
+you scan later: `<area>: <imperative summary>`, one area per commit. The
 `git-timeline` skill carries the depth; the rule belongs in the history.
+
+### Feature, task, commit, PR
+
+| Unit | What it is | Where it lives |
+|---|---|---|
+| **Feature** | The epic or the coherent user-visible change ("context compaction remediation", "skills explorer") | one branch, **one PR** |
+| **Task** | An issue from the epic/tracker that the feature closes | one or more commits on that branch |
+| **Step** | A red test, a green fix, a refactor, a doc correction | **one commit** |
+| **PR** | The feature's review and gate unit | opened once (draft from the start, or when the first task is reviewable) |
+
+- **One PR per feature.** The body lists the issues it closes (`Closes #…` once
+  per task). The epic/tracker carries task status; the PR carries the diff.
+- **Commit freely.** Push every completed step. A red commit followed by its
+  green fix is the expected shape and survives in the PR's commit list.
+- **CI is a merge gate, not a checkpoint.** A push starts the workflow; keep
+  working while it runs. A red run mid-feature is normal — the run that matters
+  is the one on the completed feature. Use `make test` / `make lint` for the
+  fast local loop; do not wait three hours to learn whether one commit is fine.
+- **One proposal, one sign-off, one review** for the feature. The proposal is
+  the epic or the PR description; do not re-propose per task.
+- **Squash-merge once**, when every task in the feature is green and the PR's
+  gates pass. `main` stays linear; one revert undoes one feature.
+- **Exceptions are about landing risk, not task size.** A security fix, a hotfix
+  that must ship alone, or a change a reviewer cannot assess inside the larger
+  feature gets its own PR. "It is a small task" is not an exception — it is a
+  commit.
+
+### Anti-pattern: one PR per task
+
+A PR per issue (one for the tests, one for the docs, one per file) is the
+slowest way to work, and it happened here: on the compaction remediation each
+task PR spent ~3 minutes of work behind ~3 hours of queueing, the feature was
+never reviewable as a whole, and CI cost multiplied by the task count while
+`main` gained a history of fragments.
+
+Detection: if the next commit is "another issue done", it belongs on the branch
+you already have. If a second PR exists for the same epic, close it,
+cherry-pick its commits onto the feature branch, and continue there.
 
 ### Branching strategy
 
 - **`main`** is the stable, release-ready branch. Always green. No direct pushes.
+- **One feature branch per feature**, named `<type>/<feature>` (e.g.
+  `fix/context-compaction`, `feat/skills-explorer`), not
+  `<type>/<micro-task>`. It lives for the feature — days, not weeks.
+- Push to the feature branch as often as work completes; open or update its PR
+  and mark it draft while the feature is incomplete.
+- Parallel sessions on the same feature push to the same branch and coordinate
+  by file ownership (announced in the epic). They do not open sibling PRs; a
+  second branch for the same feature is the anti-pattern above.
 
 ### `main` is never pushed to, force-pushed, or merged red
 
@@ -795,39 +847,37 @@ were therefore *not* covered by the bundle; they survived because the same
 content already exists in the main worktree and `.commandcode/` is gitignored.
 Capture uncommitted work as a patch or a commit, not as a branch ref.
 
-### Fix workflow, Red → Proposal → Sign-off → Green → PR
+### Feature workflow, Red → Proposal → Sign-off → Green → merge
 
-Every bug fix and every feature MUST follow this strict sequence:
+Every bug fix and every feature follows this sequence. Steps 1 and 4 repeat per
+task; steps 2, 3 and 5 happen once per feature.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  1. RED, Write a failing test that reproduces the bug or    │
-│     specifies the desired behaviour. Commit it on the branch │
-│     so CI shows the failure.                                 │
+│  1. RED, per task. Write a failing test that reproduces the   │
+│     bug or specifies the behaviour, and commit it on the      │
+│     feature branch. The commit list is the proof; CI will     │
+│     show the red run, but do not wait for it.                 │
 │                                                              │
-│  2. PROPOSAL, Draft the architecture refactor in the PR     │
-│     description or a linked doc (see docs/fix-tracker.md).   │
-│     Describe target state, not the diff.                     │
+│  2. PROPOSAL, per feature. Draft the architecture in the      │
+│     epic or PR description (see docs/fix-tracker.md),         │
+│     describing the target state, not the diff.                │
 │                                                              │
-│  3. SIGN-OFF, Reviewer approves the architecture proposal   │
-│     before any production code is written.                   │
+│  3. SIGN-OFF, per feature. The reviewer approves the          │
+│     architecture before production code is written.           │
 │                                                              │
-│  4. GREEN, Implement the fix. Make the test pass. Refactor  │
-│     to meet all Engineering Principles above. Run local      │
-│     linting and static analysis every few edits (don't       │
-│     batch all issues to the end). Address every clang-tidy   │
-│     and cppcheck finding, zero warnings is the threshold.   │
-│     If your editor has LSP (clangd) integration, keep the    │
-│     diagnostics panel clean as you type; LSP-reported errors │
-│     (type mistakes, missing includes, const correctness)     │
-│     must be resolved before the next compile.                │
+│  4. GREEN, per task. Implement the fix, make the test pass,   │
+│     refactor to meet the Engineering Principles, and commit.  │
+│     Run local linting and static analysis every few edits     │
+│     (do not batch all issues to the end). Address every       │
+│     clang-tidy and cppcheck finding; zero warnings is the     │
+│     threshold. Keep clangd/LSP diagnostics clean as you type. │
 │                                                              │
-│  5. PR, Open/update the pull request. Run final clean
-│     verification: make clean && make && make test &&         │
-│     make lint && make analyze. All must pass with zero       │
-│     warnings. The reviewer verifies the diff matches the     │
-│     proposal and that no lint/analysis regression was        │
-│     introduced.                                              │
+│  5. MERGE, per feature. When every task is green, run         │
+│     make clean && make && make test && make lint &&           │
+│     make analyze once, let the PR's gates go green, and        │
+│     squash-merge. The reviewer checks the commits against     │
+│     the proposal and the whole diff as one change.            │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -835,20 +885,25 @@ Every bug fix and every feature MUST follow this strict sequence:
 - Do NOT implement without an approved proposal (step 3).
 - A fix that "can't be tested" is a sign the architecture needs refactoring,
   not an excuse to skip the test.
-- Lint and analysis findings are **blockers**, not suggestions. A PR with any
-  new clang-tidy or cppcheck warning is rejected regardless of correctness.
+- Lint and analysis findings are **blockers**, not suggestions. A feature PR with
+  any new clang-tidy or cppcheck warning is rejected regardless of correctness.
   See the `make lint` / `make analyze` targets in the Build & verify section.
+- Do not open a second PR for the next task. Add the commit.
 
 ### Code review checklist
 
 Every PR reviewer MUST verify:
 
+- [ ] **The PR is one feature, not one task.** The body lists every issue it
+      closes; a second PR for the same epic is an anti-pattern (see above).
+- [ ] **The commits tell the story.** Each task has its red test before the
+      green fix; steps are separate commits, not one squash of unrelated work.
 - [ ] SOLID conformance: no new SRP violations, dependency direction is correct.
 - [ ] Hexagonal boundaries intact: `lib/` never `#include`s from `tui/`, `src/`,
       or `tools/` (except tool interface headers).
 - [ ] Size limits: classes ≤200 lines, methods ≤10 lines with minimal branching.
 - [ ] Test sequence: the PR includes a red (failing) commit followed by a green
-      fix commit (or a clear explanation if not possible).
+      fix commit for each task (or a clear explanation if not possible).
 - [ ] All CI checks pass: `make`, `make test`, `make lint`, `make analyze`.
 - [ ] Zero dead code: no commented-out code, no stubs, no speculative branches.
 - [ ] No SPDX/copyright boilerplate, first line is functional (`#include`, `#ifndef`, etc.).
