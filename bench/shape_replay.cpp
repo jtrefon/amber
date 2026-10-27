@@ -16,8 +16,8 @@ namespace {
 
 using json = nlohmann::json;
 
-constexpr std::size_t kEnvelopeBudget = 32 * 1024;
-constexpr std::size_t kBigBash = 8 * 1024;
+constexpr std::size_t kEnvelopeBudget = std::size_t{32} * 1024;
+constexpr std::size_t kBigBash = std::size_t{8} * 1024;
 
 // The envelope body: everything between the header line and the trailing
 // "[end]" marker. Empty for a message that is already a digest.
@@ -77,10 +77,17 @@ void append_tool_result(ReplayLog& log, const json& e) {
 
 std::vector<std::string> split_lines(const std::string& text) {
     std::vector<std::string> out;
-    std::istringstream in(text);
-    std::string line;
-    while (std::getline(in, line))
-        out.push_back(line);
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t end = text.find('\n', start);
+        if (end == std::string::npos) {
+            if (start < text.size())
+                out.push_back(text.substr(start));
+            break;
+        }
+        out.push_back(text.substr(start, end - start));
+        start = end + 1;
+    }
     return out;
 }
 
@@ -95,10 +102,8 @@ bool signal_line(const std::string& line) {
                                    "traceback", "panic",  "denied",    "fatal",  "total",
                                    "summary",   "passed", "not found", "cannot", "assert"};
     const std::string l = lower(line);
-    for (const char* word : kWords)
-        if (l.find(word) != std::string::npos)
-            return true;
-    return false;
+    return std::any_of(std::begin(kWords), std::end(kWords),
+                       [&](const char* word) { return l.find(word) != std::string::npos; });
 }
 
 void replace_with_digest(agent::Message& m) {

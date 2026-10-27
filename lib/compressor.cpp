@@ -313,7 +313,7 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 // The snapshot the pipeline works on: the live stack is only ever read.
 std::vector<Message> snapshot_history(const Context& context) {
     const auto msgs = context.get_all();
-    return std::vector<Message>(msgs.begin(), msgs.end());
+    return {msgs.begin(), msgs.end()};
 }
 
 // The working set just shrank to its final size: surface it so the host's gauge
@@ -352,7 +352,7 @@ public:
         // failure returns the ORIGINAL history untouched. The context is only
         // ever read, and the classifier sees exactly that snapshot (plus the
         // live request prefix), so its indices stay aligned with apply.
-        const std::vector<Message> original = snapshot_history(context);
+        std::vector<Message> original = snapshot_history(context);
 
         if (observer)
             observer->on_compress_start(original.size(), estimate_tokens(original));

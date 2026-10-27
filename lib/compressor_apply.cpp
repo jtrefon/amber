@@ -498,7 +498,7 @@ std::vector<std::size_t> in_turn_digest_candidates(const std::vector<Message>& h
     std::vector<std::size_t> out;
     if (history.empty())
         return out;
-    const size_t context_size = static_cast<size_t>(cfg.context_size);
+    const auto context_size = static_cast<size_t>(cfg.context_size);
     const size_t tail = protected_tail_start(history, cfg, context_size);
     if (tail >= history.size())
         return out;
