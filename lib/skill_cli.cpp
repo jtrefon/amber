@@ -154,8 +154,13 @@ Config load_acquisition_config() {
     Config cfg;
     if (std::ifstream conf("amber.conf"); conf)
         cfg.load_workspace_defaults("amber.conf");
-    if (std::ifstream saved(Workspace::settings_path()); saved)
-        cfg.load(Workspace::settings_path());
+    // The per-project settings file is the user's own file. Load it only from
+    // the absolute state path the resolver built, never a value that climbs
+    // out of it.
+    const std::string saved = Workspace::settings_path();
+    const bool absolute = !saved.empty() && saved.front() == '/';
+    if (absolute && saved.find("..") == std::string::npos && std::ifstream(saved))
+        cfg.load(saved);
     cfg.apply_environment();
     return cfg;
 }
