@@ -82,6 +82,10 @@ struct SkillDetail {
     std::string default_branch;
     std::string skill_dir; // repo-relative directory; empty at repo root
     std::string hash;      // SKILL.md blob SHA
+    // Sanitized SKILL.md text. The preview and the risk scan read this; it is
+    // remote text, so it is sanitized at the adapter boundary like every other
+    // remote string.
+    std::string body;
     std::vector<SkillAsset> assets;
 };
 

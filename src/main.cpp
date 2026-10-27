@@ -11,6 +11,7 @@
 #include "plugins/watch/watch_plugin.h"
 
 #include <agent/mcp_commands.h>
+#include <agent/skill_cli.h>
 #include <cctype>
 #include <chrono>
 #include <cstring>
@@ -686,16 +687,32 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
 
 } // namespace
 
+// First run with no config: write a commented default so there is a file to
+// edit. Never touches an existing config.
+void write_default_config_once(const CliArgs& args) {
+    if (args.config_file.empty() && agent::ensure_global_config())
+        std::cerr << "info: wrote default config to " << agent::global_config_path() << "\n";
+}
+
+// The acquisition surface is not an agent run: it needs no model, no plugins
+// and no config, so it answers before any of that is loaded. Returns -1 when
+// this is an ordinary run.
+int run_skills_surface(int argc, char** argv) {
+    if (argc <= 1 || std::string(argv[1]) != "skills")
+        return -1;
+    const std::vector<std::string> args(argv + 2, argv + argc);
+    return agent::run_skill_cli(args, std::cout, std::cerr);
+}
+
 int main(int argc, char** argv) try {
+    if (const int rc = run_skills_surface(argc, argv); rc >= 0)
+        return rc;
+
     agent::Config cfg;
     CliArgs args;
 
     const GlobalConfig global = apply_global_config(cfg);
-
-    // First run with no config: write a commented default so there is a file to
-    // edit. Never touches an existing config.
-    if (args.config_file.empty() && agent::ensure_global_config())
-        std::cerr << "info: wrote default config to " << agent::global_config_path() << "\n";
+    write_default_config_once(args);
 
     if (std::optional<int> rc = parse_args(argc, argv, cfg, args))
         return *rc;

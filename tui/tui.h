@@ -27,6 +27,7 @@
 #include "session_controller.h"
 #include "slash_dispatcher.h"
 #include "model_picker.h"
+#include "skills_explorer.h"
 
 #include <atomic>
 #include <chrono>
@@ -120,6 +121,7 @@ public:
     void redraw_after_modal();
     void config_screen() const;
     void open_skills_explorer(const std::string& arg = "");
+    void configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg);
     void detect_server(bool force);
     void test_connection(bool announce);
     void settings_screen();
