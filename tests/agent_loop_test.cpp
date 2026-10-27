@@ -759,7 +759,7 @@ TEST(compression_digests_old_results_inside_a_single_active_turn) {
     cc.context_size = 32768;
     cc.min_turns = 2;
     cc.keep_last_prompts = 10;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     agent_test::FakeLLMClient fake;
 
     agent::Context ctx;
@@ -814,7 +814,7 @@ TEST(compression_keeps_a_small_single_turn_untouched) {
     agent::CompressionConfig cc;
     cc.context_size = 32768;
     cc.min_turns = 2;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     agent_test::FakeLLMClient fake;
 
     agent::Context ctx;
