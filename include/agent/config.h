@@ -211,6 +211,14 @@ struct Config {
     bool skills_interop = false;
     int skills_max_discovery = 0;
     int skills_body_budget_tokens = 0;
+    // Acquisition settings (docs/spec/skills/skill-acquisition.md §7).
+    // `skills_index` is "skills.sh", "none" or an http(s) base URL.
+    std::string skills_index = "skills.sh";
+    std::string skills_install_scope = "project"; // project | global
+    bool skills_review_required = true;
+    bool skills_audit_required = false;
+    std::string skills_index_token_env = "SKILLS_SH_TOKEN";
+    std::string skills_github_token_env = "GITHUB_TOKEN";
 
     // Load from a simple KEY=VALUE config file, then overlay env vars
     // (AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL, ...).

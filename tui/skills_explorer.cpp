@@ -287,11 +287,13 @@ public:
         agent::SkillIndexOptions index_opts;
         index_opts.cache_root = options.cache_root;
         index_opts.token = options.token;
-        if (!options.index_base.empty())
+        if (options.index_disabled)
+            index_opts.base_url.clear();
+        else if (!options.index_base.empty())
             index_opts.base_url = options.index_base;
         agent::GithubOptions github_opts;
         github_opts.cache_root = options.cache_root;
-        github_opts.token = options.token;
+        github_opts.token = options.github_token.empty() ? options.token : options.github_token;
         if (!options.github_api_base.empty())
             github_opts.api_base = options.github_api_base;
         if (!options.github_raw_base.empty())
@@ -636,6 +638,9 @@ void SkillsExplorer::prompt_install(const std::string& id) {
     InstallSheetOptions sheet_options;
     sheet_options.project_exists = std::filesystem::exists(options_.project_root + "/" + name);
     sheet_options.global_exists = std::filesystem::exists(options_.global_root + "/" + name);
+    sheet_options.review_required = options_.review_required;
+    sheet_options.audit_required = options_.audit_required;
+    sheet_options.default_global = options_.install_global;
     const InstallDecision decision =
         run_install_sheet(evidence_of(raw->second, name), raw->second.body, sheet_options);
     touchwin(dlg_->win());

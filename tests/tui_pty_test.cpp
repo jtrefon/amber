@@ -2509,7 +2509,48 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("\x1b");
     tui.pump(300);
     tui.send("q");
-    require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui);
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui))
+        return;
+
+    // Acquisition settings are real: they apply live, persist, and the
+    // explorer honours them (index none disables discovery and still opens).
+    tui.raw.clear();
+    tui.send("/set skills review off\r");
+    if (!require(tui.wait_for("skills review: off", 10000), "review setting was not applied", tui))
+        return;
+    tui.send("/set skills scope global\r");
+    if (!require(tui.wait_for("skills install scope: global", 10000), "scope was not applied", tui))
+        return;
+    tui.send("/set skills index none\r");
+    if (!require(tui.wait_for("skills index: none", 10000), "index was not applied", tui))
+        return;
+    tui.send("/get skills settings\r");
+    tui.pump(200);
+    tui.send("\r"); // the drawer may consume the first Enter as completion
+    if (!require(tui.wait_for("review off", 10000), "settings readout missed review", tui))
+        return;
+    if (!require(tui.wait_for("scope global", 10000), "settings readout missed scope", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not open with no index",
+                 tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the no-index explorer",
+                 tui))
+        return;
+
+    tui.send("/set skills review on\r");
+    if (!require(tui.wait_for("skills review: on", 10000), "review was not restored", tui))
+        return;
+    tui.send("/set skills scope project\r");
+    if (!require(tui.wait_for("skills install scope: project", 10000), "scope was not restored",
+                 tui))
+        return;
+    tui.send("/set skills index skills.sh\r");
+    require(tui.wait_for("skills index: skills.sh", 10000), "index was not restored", tui);
 }
 
 int main(int argc, char** argv) {

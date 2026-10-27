@@ -197,6 +197,34 @@ void apply_experience_keys(Config& c, const std::string& key, const std::string&
         parse_int(key, val, warnings, c.experience_promote_threshold);
 }
 
+bool valid_index_source(const std::string& value) {
+    return value == "skills.sh" || value == "none" || value.rfind("http://", 0) == 0 ||
+           value.rfind("https://", 0) == 0;
+}
+
+void apply_acquisition_keys(Config& c, const std::string& key, const std::string& val,
+                            std::vector<std::string>& warnings) {
+    if (key == "skills_index") {
+        if (valid_index_source(val))
+            c.skills_index = val;
+        else
+            warnings.emplace_back("skills_index: expected skills.sh, none or an http(s) URL");
+    } else if (key == "skills_install_scope") {
+        if (val == "project" || val == "global")
+            c.skills_install_scope = val;
+        else
+            warnings.emplace_back("skills_install_scope: expected project or global");
+    } else if (key == "skills_review_required") {
+        c.skills_review_required = parse_bool(val);
+    } else if (key == "skills_audit_required") {
+        c.skills_audit_required = parse_bool(val);
+    } else if (key == "skills_index_token_env") {
+        c.skills_index_token_env = val;
+    } else if (key == "skills_github_token_env") {
+        c.skills_github_token_env = val;
+    }
+}
+
 void apply_skills_keys(Config& c, const std::string& key, const std::string& val,
                        std::vector<std::string>& warnings) {
     if (key == "skills_interop")
@@ -205,6 +233,8 @@ void apply_skills_keys(Config& c, const std::string& key, const std::string& val
         parse_int(key, val, warnings, c.skills_max_discovery);
     else if (key == "skills_body_budget_tokens")
         parse_int(key, val, warnings, c.skills_body_budget_tokens);
+    else
+        apply_acquisition_keys(c, key, val, warnings);
 }
 
 void apply_logging_keys(Config& c, const std::string& key, const std::string& val) {
@@ -399,6 +429,10 @@ bool Config::save_settings(const std::string& path) const {
     f << "work_auto_attach=" << work_auto_attach << "\n";
     f << "skills_max_discovery=" << skills_max_discovery << "\n";
     f << "skills_body_budget_tokens=" << skills_body_budget_tokens << "\n";
+    f << "skills_index=" << skills_index << "\n";
+    f << "skills_install_scope=" << skills_install_scope << "\n";
+    f << "skills_review_required=" << (skills_review_required ? 1 : 0) << "\n";
+    f << "skills_audit_required=" << (skills_audit_required ? 1 : 0) << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
     return write_private_file(path, f.str());
 }

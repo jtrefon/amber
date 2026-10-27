@@ -22,6 +22,8 @@ std::string human_bytes(long long bytes) {
 
 InstallSheet::InstallSheet(InstallEvidence evidence, InstallSheetOptions options)
     : evidence_(std::move(evidence)), options_(options) {
+    if (options_.default_global)
+        scope_ = InstallScope::Global;
     replace_ = collision();
 }
 

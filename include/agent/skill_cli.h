@@ -32,6 +32,7 @@ struct SkillCliCommand {
     int limit = 20;
     bool json{false};
     bool global = false;
+    bool project = false; // overrides a global default for one install
     bool yes = false;
     bool all = false;
     bool check = false;
