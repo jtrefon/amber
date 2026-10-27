@@ -154,16 +154,14 @@ Config load_acquisition_config() {
     Config cfg;
     if (std::ifstream conf("amber.conf"); conf)
         cfg.load_workspace_defaults("amber.conf");
-    // The per-project settings file is the user's own file. Load it only from
-    // the absolute state path the resolver built, never a value that climbs
-    // out of it.
-    const std::string saved = Workspace::settings_path();
-    const bool absolute = !saved.empty() && saved.front() == '/';
-    // The path is amber's own state file under XDG_STATE_HOME, not remote or
-    // argument-supplied input; the same pattern is used by the TUI loader.
-    if (absolute && saved.find("..") == std::string::npos &&
-        std::ifstream(saved)) // lgtm [cpp/path-injection]
-        cfg.load(saved);      // lgtm [cpp/path-injection]
+    // Session overrides for scripts and CI. The TUI's per-project settings file
+    // is deliberately not read here: the headless surface takes its config from
+    // amber.conf and these variables, both of which a script can control.
+    if (const char* scope = std::getenv("AMBER_SKILLS_INSTALL_SCOPE");
+        scope && (*scope == 'p' || *scope == 'g'))
+        cfg.skills_install_scope = *scope == 'g' ? "global" : "project";
+    if (const char* index = std::getenv("AMBER_SKILLS_INDEX"); index && *index)
+        cfg.skills_index = index;
     cfg.apply_environment();
     return cfg;
 }

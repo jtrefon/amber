@@ -276,14 +276,6 @@ TEST(skill_cli_end_to_end_against_injected_backends) {
 
 namespace {
 
-void write_settings(const std::string& body) {
-    const std::string path = agent::Workspace::settings_path();
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
-    std::ofstream f(path, std::ios::trunc);
-    f << body;
-}
-
 std::string global_skill_dir(const CliSandbox& sandbox, const std::string& name) {
     return sandbox.path + "/config/amber/skills/" + name;
 }
@@ -293,7 +285,7 @@ std::string global_skill_dir(const CliSandbox& sandbox, const std::string& name)
 TEST(skill_cli_honours_the_default_install_scope_and_project_flag) {
     CliSandbox sandbox;
     agent::ScopedProjectRoot project(sandbox.path);
-    write_settings("skills_install_scope=global\n");
+    setenv("AMBER_SKILLS_INSTALL_SCOPE", "global", 1);
     std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody\n";
     std::string sha = "sha-1";
     const agent::SkillCliBackends backends = fake_backends(body, sha);
@@ -313,15 +305,17 @@ TEST(skill_cli_honours_the_default_install_scope_and_project_flag) {
                                    backends),
               0);
     ASSERT_TRUE(std::filesystem::exists(sandbox.path + "/.amber/skills/tdd/SKILL.md"));
+    unsetenv("AMBER_SKILLS_INSTALL_SCOPE");
 }
 
 TEST(skill_cli_index_none_disables_search) {
     CliSandbox sandbox;
     agent::ScopedProjectRoot project(sandbox.path);
-    write_settings("skills_index=none\n");
+    setenv("AMBER_SKILLS_INDEX", "none", 1);
     unsetenv("AMBER_SKILLS_INDEX_URL");
     std::ostringstream out;
     std::ostringstream err;
     ASSERT_EQ(agent::run_skill_cli({"search", "tdd"}, out, err), 1);
     ASSERT_TRUE(err.str().find("disabled") != std::string::npos);
+    unsetenv("AMBER_SKILLS_INDEX");
 }
