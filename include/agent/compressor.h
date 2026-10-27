@@ -197,7 +197,7 @@ public:
     // it is what lets both LLM calls extend the server's cached prefix; an empty
     // prefix still works (a cold prefill, as a host with no injected blocks and
     // no tools would see).
-    virtual std::vector<Message> compress(Context& context, const CompressionConfig& cfg,
+    virtual std::vector<Message> compress(const Context& context, const CompressionConfig& cfg,
                                           LLMClient& client,
                                           CompressionObserver* observer = nullptr,
                                           CompressionResponse* response_out = nullptr,
@@ -275,7 +275,9 @@ std::vector<Message> enforce_target_budget(std::vector<Message> compressed, size
 // Factory functions
 // ---------------------------------------------------------------------------
 
-std::unique_ptr<CompressionStrategy> make_compressor(const CompressionConfig& cfg);
+// The pipeline is stateless: it reads the configuration it is handed on each
+// compress() call, because settings can change while a session runs.
+std::unique_ptr<CompressionStrategy> make_compressor();
 
 std::unique_ptr<CompressionGate> make_compression_gate(const CompressionConfig& cfg);
 
