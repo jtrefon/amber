@@ -144,13 +144,14 @@ therefore served by the handle).
 
 ### Re-arming a compaction
 
-`compression_cooldown_turns` counts **LLM requests** (`Config::turn_counter`
-increments in `chat_once`), not user turns — one tool-using turn is many
-requests. A fixed count is therefore the wrong wall for a long turn: it either
-blocks relief for a turn that refilled the window, or permits a rebuild every N
-requests. The gate re-arms as soon as the prompt has grown by 10% of the window
-(minimum 1024 tokens) since the last attempt, which is a real consumption step
-and cannot spin: an attempt that reduced nothing left the size unchanged.
+`compression_cooldown_turns` counts **real user turns**
+(`Config::user_turn_counter`), so one tool-using turn — many LLM calls — cannot
+expire it. That is the right unit for rate-limiting a user, and the wrong wall
+for a long turn: a single turn can refill the window several times and would get
+no relief until the next message. The gate therefore re-arms as soon as the
+prompt has grown by 10% of the window (minimum 1024 tokens) since the last
+attempt. That is a real consumption step and cannot spin: an attempt that
+reduced nothing left the size unchanged.
 
 ### Invariants
 
@@ -182,7 +183,7 @@ and cannot spin: an attempt that reduced nothing left the size unchanged.
 |---|---|---|
 | `compression_threshold` | 0.70 | fraction of the window that triggers a pass |
 | `compression_min_turns` | 10 | message floor (bypassed at 90% conversation saturation) |
-| `compression_cooldown_turns` | 20 | LLM requests between attempts (attempts, not just successes); re-arms early on 10% window growth |
+| `compression_cooldown_turns` | 20 | user turns between attempts (attempts, not just successes); re-arms early on 10% window growth |
 | `compression_target_pct` | 10 | post-compaction target, % of the window |
 | `compression_keep_last_prompts` | 10 | maximum user turns kept verbatim (the token budget decides the rest) |
 

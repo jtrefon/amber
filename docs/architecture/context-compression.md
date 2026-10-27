@@ -68,7 +68,7 @@ instruction says so when it updates a previous archive.
 | tail | token-budgeted; always includes the final prompt; older in-turn results digest to a recallable handle |
 | pairing | orphan tool results removed, missing results stubbed |
 | archive cap | 32 entries / ~800 tokens, oldest merged |
-| cooldown | LLM requests, re-armed by window growth; covers failed attempts; never blocks the first pass |
+| cooldown | user turns, re-armed by window growth; covers failed attempts; never blocks the first pass |
 
 ## Entry points
 

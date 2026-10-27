@@ -9219,14 +9219,14 @@ TEST(compression_gate_rearms_on_growth_inside_one_turn) {
     auto gate = agent::make_compression_gate(cc);
     agent::Config cfg;
     cfg.context_size = 262144;
-    cfg.turn_counter = 5;
+    cfg.user_turn_counter = 5;
     agent::Context ctx;
     ctx.push(msg("system", "s"));
     ctx.push(msg("user", "u"));
     cfg.prompt_tokens_used = 200000;
     ASSERT(gate->should_compress(ctx, cfg));
     gate->set_last_compress_turn(5);
-    cfg.turn_counter = 6;
+    cfg.user_turn_counter = 6;
     cfg.prompt_tokens_used = 200000; // inside cooldown, no new consumption
     ASSERT_FALSE(gate->should_compress(ctx, cfg));
     cfg.prompt_tokens_used = 230000; // a tenth of the window arrived
