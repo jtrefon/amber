@@ -179,7 +179,13 @@ driven by an OpenAI-compatible LLM API.
   when a CI run completes it lands at most one `CLEAN` PR carrying the
   `merge-train` label and updates the branches of the other labelled ones, so
   their gates re-run against the new `main` instead of waiting for somebody to
-  press "Update branch". The trigger is `workflow_run` completion, not a timer:
+  press "Update branch". The update is a `GITHUB_TOKEN` push, which starts no
+  workflow — so the train dispatches `ci.yml` on each refreshed branch, and
+  re-arms any labelled PR whose head has zero check runs (a refresh made by an
+  older train version). `workflow_dispatch` is therefore a first-class event in
+  `gate_needs_check.py`, held to the push job set; without that the refreshed
+  head has no `ci-gate` and the PR stays `BLOCKED` forever, which is exactly what
+  happened on 2026-10-27. The trigger is `workflow_run` completion, not a timer:
   the schedule is only a backstop: its runs arrive hours late, so nothing
   that needs to happen promptly may depend on them. It never touches an
   unlabelled PR, a draft, a `DIRTY` one, or one whose gates have not passed — a
