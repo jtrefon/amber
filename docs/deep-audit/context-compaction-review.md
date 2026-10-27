@@ -560,6 +560,28 @@ when to start. GitHub holds the live state; this table is the static plan.
 | CC-11 | [#427](https://github.com/jtrefon/amber/issues/427) | Knowledge deprecation reachable, or deleted | P2 | next | D5 | `compressor_parser.cpp`, `compressor_apply.cpp`, `compressor_request.cpp` |
 | CC-12 | [#428](https://github.com/jtrefon/amber/issues/428) | Reconcile the three docs with the code | P2 | now | — | `docs/**` (done: `compression-pipeline.md`, `context-compression.md`, `loop-collapse.md`, `turn-classification.md`, `INDEX.md`, ownership claim) |
 | CC-13 | [#429](https://github.com/jtrefon/amber/issues/429) | Module linkage, const-correctness and copy hygiene | P3 | later | all above | `compressor*.{h,cpp}` |
+| CC-14 | [#439](https://github.com/jtrefon/amber/issues/439) | Compact inside a single active turn (pinned set; deterministic pass; consumption re-arm) | P2 | done | CC-05 | `compressor_apply.cpp`, `compressor.cpp` |
+| CC-15 | [#464](https://github.com/jtrefon/amber/issues/464) | Replay + adversarial acceptance for context shaping | P1 | done | CC-14 | `bench/shape_replay.*`, `tests/` |
+| CC-16 | [#465](https://github.com/jtrefon/amber/issues/465) | Every digested result recallable by id | P1 | done | — | `artifacts.cpp`, `compressor_apply.cpp` |
+| CC-17 | [#466](https://github.com/jtrefon/amber/issues/466) | Project bulky bash output at the source (8 KiB, head+tail+handle) | P2 | done | CC-15 | `dispatch.cpp` |
+| CC-18 | [#467](https://github.com/jtrefon/amber/issues/467) | Deterministic supersession at rebuild | P3 | deferred | CC-15 | `compressor_apply.cpp` |
+
+### CC-18: deferred on measurement, not on opinion
+
+The replay harness (`amber-bench shape-replay`) was run over 24 recorded
+sessions (~485k tokens). Per rule, at a 32 KiB window:
+
+| Rule | Tokens saved | Replaced | Referenced later |
+|---|---:|---:|---:|
+| in-turn (shipped) | 7% | 36 | 17 |
+| bash projection (shipped) | 3% | 7 | 1 |
+| supersede (CC-18) | **0%** | **0** | 0 |
+| drop-all (control) | 83% | 293 | 140 |
+
+No duplicate-read supersession existed in the corpus, so CC-18 buys nothing on
+real data; it stays deferred with that number rather than shipping an unmeasured
+rule. The control rule is what makes the table trustworthy: a shaper that drops
+everything is flagged on 140 of 293 replacements.
 
 ### Findings → tasks
 

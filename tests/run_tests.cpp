@@ -5237,6 +5237,18 @@ TEST(job_service_caps_output_at_one_mib) {
     jobs.stop(id);
 }
 
+// CC-16: a digest is an index, not a deletion. Anything the compactor replaces
+// must be recoverable byte-for-byte through the id the digest carries.
+static std::string result_id_from_text(const std::string& digest) {
+    const std::string key = "result_id=";
+    const std::size_t at = digest.find(key);
+    if (at == std::string::npos)
+        return {};
+    const std::size_t from = at + key.size();
+    const std::size_t end = digest.find_first_not_of("0123456789abcdef", from);
+    return digest.substr(from, end == std::string::npos ? std::string::npos : end - from);
+}
+
 // ---------------------------------------------------------------------------
 // Dispatch / tool approval tests
 // ---------------------------------------------------------------------------
@@ -5281,6 +5293,36 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
             break;
         }
     ASSERT(found);
+}
+
+TEST(dispatch_projects_bulky_bash_output_at_the_source) {
+    // A build log is the one tool result where the middle is noise: keep the
+    // ends, hand the model a handle, and leave read untouched.
+    XdgGuard xdg("dispatch_bash_projection");
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_bash_tool());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::AgentHooks hooks;
+    agent::json calls = agent::json::array();
+    calls.push_back({{"id", "c1"},
+                     {"type", "function"},
+                     {"function", {{"name", "bash"}, {"arguments", {{"command", "seq 1 4000"}}}}}});
+    agent::Context dctx;
+    ASSERT(
+        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx));
+    const auto msgs = dctx.get_all();
+    const agent::Message& tool = msgs.back();
+    ASSERT_EQ(tool.role, "tool");
+    ASSERT(tool.content.size() < 10u * 1024);
+    const std::string id = result_id_from_text(tool.content);
+    ASSERT_EQ(id.size(), 16u);
+    std::string error;
+    const auto full = agent::read_tool_artifact(id, 0, 65536, "", error);
+    ASSERT(full.has_value());
+    ASSERT(full->size() > 12u * 1024);
 }
 
 TEST(dispatch_rejects_duplicate_tool_call) {
@@ -6237,18 +6279,6 @@ TEST(prune_tool_io_keeps_a_readable_digest) {
     ASSERT_EQ(again[3].content, digest); // deterministic
 }
 
-// CC-16: a digest is an index, not a deletion. Anything the compactor replaces
-// must be recoverable byte-for-byte through the id the digest carries.
-static std::string result_id_from_digest(const std::string& digest) {
-    const std::string key = "result_id=";
-    const std::size_t at = digest.find(key);
-    if (at == std::string::npos)
-        return {};
-    const std::size_t from = at + key.size();
-    const std::size_t end = digest.find_first_not_of("0123456789abcdef", from);
-    return digest.substr(from, end == std::string::npos ? std::string::npos : end - from);
-}
-
 TEST(digested_result_is_recallable_by_id) {
     XdgGuard xdg("digest_recall_medium");
     agent::CompressionConfig cc;
@@ -6261,7 +6291,7 @@ TEST(digested_result_is_recallable_by_id) {
         tool_result_msg("c1", body), msg("user", "current task"),
     };
     ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
-    const std::string id = result_id_from_digest(hist[3].content);
+    const std::string id = result_id_from_text(hist[3].content);
     ASSERT_EQ(id.size(), 16u); // today the digest carries no id at all
     ASSERT(agent::valid_artifact_id(id));
     std::string error;
@@ -6280,7 +6310,7 @@ TEST(read_result_serves_a_small_result_after_compaction) {
         tool_result_msg("c1", body), msg("user", "current task"),
     };
     ASSERT_EQ(agent::prune_tool_io(hist, &cc), 1u);
-    const std::string id = result_id_from_digest(hist[3].content);
+    const std::string id = result_id_from_text(hist[3].content);
     ASSERT_EQ(id.size(), 16u);
     const auto tool = agent::make_read_result_tool();
     const agent::ToolResult page =

@@ -132,6 +132,16 @@ results that fit the tail budget and digesting the older ones. The properties:
 - **Idempotent.** A message that is already a digest is skipped, so a second
   pass cannot digest the index away.
 
+### Source projection (before the context)
+
+The cheapest shaping happens before a result is ever pushed: `page_out_oversized`
+stores bulky `bash` output and caps its envelope at **8 KiB**, keeping the head
+and the tail (the command echo and the failure) around an omission marker with a
+`read_result` handle. `read` is never projected — the model asked for that
+range — and `search` is already capped by its own `max`. Measured on 24 recorded
+sessions: 3% of tool tokens, 7 results, one dropped span later named (and
+therefore served by the handle).
+
 ### Re-arming a compaction
 
 `compression_cooldown_turns` counts **LLM requests** (`Config::turn_counter`
