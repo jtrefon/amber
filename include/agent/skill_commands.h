@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "agent/config.h"
 #include "agent/skill_catalog.h"
 
 namespace agent {
@@ -34,6 +35,15 @@ std::string skill_export(SkillCatalog& catalog, const std::string& name);
 // error.
 std::string skill_set_override(SkillCatalog& catalog, const std::string& name,
                                const std::string& state);
+
+// Apply one acquisition setting: `review`, `audit`, `scope` or `index`.
+// Validation lives here so the TUI and the CLI cannot disagree. Returns false
+// and fills `message` with the usage line when the value is invalid.
+bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const std::string& value,
+                                     std::string& message);
+
+// The acquisition settings as `/get skills settings` prints them.
+std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg);
 
 } // namespace agent
 

@@ -273,3 +273,55 @@ TEST(skill_cli_end_to_end_against_injected_backends) {
     ASSERT_EQ(agent::run_skill_cli({"remove", "tdd"}, out, err, backends), 0);
     ASSERT_TRUE(!std::filesystem::exists(sandbox.path + "/.amber/skills/tdd"));
 }
+
+namespace {
+
+void write_settings(const std::string& body) {
+    const std::string path = agent::Workspace::settings_path();
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+    std::ofstream f(path, std::ios::trunc);
+    f << body;
+}
+
+std::string global_skill_dir(const CliSandbox& sandbox, const std::string& name) {
+    return sandbox.path + "/config/amber/skills/" + name;
+}
+
+} // namespace
+
+TEST(skill_cli_honours_the_default_install_scope_and_project_flag) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    write_settings("skills_install_scope=global\n");
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody\n";
+    std::string sha = "sha-1";
+    const agent::SkillCliBackends backends = fake_backends(body, sha);
+    std::ostringstream out;
+    std::ostringstream err;
+
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills/tdd", "--yes"}, out, err, backends), 0);
+    ASSERT_TRUE(std::filesystem::exists(global_skill_dir(sandbox, "tdd") + "/SKILL.md"));
+    ASSERT_TRUE(!std::filesystem::exists(sandbox.path + "/.amber/skills/tdd"));
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"remove", "tdd"}, out, err, backends), 0);
+    ASSERT_TRUE(!std::filesystem::exists(global_skill_dir(sandbox, "tdd")));
+
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills/tdd", "--yes", "--project"}, out, err,
+                                   backends),
+              0);
+    ASSERT_TRUE(std::filesystem::exists(sandbox.path + "/.amber/skills/tdd/SKILL.md"));
+}
+
+TEST(skill_cli_index_none_disables_search) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    write_settings("skills_index=none\n");
+    unsetenv("AMBER_SKILLS_INDEX_URL");
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"search", "tdd"}, out, err), 1);
+    ASSERT_TRUE(err.str().find("disabled") != std::string::npos);
+}

@@ -469,6 +469,11 @@
        "action": "core.config.get.skills.show",
        "help": "List loaded skills.",
        "man": "Lists all skill packages currently loaded into the catalog with their descriptions."
+      },
+      "settings": {
+       "action": "core.config.get.skills.settings",
+       "help": "Show acquisition settings.",
+       "man": "Prints the registry source, the default install scope and whether the review and audit gates are on."
       }
      }
     },
@@ -700,8 +705,40 @@
     "skills": {
      "action": "core.config.set.skills",
      "help": "Skills settings.",
-     "man": "The skills namespace manages agent skills: authored SKILL.md packages and learned procedural memory. Use '/set skills refresh' to reload the catalog, '/set skills interop on|off' to enable .claude/skills interop, and '/set skills create|delete' to manage skill packages.",
+     "man": "The skills namespace manages agent skills: authored SKILL.md packages, learned procedural memory and acquisition. '/set skills refresh' reloads the catalog, '/set skills interop on|off' enables .claude/skills interop, '/set skills create|delete' manages packages, and '/set skills review|audit|scope|index' controls the acquisition gates, default install scope and registry source.",
      "children": {
+      "review": {
+       "action": "core.config.set.skills.review",
+       "help": "Require reading a community skill before installing it.",
+       "man": "With review on (the default), the install sheet leaves Enter inert for a community or unverified source until its body has been shown with p, or the user explicitly chooses an unread install with x. Official and audited sources bypass the gate.",
+       "choices": [
+        "on",
+        "off"
+       ]
+      },
+      "audit": {
+       "action": "core.config.set.skills.audit",
+       "help": "Require an audit verdict before installing.",
+       "man": "With audit on, a source whose audit is missing or failed needs an explicit override in the install sheet. The anonymous skills.sh API provides no audits, so review remains the primary gate; this setting is for deployments that add an audited source.",
+       "choices": [
+        "on",
+        "off"
+       ]
+      },
+      "scope": {
+       "action": "core.config.set.skills.scope",
+       "help": "Default install scope (project or global).",
+       "man": "Sets the scope the install sheet starts on: project writes to .amber/skills beside the repository, global to ~/.config/amber/skills. The other scope stays one Tab away, and /skills install --global overrides it for one install.",
+       "choices": [
+        "project",
+        "global"
+       ]
+      },
+      "index": {
+       "action": "core.config.set.skills.index",
+       "help": "Registry source: skills.sh, none, or a mirror URL.",
+       "man": "Selects where discovery comes from: the public skills.sh API, no index at all (installed skills still work), or an http(s) base URL for a mirror. The AMBER_SKILLS_INDEX_URL environment variable overrides it for one session."
+      },
       "interop": {
        "action": "core.config.set.skills.interop",
        "help": "Toggle .claude/skills interop.",

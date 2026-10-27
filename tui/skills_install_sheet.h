@@ -53,6 +53,8 @@ struct InstallSheetOptions {
     bool review_required = true;
     // `skills_audit_required` (default off until a source provides audits).
     bool audit_required = false;
+    // `skills_install_scope = global` starts the sheet there.
+    bool default_global = false;
 };
 
 struct InstallDecision {

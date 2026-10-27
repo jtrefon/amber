@@ -150,25 +150,55 @@ std::string cache_summary(long long& bytes_out) {
     return std::to_string(files) + " files, " + std::to_string(bytes) + " bytes";
 }
 
-SkillIndexOptions index_options() {
+Config load_acquisition_config() {
+    Config cfg;
+    if (std::ifstream conf("amber.conf"); conf)
+        cfg.load_workspace_defaults("amber.conf");
+    if (std::ifstream saved(Workspace::settings_path()); saved)
+        cfg.load(Workspace::settings_path());
+    cfg.apply_environment();
+    return cfg;
+}
+
+std::string env_or(const std::string& name, const char* fallback) {
+    if (const char* value = std::getenv(name.c_str()); value && *value)
+        return value;
+    if (fallback) {
+        if (const char* value = std::getenv(fallback); value && *value)
+            return value;
+    }
+    return {};
+}
+
+SkillIndexOptions index_options(const Config& cfg) {
     SkillIndexOptions options;
     options.cache_root = skills_index_cache_dir();
-    if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL"))
+    if (cfg.skills_index == "none")
+        options.base_url.clear();
+    else if (cfg.skills_index != "skills.sh")
+        options.base_url = cfg.skills_index;
+    if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL"); base && *base)
         options.base_url = base;
-    if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
-        options.token = token;
+    options.token = env_or(cfg.skills_index_token_env, "SKILLS_SH_TOKEN");
     return options;
 }
 
-GithubOptions github_options() {
+GithubOptions github_options(const Config& cfg) {
     GithubOptions options;
-    if (const char* api = std::getenv("AMBER_GITHUB_API_URL"))
+    if (const char* api = std::getenv("AMBER_GITHUB_API_URL"); api && *api)
         options.api_base = api;
-    if (const char* raw = std::getenv("AMBER_GITHUB_RAW_URL"))
+    if (const char* raw = std::getenv("AMBER_GITHUB_RAW_URL"); raw && *raw)
         options.raw_base = raw;
-    if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
-        options.token = token;
+    options.token = env_or(cfg.skills_github_token_env, "SKILLS_SH_TOKEN");
     return options;
+}
+
+std::string install_scope(const SkillCliCommand& cmd, const Config& cfg) {
+    if (cmd.global)
+        return "global";
+    if (cmd.project)
+        return "project";
+    return cfg.skills_install_scope == "global" ? "global" : "project";
 }
 
 int run_search(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
@@ -229,8 +259,9 @@ int run_show(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
     return 0;
 }
 
-int install_pack(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
-    const std::string root = scope_root(cmd.global ? "global" : "project");
+int install_pack(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out,
+                 std::ostream& err) {
+    const std::string root = scope_root(install_scope(cmd, cfg));
     const std::string error = install_skill_pack(cmd.target, root);
     if (!error.empty()) {
         err << "skills install: " << error << "\n";
@@ -251,7 +282,7 @@ int confirm_unattended(const SkillCliCommand& cmd, const SkillRef& ref, std::ost
     return 1;
 }
 
-int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDetail& detail,
+int write_install(const SkillCliCommand& cmd, const Config& cfg, const SkillDetail& detail,
                   std::ostream& out, std::ostream& err, const SkillCliBackends& backends) {
     const AssetsResult assets = backends.assets(detail);
     if (!assets.files) {
@@ -259,8 +290,8 @@ int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDe
         return 1;
     }
     SkillInstallRequest request;
-    request.name = skill_slug(ref.id);
-    request.dest_root = scope_root(cmd.global ? "global" : "project");
+    request.name = skill_slug(detail.ref.id);
+    request.dest_root = scope_root(install_scope(cmd, cfg));
     for (const auto& file : *assets.files)
         request.files.push_back({file.path, file.contents});
     const SkillInstallResult result = backends.install(request);
@@ -275,7 +306,7 @@ int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDe
     if (cmd.json) {
         out << json{{"ok", true},
                     {"name", request.name},
-                    {"id", ref.id},
+                    {"id", detail.ref.id},
                     {"root", request.dest_root},
                     {"files", result.files},
                     {"bytes", result.bytes}}
@@ -288,8 +319,8 @@ int write_install(const SkillCliCommand& cmd, const SkillRef& ref, const SkillDe
     return 0;
 }
 
-int install_registry(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
-                     const SkillCliBackends& backends) {
+int install_registry(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out,
+                     std::ostream& err, const SkillCliBackends& backends) {
     SkillRef ref;
     std::string error;
     if (!split_target(cmd.target, ref, error)) {
@@ -303,7 +334,7 @@ int install_registry(const SkillCliCommand& cmd, std::ostream& out, std::ostream
     }
     if (const int rc = confirm_unattended(cmd, ref, err); rc != 0)
         return rc;
-    return write_install(cmd, ref, *detail.detail, out, err, backends);
+    return write_install(cmd, cfg, *detail.detail, out, err, backends);
 }
 
 struct UpdatePlan {
@@ -410,12 +441,13 @@ int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
     return failures > 0 ? 1 : 0;
 }
 
-int run_remove(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err) {
+int run_remove(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out,
+               std::ostream& err) {
     if (cmd.target.empty()) {
         err << "skills remove: a skill name is required\n";
         return 2;
     }
-    const std::string scope = cmd.global ? "global" : "project";
+    const std::string scope = install_scope(cmd, cfg);
     const std::string root = scope_root(scope);
     const std::string error = uninstall_skill(cmd.target, root);
     if (!error.empty()) {
@@ -454,15 +486,16 @@ int run_sources(const SkillCliCommand& cmd, std::ostream& out) {
 } // namespace
 
 SkillSources skill_sources(bool refresh) {
+    const Config cfg = load_acquisition_config();
     if (refresh) {
         std::error_code ec;
         fs::remove_all(skills_index_cache_dir(), ec);
     }
     long long bytes = 0;
     SkillSources sources;
-    sources.index_base = index_options().base_url;
-    sources.github_api = github_options().api_base;
-    sources.github_raw = github_options().raw_base;
+    sources.index_base = index_options(cfg).base_url;
+    sources.github_api = github_options(cfg).api_base;
+    sources.github_raw = github_options(cfg).raw_base;
     sources.cache_dir = skills_index_cache_dir();
     sources.cache_summary = cache_summary(bytes);
     return sources;
@@ -474,6 +507,8 @@ bool parse_cli_flag(const std::string& arg, size_t& i, const std::vector<std::st
         cmd.json = true;
     else if (arg == "--global")
         cmd.global = true;
+    else if (arg == "--project")
+        cmd.project = true;
     else if (arg == "--yes" || arg == "-y")
         cmd.yes = true;
     else if (arg == "--all")
@@ -602,9 +637,9 @@ std::string skill_list_json(const std::vector<InstalledPackage>& packages) {
     return json{{"skills", rows}, {"count", rows.size()}}.dump(2) + "\n";
 }
 
-SkillCliBackends default_backends() {
-    auto index = std::make_shared<SkillsShIndex>(index_options());
-    auto github = std::make_shared<GitHubIndex>(github_options());
+SkillCliBackends default_backends(const Config& cfg) {
+    auto index = std::make_shared<SkillsShIndex>(index_options(cfg));
+    auto github = std::make_shared<GitHubIndex>(github_options(cfg));
     SkillCliBackends backends;
     backends.search = [index](const std::string& query, int limit) {
         return index->search(query, limit, CancellationToken{});
@@ -629,7 +664,8 @@ int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::
             << kUsage;
         return 2;
     }
-    const SkillCliBackends wired = backends.search ? backends : default_backends();
+    const Config settings = load_acquisition_config();
+    const SkillCliBackends wired = backends.search ? backends : default_backends(settings);
     switch (cmd.verb) {
     case SkillVerb::Search:
         return run_search(cmd, out, err, wired);
@@ -638,12 +674,12 @@ int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::
     case SkillVerb::Show:
         return run_show(cmd, out, err, wired);
     case SkillVerb::Install:
-        return looks_like_pack(cmd.target) ? install_pack(cmd, out, err)
-                                           : install_registry(cmd, out, err, wired);
+        return looks_like_pack(cmd.target) ? install_pack(cmd, settings, out, err)
+                                           : install_registry(cmd, settings, out, err, wired);
     case SkillVerb::Update:
         return run_update(cmd, out, err, wired);
     case SkillVerb::Remove:
-        return run_remove(cmd, out, err);
+        return run_remove(cmd, settings, out, err);
     case SkillVerb::Sources:
         return run_sources(cmd, out);
     case SkillVerb::None:
