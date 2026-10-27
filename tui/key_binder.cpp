@@ -31,6 +31,10 @@ int macos_option_digit(uint32_t codepoint) {
     }
 }
 
+bool esc_prefix_key(int ch) noexcept {
+    return (ch >= '1' && ch <= '9') || ch == 'b' || ch == 'B' || ch == 'm' || ch == 'M';
+}
+
 KeyBinder::KeyBinder(nlohmann::json bindings) : bindings_(std::move(bindings)) {}
 
 KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const {
@@ -67,7 +71,7 @@ KeyAction KeyBinder::dispatch(const KeyRead& key, const InputState& state) const
 KeyAction KeyBinder::dispatch_esc(const KeyRead& key, const InputState& state) const {
     if (state.drawer_open)
         return {KeyAction::CloseDrawer, -1};
-    if (key.followup) {
+    if (key.followup && esc_prefix_key(*key.followup)) {
         int f = *key.followup;
         if (f >= '1' && f <= '9')
             return {KeyAction::SwitchWindow, f - '1'};

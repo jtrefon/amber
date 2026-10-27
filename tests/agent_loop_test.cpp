@@ -363,7 +363,7 @@ TEST(agent_loop_compression_trigger) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     // Warm-up turns (cooldown default is 20 turns before the gate opens).
@@ -661,7 +661,7 @@ TEST(agent_loop_learned_window_clamps_gate) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<LearnedFake>();
     agent_test::FakeLLMClient* raw = fake.get();
     // The first warm reply reports 95k prompt tokens: 72% of the LEARNED
@@ -712,7 +712,7 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     cc.context_size = 4096;
     cc.target_pct = 10;
     cc.keep_last_prompts = 10;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     push_text(*fake,
               R"({"summary":"work state","classification":[{"turns":"1-30","tag":"core"}]})");
@@ -752,7 +752,7 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
 
 TEST(compression_request_replays_the_live_prefix) {
     agent::CompressionConfig cc;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(
@@ -807,7 +807,7 @@ TEST(compression_request_replays_the_live_prefix) {
 
 TEST(compression_pipeline_forwards_segments_and_ops) {
     agent::CompressionConfig cc;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
     classify.content =
@@ -848,7 +848,7 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
 // pipeline achieves it with a pure copy, not by mutating the live context.
 TEST(compression_extract_request_shares_classify_prefix) {
     agent::CompressionConfig cc;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
 
@@ -903,7 +903,7 @@ TEST(compression_extract_request_shares_classify_prefix) {
 // Compression so the session ledger can attribute the spend.
 TEST(compression_pipeline_reports_usage_per_request) {
     agent::CompressionConfig cc;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
     classify.content =
@@ -943,7 +943,7 @@ TEST(compression_pipeline_reports_usage_per_request) {
 
 TEST(compression_pipeline_failure_returns_history_unchanged) {
     agent::CompressionConfig cc;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply garbage;
     garbage.content = "this is not json";
@@ -984,7 +984,7 @@ TEST(compression_preserves_the_summary_archive_and_tail) {
     cc.context_size = 8192;
     cc.target_pct = 10;
     cc.keep_last_prompts = 1;
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     push_text(*fake, R"({"summary":"DECISION: the cache layer owns eviction","classification":[)"
                      R"({"turns":"1-2","tag":"context","summary":"explored the cache layer"},)"
@@ -1032,7 +1032,7 @@ TEST(compression_preserves_the_summary_archive_and_tail) {
 TEST(compression_extract_failure_keeps_classification) {
     agent::CompressionConfig cc;
     cc.keep_last_prompts = 1; // the older turn is archivable, so the pass reduces
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
 
     // First call (classify): prune the older (large) turn, keep the active one.
@@ -1093,7 +1093,7 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     // Classify call fails (e.g. server error on the compression LLM call).
     agent_test::FakeReply err;
@@ -1135,8 +1135,7 @@ TEST(compression_target_budget_enforced) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     // Classifier: mark the OLD region context (archive) and recent as core,
     // but the guard + classifier would still keep a large tail; the budget
@@ -1195,8 +1194,7 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     cfg.compression_keep_last_prompts = 2;
     cfg.compression_keep_last_prompts_explicit = true;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
     classify.content =
@@ -1262,8 +1260,7 @@ TEST(compression_strips_reasoning_and_ignores_probes) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
     classify.content =
@@ -1695,7 +1692,7 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     for (int i = 0; i < 5; ++i) {
@@ -2675,7 +2672,7 @@ TEST(session_brief_extracted_on_compression) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     // Warm-up turns (cooldown default is 20 turns before the gate opens).
     for (int i = 0; i < 21; ++i) {
@@ -2729,7 +2726,7 @@ TEST(session_brief_survives_compression) {
     agent::ToolRegistry reg;
     auto comp_cfg = agent::load_compression_config(cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     for (int i = 0; i < 21; ++i) {
         push_text(*fake, "warm");
@@ -2811,8 +2808,9 @@ public:
 // accident.
 class SystemOnlyCompressor : public agent::CompressionStrategy {
 public:
-    std::vector<agent::Message> compress(agent::Context& context, const agent::CompressionConfig&,
-                                         agent::LLMClient&, agent::CompressionObserver* = nullptr,
+    std::vector<agent::Message> compress(const agent::Context& context,
+                                         const agent::CompressionConfig&, agent::LLMClient&,
+                                         agent::CompressionObserver* = nullptr,
                                          agent::CompressionResponse* = nullptr,
                                          const agent::CompressionRequestPrefix& = {}) override {
         std::vector<agent::Message> out;
@@ -2881,6 +2879,23 @@ TEST(agent_keeps_injected_blocks_when_compression_fires) {
     ASSERT(request_contains(*raw, "the build system is make"));
 }
 
+// The compression cooldown is expressed in real user prompts. A turn that runs
+// two tool rounds is three LLM calls; it must still count as one turn, or the
+// cooldown expires inside the turn it was meant to cover.
+TEST(agent_counts_user_turns_not_llm_calls) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_tool_call(*fake, "read", json{{"path", "a.txt"}});
+    push_tool_call(*fake, "read", json{{"path", "a.txt"}}, "c2");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.run("read twice");
+
+    ASSERT_EQ(ag.user_turn_counter(), size_t{1});
+}
+
 TEST(agent_compression_replays_the_injected_prefix_and_tools) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
@@ -2897,9 +2912,8 @@ TEST(agent_compression_replays_the_injected_prefix_and_tools) {
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "done");
 
-    auto cc = agent::load_compression_config(cfg);
     auto gate = std::make_unique<AlwaysCompressGate>();
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
                     std::move(retriever), std::move(fake));
 

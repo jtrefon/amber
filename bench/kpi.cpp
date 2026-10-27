@@ -87,6 +87,7 @@ void apply_compaction_kpi(const EventStream& stream, Kpi& k) {
     for (const auto& c : stream.compactions) {
         if (!c.error.empty()) {
             ++k.compaction_failures;
+            k.compaction_error = c.error;
             continue;
         }
         if (k.compaction_tokens_before == 0)

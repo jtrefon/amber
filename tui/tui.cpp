@@ -873,8 +873,14 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
         timeout(200);
         int n = getch();
         timeout(kTickTimeoutMs);
-        if (n != ERR)
+        // Only a key from the ESC vocabulary may be a prefix. Anything else
+        // belongs to the line it was typed on: putting it back is what keeps a
+        // Ctrl+C queued behind ESC (a fast Esc-then-quit) from being swallowed,
+        // and keeps the character the user typed from vanishing.
+        if (n != ERR && esc_prefix_key(n))
             kr.followup = n;
+        else if (n != ERR)
+            ungetch(n);
     }
 
     return apply_key_action(key_binder_->dispatch(kr, state), ch, cl);

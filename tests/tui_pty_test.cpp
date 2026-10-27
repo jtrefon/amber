@@ -206,6 +206,20 @@ struct Tui {
         return false;
     }
 
+    // Wait for the app to exit through its own quit path. Reaping here is what
+    // keeps stop() from reporting the session as force-killed, so a test can
+    // assert the quit itself rather than only that no key was lost.
+    bool wait_exit(int cap_ms) {
+        for (int waited = 0; waited < cap_ms && pid > 0; waited += kPumpMs) {
+            pump(kPumpMs);
+            int status = 0;
+            const pid_t reaped = waitpid(pid, &status, WNOHANG);
+            if (reaped == pid || reaped < 0)
+                pid = -1;
+        }
+        return pid < 0;
+    }
+
     std::string text() const { return strip_ansi(raw); }
 
     // A real terminal tracks the cursor-key mode the app requested: ncurses emits
@@ -1170,11 +1184,17 @@ TEST(system_commands_do_not_freeze_the_ui) {
     // extra Enter is a no-op, so this is robust to either semantics.
     tui.send("/system ps");
     tui.pump(400);
+    // A loaded runner can take longer than a fixed pump to populate the drawer,
+    // and an Enter into an unpopulated list is the flake this replaces: the
+    // command never dispatched, so the ack could not arrive at any timeout.
+    if (!require(tui.wait_for("List running processes", 5000), "the /system drawer never listed ps",
+                 tui))
+        return;
     tui.send("\r");
-    tui.pump(400);
+    tui.pump(500);
     tui.send("\r");
     if (!require(tui.wait_for("ps: started", 3000),
-                 "/system ps did not acknowledge the start within 1.5 s", tui))
+                 "/system ps did not acknowledge the start before the 4 s job finished", tui))
         return;
 
     // The UI stays live while the job runs: a keystroke still reaches the prompt.
@@ -1685,6 +1705,28 @@ TEST(set_debug_toggles_the_error_journal) {
 
     tui.send("/set debug off\r");
     require(tui.wait_for("diagnostics: off", 10000), "/set debug off did not take effect", tui);
+}
+
+// ── quitting ──
+//
+// A key queued behind ESC is its own key. The input loop reads one byte to
+// resolve the ESC vocabulary (window digits, delete-word, mouse toggle); a byte
+// outside it goes back to the line instead of being swallowed. Before that, an
+// Esc followed by Ctrl+C — exactly what this suite sends to exit — could lose
+// the Ctrl+C to the prefix read, and the session had to be force-killed, which
+// takes the gcov flush with it.
+TEST(esc_does_not_swallow_the_key_queued_behind_it) {
+    Tui tui;
+    tui.name = "esc_does_not_swallow_the_key_queued_behind_it";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    // One write: both bytes are in the terminal queue together, so the ESC
+    // prefix read can never find an empty queue and has to decide what the byte
+    // behind it is.
+    tui.send("\x1b\x03");
+    require(tui.wait_exit(10000), "Esc then Ctrl+C did not quit", tui);
 }
 
 // ── context readouts ──
@@ -2502,6 +2544,7 @@ int main(int argc, char** argv) {
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
+    esc_does_not_swallow_the_key_queued_behind_it();
     skills_explorer_opens_switches_tabs_and_closes();
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
     system_commands_do_not_freeze_the_ui();

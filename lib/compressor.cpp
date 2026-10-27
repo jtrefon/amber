@@ -20,11 +20,20 @@ public:
 
     bool should_compress(const Context& context, const Config& agent_cfg) const override {
         std::scoped_lock lk(mtx_);
-        if (cooldown_active(agent_cfg.turn_counter))
+        if (cooldown_active(agent_cfg.user_turn_counter))
             return false;
         if (!threshold_exceeded(context, agent_cfg))
             return false;
-        if (!sufficient_turns(context))
+        // A short history that is already nearly full must still compact: a
+        // single turn with a few large results is under any message floor but
+        // has nowhere left to grow.
+        // Saturation bypasses the message floor, but not this: with only the
+        // system prompt and the opening ask there is nothing a pass could
+        // reduce, and two calls would buy a summary of one sentence.
+        if (!has_reducible_history(context))
+            return false;
+        if (!sufficient_turns(context) &&
+            conversation_utilisation(context) < kSaturationUtilisation)
             return false;
         return true;
     }
@@ -54,6 +63,14 @@ public:
     }
 
 private:
+    // Nearly full: the message floor stops mattering. Below the trigger, so a
+    // saturated short session still compacts when the window is at its limit.
+    static constexpr double kSaturationUtilisation = 0.90;
+
+    double utilisation() const noexcept {
+        return last_budget_ > 0 ? last_tokens_ / last_budget_ : 0.0;
+    }
+
     bool threshold_exceeded(const Context& context, const Config& agent_cfg) const {
         // The budget is the window the model actually has: the active
         // model's probed context or an explicit config, clamped by anything
@@ -69,12 +86,38 @@ private:
         last_tokens_ = tokens;
         last_budget_ = budget;
         last_threshold_ = cfg_.threshold;
-        double utilisation = tokens / budget;
-        return utilisation >= cfg_.threshold;
+        return utilisation() >= cfg_.threshold;
     }
 
     bool sufficient_turns(const Context& context) const {
         return context.size() >= static_cast<size_t>(cfg_.min_turns);
+    }
+
+    // A pass can only shrink the conversation: it never touches the system
+    // prompt, and the opening ask is the protected tail.
+    static size_t conversation_messages(const Context& context) {
+        size_t n = 0;
+        for (const auto& m : context.get_all())
+            if (m.role != "system")
+                ++n;
+        return n;
+    }
+
+    static bool has_reducible_history(const Context& context) {
+        return conversation_messages(context) > 1;
+    }
+
+    // The share of the window the CONVERSATION occupies. The total includes the
+    // immutable system prompt, which can dwarf a small window and would make
+    // every session look saturated; what the floor guards is the conversation.
+    double conversation_utilisation(const Context& context) const {
+        if (last_budget_ <= 0)
+            return 0.0;
+        size_t tokens = 0;
+        for (const auto& m : context.get_all())
+            if (m.role != "system")
+                tokens += message_tokens(m);
+        return static_cast<double>(tokens) / last_budget_;
     }
 
     bool is_within_cooldown(size_t current_turn) const override {
@@ -82,14 +125,13 @@ private:
         return cooldown_active(current_turn);
     }
 
-    // last_compress_turn_ == 0 means "never compressed": only the very first
-    // turn of a freshly loaded session counts as cooldown (so a restored large
-    // session is not compressed immediately); any later turn is free to trigger
-    // the first compression. After the first compression, normal cooldown
-    // applies. Callers hold mtx_.
+    // last_compress_turn_ == 0 means "never compressed". The cooldown exists to
+    // stop re-compressing the context a pass just produced — it must not block
+    // the first compaction, because one tool-using turn is a single user turn
+    // and may be the only chance the session gets. Callers hold mtx_.
     bool cooldown_active(size_t current_turn) const {
         if (last_compress_turn_ == 0)
-            return current_turn == 0 && cfg_.cooldown_turns > 0;
+            return false;
         return (current_turn - last_compress_turn_) < static_cast<size_t>(cfg_.cooldown_turns);
     }
 
@@ -100,124 +142,6 @@ private:
     mutable double last_budget_ = 0;
     mutable double last_threshold_ = 0;
 };
-
-// =========================================================================
-// CompressionReporter  —  bridges pipeline events to AgentHooks
-// =========================================================================
-
-CompressionReporter::CompressionReporter(const AgentHooks& hooks, CompressionResult& result,
-                                         std::function<void()> progress)
-    : hooks_(hooks), r_(result), progress_(std::move(progress)) {}
-
-void CompressionReporter::set_before(size_t msgs, size_t tokens) {
-    before_msgs_ = msgs;
-    r_.messages_before = msgs;
-    r_.tokens_before = tokens;
-}
-
-void CompressionReporter::on_compress_start(size_t msgs, size_t) {
-    log("compressing " + std::to_string(msgs) + " messages...");
-    t0_ = std::chrono::steady_clock::now();
-    pump();
-}
-
-void CompressionReporter::on_loop_collapse(size_t removed) {
-    log("loop collapse removed " + std::to_string(removed) + " messages");
-    pump();
-}
-
-void CompressionReporter::on_progress(size_t tokens, size_t msgs) {
-    // Emitted as the working set shrinks (collapse/prune/apply). Keep it a
-    // compact status line so the host's context gauge can tick downward
-    // without spamming the scrollback.
-    log("  ... " + std::to_string(msgs) + " msgs, ~" + std::to_string(tokens) + " tok remain");
-    pump();
-}
-
-void CompressionReporter::on_llm_request_sent() {
-    log("sending LLM request...");
-    pump();
-}
-
-void CompressionReporter::on_llm_usage(const Stats& stats) {
-    if (hooks_.on_usage)
-        hooks_.on_usage(
-            {UsageSource::Compression, stats.prompt_tokens, stats.completion_tokens, {}, {}});
-}
-
-void CompressionReporter::on_llm_reply_received(long sec) {
-    log("LLM replied in " + std::to_string(sec) + "s");
-    pump();
-}
-
-void CompressionReporter::on_parse_result(const CompressionResponse& cr) {
-    size_t core = 0, prune = 0, ctx = 0;
-    for (const auto& seg : cr.segments) {
-        switch (seg.tag) {
-        case Classification::core:
-            ++core;
-            break;
-        case Classification::prune:
-            ++prune;
-            break;
-        case Classification::context:
-            ++ctx;
-            break;
-        }
-    }
-    std::string seg_info = std::to_string(cr.segments.size()) + " segments" + " (" +
-                           std::to_string(core) + " core, " + std::to_string(prune) + " prune, " +
-                           std::to_string(ctx) + " archive)";
-    log("parsed " + seg_info + ", " + std::to_string(cr.memory_ops.size()) + " mem ops" + ", " +
-        std::to_string(cr.skill_ops.size()) + " skill ops");
-
-    // Show each memory/skill op that was extracted
-    for (const auto& m : cr.memory_ops)
-        log("  [mem] " + m.action + " \"" + m.name + "\"" +
-            (m.content.empty() ? "" : ": " + m.content.substr(0, 100)));
-    for (const auto& s : cr.skill_ops)
-        log("  [skill] " + s.action + " \"" + s.name + "\"" +
-            (s.content.empty() ? "" : ": " + s.content.substr(0, 100)));
-    pump();
-}
-
-void CompressionReporter::on_apply_result(const CompressionResult&) {
-    log("applied classification");
-    pump();
-}
-
-void CompressionReporter::on_error(const std::string& msg) {
-    log("error: " + msg);
-    pump();
-}
-
-void CompressionReporter::on_compress_done(const CompressionResult& final) {
-    auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0_).count();
-    r_.messages_after = final.messages_after;
-    r_.tokens_after = final.tokens_after;
-    std::string detail;
-    if (r_.messages_before > r_.messages_after)
-        detail += std::to_string(r_.messages_before - r_.messages_after) + " msgs removed";
-    if (r_.tokens_before > r_.tokens_after) {
-        if (!detail.empty())
-            detail += ", ";
-        detail +=
-            std::to_string(r_.tokens_before) + " → " + std::to_string(r_.tokens_after) + " tok";
-    }
-    if (detail.empty())
-        detail = std::to_string(r_.tokens_after) + " tok";
-    log("done in " + std::to_string(elapsed) + "s — " + detail);
-}
-
-void CompressionReporter::log(const std::string& msg) {
-    if (hooks_.on_status)
-        hooks_.on_status(msg);
-}
-
-void CompressionReporter::pump() {
-    if (progress_)
-        progress_();
-}
 
 namespace {
 
@@ -356,8 +280,9 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 
 class CompressionPipeline : public CompressionStrategy {
 public:
-    std::vector<Message> compress(Context& context, const CompressionConfig& cfg, LLMClient& client,
-                                  CompressionObserver* observer, CompressionResponse* response_out,
+    std::vector<Message> compress(const Context& context, const CompressionConfig& cfg,
+                                  LLMClient& client, CompressionObserver* observer,
+                                  CompressionResponse* response_out,
                                   const CompressionRequestPrefix& prefix) override {
         // Pristine snapshot: the spec's atomicity invariant — any classify
         // failure returns the ORIGINAL history untouched. The context is only
@@ -418,8 +343,7 @@ public:
     }
 };
 
-std::unique_ptr<CompressionStrategy> make_compressor(const CompressionConfig& cfg) {
-    (void)cfg;
+std::unique_ptr<CompressionStrategy> make_compressor() {
     return std::make_unique<CompressionPipeline>();
 }
 

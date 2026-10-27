@@ -30,10 +30,11 @@ struct Kpi {
     double compaction_ratio = 1.0;
     long compaction_archive_tokens = 0;
     int compaction_failures = 0;
-    int bash_cd_prefix = 0; // bash calls prefixed with `cd <workspace> &&` (redundant)
-    int tool_calls = 0;     // executed tool calls (all statuses)
-    int tool_failures = 0;  // calls that returned an error
-    int tool_denied = 0;    // calls denied by the approval gate
+    std::string compaction_error; // last failed attempt's reason
+    int bash_cd_prefix = 0;       // bash calls prefixed with `cd <workspace> &&` (redundant)
+    int tool_calls = 0;           // executed tool calls (all statuses)
+    int tool_failures = 0;        // calls that returned an error
+    int tool_denied = 0;          // calls denied by the approval gate
     // Failure taxonomy (BENCH-11): tool_failures split by reason.
     std::map<std::string, int> failure_taxonomy;
     int wasted = 0;
