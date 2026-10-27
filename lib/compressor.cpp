@@ -20,11 +20,20 @@ public:
 
     bool should_compress(const Context& context, const Config& agent_cfg) const override {
         std::scoped_lock lk(mtx_);
-        if (cooldown_active(agent_cfg.turn_counter))
+        if (cooldown_active(agent_cfg.user_turn_counter))
             return false;
         if (!threshold_exceeded(context, agent_cfg))
             return false;
-        if (!sufficient_turns(context))
+        // A short history that is already nearly full must still compact: a
+        // single turn with a few large results is under any message floor but
+        // has nowhere left to grow.
+        // Saturation bypasses the message floor, but not this: with only the
+        // system prompt and the opening ask there is nothing a pass could
+        // reduce, and two calls would buy a summary of one sentence.
+        if (!has_reducible_history(context))
+            return false;
+        if (!sufficient_turns(context) &&
+            conversation_utilisation(context) < kSaturationUtilisation)
             return false;
         return true;
     }
@@ -54,6 +63,14 @@ public:
     }
 
 private:
+    // Nearly full: the message floor stops mattering. Below the trigger, so a
+    // saturated short session still compacts when the window is at its limit.
+    static constexpr double kSaturationUtilisation = 0.90;
+
+    double utilisation() const noexcept {
+        return last_budget_ > 0 ? last_tokens_ / last_budget_ : 0.0;
+    }
+
     bool threshold_exceeded(const Context& context, const Config& agent_cfg) const {
         // The budget is the window the model actually has: the active
         // model's probed context or an explicit config, clamped by anything
@@ -69,12 +86,38 @@ private:
         last_tokens_ = tokens;
         last_budget_ = budget;
         last_threshold_ = cfg_.threshold;
-        double utilisation = tokens / budget;
-        return utilisation >= cfg_.threshold;
+        return utilisation() >= cfg_.threshold;
     }
 
     bool sufficient_turns(const Context& context) const {
         return context.size() >= static_cast<size_t>(cfg_.min_turns);
+    }
+
+    // A pass can only shrink the conversation: it never touches the system
+    // prompt, and the opening ask is the protected tail.
+    static size_t conversation_messages(const Context& context) {
+        size_t n = 0;
+        for (const auto& m : context.get_all())
+            if (m.role != "system")
+                ++n;
+        return n;
+    }
+
+    static bool has_reducible_history(const Context& context) {
+        return conversation_messages(context) > 1;
+    }
+
+    // The share of the window the CONVERSATION occupies. The total includes the
+    // immutable system prompt, which can dwarf a small window and would make
+    // every session look saturated; what the floor guards is the conversation.
+    double conversation_utilisation(const Context& context) const {
+        if (last_budget_ <= 0)
+            return 0.0;
+        size_t tokens = 0;
+        for (const auto& m : context.get_all())
+            if (m.role != "system")
+                tokens += message_tokens(m);
+        return static_cast<double>(tokens) / last_budget_;
     }
 
     bool is_within_cooldown(size_t current_turn) const override {
@@ -82,14 +125,13 @@ private:
         return cooldown_active(current_turn);
     }
 
-    // last_compress_turn_ == 0 means "never compressed": only the very first
-    // turn of a freshly loaded session counts as cooldown (so a restored large
-    // session is not compressed immediately); any later turn is free to trigger
-    // the first compression. After the first compression, normal cooldown
-    // applies. Callers hold mtx_.
+    // last_compress_turn_ == 0 means "never compressed". The cooldown exists to
+    // stop re-compressing the context a pass just produced — it must not block
+    // the first compaction, because one tool-using turn is a single user turn
+    // and may be the only chance the session gets. Callers hold mtx_.
     bool cooldown_active(size_t current_turn) const {
         if (last_compress_turn_ == 0)
-            return current_turn == 0 && cfg_.cooldown_turns > 0;
+            return false;
         return (current_turn - last_compress_turn_) < static_cast<size_t>(cfg_.cooldown_turns);
     }
 

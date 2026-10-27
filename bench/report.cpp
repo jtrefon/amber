@@ -318,6 +318,21 @@ agent::json json_meta(const RunMeta& meta) {
     return out;
 }
 
+// The compaction block of the KPI JSON: ratio over conversation tokens (the
+// system prompt is immutable), the archive's own cost, and the last failure.
+agent::json json_compaction(const Kpi& k) {
+    agent::json j = agent::json::object();
+    j["compressions"] = k.compressions;
+    j["compaction_tokens_before"] = k.compaction_tokens_before;
+    j["compaction_tokens_after"] = k.compaction_tokens_after;
+    j["compaction_ratio"] = k.compaction_ratio;
+    j["compaction_archive_tokens"] = k.compaction_archive_tokens;
+    j["compaction_failures"] = k.compaction_failures;
+    if (!k.compaction_error.empty())
+        j["compaction_error"] = k.compaction_error;
+    return j;
+}
+
 // The KPI block: what the engine measured.
 agent::json json_kpi(const ScenarioReport& r) {
     agent::json j = agent::json::object();
@@ -326,12 +341,7 @@ agent::json json_kpi(const ScenarioReport& r) {
     j["tool_call_accuracy"] = r.kpi.tool_call_accuracy;
     j["arg_precision"] = r.kpi.arg_precision;
     j["steps"] = r.kpi.steps;
-    j["compressions"] = r.kpi.compressions;
-    j["compaction_tokens_before"] = r.kpi.compaction_tokens_before;
-    j["compaction_tokens_after"] = r.kpi.compaction_tokens_after;
-    j["compaction_ratio"] = r.kpi.compaction_ratio;
-    j["compaction_archive_tokens"] = r.kpi.compaction_archive_tokens;
-    j["compaction_failures"] = r.kpi.compaction_failures;
+    j.merge_patch(json_compaction(r.kpi));
     j["bash_cd_prefix"] = r.kpi.bash_cd_prefix;
     j["tool_calls_total"] = r.kpi.tool_calls;
     j["tool_failures"] = r.kpi.tool_failures;

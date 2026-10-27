@@ -402,6 +402,7 @@ void Agent::fork_from(const Agent& src) {
     session_approved_ = src.session_approved_;
     model_windows_ = src.model_windows_;
     turn_counter_ = src.turn_counter_;
+    user_turn_counter_ = src.user_turn_counter_;
     brief_store_ = src.brief_store_;
     activated_skills_.assign(src.activated_skills_.snapshot());
     last_compression_ = src.last_compression_;
@@ -513,8 +514,9 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     auto prompt_msgs = context_.get_all();
     std::vector<Message> prompt_copy(prompt_msgs.begin(), prompt_msgs.end());
 
-    // Sync the turn counter so the compression gate can check cooldown.
+    // Sync the turn counters so the compression gate can check cooldown.
     cfg_.turn_counter = turn_counter_;
+    cfg_.user_turn_counter = user_turn_counter_;
 
     // Check compression gate. If triggered, compress and persist.
     maybe_compress(prompt_copy, tools);
@@ -636,7 +638,7 @@ bool Agent::run_compression_pipeline(CompressionReporter& reporter, CompressionR
     // retries later. (Gate may be null when the host built the agent with a
     // compressor but no gate — direct pipeline use.)
     if (gate_)
-        gate_->set_last_compress_turn(turn_counter_);
+        gate_->set_last_compress_turn(user_turn_counter_);
     return cr.error.empty();
 }
 
@@ -780,6 +782,7 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     msg.role = "user";
     msg.content = prompt;
     context_.push(std::move(msg));
+    ++user_turn_counter_;
     emit_context_event(context_events_, context_);
     publish_message_added(context_.get_all().back());
 }

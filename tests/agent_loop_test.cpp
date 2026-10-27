@@ -2879,6 +2879,23 @@ TEST(agent_keeps_injected_blocks_when_compression_fires) {
     ASSERT(request_contains(*raw, "the build system is make"));
 }
 
+// The compression cooldown is expressed in real user prompts. A turn that runs
+// two tool rounds is three LLM calls; it must still count as one turn, or the
+// cooldown expires inside the turn it was meant to cover.
+TEST(agent_counts_user_turns_not_llm_calls) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_tool_call(*fake, "read", json{{"path", "a.txt"}});
+    push_tool_call(*fake, "read", json{{"path", "a.txt"}}, "c2");
+    push_text(*fake, "done");
+    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    ag.run("read twice");
+
+    ASSERT_EQ(ag.user_turn_counter(), size_t{1});
+}
+
 TEST(agent_compression_replays_the_injected_prefix_and_tools) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
