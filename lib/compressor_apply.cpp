@@ -493,22 +493,23 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
     return replaced;
 }
 
-std::size_t prune_in_turn_results(std::vector<Message>& history, const CompressionConfig* cfg) {
-    if (!cfg || history.empty())
-        return 0;
-    const size_t context_size = static_cast<size_t>(cfg->context_size);
-    const size_t tail = protected_tail_start(history, *cfg, context_size);
+std::vector<std::size_t> in_turn_digest_candidates(const std::vector<Message>& history,
+                                                   const CompressionConfig& cfg) {
+    std::vector<std::size_t> out;
+    if (history.empty())
+        return out;
+    const size_t context_size = static_cast<size_t>(cfg.context_size);
+    const size_t tail = protected_tail_start(history, cfg, context_size);
     if (tail >= history.size())
-        return 0;
-    const size_t budget = tail_budget_tokens(context_size, *cfg);
+        return out;
+    const size_t budget = tail_budget_tokens(context_size, cfg);
     std::size_t kept_tokens = 0;
-    std::size_t replaced = 0;
     bool kept_newest = false;
     // Walk backwards: the newest evidence is what the model is about to act on.
     // It always survives, even when it alone exceeds the budget; the budget
     // decides how much of the older tail joins it.
     for (size_t i = history.size(); i > tail; --i) {
-        Message& m = history[i - 1];
+        const Message& m = history[i - 1];
         if (m.role != "tool")
             continue;
         const std::size_t tokens = message_tokens(m);
@@ -517,9 +518,19 @@ std::size_t prune_in_turn_results(std::vector<Message>& history, const Compressi
             kept_tokens += tokens;
             continue;
         }
-        if (m.content.size() > 200 && digest_tool_message(m))
-            ++replaced;
+        if (m.content.size() > 200)
+            out.push_back(i - 1);
     }
+    return out;
+}
+
+std::size_t prune_in_turn_results(std::vector<Message>& history, const CompressionConfig* cfg) {
+    if (!cfg)
+        return 0;
+    std::size_t replaced = 0;
+    for (const std::size_t i : in_turn_digest_candidates(history, *cfg))
+        if (digest_tool_message(history[i]))
+            ++replaced;
     return replaced;
 }
 

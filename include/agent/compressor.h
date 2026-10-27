@@ -229,6 +229,12 @@ std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig
 std::size_t prune_in_turn_results(std::vector<Message>& history,
                                   const CompressionConfig* cfg = nullptr);
 
+// Tool messages of the protected tail that `prune_in_turn_results` would
+// replace, newest-first walk and budget applied. Pure: no store, no mutation.
+// The replay harness measures with it; the pass below applies it.
+std::vector<std::size_t> in_turn_digest_candidates(const std::vector<Message>& history,
+                                                   const CompressionConfig& cfg);
+
 // True when the protected tail is the whole conversation: the final prompt and
 // everything after it, with no older turn for the classifier to archive. That
 // is the single-oversized-turn case, whose only relief is in-turn pruning.
