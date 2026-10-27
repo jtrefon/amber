@@ -32,12 +32,25 @@ runs:
       # ceiling, which is how a transient flake becomes a "stuck pipeline".
       # DPkg::Lock::Timeout caps the lock wait, `timeout` caps the whole
       # command, and noninteractive removes any debconf prompt.
+      #
+      # The install cap is 30 min, not 10: it exists so a hung mirror cannot sit
+      # until the job ceiling, not to police how long a download takes. Measured
+      # 2026-10-27 at ~50 KB/s on the mirror this job was fetching from, the
+      # 71.7 MB it pulls (libllvm18 alone is 27.5 MB) took 24 minutes, so
+      # `timeout 600` killed transfers that were still progressing and turned
+      # three PRs and three `main` runs red with exit 124 while their code was
+      # fine. Acquire::Retries rides out a connection dropped mid-fetch; the
+      # overall bound still fails a genuinely dead mirror. Every job that uses
+      # this action carries at least 30 minutes for the install plus its own
+      # runtime -- a job timeout is a hang guard, not a work budget.
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-        sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 update || true
-        sudo timeout 600 apt-get -o DPkg::Lock::Timeout=120 install -y \
+        sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 \
+          -o Acquire::Retries=3 update || true
+        sudo timeout 1800 apt-get -o DPkg::Lock::Timeout=120 \
+          -o Acquire::Retries=3 install -y \
           --no-install-recommends \
           build-essential libcurl4-openssl-dev \
           ${{ inputs.cpp_toolchain == 'true' && 'clang libncursesw5-dev pkg-config' || '' }} \
