@@ -207,7 +207,7 @@ ClassifyOutcome run_classify(const std::vector<Message>& history, LLMClient& cli
                              const CompressionRequestPrefix& prefix, CompressionObserver* observer,
                              CompressionResponse& cr, Message& class_reply) {
     auto request = with_request_prefix(history, prefix);
-    request.push_back(build_classify_request(has_compressed_context(history)));
+    request.push_back(build_classify_request(has_compressed_context(history), history));
 
     if (observer)
         observer->on_llm_request_sent();
@@ -244,7 +244,8 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
                  const CompressionRequestPrefix& prefix, LLMClient& client,
                  CompressionObserver* observer, CompressionResponse& cr) {
     auto request = with_request_prefix(classify_prefix, prefix);
-    request.push_back(build_classify_request(has_compressed_context(classify_prefix)));
+    request.push_back(
+        build_classify_request(has_compressed_context(classify_prefix), classify_prefix));
     Message stored_reply;
     stored_reply.role = "assistant";
     stored_reply.content = class_reply.content;

@@ -1,6 +1,10 @@
 
 #include "agent/compressor.h"
 
+#include <cstddef>
+#include <string>
+#include <vector>
+
 namespace agent {
 
 // The classify prompt is data, not code: keeping it out of the function lets the
@@ -41,26 +45,76 @@ Respond with ONLY this JSON object — no text outside it, no markdown fences:
   ]
 })JSON";
 
-// Appended when a previous compression is already in the conversation.
+// Appended when a previous compression is already in the conversation. The
+// compressed-context block is merged into the leading system prompt on the wire
+// (every dialect hoists system messages), so the instruction names its real
+// position instead of pretending it sits inside the transcript.
 constexpr const char* kClassifyUpdateSuffix = R"JSON(
 
-The conversation above already contains a "Compressed conversation context"
-system message. Update it: classify only the turns that came AFTER that
-message, leave the existing archive entries alone, tag the compressed-context
-message itself as "core", and write the summary to cover BOTH the prior
-compressed state and the new turns since it.)JSON";
+The request begins with a "Compressed conversation context" block merged into
+the system prompt. It is not one of the numbered transcript messages: leave its
+archive entries alone, classify only the conversation turns after it, and write
+the summary to cover BOTH the prior compressed state and the new turns.)JSON";
 
-Message build_classify_request(bool update_previous) {
+namespace {
+
+// The index legend appended to the classify instruction. The classifier cannot
+// count messages it only sees as text, so it is told their numbers explicitly.
+// The manifest is part of the *instruction*: the cached conversation prefix is
+// untouched (CC-04), and only the newest messages are listed individually —
+// the older ones are grouped so a long session cannot inflate the instruction.
+constexpr std::size_t kManifestTokens = 2000;
+constexpr std::size_t kPreviewChars = 60;
+
+std::string preview_of(const std::string& text) {
+    std::string out;
+    out.reserve(kPreviewChars);
+    for (const char c : text) {
+        if (out.size() >= kPreviewChars)
+            break;
+        out.push_back(c == '\n' || c == '\r' || c == '\t' ? ' ' : c);
+    }
+    return out;
+}
+
+std::string index_manifest(const std::vector<Message>& history) {
+    std::string out = "\n\n== Transcript index ==\n"
+                      "The messages above are numbered as the harness indexes them. Index 0 is the "
+                      "system prompt; every tool result has its own index. `turns` values in your "
+                      "answer use these numbers.\n";
+    if (history.size() <= 1)
+        return out;
+    std::vector<std::string> lines;
+    std::size_t budget = kManifestTokens;
+    for (std::size_t i = history.size(); i-- > 1 && budget > 0;) {
+        std::string line =
+            std::to_string(i) + " " + history[i].role + " " + preview_of(history[i].content);
+        const std::size_t cost = (line.size() / 4) + 1;
+        if (cost > budget && !lines.empty())
+            break;
+        budget -= cost < budget ? cost : budget;
+        lines.push_back(std::move(line));
+    }
+    if (!lines.empty()) {
+        const std::size_t oldest = std::stoul(lines.back().substr(0, lines.back().find(' ')));
+        if (oldest > 1)
+            out += "1-" + std::to_string(oldest - 1) +
+                   " (grouped: older turns, classify by their summary)\n";
+    }
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it)
+        out += *it + "\n";
+    return out;
+}
+
+} // namespace
+
+Message build_classify_request(bool update_previous, const std::vector<Message>& history) {
     Message req;
     req.role = "user";
     std::string body = kClassifyPrompt;
-    if (update_previous) {
-        // A previous compression is visible above as a system message with an
-        // archive. Extend it: keep its existing entries, only classify turns
-        // AFTER that message, and never tag the compressed-context message
-        // itself. The new summary should build on the prior one.
+    body += index_manifest(history);
+    if (update_previous)
         body += kClassifyUpdateSuffix;
-    }
     req.content = std::move(body);
     return req;
 }
