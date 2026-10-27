@@ -701,19 +701,8 @@ int cmd_shape_replay(const CliOptions& o) {
 
 } // namespace
 
-// Dispatch the subcommand. Returns its exit code.
-int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
-    if (cmd == "reap-state")
-        return cmd_reap_state(o);
-    if (cmd == "list")
-        return cmd_list(o.suite);
-    if (cmd == "run") {
-        if (!o.rest.empty())
-            o.name = o.rest[0];
-        return cmd_run(o);
-    }
-    if (cmd == "validate-template" && !o.rest.empty())
-        return cmd_validate(o.rest[0]);
+// Commands that read a stored artefact rather than run a scenario.
+std::optional<int> dispatch_report_cmd(const std::string& cmd, CliOptions& o) {
     if (cmd == "report")
         return cmd_report(o.rest, o.format);
     if (cmd == "delta")
@@ -730,6 +719,24 @@ int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
         return cmd_calibrate(o.rest);
     if (cmd == "shape-replay")
         return cmd_shape_replay(o);
+    return std::nullopt;
+}
+
+// Dispatch the subcommand. Returns its exit code.
+int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
+    if (cmd == "reap-state")
+        return cmd_reap_state(o);
+    if (cmd == "list")
+        return cmd_list(o.suite);
+    if (cmd == "run") {
+        if (!o.rest.empty())
+            o.name = o.rest[0];
+        return cmd_run(o);
+    }
+    if (cmd == "validate-template" && !o.rest.empty())
+        return cmd_validate(o.rest[0]);
+    if (const std::optional<int> rc = dispatch_report_cmd(cmd, o))
+        return *rc;
     print_usage(argv0);
     return 1;
 }

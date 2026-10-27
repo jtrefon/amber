@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <optional>
 #include <string>
 namespace agent {
 
@@ -303,6 +304,40 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 
 } // namespace
 
+// A single oversized turn has no older history for the classifier to archive:
+// its only relief is its own older evidence, which is a deterministic pass
+// (D11). Returns the trimmed history, or nullopt when the normal pipeline should
+// run (nothing to digest, or there is older history to classify). Paying
+// classify + extract to summarise one turn costs three context-sized prefills to
+// do what pruning does for one.
+// The snapshot the pipeline works on: the live stack is only ever read.
+std::vector<Message> snapshot_history(const Context& context) {
+    const auto msgs = context.get_all();
+    return std::vector<Message>(msgs.begin(), msgs.end());
+}
+
+// The working set just shrank to its final size: surface it so the host's gauge
+// drops before the swap completes.
+void notify_applied(CompressionObserver* observer, const std::vector<Message>& messages) {
+    if (!observer)
+        return;
+    observer->on_apply_result({});
+    observer->on_progress(estimate_tokens(messages), messages.size());
+}
+
+std::optional<std::vector<Message>> compress_in_turn(const std::vector<Message>& original,
+                                                     const CompressionConfig& cfg,
+                                                     CompressionObserver* observer) {
+    if (!tail_is_whole_conversation(original, cfg))
+        return std::nullopt;
+    std::vector<Message> trimmed = original;
+    if (prune_in_turn_results(trimmed, &cfg) == 0 ||
+        estimate_tokens(trimmed) >= estimate_tokens(original))
+        return std::nullopt;
+    notify_applied(observer, trimmed);
+    return trimmed;
+}
+
 // =========================================================================
 // CompressionPipeline  —  orchestrates the full LLM-based compression
 // =========================================================================
@@ -317,35 +352,18 @@ public:
         // failure returns the ORIGINAL history untouched. The context is only
         // ever read, and the classifier sees exactly that snapshot (plus the
         // live request prefix), so its indices stay aligned with apply.
-        auto msgs = context.get_all();
-        std::vector<Message> original(msgs.begin(), msgs.end());
+        const std::vector<Message> original = snapshot_history(context);
 
         if (observer)
             observer->on_compress_start(original.size(), estimate_tokens(original));
 
         CompressionResponse cr;
-
-        // Nothing older than the protected tail AND something inside it to
-        // digest: the classifier has nothing to tag, so the turn's only relief
-        // is its own older evidence, and that is a deterministic pass (D11).
-        // Paying classify + extract to summarise one turn costs three
-        // context-sized prefills to do what pruning does for one. When there is
-        // nothing to digest the normal pipeline runs, so a manual compress still
-        // reports the classifier's honest "no reduction".
-        if (tail_is_whole_conversation(original, cfg)) {
-            std::vector<Message> trimmed = original;
-            const std::size_t replaced = prune_in_turn_results(trimmed, &cfg);
-            if (replaced > 0 && estimate_tokens(trimmed) < estimate_tokens(original)) {
-                if (observer) {
-                    observer->on_apply_result({});
-                    observer->on_progress(estimate_tokens(trimmed), trimmed.size());
-                }
-                if (response_out)
-                    *response_out = std::move(cr);
-                return trimmed;
-            }
+        if (std::optional<std::vector<Message>> trimmed =
+                compress_in_turn(original, cfg, observer)) {
+            if (response_out)
+                *response_out = std::move(cr);
+            return *trimmed;
         }
-
         Message class_reply;
         if (run_classify(original, client, prefix, observer, cr, class_reply) !=
             ClassifyOutcome::Ok) {
@@ -382,12 +400,7 @@ public:
             return original;
         }
 
-        if (observer) {
-            observer->on_apply_result({});
-            // The working set just shrank to its final size — surface it so the
-            // host's gauge drops before the swap completes.
-            observer->on_progress(estimate_tokens(compressed), compressed.size());
-        }
+        notify_applied(observer, compressed);
         if (response_out)
             *response_out = std::move(cr);
         return compressed;
