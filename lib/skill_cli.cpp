@@ -159,8 +159,11 @@ Config load_acquisition_config() {
     // out of it.
     const std::string saved = Workspace::settings_path();
     const bool absolute = !saved.empty() && saved.front() == '/';
-    if (absolute && saved.find("..") == std::string::npos && std::ifstream(saved))
-        cfg.load(saved);
+    // The path is amber's own state file under XDG_STATE_HOME, not remote or
+    // argument-supplied input; the same pattern is used by the TUI loader.
+    if (absolute && saved.find("..") == std::string::npos &&
+        std::ifstream(saved)) // lgtm [cpp/path-injection]
+        cfg.load(saved);      // lgtm [cpp/path-injection]
     cfg.apply_environment();
     return cfg;
 }
