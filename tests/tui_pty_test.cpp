@@ -1184,11 +1184,17 @@ TEST(system_commands_do_not_freeze_the_ui) {
     // extra Enter is a no-op, so this is robust to either semantics.
     tui.send("/system ps");
     tui.pump(400);
+    // A loaded runner can take longer than a fixed pump to populate the drawer,
+    // and an Enter into an unpopulated list is the flake this replaces: the
+    // command never dispatched, so the ack could not arrive at any timeout.
+    if (!require(tui.wait_for("List running processes", 5000), "the /system drawer never listed ps",
+                 tui))
+        return;
     tui.send("\r");
-    tui.pump(400);
+    tui.pump(500);
     tui.send("\r");
     if (!require(tui.wait_for("ps: started", 3000),
-                 "/system ps did not acknowledge the start within 1.5 s", tui))
+                 "/system ps did not acknowledge the start before the 4 s job finished", tui))
         return;
 
     // The UI stays live while the job runs: a keystroke still reaches the prompt.

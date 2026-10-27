@@ -6338,7 +6338,7 @@ TEST(compress_request_max_tokens_fits_the_window_it_is_sent_to) {
         ctx.push(msg("assistant", std::string(1600, 'a')));
     }
     agent::CompressionConfig cc = agent::load_compression_config(cfg);
-    auto compressor = agent::make_compressor(cc);
+    auto compressor = agent::make_compressor();
     agent::CompressionResponse cr;
     compressor->compress(ctx, cc, client, nullptr, &cr);
     close(srv);
@@ -6377,7 +6377,7 @@ TEST(compress_uses_the_providers_window_not_a_stale_configured_one) {
     auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {
         return std::make_unique<agent_test::FakeLLMClient>();
     };
-    agent::Agent ag(cfg, reg, {}, agent::make_compressor(cc), agent::make_compression_gate(cc), {},
+    agent::Agent ag(cfg, reg, {}, agent::make_compressor(), agent::make_compression_gate(cc), {},
                     {}, nullptr, factory);
     agent::ModelCapabilities kilo_caps;
     kilo_caps.context = 131072;
