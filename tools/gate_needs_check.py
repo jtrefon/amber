@@ -31,7 +31,11 @@ PULL_REQUEST_ONLY = "pull_request"
 # every skipped job look legitimately skipped -- the fail-open this table exists
 # to prevent. `merge_group` is the merge queue's synthetic ref: the queue runs
 # the whole suite there, so only the pull_request-only jobs may skip.
-ALL_EVENTS = ("pull_request", "push", "merge_group")
+# `workflow_dispatch` is a first-class event here because the merge train has to use
+# it: a branch update made with GITHUB_TOKEN creates no `synchronize` event, so the
+# refreshed head would never get a `ci-gate` and the PR would stay BLOCKED forever.
+# A dispatch run is held to the same jobs a push is.
+ALL_EVENTS = ("pull_request", "push", "merge_group", "workflow_dispatch")
 
 # jobs whose result "skipped" is acceptable when the matching output is false
 DIMENSIONS = {
@@ -227,6 +231,17 @@ def selftest():
     for name in CPP_JOBS + ALWAYS_JOBS + WEB_JOBS:
         cases.append((f"BYPASS: {name} skipped on a merge queue run",
                       _needs(set(ALL_JOBS) - {name}), True, True, True, MQ))
+    # A merge-train branch refresh is a GITHUB_TOKEN push: it starts no CI. The train
+    # dispatches ci.yml on the branch instead, and that run must be held to the push
+    # job set -- otherwise the refresh route becomes a way to skip a gate.
+    WD = "workflow_dispatch"
+    cases.append(("dispatch: everything runs", _needs(ALL_RUNNING), True, True, False, WD))
+    for name, events in sorted(EVENTS.items()):
+        cases.append((f"{name} skipped on a dispatch run (it is {events[0]}-only)",
+                      _needs(set(ALL_JOBS) - {name}), True, True, False, WD))
+    for name in CPP_JOBS + ALWAYS_JOBS + WEB_JOBS:
+        cases.append((f"BYPASS: {name} skipped on a dispatch run",
+                      _needs(set(ALL_JOBS) - {name}), True, True, True, WD))
     failures = _check_fixture_coverage()
     for desc, needs, cpp, web, want_fail, event in cases:
         bad = offenders(needs, cpp, web, event)

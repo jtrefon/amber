@@ -36,6 +36,7 @@ permissions:
   # "Resource not accessible by integration" -- the merge lands, then the validation the
   # previous step exists to start does not.
   actions: write
+  checks: read
 
 concurrency:
   group: merge-train
@@ -84,4 +85,30 @@ jobs:
             # A PR that just moved is reported as "no new commits on the base branch",
             # which is not a failure: the next run plans against the merge it missed.
             gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$n/update-branch" >/dev/null 2>&1 || true
+            # The update is a GITHUB_TOKEN push: it creates no `synchronize` event, so
+            # the refreshed head would have no `ci-gate` and the PR would sit BLOCKED
+            # forever (the train only merges CLEAN). Dispatch the suite on the branch;
+            # workflow_dispatch is held to the push job set by gate_needs_check.py.
+            branch=$(gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
+            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" || true
+          done
+
+      # A PR refreshed by an older train version is BLOCKED with zero check runs on its
+      # head: nothing will ever un-stick it, and it is neither CLEAN nor BEHIND, so the
+      # planner leaves it alone. Re-dispatch the suite for it. Idempotent: the check-runs
+      # count rises as soon as the dispatch is accepted.
+      - name: Re-arm a refreshed branch that has no checks
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list --repo "$GITHUB_REPOSITORY" --label merge-train --state open --limit 50 \
+            --json number,isDraft --jq '.[] | select(.isDraft | not) | .number' |
+          while read -r n; do
+            sha=$(gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+            count=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs" --jq .total_count)
+            if [ "$count" = "0" ]; then
+              branch=$(gh pr view "$n" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
+              gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" || true
+            fi
           done
