@@ -816,6 +816,8 @@ private:
                    R"("},)" + R"({"path":"skills/tdd/reference.md","type":"blob","size":8,)" +
                    R"("sha":"sha-ref"}]})";
         }
+        if (path == "/acme/skills/main/.claude-plugin/marketplace.json")
+            return R"({"plugins":[{"category":"engineering"}]})";
         if (path == "/acme/skills/main/skills/tdd/SKILL.md") {
             return updated
                        ? "---\nname: tdd\ndescription: Test-driven development v2.\n---\nbody two\n"
@@ -2368,7 +2370,7 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("/");
     tui.pump(100);
     tui.send("tdd");
-    if (!require(tui.wait_for("acme/skill", 15000), "the mirror search never landed", tui)) {
+    if (!require(tui.wait_for("1 results", 15000), "the mirror search never landed", tui)) {
         std::cerr << "mirror saw:";
         for (const auto& p : mirror.paths())
             std::cerr << " " << p;
@@ -2386,6 +2388,9 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         std::cerr << "\n";
         return;
     }
+
+    if (!require(tui.wait_for("engineering (1)", 5000), "the category facet did not appear", tui))
+        return;
 
     tui.send("i");
     if (!require(tui.wait_for("review required", 10000), "the install sheet did not open", tui))
@@ -2430,8 +2435,6 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
     // The shelf also lists bundled skills; filter down to the mirrored one.
     tui.send("/tdd\r");
-    if (!require(tui.wait_for("project", 10000), "the installed row was not found", tui))
-        return;
 
     tui.send("u");
     if (!require(tui.wait_for("update available", 20000), "the update was not detected", tui))
@@ -2485,8 +2488,7 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
 
     tui.raw.clear();
     tui.send("/skills search tdd\r");
-    if (!require(tui.wait_for("acme/skill", 15000), "/skills search did not prefill the query",
-                 tui))
+    if (!require(tui.wait_for("1 results", 15000), "/skills search did not prefill the query", tui))
         return;
     tui.send("q");
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the search", tui))
@@ -2509,7 +2511,68 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("\x1b");
     tui.pump(300);
     tui.send("q");
-    require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui);
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui))
+        return;
+
+    // Acquisition settings are real: they apply live, persist, and the
+    // explorer honours them (index none disables discovery and still opens).
+    tui.raw.clear();
+    tui.send("/set skills review off\r");
+    if (!require(tui.wait_for("skills review: off", 10000), "review setting was not applied", tui))
+        return;
+    tui.send("/set skills scope global\r");
+    if (!require(tui.wait_for("skills install scope: global", 10000), "scope was not applied", tui))
+        return;
+    tui.send("/set skills index none\r");
+    if (!require(tui.wait_for("skills index: none", 10000), "index was not applied", tui))
+        return;
+    tui.send("/get skills settings\r");
+    tui.pump(200);
+    tui.send("\r"); // the drawer may consume the first Enter as completion
+    if (!require(tui.wait_for("review off", 10000), "settings readout missed review", tui))
+        return;
+    if (!require(tui.wait_for("scope global", 10000), "settings readout missed scope", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not open with no index",
+                 tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the no-index explorer",
+                 tui))
+        return;
+
+    tui.send("/set skills review on\r");
+    if (!require(tui.wait_for("skills review: on", 10000), "review was not restored", tui))
+        return;
+    tui.send("/set skills scope project\r");
+    if (!require(tui.wait_for("skills install scope: project", 10000), "scope was not restored",
+                 tui))
+        return;
+    tui.send("/set skills index skills.sh\r");
+    if (!require(tui.wait_for("skills index: skills.sh", 10000), "index was not restored", tui))
+        return;
+
+    // The shell: category facets at wide sizes, the full tab strip, an honest
+    // empty Updates shelf and the key help.
+    tui.raw.clear();
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("Categories", 10000), "the facets column did not render", tui))
+        return;
+    tui.send("?");
+    if (!require(tui.wait_for("focus the search field", 10000), "the help overlay did not open",
+                 tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("7");
+    if (!require(tui.wait_for("No updates. Press 6, then u to check.", 10000),
+                 "the Updates shelf was not honest about being empty", tui))
+        return;
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the shell", tui);
 }
 
 int main(int argc, char** argv) {

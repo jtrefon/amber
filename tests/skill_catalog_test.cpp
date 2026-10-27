@@ -710,3 +710,44 @@ TEST(skill_trust_prompts_skills_loaded) {
     ASSERT(p.find("read_skill") != std::string::npos);
     ASSERT(p.find("when the user asks") != std::string::npos);
 }
+
+TEST(skill_acquisition_settings_apply_and_validate) {
+    agent::Config cfg;
+    std::string message;
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "review", "off", message));
+    ASSERT_FALSE(cfg.skills_review_required);
+    ASSERT_EQ(message, std::string("skills review: off"));
+
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "audit", "on", message));
+    ASSERT_TRUE(cfg.skills_audit_required);
+
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "scope", "global", message));
+    ASSERT_EQ(cfg.skills_install_scope, "global");
+
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "index", "none", message));
+    ASSERT_EQ(cfg.skills_index, "none");
+    ASSERT_TRUE(
+        agent::apply_skill_acquisition_setting(cfg, "index", "https://mirror.example", message));
+    ASSERT_EQ(cfg.skills_index, "https://mirror.example");
+
+    ASSERT_FALSE(agent::apply_skill_acquisition_setting(cfg, "scope", "everywhere", message));
+    ASSERT_TRUE(message.find("usage:") == 0);
+    ASSERT_EQ(cfg.skills_install_scope, "global"); // a bad value changes nothing
+
+    ASSERT_FALSE(agent::apply_skill_acquisition_setting(cfg, "index", "ftp://x", message));
+    ASSERT_FALSE(agent::apply_skill_acquisition_setting(cfg, "review", "maybe", message));
+}
+
+TEST(skill_acquisition_settings_lines_report_the_four_keys) {
+    agent::Config cfg;
+    cfg.skills_index = "none";
+    cfg.skills_install_scope = "global";
+    cfg.skills_review_required = false;
+    cfg.skills_audit_required = true;
+    const auto lines = agent::skill_acquisition_settings_lines(cfg);
+    ASSERT_EQ(lines.size(), static_cast<size_t>(4));
+    ASSERT_EQ(lines[0], std::string("index      none"));
+    ASSERT_EQ(lines[1], std::string("scope      global"));
+    ASSERT_EQ(lines[2], std::string("review     off"));
+    ASSERT_EQ(lines[3], std::string("audit      on"));
+}

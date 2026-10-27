@@ -141,6 +141,14 @@ import Diagram from '../components/Diagram.astro';
       <table class="cmd-table">
         <thead><tr><th>Command</th><th>What it does</th></tr></thead>
         <tbody>
+          <tr><td>/skills</td><td>Open the Skills Explorer (search, detail, install sheet)</td></tr>
+          <tr><td>/skills search &lt;query&gt;</td><td>Open the explorer with a query searched</td></tr>
+          <tr><td>/skills install &lt;id&gt; [--global]</td><td>Fetch a skill and open the review sheet</td></tr>
+          <tr><td>/skills update</td><td>Check and apply updates from the Installed shelf</td></tr>
+          <tr><td>/skills remove &lt;name&gt;</td><td>Remove an installed package</td></tr>
+          <tr><td>/skills list / show / sources</td><td>Catalog readouts and index sources</td></tr>
+          <tr><td>/set skills review / audit / scope / index</td><td>Acquisition gates, default scope and registry source</td></tr>
+          <tr><td>/get skills settings</td><td>Show the acquisition settings</td></tr>
           <tr><td>/get skills show</td><td>List loaded skills</td></tr>
           <tr><td>/set skills create / delete</td><td>Create or delete a skill package</td></tr>
           <tr><td>/set skills install / uninstall</td><td>Install or remove a skill pack (tar.gz, path or URL)</td></tr>

@@ -137,4 +137,65 @@ std::string skill_set_override(SkillCatalog& catalog, const std::string& name,
     return "";
 }
 
+namespace {
+
+bool on_off(const std::string& value, bool& out) {
+    if (value == "on" || value == "1" || value == "true") {
+        out = true;
+        return true;
+    }
+    if (value == "off" || value == "0" || value == "false") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+bool valid_index(const std::string& value) {
+    return value == "skills.sh" || value == "none" || value.rfind("http://", 0) == 0 ||
+           value.rfind("https://", 0) == 0;
+}
+
+} // namespace
+
+bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const std::string& value,
+                                     std::string& message) {
+    if (key == "review" || key == "audit") {
+        bool on = false;
+        if (!on_off(value, on)) {
+            message = "usage: /set skills " + key + " on|off";
+            return false;
+        }
+        (key == "review" ? cfg.skills_review_required : cfg.skills_audit_required) = on;
+        message = "skills " + key + ": " + (on ? "on" : "off");
+        return true;
+    }
+    if (key == "scope") {
+        if (value != "project" && value != "global") {
+            message = "usage: /set skills scope project|global";
+            return false;
+        }
+        cfg.skills_install_scope = value;
+        message = "skills install scope: " + value;
+        return true;
+    }
+    if (key == "index") {
+        if (!valid_index(value)) {
+            message = "usage: /set skills index skills.sh|none|<http(s) base URL>";
+            return false;
+        }
+        cfg.skills_index = value;
+        message = "skills index: " + value;
+        return true;
+    }
+    message = "usage: /set skills review|audit|scope|index <value>";
+    return false;
+}
+
+std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg) {
+    return {"index      " + cfg.skills_index, "scope      " + cfg.skills_install_scope,
+            "review     " + std::string(cfg.skills_review_required ? "on" : "off"),
+            "audit      " + std::string(cfg.skills_audit_required ? "on" : "off")};
+}
+
 } // namespace agent
