@@ -86,8 +86,7 @@ private:
         last_tokens_ = tokens;
         last_budget_ = budget;
         last_threshold_ = cfg_.threshold;
-        double utilisation = tokens / budget;
-        return utilisation >= cfg_.threshold;
+        return utilisation() >= cfg_.threshold;
     }
 
     bool sufficient_turns(const Context& context) const {
