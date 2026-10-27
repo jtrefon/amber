@@ -333,6 +333,9 @@ public:
     // not model-owned, so it exists regardless of experience config).
     SessionBriefStore* session_brief_store() { return &brief_store_; }
     const SessionBriefStore* session_brief_store() const { return &brief_store_; }
+    // Real user prompts this session. The compression cooldown is expressed in
+    // these; LLM calls are counted separately.
+    size_t user_turn_counter() const noexcept { return user_turn_counter_; }
 
     // The resolved experience configuration (store path, budgets).
     const ExperienceConfig& experience_config() const { return experience_cfg_; }
@@ -547,7 +550,11 @@ private:
     // registry and the plugin prompt blocks, and a toggle changes both.
     std::string render_system_prompt() const;
     void push_system_prompt(std::string system);
+    // LLM calls this session (pacing, memory freshness).
     size_t turn_counter_ = 0;
+    // Real user prompts this session: the compression cooldown's unit, because
+    // one tool-using turn is many LLM calls.
+    size_t user_turn_counter_ = 0;
     CompressionResult last_compression_;
 };
 
