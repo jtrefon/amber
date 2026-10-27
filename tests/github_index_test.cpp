@@ -120,6 +120,10 @@ TEST(github_detail_reads_tree_and_frontmatter) {
     ASSERT_EQ(static_cast<int>(r.detail->assets.size()), 2);
     ASSERT_EQ(r.detail->assets[0].path, std::string("SKILL.md"));
     ASSERT_EQ(r.detail->assets[1].path, std::string("tests.md"));
+    // The body is kept for the preview and the risk scan, sanitized like every
+    // other remote string.
+    ASSERT_TRUE(r.detail->body.find("# TDD") != std::string::npos);
+    ASSERT_TRUE(r.detail->body.find("description: Test-driven development.") != std::string::npos);
 }
 
 TEST(github_frontmatter_category_wins) {

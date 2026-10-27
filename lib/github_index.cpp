@@ -404,6 +404,7 @@ DetailResult assemble_detail(const GithubOptions& o, const SkillRef& ref, const 
 
     SkillDetail d;
     d.ref = ref;
+    d.body = sanitize_remote_text(r->body);
     if (!meta->name.empty())
         d.ref.name = sanitize_remote_one_line(meta->name);
     d.description = sanitize_remote_one_line(meta->description);
