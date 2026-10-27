@@ -36,7 +36,7 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
     // agent's cfg_ the next time Agent::resolve_window runs.
     auto comp_cfg = agent::load_compression_config(agent_cfg);
     auto gate = agent::make_compression_gate(comp_cfg);
-    auto compressor = agent::make_compressor(comp_cfg);
+    auto compressor = agent::make_compressor();
     auto exp_cfg = agent::load_experience_config(agent_cfg);
     // Skills and learned memories are per-project data shared across every
     // window on this project (see shared_skills/shared_store).
