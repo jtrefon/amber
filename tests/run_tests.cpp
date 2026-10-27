@@ -5250,7 +5250,6 @@ static std::string result_id_from_text(const std::string& digest) {
     return digest.substr(from, end == std::string::npos ? std::string::npos : end - from);
 }
 
-
 // ---------------------------------------------------------------------------
 // Dispatch / tool approval tests
 // ---------------------------------------------------------------------------
@@ -6160,12 +6159,12 @@ TEST(shape_plan_digests_a_live_result_and_keeps_it_recallable) {
     r.ok = true;
     r.output = std::string(4000, 's');
     const std::string plain = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
-    const std::string id = agent::store_digested_artifact(plain);
+    const std::string id = agent::store_digested_artifact(r.output);
     ASSERT_EQ(id.size(), 16u);
     r.meta = {{"result_id", id}};
     const std::string env = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"), msg("user", "go"), tool_call_msg("c1", "read"),
+        msg("system", "Amber"),     msg("user", "go"),        tool_call_msg("c1", "read"),
         tool_result_msg("c1", env), msg("assistant", "done"),
     };
     agent::ShapePlan plan;
@@ -6179,7 +6178,7 @@ TEST(shape_plan_digests_a_live_result_and_keeps_it_recallable) {
     std::string error;
     const auto original = agent::read_tool_artifact(id, 0, 8192, "", error);
     ASSERT(original.has_value());
-    ASSERT_EQ(*original, env);
+    ASSERT_EQ(*original, r.output); // the paged payload, byte for byte
 }
 
 TEST(shape_plan_rejects_an_id_that_is_not_live) {
@@ -6211,12 +6210,8 @@ TEST(shape_plan_superseded_drops_only_the_earlier_read) {
     ASSERT_EQ(id1.size(), 16u);
     ASSERT_EQ(id2.size(), 16u);
     std::vector<agent::Message> hist = {
-        msg("system", "Amber"),
-        msg("user", "go"),
-        tool_call_msg("c1", "read"),
-        tool_result_msg("c1", first),
-        tool_call_msg("c2", "read"),
-        tool_result_msg("c2", second),
+        msg("system", "Amber"),       msg("user", "go"),           tool_call_msg("c1", "read"),
+        tool_result_msg("c1", first), tool_call_msg("c2", "read"), tool_result_msg("c2", second),
     };
     agent::ShapePlan plan;
     plan.op = agent::ShapeOp::Superseded;

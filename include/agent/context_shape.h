@@ -21,8 +21,8 @@ struct ShapePlan {
 };
 
 struct ShapeOutcome {
-    std::size_t applied = 0;     // messages replaced by a digest
-    std::size_t freed_bytes = 0; // content the rebuild actually removes
+    std::size_t applied = 0;           // messages replaced by a digest
+    std::size_t freed_bytes = 0;       // content the rebuild actually removes
     std::vector<std::string> rejected; // ids that matched no live result
 };
 

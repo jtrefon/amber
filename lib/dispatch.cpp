@@ -465,8 +465,15 @@ struct RecordDeps {
 // for that range) and `search` is already capped by its own `max`.
 constexpr std::size_t kSourceProjectionBytes = std::size_t{8} * 1024;
 
+// The compaction digest replaces any tool result over 200 bytes. Naming it at
+// the source is what lets the agent point at it later ("drop that result"), so
+// the threshold matches: anything a digest could destroy has a handle before it
+// is ever destroyed. It costs a file per non-trivial result and buys a name.
+constexpr std::size_t kNamedResultBytes = 200;
+
 // A payload over the boundary budget is paged out and replaced by a handle, so
-// the model can fetch the rest instead of losing it. Returns the budget the
+// the model can fetch the rest instead of losing it. Anything the compactor may
+// digest is named for the same reason, whatever its size. Returns the budget the
 // envelope should use: the configured one, or the projection limit when this
 // result was projected.
 std::size_t page_out_oversized(ToolResult& res, const std::string& name, std::size_t budget) {
@@ -474,9 +481,10 @@ std::size_t page_out_oversized(ToolResult& res, const std::string& name, std::si
         return budget;
     const bool over_page = res.output.size() > budget;
     const bool over_projection = name == "bash" && res.output.size() > kSourceProjectionBytes;
-    if (!over_page && !over_projection)
+    const bool digestible = res.output.size() > kNamedResultBytes;
+    if (!over_page && !over_projection && !digestible)
         return budget;
-    const std::string id = store_tool_artifact(res.output);
+    const std::string id = store_digested_artifact(res.output);
     if (id.empty())
         return budget;
     json meta = (res.meta.is_null() || !res.meta.is_object()) ? json::object() : res.meta;
