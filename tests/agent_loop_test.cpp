@@ -1135,7 +1135,6 @@ TEST(compression_target_budget_enforced) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
     auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     // Classifier: mark the OLD region context (archive) and recent as core,
@@ -1195,7 +1194,6 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     cfg.compression_keep_last_prompts = 2;
     cfg.compression_keep_last_prompts_explicit = true;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
     auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
@@ -1262,7 +1260,6 @@ TEST(compression_strips_reasoning_and_ignores_probes) {
     agent::Config cfg = loop_cfg();
     cfg.context_size = 262144;
     agent::ToolRegistry reg;
-    auto comp_cfg = agent::load_compression_config(cfg);
     auto compressor = agent::make_compressor();
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeReply classify;
@@ -2898,7 +2895,6 @@ TEST(agent_compression_replays_the_injected_prefix_and_tools) {
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "done");
 
-    auto cc = agent::load_compression_config(cfg);
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = agent::make_compressor();
     agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
