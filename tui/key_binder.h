@@ -21,6 +21,12 @@ int macos_option_digit(uint32_t codepoint);
 // Alt+B (delete word).
 inline constexpr uint32_t kMacosOptionB = 0x222B;
 
+// The closed vocabulary an ESC prefix may be built from: a window digit
+// (1-9), word delete (b/B) or the mouse toggle (m/M). A key outside it is a
+// key in its own right, so the input loop puts it back instead of letting the
+// prefix read swallow it — a Ctrl+C queued behind ESC still quits.
+bool esc_prefix_key(int ch) noexcept;
+
 // Pure key-to-action mapping. Translates raw terminal keys (meta-encoded
 // digits, ESC+digit followups, Ctrl+keys) into typed KeyActions using a
 // JSON-loaded binding table for simple mappings and coded logic for the
