@@ -92,7 +92,9 @@ jobs:
   lint:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 60 min: clang-tidy is ~20 min of work on top of an install that is
+    # bounded at 30.
+    timeout-minutes: 60
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -186,7 +188,9 @@ jobs:
   check:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 50 min: the dependency install is bounded at 30 (see install-deps) and
+    # `make check` needs ~12 on top of it.
+    timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -287,7 +291,9 @@ jobs:
   format-check:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 50 min: clang-format-18 rides in with the same bounded install as the rest
+    # (30 min on a slow mirror); the format runs themselves take a minute.
+    timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -438,7 +444,10 @@ jobs:
   fuzz:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # 60 min, not 25: the bounded dependency install can spend 30 of them on a
+    # slow mirror (see .github/actions/install-deps), and the job still needs
+    # room to build the instrumented targets and run libFuzzer.
+    timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7

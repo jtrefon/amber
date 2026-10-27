@@ -56,11 +56,15 @@ jobs:
       - name: Install dependencies
         # Bounded like the CI install-deps action: a hung apt (dpkg lock or a
         # dead mirror) must fail the release, not sit until the job ceiling.
+        # The 30 min install cap leaves a slow-but-progressing download room to
+        # finish -- the cap is there to catch a hang, not to time a transfer.
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 update
-          sudo timeout 600 apt-get -o DPkg::Lock::Timeout=120 install -y \
+          sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 \
+            -o Acquire::Retries=3 update
+          sudo timeout 1800 apt-get -o DPkg::Lock::Timeout=120 \
+            -o Acquire::Retries=3 install -y \
             --no-install-recommends \
             build-essential libcurl4-openssl-dev libncursesw5-dev \
             pkg-config ruby ruby-dev rpm
