@@ -1567,6 +1567,26 @@ TEST(keybinder_esc_no_followup_idle) {
     ASSERT_EQ(act.type, tui::KeyAction::ToggleScrollMode);
 }
 
+// ESC is a prefix over a closed vocabulary only. The input loop reads one byte
+// to resolve it, so the vocabulary is what decides whether that byte is part of
+// an escape sequence or a key of its own: a byte outside it is put back, which
+// is why Ctrl+C queued behind ESC still quits. Listing the negatives is the
+// point — each one used to be swallowed and turned into a scroll-mode toggle.
+TEST(keybinder_esc_prefix_vocabulary_is_closed) {
+    ASSERT(tui::esc_prefix_key('1'));
+    ASSERT(tui::esc_prefix_key('9'));
+    ASSERT(tui::esc_prefix_key('b'));
+    ASSERT(tui::esc_prefix_key('B'));
+    ASSERT(tui::esc_prefix_key('m'));
+    ASSERT(tui::esc_prefix_key('M'));
+
+    ASSERT(!tui::esc_prefix_key('0'));  // no window 0
+    ASSERT(!tui::esc_prefix_key('a'));  // a typed character
+    ASSERT(!tui::esc_prefix_key('\t')); // completion
+    ASSERT(!tui::esc_prefix_key(27));   // ESC itself
+    ASSERT(!tui::esc_prefix_key(3));    // Ctrl+C quits
+}
+
 TEST(keybinder_ctrl_n_maps_to_new_window) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
