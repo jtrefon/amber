@@ -44,18 +44,55 @@ exposes cached tokens can be added here without changing the scenarios.
 
 ## Baseline
 
-**Not recorded: the endpoint was unavailable.** At the time of writing
-`llama-turboq` was `inactive (dead)` (`systemctl status llama-turboq`), and the
-inference service is not something this project starts, stops or reconfigures.
-That is a blocked measurement, not a result — there is no number here to
-misread as a finding.
+Recorded 2026-10-28 against the endpoint amber is configured against — the
+`kilocode` provider, model `kilo-auto/free` (the local `llama-turboq` service was
+inactive; nothing here touched or reconfigured it). The benchmark uses the same
+selection a host does (`agent::apply_global_selection`), so this is the
+configuration a user runs, not a repository-local fallback.
 
-To record the baseline, with the service up as configured:
+```
+./amber-bench run --live --suite shaping --repeat 5 --repeat-gap-ms 20000 \
+  --format text --out shaping-live.json
+```
 
-1. `./amber-bench run --live --suite shaping --repeat 5 --format text --out shaping-live.json`
-2. Append the report's per-scenario lines (score median/σ, prompt tokens
-   median/σ/range, steps, wall) below, with the model name and the date.
-3. If the model never calls `context`, say so: the trigger is the model's, and
-   a model that ignores it measures retention without shaping. That is a finding
-   about the model, not about the harness, and it belongs here rather than being
-   silently averaged away.
+| Scenario | score median (σ) | prompt tokens median (σ, range) | completion median (σ, range) | steps | wall |
+|---|---|---|---|---|---|
+| s-01-stale-early-evidence | 69.5 (0.0) | 72,873 (0.0, 72,873..72,873) | 569 (273.1, 486..1141) | 6 | 10.3 s |
+| s-02-superseded-read | 81.5 (0.0) | 60,067 (4.1, 60,061..60,071) | 294 (7.6, 279..299) | 5 | 9.0 s |
+
+Model score 755/1000, 5/5 measured runs per scenario, 0 unmeasured.
+
+What the run shows:
+
+- **Retention holds**: in `s-01` the deployment token read once at the start came
+  back after five more reads, in every run.
+- **The trim is reachable and safe**: in `s-02` the model called
+  `context {"op":"superseded"}` on its own after the re-read, the call was
+  allowed, and the answer still named the current version (`v2`).
+- **The saving is not visible here**: the trim lands at the *next* request
+  boundary, and this scenario ends its turn right after asking. The score and
+  the answer are the evidence; the token delta needs a turn long enough to make
+  another request, which `s-01` is (it does not trim) — the two scenarios
+  bracket the behaviour rather than proving a saving.
+
+### Findings from recording it
+
+Two harness bugs produced the first, wrong baseline, and both are fixed:
+
+1. **The benchmark did not use the configured provider.** Live mode loaded
+   `amber.conf` directly, and this repository's file pins
+   `api_base=http://127.0.0.1:8081/v1`, so a "live" run dialled the inactive
+   local service while every host was talking to the configured provider. Live
+   mode now applies the global provider selection first and treats the project
+   file as a base layer that cannot redirect provider traffic (the same rule
+   `Config::load_workspace_defaults` enforces), shared with the CLI and TUI
+   through `agent::apply_global_selection`.
+2. **The benchmark had no shaping queue.** It never attached `HostServices` to
+   its plugin runtime, so `tool_context` correctly declined to install and a
+   model that asked for `superseded` got `unknown tool: context`. The queue is
+   wired now, and the agent drains it.
+
+One endpoint fact belongs here because it changes how the suite is run: the free
+tier throttles a burst. A 5x repeat with no pacing produced 7 unmeasured runs
+out of 10 (`HTTP 429`), and those runs are reported by count rather than folded
+into the token spread as zeros — `--repeat-gap-ms 20000` measured 10/10.
