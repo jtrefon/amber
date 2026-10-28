@@ -5984,6 +5984,86 @@ TEST(archive_entries_are_capped_and_summarised) {
     ASSERT(body["archive"][0]["summary"].get<std::string>().find("earlier") != std::string::npos);
 }
 
+TEST(archive_fold_candidates_are_the_oldest_entries_over_the_cap) {
+    // Folding is a summary, not a delete: the newest entries stay verbatim, and
+    // an archive inside its cap has nothing worth a request.
+    agent::json archive = agent::json::array();
+    for (int i = 0; i < 40; ++i)
+        archive.push_back({{"turns", std::to_string(i)}, {"summary", "work " + std::to_string(i)}});
+
+    const agent::json candidates = agent::archive_fold_candidates(archive);
+    ASSERT_EQ(candidates.size(), 40u - agent::kArchiveKeepVerbatim);
+    ASSERT_EQ(candidates.front()["summary"], std::string("work 0"));
+    ASSERT_EQ(candidates.back()["summary"], std::string("work 31"));
+
+    agent::json small = agent::json::array();
+    for (int i = 0; i < 6; ++i)
+        small.push_back({{"turns", std::to_string(i)}, {"summary", "work"}});
+    ASSERT(agent::archive_fold_candidates(small).empty());
+
+    // The token budget is the second trigger: an entry count the cap is happy
+    // with, and summaries fat enough to break the token budget on their own.
+    agent::json fat = agent::json::array();
+    for (int i = 0; i < 12; ++i)
+        fat.push_back({{"turns", std::to_string(i)}, {"summary", std::string(2000, 'f')}});
+    ASSERT(fat.size() < agent::kMaxArchiveEntries);
+    ASSERT(!agent::archive_fold_candidates(fat).empty());
+
+    // An archive whose entries all fit the verbatim window has nothing older to
+    // fold -- the merge cap is the fallback there, not a summary.
+    agent::json few = agent::json::array();
+    for (int i = 0; i < 5; ++i)
+        few.push_back({{"turns", std::to_string(i)}, {"summary", std::string(2000, 'f')}});
+    ASSERT(agent::archive_fold_candidates(few).empty());
+}
+
+TEST(archive_fold_is_one_entry_plus_the_newest_verbatim) {
+    agent::json archive = agent::json::array();
+    for (int i = 0; i < 20; ++i)
+        archive.push_back({{"turns", std::to_string(i)}, {"summary", "work " + std::to_string(i)}});
+    const agent::json folded =
+        agent::apply_archive_fold(archive, "folded: early rounds", agent::kArchiveKeepVerbatim);
+    ASSERT_EQ(folded.size(), agent::kArchiveKeepVerbatim + 1);
+    ASSERT_EQ(folded.front()["summary"], std::string("folded: early rounds"));
+    ASSERT_EQ(folded[1]["summary"], std::string("work 12"));
+    ASSERT_EQ(folded.back()["summary"], std::string("work 19"));
+    ASSERT(folded.dump().size() < archive.dump().size());
+}
+
+TEST(archive_fold_is_discarded_when_it_does_not_shrink) {
+    // The monotonic guard: a "summary" that costs as much as the entries it
+    // replaced is not a summary, and replacing them loses the detail for free.
+    agent::json archive = agent::json::array();
+    for (int i = 0; i < 20; ++i)
+        archive.push_back({{"turns", std::to_string(i)}, {"summary", "w" + std::to_string(i)}});
+    const std::string before = archive.dump();
+    ASSERT_EQ(
+        agent::apply_archive_fold(archive, std::string(4000, 'x'), agent::kArchiveKeepVerbatim)
+            .dump(),
+        before);
+    ASSERT_EQ(agent::apply_archive_fold(archive, "", agent::kArchiveKeepVerbatim).dump(), before);
+}
+
+TEST(archive_fold_request_carries_the_entries_and_the_budget) {
+    agent::json entries = agent::json::array();
+    entries.push_back({{"turns", "1-4"}, {"summary", "the auth token lives in config.cpp"}});
+    entries.push_back({{"turns", "5-9"}, {"summary", "the retry budget lives in policy.cpp"}});
+    const agent::Message req = agent::build_archive_fold_request(entries);
+    ASSERT(!req.content.empty());
+    ASSERT(req.content.find("the auth token lives in config.cpp") != std::string::npos);
+    ASSERT(req.content.find("the retry budget lives in policy.cpp") != std::string::npos);
+    // One entry, and it has to be small: the point is to spend fewer tokens.
+    ASSERT(req.content.find("one") != std::string::npos);
+    ASSERT(req.content.find("shorter") != std::string::npos);
+}
+
+TEST(archive_fold_response_is_plain_text) {
+    ASSERT_EQ(agent::parse_archive_fold_response("  folded work  \n"), std::string("folded work"));
+    ASSERT_EQ(agent::parse_archive_fold_response("```\nfolded work\n```"),
+              std::string("folded work"));
+    ASSERT_EQ(agent::parse_archive_fold_response("   \n"), std::string());
+}
+
 TEST(compressed_context_message_has_no_write_only_fields) {
     // `type`, `version` and `facts` had no reader in lib/, tui/, src/ or bench/.
     // `facts.last_goal` was also the *first* short user message, not the last.

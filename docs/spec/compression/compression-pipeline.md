@@ -97,6 +97,34 @@ transcript.
 - at least one real user message is guaranteed, and tool call/result pairing is
   repaired.
 
+### Archive maintenance (re-summarise, not merge-only)
+
+A merge that replaces the oldest entries with `earlier work, compressed` keeps
+the archive bounded and throws the detail away, which is the wrong trade once a
+session has been compacted several times: the working state thins out while the
+archive stays the same size.
+
+- **When.** A pass folds the carried archive when it has outgrown its cap (more
+  than 32 entries, or more than ~800 tokens) *and* has entries older than the
+  newest 8. An archive inside the cap costs no call — there is nothing older to
+  fold.
+- **What.** One standalone request carries the entries to fold and asks for a
+  single shorter entry: facts a later turn depends on, no narration, no JSON.
+  The newest **8** entries stay verbatim, so recent work is unchanged, and the
+  merge-only cap stays as the fallback when the call fails.
+- **Order.** The fold runs after classify and extract, on a working copy: those
+  two still replay the live prefix byte for byte, and a failed pass still
+  returns the original history untouched. The fold request is not prefixed with
+  the conversation — the archive is its payload, so replaying the live prefix
+  would pay the context-sized prefill the pipeline exists to avoid.
+- **Monotonic.** A fold that is empty, or that does not make the archive
+  smaller, is discarded and the entries it would have replaced are kept: a
+  "summary" that costs as much as its input has thrown the detail away for
+  nothing. `cap_archive()` still bounds the result.
+- **Bounded.** Three consecutive compactions on a growing session end with an
+  archive at or under the cap, the work-state summary intact, and a fact the
+  newest window carried still present (`three_compactions_keep_a_bounded_archive_and_the_work_state`).
+
 The compressed-context message is a `system` message carrying `{archive,
 summary}`. Nothing else: `type`, `version` and `facts` had no reader.
 
@@ -241,8 +269,11 @@ reduced nothing left the size unchanged.
 
 ### Known gaps (measured, not assumed)
 
-1. **The archive is not LLM-summarised on re-compression.** It is capped and
-   merged; the classifier's summary is the semantic channel. (M2.)
+1. **The archive fold is one level deep.** Old entries are folded into one
+   summary, and a later pass folds that summary again with anything newer; the
+   detail that falls out of the newest window is not recoverable from the
+   archive. The session log keeps the transcript, but the archive is a summary,
+   not an index.
 2. **The shaping queue is one per process.** A plan names ids; an id another
    window's or a sub-agent's context does not carry is refused, so a plan can
    only ever apply to the history that asked for it. A queue per window would

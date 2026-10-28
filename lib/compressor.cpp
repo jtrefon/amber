@@ -374,10 +374,17 @@ public:
 
         run_extract(original, class_reply, prefix, client, observer, cr);
 
+        // The archive carried forward may have outgrown its cap: fold its oldest
+        // entries into one summary before assembly. This runs on a copy, and
+        // after classify/extract, so those two still replay the live prefix
+        // byte for byte and a failed pass can still return the original.
+        std::vector<Message> working = original;
+        fold_stale_archive(working, client, observer);
+
         // Assemble, then reduce. The free pass runs on the OUTPUT so the
         // classifier sees the full tool evidence it needs to summarise, and the
         // live KV prefix it was sent against stays intact.
-        std::vector<Message> compressed = apply_classification(original, cr, &cfg);
+        std::vector<Message> compressed = apply_classification(working, cr, &cfg);
         collapse_and_prune(compressed, cfg, observer);
 
         // Enforce the post-compression target budget (context_size * target_pct
