@@ -1,16 +1,16 @@
 # Skills acquisition — completion plan
 
-Tracks the work that finishes epic #391 after v0.8.0. One **feature** is one
-branch and one PR; each task below is a commit inside it (red test, then green
-fix). The plan file is updated as features land.
+Tracks the work that finishes epic #391 after v0.8.0. A milestone is one branch
+and one PR; each feature below is a commit group inside it, and each task is a
+commit (red test, then green fix). The plan file is updated as features land.
 
 | Feature | Closes | State |
 |---|---|---|
-| **F1 settings & truth** — the documented gates, scope and index become real; docs/help/website/MISSION stop overstating | #401, #411 residual | in progress |
+| **F1 settings & truth** — the documented gates, scope and index become real; docs/help/website/MISSION stop overstating | #401, #411 residual | landed (#470) |
 | **F2 browse surface** — shelves, facets, responsive layout | #397 (shell), #405 (Updates shelf), #406 (facets/sort) | landed (#471) |
-| **F3 update review** — diff pager, update-all, update settings | #402 | in review |
-| **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | in review |
-| **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | in review |
+| **F3 update review** — diff pager, update-all, update settings | #402 | landed (#479) |
+| **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | landed (#479); caching still #407 |
+| **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | landed (#481); well-known still #409 |
 
 ## F5 tasks
 
