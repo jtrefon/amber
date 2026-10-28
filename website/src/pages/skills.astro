@@ -144,6 +144,7 @@ skills_github_token_env = GITHUB_TOKEN</code></pre>
       <h2>Where skills live</h2>
       <ul>
         <li>project scope: <code>&lt;project&gt;/.amber/skills/&lt;name&gt;/</code></li>
+        <li>universal, opt-in and read-only: <code>&lt;project&gt;/.agents/skills/&lt;name&gt;/</code> (shared with other agents; scanned after the amber scopes, so an amber skill wins a name clash)</li>
         <li>global scope: <code>~/.config/amber/skills/&lt;name&gt;/</code></li>
         <li>provenance: <code>&lt;skills root&gt;/.lock.json</code> (id, source, ref, blob hash, local hash, file/byte counts, enabled state)</li>
         <li>index cache: <code>$XDG_CACHE_HOME/amber/skill-index/</code> (regenerable)</li>

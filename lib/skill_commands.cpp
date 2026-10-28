@@ -11,14 +11,16 @@ namespace fs = std::filesystem;
 
 namespace agent {
 
-namespace {
+namespace {} // namespace
 
-const char* scope_name(SkillScope scope) {
+const char* skill_scope_name(SkillScope scope) noexcept {
     switch (scope) {
     case SkillScope::Project:
         return "project";
     case SkillScope::Global:
         return "global";
+    case SkillScope::Universal:
+        return "universal";
     case SkillScope::Interop:
         return "interop";
     case SkillScope::System:
@@ -26,6 +28,8 @@ const char* scope_name(SkillScope scope) {
     }
     return "unknown";
 }
+
+namespace {
 
 const char* origin_name(SkillOrigin origin) {
     return origin == SkillOrigin::Learned ? "learned" : "authored";
@@ -45,8 +49,8 @@ std::string scope_dir(const std::string& scope, std::string& error) {
 std::vector<std::string> skill_show_lines(const SkillCatalog& catalog) {
     std::vector<std::string> lines;
     for (const auto& e : catalog.entries()) {
-        lines.push_back(std::string(scope_name(e.scope)) + " \u00b7 " + origin_name(e.origin) +
-                        " \u00b7 " + e.name + " \u00b7 " + e.state);
+        lines.push_back(std::string(skill_scope_name(e.scope)) + " \u00b7 " +
+                        origin_name(e.origin) + " \u00b7 " + e.name + " \u00b7 " + e.state);
     }
     for (const auto& kv : catalog.overrides()) {
         if (kv.second.state == "disable" || kv.second.state == "block") {
