@@ -244,9 +244,10 @@ reduced nothing left the size unchanged.
 1. **The archive is not LLM-summarised on re-compression.** It is capped and
    merged; the classifier's summary is the semantic channel. (M2.)
 2. **The shaping queue is one per process.** A plan names ids; an id another
-   window's context does not carry is refused, so a plan can only ever apply to
-   the history that asked for it. A per-window queue would save the refusal
-   notice, not change what is applied.
+   window's or a sub-agent's context does not carry is refused, so a plan can
+   only ever apply to the history that asked for it. A queue per window would
+   save the refusal notice, not change what is applied; a plan raised inside a
+   sub-agent is refused for the same reason, and the refusal is reported.
 3. **Per-provider prompt caching is not modelled.** The prefix replay is a
    token-prefix guarantee; Anthropic `cache_control` and provider-specific
    cache APIs are out of scope.

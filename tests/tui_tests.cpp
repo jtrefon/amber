@@ -5,7 +5,10 @@
 // test binary has no dependency on tui/ headers.
 
 #include "agent.h"
+#include "agent/context_shape.h"
+#include "agent/plugin_runtime.h"
 #include "agent/workspace.h"
+#include "tui/window_manager.h"
 #include <csignal>
 #include "tui/action_registry.h"
 #include "tui/session_usage.h"
@@ -1803,6 +1806,34 @@ TEST(usage_report_marks_an_empty_ledger_unmeasured) {
     const auto lines = tui::usage_report_lines(tui::UsageLedger{}, {}, {});
     ASSERT_EQ(lines.size(), 2u);
     ASSERT(lines[0].find("(not measured)") != std::string::npos);
+}
+
+// The tool plugin reads the queue from the host services; the agent has to be
+// handed the same queue, or a plan would be queued where nobody drains it. The
+// window manager is the one place every TUI agent is born, so the wiring is
+// asserted there rather than trusted.
+TEST(window_agents_receive_the_hosts_shape_queue) {
+    agent::test::XdgGuard xdg("wm_shape_queue");
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Workspace ws;
+    agent::PluginRuntime runtime(reg, cfg, ws);
+    agent::ShapeQueue shapes;
+    agent::HostServices host;
+    host.shape = &shapes;
+    runtime.attach_host_services(host);
+
+    tui::WindowManager wm(cfg, reg, &runtime);
+    tui::Window& chat = wm.new_window("chat");
+    ASSERT(chat.agent);
+    ASSERT(chat.agent->shape_queue() == &shapes);
+
+    // A window manager with no runtime (bare host, tests) leaves it unwired,
+    // which is what keeps the tool out of that prompt.
+    tui::WindowManager bare(cfg, reg);
+    tui::Window& plain = bare.new_window("chat");
+    ASSERT(plain.agent);
+    ASSERT(plain.agent->shape_queue() == nullptr);
 }
 
 TEST(window_manager_finds_the_owner_chat) {
