@@ -787,7 +787,8 @@ void SlashDispatcher::cmd_skills_set(const std::string& rest) {
     split_skills_rest(rest, sub, args);
     // Acquisition settings are host-level: they apply before a window exists
     // and do not depend on the catalog.
-    if (sub == "review" || sub == "audit" || sub == "scope" || sub == "index") {
+    if (sub == "review" || sub == "audit" || sub == "scope" || sub == "index" ||
+        sub == "update-review" || sub == "update-check") {
         std::string message;
         if (!agent::apply_skill_acquisition_setting(tui_.cfg_, sub, args, message)) {
             tui_.append_line(P_STATUS, message);
@@ -1395,6 +1396,25 @@ void SlashDispatcher::register_set_policy_actions() {
 }
 
 // /set compression, think and skills.
+// The acquisition settings are host-level, so they register as one group next
+// to the explorer verbs rather than inside the feature-settings table.
+void wire_skill_setting_actions(tui::ActionRegistry& registry,
+                                const std::function<void(const std::string&)>& set_skills,
+                                const std::function<void(const std::string&)>& get_settings) {
+    for (const char* key : {"review", "audit", "update-review", "update-check", "scope", "index"}) {
+        std::string name = "core.config.set.skills.";
+        name.append(key);
+        const std::string verb = key;
+        registry.register_action(name, [set_skills, verb](const std::string& v) {
+            std::string args = verb;
+            args.append(" ").append(v);
+            set_skills(args);
+        });
+    }
+    registry.register_action("core.config.get.skills.settings",
+                             [get_settings](const std::string&) { get_settings("settings"); });
+}
+
 void SlashDispatcher::register_skills_actions() {
     auto run = [this](const tui::SkillsExplorerOptions& opts) {
         tui::run_skills_explorer(
@@ -1423,16 +1443,9 @@ void SlashDispatcher::register_skills_actions() {
             for (const auto& line : skill_sources_lines())
                 tui_.append_line(P_STATUS, line);
         });
-    register_action("core.config.set.skills.review",
-                    [this](const std::string& v) { cmd_skills_set("review " + v); });
-    register_action("core.config.set.skills.audit",
-                    [this](const std::string& v) { cmd_skills_set("audit " + v); });
-    register_action("core.config.set.skills.scope",
-                    [this](const std::string& v) { cmd_skills_set("scope " + v); });
-    register_action("core.config.set.skills.index",
-                    [this](const std::string& v) { cmd_skills_set("index " + v); });
-    register_action("core.config.get.skills.settings",
-                    [this](const std::string&) { cmd_skills_get("settings"); });
+    wire_skill_setting_actions(
+        action_registry_, [this](const std::string& a) { cmd_skills_set(a); },
+        [this](const std::string& a) { cmd_skills_get(a); });
 }
 
 void SlashDispatcher::register_set_feature_actions() {

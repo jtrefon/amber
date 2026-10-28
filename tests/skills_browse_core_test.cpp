@@ -187,6 +187,10 @@ TEST(skills_browse_tabs_and_lifecycle_intents) {
 
     i = core.key('u');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Update);
+    i = core.key('U');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::UpdateAll);
+    i = core.key('d');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Diff);
     i = core.key('D');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Remove);
     i = core.key('x');
@@ -306,4 +310,39 @@ TEST(skills_categories_count_visible_rows) {
     ASSERT_EQ(categories[0].first, std::string("engineering"));
     ASSERT_EQ(categories[0].second, 2);
     ASSERT_EQ(categories[1].first, std::string("testing"));
+}
+
+TEST(skills_batch_plan_skips_collisions_and_unread_sources) {
+    std::vector<tui::BatchCandidate> candidates(4);
+    candidates[0].id = "acme/skills/clean";
+    candidates[0].name = "clean";
+    candidates[0].previewed = true;
+    candidates[1].id = "acme/skills/unread";
+    candidates[1].name = "unread";
+    candidates[2].id = "acme/skills/official";
+    candidates[2].name = "official";
+    candidates[2].official = true;
+    candidates[3].id = "acme/skills/taken";
+    candidates[3].name = "taken";
+    candidates[3].previewed = true;
+    candidates[3].exists_in_scope = true;
+
+    const tui::BatchPlan plan = tui::plan_batch(candidates, true);
+    ASSERT_EQ(plan.install_ids.size(), static_cast<size_t>(2));
+    ASSERT_EQ(plan.install_ids[0], std::string("acme/skills/clean"));
+    ASSERT_EQ(plan.install_ids[1], std::string("acme/skills/official"));
+    ASSERT_EQ(plan.skipped.size(), static_cast<size_t>(2));
+    ASSERT_EQ(plan.skipped[0], std::string("unread (review required: p reads it)"));
+    ASSERT_EQ(plan.skipped[1], std::string("taken (name collision)"));
+}
+
+TEST(skills_batch_plan_with_review_off_installs_everything_new) {
+    std::vector<tui::BatchCandidate> candidates(2);
+    candidates[0].id = "acme/skills/a";
+    candidates[0].name = "a";
+    candidates[1].id = "acme/skills/b";
+    candidates[1].name = "b";
+    const tui::BatchPlan plan = tui::plan_batch(candidates, false);
+    ASSERT_EQ(plan.install_ids.size(), static_cast<size_t>(2));
+    ASSERT_TRUE(plan.skipped.empty());
 }

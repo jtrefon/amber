@@ -36,10 +36,12 @@ struct SkillsExplorerOptions {
     std::string initial_filter; // prefill the local filter (`/skills remove`)
     std::string install_id;     // open the install sheet for this id (`/skills install`)
     bool install_global = false;
-    bool review_required = true; // `skills_review_required`
-    bool audit_required = false; // `skills_audit_required`
-    bool index_disabled = false; // `skills_index = none`
-    std::string github_token;    // separate from the index token when configured
+    bool review_required = true;        // `skills_review_required`
+    bool update_review_required = true; // `skills_update_review`
+    bool update_check_disabled = false; // `skills_update_check = never`
+    bool audit_required = false;        // `skills_audit_required`
+    bool index_disabled = false;        // `skills_index = none`
+    std::string github_token;           // separate from the index token when configured
 };
 
 // Run the modal explorer until Esc/q. `status` receives one line per outcome

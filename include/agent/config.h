@@ -217,6 +217,10 @@ struct Config {
     std::string skills_install_scope = "project"; // project | global
     bool skills_review_required = true;
     bool skills_audit_required = false;
+    bool skills_update_review = true;
+    // manual | daily | never. `daily` throttles once the check cache lands
+    // (#407); until then it behaves like manual, and the docs say so.
+    std::string skills_update_check = "manual";
     std::string skills_index_token_env = "SKILLS_SH_TOKEN";
     std::string skills_github_token_env = "GITHUB_TOKEN";
 

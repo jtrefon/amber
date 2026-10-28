@@ -482,7 +482,11 @@ tdd  ·  installed 2026-10-02 (7f3a)  →  remote 2026-10-24 (b91c)
 `u` applies after the diff (or opens it first when `skills_update_review = on`,
 the default for non-official sources). A skill with local edits is flagged
 `locally modified` and updates require `--force` / an explicit toggle; amber
-does not overwrite work it did not write.
+does not overwrite work it did not write. `U` applies every reviewed update and
+reports each outcome. Checks are explicit: `manual` (the default) never spends a
+request on open, `never` refuses them, and `daily` throttles to one check a day
+once the check cache lands (#407) — until then it follows the explicit
+triggers.
 
 #### 5.6 Remove
 
@@ -626,7 +630,7 @@ skills_install_scope = project    # project | global
 skills_review_required = on
 skills_audit_required = off
 skills_update_review = on
-skills_update_check = daily       # manual | daily | never
+skills_update_check = manual      # manual | daily | never
 ```
 
 Storage:
