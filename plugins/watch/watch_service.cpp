@@ -5,6 +5,7 @@
 #include "agent/events.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <exception>
 #include <thread>
@@ -21,6 +22,40 @@ long now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::system_clock::now().time_since_epoch())
         .count();
+}
+
+long next_seq() {
+    static std::atomic<long> counter{0};
+    return counter.fetch_add(1) + 1;
+}
+
+// "Newest" is the watch created most recently, not the one that happened to
+// finish last or start last: a slow watch created first can be started and
+// ended after a fast one created later, and ordering by either would evict the
+// record the user just made. created_ms then seq is a total order even when two
+// watches land in the same millisecond.
+bool older_watch(const WatchRecord& a, const WatchRecord& b) {
+    if (a.created_ms != b.created_ms)
+        return a.created_ms < b.created_ms;
+    if (a.seq != b.seq)
+        return a.seq < b.seq;
+    return a.id < b.id;
+}
+
+// Records to drop: everything past `keep`, oldest first, plus anything that
+// ended longer ago than `max_age_ms` (0 disables the age rule).
+std::vector<std::string> retention_victims(std::vector<WatchRecord> terminal, std::size_t keep,
+                                           long now, long max_age_ms) {
+    std::sort(terminal.begin(), terminal.end(), older_watch);
+    std::vector<std::string> remove;
+    for (std::size_t i = 0; i < terminal.size(); ++i) {
+        const WatchRecord& record = terminal[i];
+        const bool too_old =
+            max_age_ms > 0 && record.ended_ms > 0 && now - record.ended_ms > max_age_ms;
+        if (too_old || terminal.size() - i > keep)
+            remove.push_back(record.id);
+    }
+    return remove;
 }
 
 std::string clip(std::string s, std::size_t cap) {
@@ -165,6 +200,7 @@ WatchRecord WatchService::make_record(const WatchStart& options) {
     record.url = options.url;
     record.cwd = options.cwd;
     record.created_ms = now_ms();
+    record.seq = next_seq();
     record.interval_s = options.interval_s > 0 ? options.interval_s : settings_.interval_s;
     record.deadline_s = options.deadline_s > 0 ? options.deadline_s : settings_.deadline_s;
     record.success_exit = options.success_exit;
@@ -431,34 +467,19 @@ int WatchService::running_count() const {
 }
 
 void WatchService::prune() {
-    const long now = now_ms();
-    const long max_age_ms = static_cast<long>(settings_.retention_days) * 24 * 60 * 60 * 1000;
-    std::vector<WatchRecord> terminal;
+    std::vector<std::string> remove;
     {
         std::scoped_lock lk(mtx_);
+        std::vector<WatchRecord> terminal;
         for (const auto& [id, record] : records_) {
+            (void)id;
             if (watch_state_terminal(record.state))
                 terminal.push_back(record);
         }
-    }
-    std::sort(terminal.begin(), terminal.end(),
-              [](const WatchRecord& a, const WatchRecord& b) { return a.ended_ms < b.ended_ms; });
-
-    std::vector<std::string> remove;
-    const std::size_t keep =
-        settings_.retention > 0 ? static_cast<std::size_t>(settings_.retention) : 0;
-    for (std::size_t i = 0; i < terminal.size(); ++i) {
-        const auto& record = terminal[i];
-        const bool too_old =
-            max_age_ms > 0 && record.ended_ms > 0 && now - record.ended_ms > max_age_ms;
-        const bool over_cap = terminal.size() - i > keep;
-        if (too_old || over_cap)
-            remove.push_back(record.id);
-    }
-    if (remove.empty())
-        return;
-    {
-        std::scoped_lock lk(mtx_);
+        const std::size_t keep =
+            settings_.retention > 0 ? static_cast<std::size_t>(settings_.retention) : 0;
+        const long max_age_ms = static_cast<long>(settings_.retention_days) * 24 * 60 * 60 * 1000;
+        remove = retention_victims(terminal, keep, now_ms(), max_age_ms);
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
