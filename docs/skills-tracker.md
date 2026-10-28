@@ -2,8 +2,8 @@
 
 - **Status:** 🟢 Complete — SK-IMP-001..007 implemented on `feat/skills-system`, all gates green
 - **Next:** acquisition (explorer, index, install lifecycle) — epic #391, sub-issues #392–#412, spec `docs/spec/skills/skill-acquisition.md`
-- **Shipped:** #413 (foundation), #414 (explorer/lifecycle), #449 (guide), #454 (hermetic PTY scenario), #457 (install review/audit gate), #458 (command tree + `amber-cli skills`); user guide: `docs/skills-acquisition.md`
-- **Remaining:** #402 (diff pager, update-all), #405–#412 (shelves, facets, offline, multi-select, packs, v1, `.agents`), #404/#446 (broader TUI coverage)
+- **Released:** v0.8.0 — #413 (foundation), #414 (explorer/lifecycle), #449 (guide), #454 (hermetic PTY scenario), #460 (install gates, command tree, `amber-cli skills`, guide update); user guide: `docs/skills-acquisition.md`
+- **Remaining:** settings/truth pass and the five-feature completion plan in `docs/skills-completion-plan.md` (#397, #398, #402, #405–#412)
 - **Reference:** `docs/spec/skills/agent-skills.md`, `docs/spec/skills/skill-files.md`, `docs/spec/skills/skill-catalog.md`
 - **Issues register:** `docs/issues.md`
 

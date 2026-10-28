@@ -150,3 +150,13 @@ TEST(install_sheet_adequate_evidence_reports_risk_signals) {
     ASSERT_EQ(sheet.evidence().risks[0].kind, std::string("shell"));
     ASSERT_EQ(sheet.evidence().tokens, 512);
 }
+
+TEST(install_sheet_honours_the_configured_default_scope_and_open_gate) {
+    tui::InstallSheetOptions options;
+    options.default_global = true;
+    options.review_required = false;
+    tui::InstallSheet sheet(evidence(), options);
+    ASSERT_TRUE(sheet.scope() == tui::InstallScope::Global);
+    ASSERT_TRUE(sheet.target().find(".config/amber/skills/tdd") != std::string::npos);
+    ASSERT_TRUE(sheet.can_confirm()); // review off: no body read required
+}

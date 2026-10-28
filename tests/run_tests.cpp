@@ -207,6 +207,12 @@ TEST(config_load_covers_every_key) {
         f << "skills_interop=true\n";
         f << "skills_max_discovery=14\n";
         f << "skills_body_budget_tokens=15\n";
+        f << "skills_index=http://mirror.example\n";
+        f << "skills_install_scope=global\n";
+        f << "skills_review_required=false\n";
+        f << "skills_audit_required=true\n";
+        f << "skills_index_token_env=INDEX_TOKEN\n";
+        f << "skills_github_token_env=GH_TOKEN\n";
         f << "work_auto_attach=agents\n";
         f << "max_tool_result_bytes=65536\n";
         f << "log_path=/tmp/conv.jsonl\n";
@@ -261,6 +267,12 @@ TEST(config_load_covers_every_key) {
     ASSERT_TRUE(c.skills_interop);
     ASSERT_EQ(c.skills_max_discovery, 14);
     ASSERT_EQ(c.skills_body_budget_tokens, 15);
+    ASSERT_EQ(c.skills_index, "http://mirror.example");
+    ASSERT_EQ(c.skills_install_scope, "global");
+    ASSERT_FALSE(c.skills_review_required);
+    ASSERT_TRUE(c.skills_audit_required);
+    ASSERT_EQ(c.skills_index_token_env, "INDEX_TOKEN");
+    ASSERT_EQ(c.skills_github_token_env, "GH_TOKEN");
     ASSERT_EQ(c.work_auto_attach, "agents");
     ASSERT_EQ(c.max_tool_result_bytes, 65536);
     ASSERT_EQ(c.log_path, "/tmp/conv.jsonl");
@@ -268,6 +280,39 @@ TEST(config_load_covers_every_key) {
     ASSERT_TRUE(c.debug);
     ASSERT_TRUE(c.warnings.empty());
     std::remove(path.c_str());
+}
+
+TEST(config_acquisition_settings_validate_and_round_trip) {
+    const std::string path = "/tmp/amber_acq_settings_test.conf";
+    {
+        std::ofstream f(path, std::ios::trunc);
+        f << "skills_index=ftp://mirror\n";
+        f << "skills_install_scope=everywhere\n";
+        f << "skills_index=none\n"; // last write wins and is valid
+        f << "skills_install_scope=global\n";
+    }
+    agent::Config c;
+    c.load(path);
+    ASSERT_EQ(c.skills_index, "none");
+    ASSERT_EQ(c.skills_install_scope, "global");
+    ASSERT_FALSE(c.warnings.empty());      // both bad values were reported
+    ASSERT_TRUE(c.skills_review_required); // defaults survive
+
+    c.skills_index = "https://mirror.example/api";
+    c.skills_install_scope = "project";
+    c.skills_review_required = false;
+    c.skills_audit_required = true;
+    const std::string saved = "/tmp/amber_acq_settings_saved.conf";
+    ASSERT_TRUE(c.save_settings(saved));
+    agent::Config d;
+    d.load(saved);
+    ASSERT_EQ(d.skills_index, "https://mirror.example/api");
+    ASSERT_EQ(d.skills_install_scope, "project");
+    ASSERT_FALSE(d.skills_review_required);
+    ASSERT_TRUE(d.skills_audit_required);
+    ASSERT_TRUE(d.warnings.empty());
+    std::remove(path.c_str());
+    std::remove(saved.c_str());
 }
 
 // "1", "true" and "yes" are true; every other spelling (including empty) is

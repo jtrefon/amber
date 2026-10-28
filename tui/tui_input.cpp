@@ -708,6 +708,35 @@ installed_skill_rows(const agent::SkillCatalog& catalog,
     return rows;
 }
 
+// Acquisition settings (spec §7) and their one-session environment
+// overrides, applied to the explorer's options.
+void apply_skill_source_options(const agent::Config& cfg, tui::SkillsExplorerOptions& opts) {
+    // Acquisition settings (spec §7), with the environment as a one-session
+    // override. The two token names are configurable; an empty value keeps the
+    // default variable.
+    opts.review_required = cfg.skills_review_required;
+    opts.audit_required = cfg.skills_audit_required;
+    opts.install_global = cfg.skills_install_scope == "global";
+    if (cfg.skills_index == "none")
+        opts.index_disabled = true;
+    else if (cfg.skills_index != "skills.sh")
+        opts.index_base = cfg.skills_index;
+    if (const char* token = std::getenv(cfg.skills_index_token_env.c_str()))
+        opts.token = token;
+    else if (const char* fallback = std::getenv("SKILLS_SH_TOKEN"))
+        opts.token = fallback;
+    if (const char* token = std::getenv(cfg.skills_github_token_env.c_str()))
+        opts.github_token = token;
+    if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL")) {
+        opts.index_base = base;
+        opts.index_disabled = false;
+    }
+    if (const char* api = std::getenv("AMBER_GITHUB_API_URL"))
+        opts.github_api_base = api;
+    if (const char* raw = std::getenv("AMBER_GITHUB_RAW_URL"))
+        opts.github_raw_base = raw;
+}
+
 void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
     opts.rows = LINES;
     opts.cols = COLS;
@@ -715,15 +744,7 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
     opts.project_root = paths.project;
     opts.global_root = paths.global;
     opts.cache_root = agent::skills_index_cache_dir();
-    if (const char* token = std::getenv("SKILLS_SH_TOKEN"))
-        opts.token = token;
-    if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL"))
-        opts.index_base = base;
-    if (const char* api = std::getenv("AMBER_GITHUB_API_URL"))
-        opts.github_api_base = api;
-    if (const char* raw = std::getenv("AMBER_GITHUB_RAW_URL"))
-        opts.github_raw_base = raw;
-
+    apply_skill_source_options(cfg_, opts);
     if (arg == "installed")
         opts.initial_tab = tui::SkillTab::Installed;
     const auto ledger = skill_ledger_entries(paths);
@@ -761,15 +782,30 @@ void Tui::open_skills_explorer(const std::string& arg) {
 }
 
 void SlashDispatcher::cmd_skills_set(const std::string& rest) {
+    std::string sub;
+    std::string args;
+    split_skills_rest(rest, sub, args);
+    // Acquisition settings are host-level: they apply before a window exists
+    // and do not depend on the catalog.
+    if (sub == "review" || sub == "audit" || sub == "scope" || sub == "index") {
+        std::string message;
+        if (!agent::apply_skill_acquisition_setting(tui_.cfg_, sub, args, message)) {
+            tui_.append_line(P_STATUS, message);
+        } else {
+            tui_.append_line(P_STATUS, message);
+            if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
+                tui_.append_line(P_STATUS, "warning: could not save " +
+                                               tui_.session_controller_->settings_path());
+        }
+        tui_.draw();
+        return;
+    }
     if (!tui_.win().agent) {
         tui_.append_line(P_STATUS, "no agent in this window");
         tui_.draw();
         return;
     }
     agent::SkillCatalog& catalog = tui_.win().agent->skills();
-    std::string sub;
-    std::string args;
-    split_skills_rest(rest, sub, args);
 
     // Namespace fallback: export / enable / disable / block + usage.
     if (sub == "export")
@@ -905,14 +941,20 @@ void SlashDispatcher::cmd_skills_uninstall(const std::string& name) {
 }
 
 void SlashDispatcher::cmd_skills_get(const std::string& sub) {
+    std::string name = sub;
+    if (!name.empty() && name[0] == ' ')
+        name = name.substr(1);
+    if (name == "settings") {
+        for (const auto& line : agent::skill_acquisition_settings_lines(tui_.cfg_))
+            tui_.append_line(P_STATUS, line);
+        tui_.draw();
+        return;
+    }
     if (!tui_.win().agent) {
         tui_.append_line(P_STATUS, "no agent in this window");
         tui_.draw();
         return;
     }
-    std::string name = sub;
-    if (!name.empty() && name[0] == ' ')
-        name = name.substr(1);
     auto lines = agent::skill_show_lines(tui_.win().agent->skills());
     bool any = false;
     for (const auto& l : lines) {
@@ -1381,6 +1423,16 @@ void SlashDispatcher::register_skills_actions() {
             for (const auto& line : skill_sources_lines())
                 tui_.append_line(P_STATUS, line);
         });
+    register_action("core.config.set.skills.review",
+                    [this](const std::string& v) { cmd_skills_set("review " + v); });
+    register_action("core.config.set.skills.audit",
+                    [this](const std::string& v) { cmd_skills_set("audit " + v); });
+    register_action("core.config.set.skills.scope",
+                    [this](const std::string& v) { cmd_skills_set("scope " + v); });
+    register_action("core.config.set.skills.index",
+                    [this](const std::string& v) { cmd_skills_set("index " + v); });
+    register_action("core.config.get.skills.settings",
+                    [this](const std::string&) { cmd_skills_get("settings"); });
 }
 
 void SlashDispatcher::register_set_feature_actions() {

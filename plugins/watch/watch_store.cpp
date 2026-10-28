@@ -41,6 +41,7 @@ json record_json(const WatchRecord& r) {
                 {"cwd", r.cwd},
                 {"state", watch_state_name(r.state)},
                 {"created_ms", r.created_ms},
+                {"seq", r.seq},
                 {"started_ms", r.started_ms},
                 {"ended_ms", r.ended_ms},
                 {"interval_s", r.interval_s},
@@ -80,6 +81,7 @@ WatchRecord record_from_json(const json& j) {
     if (read_string(j, "state", state))
         r.state = watch_state_from(state);
     r.created_ms = j.value("created_ms", 0L);
+    r.seq = j.value("seq", 0L);
     r.started_ms = j.value("started_ms", 0L);
     r.ended_ms = j.value("ended_ms", 0L);
     r.interval_s = j.value("interval_s", 20);

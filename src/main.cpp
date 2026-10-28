@@ -35,6 +35,8 @@ void print_usage(const char* prog) {
               << "  --no-plugins       Run without the bundled plugins\n"
               << "  --watch-wake       After the turn, join running watches (up to 30s) and\n"
               << "                     run one follow-up turn with their reports\n"
+              << "  skills <verb>      Find, install, update and remove skills (run\n"
+              << "                     'amber-cli skills' for the verb list; --json supported)\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"

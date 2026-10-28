@@ -1,0 +1,157 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NavBar from '../components/NavBar.astro';
+---
+
+<BaseLayout title="Skills" description="Find, review, install, update and remove third-party agent skills from inside amber, or headlessly with amber-cli.">
+  <NavBar />
+  <main>
+    <h1>Skills</h1>
+
+    <section class="section">
+      <p>
+        Amber can find, review, install, update and remove third-party
+        <a href="https://skills.sh">skills.sh</a> packages. A skill is a
+        <code>SKILL.md</code> package: instructions the model can discover and
+        load, not code amber executes. Details (description, license, file tree,
+        risk signals) are read from the skill's GitHub repository.
+      </p>
+      <p>
+        Installation is gated on evidence, not vibes: the sheet shows the source,
+        file count, size, token cost and body, and a community source needs its
+        body read before Enter installs it.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Quick start</h2>
+      <pre><code>/skills
+/skills search tdd
+/skills install acme/skills/tdd</code></pre>
+      <p>
+        The explorer opens on <code>/skills</code>. Type at least two characters
+        to search, Enter loads a detail, <code>i</code> opens the install sheet.
+        <code>/skills installed</code> opens the shelf of packages already on
+        disk.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>The install gates</h2>
+      <ul>
+        <li>
+          <strong>Review.</strong> With <code>skills_review_required = on</code>
+          (the default), a community or unverified source cannot be installed
+          until <code>p</code> has shown the body, or <code>x</code> explicitly
+          chooses an unread install. Official and audited sources bypass it.
+        </li>
+        <li>
+          <strong>Audit.</strong> With <code>skills_audit_required = on</code>, a
+          source whose audit is missing or failed needs an explicit override in
+          the sheet. The anonymous registry exposes no audits, so the sheet says
+          <em>not audited</em> rather than implying a verdict.
+        </li>
+        <li>
+          <strong>Collision.</strong> If the selected scope already holds a
+          directory of that name, Enter replaces it, <code>r</code> refuses, and
+          Tab switches to the other scope.
+        </li>
+      </ul>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Commands</h2>
+      <table class="cmd-table">
+        <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>/skills</td><td>Open the Skills Explorer</td></tr>
+          <tr><td>/skills browse</td><td>Open the explorer at an empty search</td></tr>
+          <tr><td>/skills search &lt;query&gt;</td><td>Open the explorer with the query already searched</td></tr>
+          <tr><td>/skills list</td><td>Print the catalog (scope, origin, name, state)</td></tr>
+          <tr><td>/skills show &lt;name&gt;</td><td>Print one catalog entry</td></tr>
+          <tr><td>/skills install &lt;id&gt; [--global]</td><td>Fetch a skill and open the install sheet</td></tr>
+          <tr><td>/skills update</td><td>Open the Installed shelf; <code>u</code> checks, <code>u</code> again applies</td></tr>
+          <tr><td>/skills remove &lt;name&gt;</td><td>Open the Installed shelf filtered to that skill</td></tr>
+          <tr><td>/skills sources</td><td>Print the registry/GitHub endpoints and cache size</td></tr>
+          <tr><td>/set skills review on|off</td><td>Require reading a community body before installing</td></tr>
+          <tr><td>/set skills audit on|off</td><td>Require an audit verdict before installing</td></tr>
+          <tr><td>/set skills scope project|global</td><td>Default install scope</td></tr>
+          <tr><td>/set skills index skills.sh|none|URL</td><td>Registry source, or none</td></tr>
+          <tr><td>/get skills settings</td><td>Show the four acquisition settings</td></tr>
+        </tbody>
+      </table>
+      <p>
+        In the explorer: <code>j</code>/<code>k</code> move, <code>Enter</code>
+        loads a detail, <code>i</code> installs, <code>p</code> previews the body,
+        <code>v</code> reports risk signals, <code>u</code> checks/applies an
+        update, <code>D</code> removes, <code>x</code>/<code>b</code>
+        disable/block, <code>A</code> adopts an unmanaged directory.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Headless</h2>
+      <pre><code>amber-cli skills search &lt;query&gt; [--limit N] [--json]
+amber-cli skills list [--global] [--json]
+amber-cli skills show &lt;name|owner/repo/skill&gt; [--json]
+amber-cli skills install &lt;id|owner/repo|url&gt; [--global|--project] [--yes] [--json]
+amber-cli skills update [&lt;name&gt;|--all] [--check] [--json]
+amber-cli skills remove &lt;name&gt; [--global|--project] [--json]
+amber-cli skills sources [--refresh] [--json]</code></pre>
+      <p>
+        An unattended install refuses a community source without
+        <code>--yes</code> and names the review step. <code>--yes</code> is the
+        non-interactive form of that consent; the setting never waives it.
+      </p>
+    </section>
+
+    <hr class="divider" />
+
+    <section class="section">
+      <h2>Settings</h2>
+      <pre><code>skills_index = skills.sh          # skills.sh | none | &lt;base-url&gt;
+skills_install_scope = project    # project | global
+skills_review_required = on
+skills_audit_required = off
+skills_index_token_env = SKILLS_SH_TOKEN
+skills_github_token_env = GITHUB_TOKEN</code></pre>
+      <p>
+        <code>AMBER_SKILLS_INDEX_URL</code>, <code>AMBER_GITHUB_API_URL</code> and
+        <code>AMBER_GITHUB_RAW_URL</code> override the endpoints for one session,
+        which is how a self-hosted or air-gapped mirror is used.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Where skills live</h2>
+      <ul>
+        <li>project scope: <code>&lt;project&gt;/.amber/skills/&lt;name&gt;/</code></li>
+        <li>global scope: <code>~/.config/amber/skills/&lt;name&gt;/</code></li>
+        <li>provenance: <code>&lt;skills root&gt;/.lock.json</code> (id, source, ref, blob hash, local hash, file/byte counts, enabled state)</li>
+        <li>index cache: <code>$XDG_CACHE_HOME/amber/skill-index/</code> (regenerable)</li>
+      </ul>
+      <p>
+        The ledger hashes the installed <code>SKILL.md</code>, so an update
+        refuses to overwrite local edits instead of silently discarding them.
+        <code>D</code> removes the tree and its ledger entry; overrides such as
+        <code>block</code> deliberately survive.
+      </p>
+    </section>
+
+    <section class="section">
+      <h2>Security</h2>
+      <p>
+        A <code>SKILL.md</code> is untrusted instruction text that the model will
+        follow. Amber sanitizes every remote string before it reaches the
+        terminal or the ledger, reports shell/network/path signals in the body,
+        and keeps the review gate on by default so the text is visible before it
+        is trusted. Installing a skill does not execute it: the body loads only
+        when the model asks for it, and a blocked skill is never listed.
+      </p>
+    </section>
+  </main>
+</BaseLayout>

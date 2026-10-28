@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <map>
 
 namespace tui {
 
@@ -70,6 +71,15 @@ void SkillsBrowseCore::set_rows(std::vector<SkillRow> rows, bool stale, agent::I
     reset_cursor();
 }
 
+void SkillsBrowseCore::set_row_category(const std::string& id, std::string category) {
+    for (auto& row : rows_) {
+        if (row.ref.id == id) {
+            row.category = std::move(category);
+            return;
+        }
+    }
+}
+
 void SkillsBrowseCore::set_installed(std::vector<SkillRow> installed) {
     installed_ = std::move(installed);
 }
@@ -110,11 +120,38 @@ bool SkillsBrowseCore::matches(const SkillRow& row) const {
            ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
 }
 
+bool skill_tab_available(SkillTab tab) noexcept {
+    return tab == SkillTab::Top || tab == SkillTab::Installed || tab == SkillTab::Updates;
+}
+
+const char* skill_tab_name(SkillTab tab) noexcept {
+    switch (tab) {
+    case SkillTab::ForYou:
+        return "For you";
+    case SkillTab::Trending:
+        return "Trending";
+    case SkillTab::Top:
+        return "Top";
+    case SkillTab::Official:
+        return "Official";
+    case SkillTab::Collections:
+        return "Collections";
+    case SkillTab::Installed:
+        return "Installed";
+    case SkillTab::Updates:
+        return "Updates";
+    }
+    return "?";
+}
+
 std::vector<SkillRow> SkillsBrowseCore::visible() const {
-    const auto& source = tab_ == SkillTab::Installed ? installed_ : rows_;
+    const bool installed_shelf = tab_ == SkillTab::Installed || tab_ == SkillTab::Updates;
+    const auto& source = installed_shelf ? installed_ : rows_;
     std::vector<SkillRow> out;
     out.reserve(source.size());
     for (const auto& row : source) {
+        if (tab_ == SkillTab::Updates && !row.update)
+            continue;
         if (matches(row))
             out.push_back(row);
     }
@@ -134,6 +171,21 @@ std::vector<SkillRow> SkillsBrowseCore::visible() const {
 
 std::size_t SkillsBrowseCore::visible_count() const {
     return visible().size();
+}
+
+std::vector<std::pair<std::string, int>> SkillsBrowseCore::categories() const {
+    std::map<std::string, int> counts;
+    for (const auto& row : visible()) {
+        if (!row.category.empty())
+            ++counts[row.category];
+    }
+    std::vector<std::pair<std::string, int>> out(counts.begin(), counts.end());
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second)
+            return a.second > b.second;
+        return a.first < b.first;
+    });
+    return out;
 }
 
 std::optional<SkillRow> SkillsBrowseCore::current() const {
@@ -276,16 +328,21 @@ std::optional<SkillIntent> SkillsBrowseCore::global_key(int ch) {
         }
     case 'R':
         return intent(SkillIntent::Kind::Refresh);
+    case '?':
+        return intent(SkillIntent::Kind::Help);
     default:
         break;
     }
-    if (ch >= '1' && ch <= '7') {
-        SkillIntent i = intent(SkillIntent::Kind::SetTab);
-        i.tab = static_cast<SkillTab>(ch - '1');
-        set_tab(i.tab);
-        return i;
-    }
-    return std::nullopt;
+    return shelf_key(ch);
+}
+
+std::optional<SkillIntent> SkillsBrowseCore::shelf_key(int ch) {
+    if (ch < '1' || ch > '7')
+        return std::nullopt;
+    SkillIntent i = intent(SkillIntent::Kind::SetTab);
+    i.tab = static_cast<SkillTab>(ch - '1');
+    set_tab(i.tab);
+    return i;
 }
 
 SkillIntent SkillsBrowseCore::action_key(int ch) {
