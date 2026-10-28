@@ -18,6 +18,7 @@ namespace agent {
 
 class Context;
 struct AgentHooks;
+struct CompressionObserver;
 class MemoryStore;
 struct Memory;
 struct Skill;
@@ -48,6 +49,36 @@ inline constexpr char kToolOutputOmitted[] =
 // pass is trying to reach. Oldest entries merge into one line.
 inline constexpr std::size_t kMaxArchiveEntries = 32;
 inline constexpr std::size_t kMaxArchiveTokens = 800;
+
+// The archive keeps its newest entries verbatim. Older ones are folded into a
+// single entry by one extra LLM call once the archive outgrows its cap; below
+// the cap there is nothing to fold and the pipeline spends no call.
+inline constexpr std::size_t kArchiveKeepVerbatim = 8;
+
+// The archive entries that should be folded: the oldest ones, or empty when the
+// archive is inside its cap (entry count and token budget). Folding is worth a
+// request only when what is left can actually be summarised.
+json archive_fold_candidates(const json& archive);
+
+// Replace the folded entries with one summary and keep the newest `keep`
+// verbatim. Monotonic: an empty summary, or one that does not make the archive
+// smaller, returns `archive` unchanged.
+json apply_archive_fold(const json& archive, const std::string& folded, std::size_t keep);
+
+// The one extra request: the entries to fold, and what the reply should be.
+Message build_archive_fold_request(const json& entries);
+
+// The model's reply as one archive summary: trimmed, code fences stripped,
+// empty when it carries nothing usable.
+std::string parse_archive_fold_response(const std::string& reply);
+
+// Fold the previous archive in place when it has outgrown its cap: the oldest
+// entries become one summary, the newest stay verbatim. One standalone LLM
+// request, and only when there is something to fold. Non-fatal by design: a
+// failed call or a fold that does not shrink the archive leaves it untouched for
+// cap_archive() to merge. Returns true when the archive got smaller.
+bool fold_stale_archive(std::vector<Message>& history, LLMClient& client,
+                        CompressionObserver* observer);
 
 // Prefix of the compressed-context message produced by apply_classification;
 // enforce_headroom locates it by this prefix to append archive entries.

@@ -88,6 +88,7 @@ $(BUILD_DIR)/lib/provider_health.o \
              $(BUILD_DIR)/lib/compressor_parser.o \
              $(BUILD_DIR)/lib/compressor_apply.o \
              $(BUILD_DIR)/lib/global_config.o \
+             $(BUILD_DIR)/lib/compressor_archive.o \
              $(BUILD_DIR)/lib/context_shape.o \
              $(BUILD_DIR)/lib/compressor_reporter.o \
               $(BUILD_DIR)/lib/memory_store.o \
