@@ -160,13 +160,18 @@ bool valid_index(const std::string& value) {
 
 bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const std::string& value,
                                      std::string& message) {
-    if (key == "review" || key == "audit") {
+    if (key == "review" || key == "audit" || key == "update-review") {
         bool on = false;
         if (!on_off(value, on)) {
             message = "usage: /set skills " + key + " on|off";
             return false;
         }
-        (key == "review" ? cfg.skills_review_required : cfg.skills_audit_required) = on;
+        if (key == "review")
+            cfg.skills_review_required = on;
+        else if (key == "audit")
+            cfg.skills_audit_required = on;
+        else
+            cfg.skills_update_review = on;
         message = "skills " + key + ": " + (on ? "on" : "off");
         return true;
     }
@@ -195,7 +200,8 @@ bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const 
 std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg) {
     return {"index      " + cfg.skills_index, "scope      " + cfg.skills_install_scope,
             "review     " + std::string(cfg.skills_review_required ? "on" : "off"),
-            "audit      " + std::string(cfg.skills_audit_required ? "on" : "off")};
+            "audit      " + std::string(cfg.skills_audit_required ? "on" : "off"),
+            "update-review " + std::string(cfg.skills_update_review ? "on" : "off")};
 }
 
 } // namespace agent

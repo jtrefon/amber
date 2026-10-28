@@ -350,6 +350,8 @@ public:
                           {"Enter", "detail"},
                           {"i", "install"},
                           {"u", "update"},
+                          {"U", "update all"},
+                          {"d", "diff"},
                           {"?", "help"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
@@ -438,6 +440,9 @@ private:
     bool preview(const SkillRow& row);
     bool audit(const SkillRow& row);
     void remove_current(const SkillRow& row);
+    void show_review(const agent::UpdateReview& review);
+    void update_all();
+    bool show_diff(const SkillRow& row);
     void update_current(const SkillRow& row);
     bool confirm(const std::string& title, const std::string& text,
                  const std::string& note = {}) const;
@@ -455,6 +460,8 @@ private:
     std::string query_;
     std::string pending_install_;
     std::string pending_update_;
+    std::string pending_diff_;
+    std::string pending_apply_;
     std::string pending_preview_;
     std::string last_status_;
     bool pending_search_ = false;
@@ -531,16 +538,64 @@ void SkillsExplorer::remove_current(const SkillRow& row) {
     refresh_installed();
 }
 
+void SkillsExplorer::show_review(const agent::UpdateReview& review) {
+    std::string body;
+    for (const auto& line : agent::update_review_lines(review))
+        body += line + "\n";
+    run_body_preview(review.name + " update", body);
+}
+
 void SkillsExplorer::update_current(const SkillRow& row) {
+    const std::string name = row.ref.name;
+    if (const auto review = life_->review_for(name)) {
+        // First press: show what would change. Second press: apply, and for a
+        // locally edited skill that second press is the explicit override.
+        if (options_.update_review_required && pending_apply_ != name) {
+            show_review(*review);
+            pending_apply_ = name;
+            last_status_ = review->needs_override()
+                               ? "local edits · u again overrides and replaces them"
+                               : "review closed · u applies";
+            return;
+        }
+        pending_apply_.clear();
+        last_status_ = life_->apply_update(row, review->needs_override());
+        refresh_installed();
+        return;
+    }
     agent::SkillRef ref;
     const UpdateAction action = life_->prepare_update(row, ref, last_status_);
     if (action == UpdateAction::Fetch) {
-        pending_update_ = row.ref.name;
+        pending_update_ = name;
         service_->detail(ref);
     } else if (action == UpdateAction::Apply) {
         last_status_ = life_->apply_update(row);
         refresh_installed();
     }
+}
+
+bool SkillsExplorer::show_diff(const SkillRow& row) {
+    if (const auto review = life_->review_for(row.ref.name)) {
+        show_review(*review);
+        last_status_ = review->needs_override() ? "local edits · u overrides and replaces them"
+                                                : "diff closed · u applies";
+        return true;
+    }
+    agent::SkillRef ref;
+    const UpdateAction action = life_->prepare_update(row, ref, last_status_);
+    if (action == UpdateAction::Fetch) {
+        pending_diff_ = row.ref.name;
+        service_->detail(ref);
+    } else if (action == UpdateAction::None) {
+        return true;
+    }
+    return true;
+}
+
+void SkillsExplorer::update_all() {
+    last_status_ = life_->apply_all(installed_rows_);
+    pending_apply_.clear();
+    refresh_installed();
 }
 
 bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
@@ -560,6 +615,11 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
     case SkillIntent::Kind::Update:
         update_current(*row);
         return true;
+    case SkillIntent::Kind::UpdateAll:
+        update_all();
+        return true;
+    case SkillIntent::Kind::Diff:
+        return show_diff(*row);
     case SkillIntent::Kind::ToggleEnabled:
         last_status_ = life_->toggle(*row);
         refresh_installed();
@@ -638,7 +698,9 @@ void SkillsExplorer::help() const {
         "i          install sheet (review gate)",
         "p          preview the body",
         "v          audit readout (risk signals)",
-        "u          check for an update; again to apply",
+        "u          review an update; u again applies",
+        "U          apply every reviewed update",
+        "d          diff installed vs remote",
         "D          remove the selected skill",
         "x / b      disable / block",
         "A          adopt an unmanaged directory",
@@ -713,12 +775,22 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
         last_status_ = "preview closed";
         return;
     }
-    if (!pending_update_.empty()) {
-        const std::string name = pending_update_;
+    if (pending_update_ == detail.ref.name || pending_diff_ == detail.ref.name) {
+        const std::string name = detail.ref.name;
+        const bool wants_diff = pending_diff_ == name;
         pending_update_.clear();
+        pending_diff_.clear();
         if (const SkillRow* row = installed_row(installed_rows_, name)) {
             last_status_ = life_->check_update(*row, detail);
             refresh_installed();
+            const auto review = life_->review_for(name);
+            if (review && (wants_diff || options_.update_review_required)) {
+                show_review(*review);
+                pending_apply_ = name;
+                last_status_ = review->needs_override()
+                                   ? "local edits · u overrides and replaces them"
+                                   : "review closed · u applies";
+            }
         }
         return;
     }

@@ -2437,7 +2437,13 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("/tdd\r");
 
     tui.send("u");
-    if (!require(tui.wait_for("update available", 20000), "the update was not detected", tui))
+    // The update is reviewed before it is applied: the body diff names the
+    // added line, and only the second u writes anything.
+    if (!require(tui.wait_for("+body two", 20000), "the update diff was not shown", tui))
+        return;
+    tui.send("\x1b");
+    if (!require(tui.wait_for("u applies", 10000), "the diff did not hand back to the explorer",
+                 tui))
         return;
 
     tui.send("u");

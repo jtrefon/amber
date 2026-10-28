@@ -217,6 +217,7 @@ struct Config {
     std::string skills_install_scope = "project"; // project | global
     bool skills_review_required = true;
     bool skills_audit_required = false;
+    bool skills_update_review = true;
     std::string skills_index_token_env = "SKILLS_SH_TOKEN";
     std::string skills_github_token_env = "GITHUB_TOKEN";
 

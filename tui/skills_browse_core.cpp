@@ -389,11 +389,12 @@ SkillIntent SkillsBrowseCore::table_action(int ch, const SkillRow& row) {
         SkillIntent::Kind kind;
     };
     static constexpr Action kActions[] = {
-        {'u', SkillIntent::Kind::Update},        {'D', SkillIntent::Kind::Remove},
-        {'x', SkillIntent::Kind::ToggleEnabled}, {'b', SkillIntent::Kind::Block},
-        {'A', SkillIntent::Kind::Adopt},         {'d', SkillIntent::Kind::Diff},
-        {'p', SkillIntent::Kind::Preview},       {'v', SkillIntent::Kind::Audit},
-        {'o', SkillIntent::Kind::SourceUrl},     {'y', SkillIntent::Kind::Copy},
+        {'u', SkillIntent::Kind::Update}, {'U', SkillIntent::Kind::UpdateAll},
+        {'D', SkillIntent::Kind::Remove}, {'x', SkillIntent::Kind::ToggleEnabled},
+        {'b', SkillIntent::Kind::Block},  {'A', SkillIntent::Kind::Adopt},
+        {'d', SkillIntent::Kind::Diff},   {'p', SkillIntent::Kind::Preview},
+        {'v', SkillIntent::Kind::Audit},  {'o', SkillIntent::Kind::SourceUrl},
+        {'y', SkillIntent::Kind::Copy},
     };
     for (const auto& action : kActions) {
         if (action.key == ch)

@@ -716,6 +716,15 @@
         "off"
        ]
       },
+      "update-review": {
+       "action": "core.config.set.skills.update-review",
+       "help": "Show a skill's diff before applying its update.",
+       "man": "With update-review on (the default), u fetches the remote revision, shows the SKILL.md diff and the added/removed files, and applies on the next u. Off applies as soon as the update is fetched. A skill whose SKILL.md was edited after install always needs that second press, which is the explicit override.",
+       "choices": [
+        "on",
+        "off"
+       ]
+      },
       "audit": {
        "action": "core.config.set.skills.audit",
        "help": "Require an audit verdict before installing.",

@@ -4,6 +4,7 @@
 #include "agent/skill_catalog.h"
 #include "agent/skill_file.h"
 #include "agent/skill_install.h"
+#include "agent/skill_update_review.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -29,7 +30,7 @@ const char* kUsage = "usage: amber-cli skills <verb> [args]\n"
                      "  list [--global] [--json]\n"
                      "  show <name|owner/repo/skill> [--json]\n"
                      "  install <id|owner/repo|url> [--global] [--yes] [--json]\n"
-                     "  update [<name>|--all] [--check] [--json]\n"
+                     "  update [<name>|--all] [--check|--diff|--force] [--json]\n"
                      "  remove <name> [--global] [--json]\n"
                      "  sources [--refresh] [--json]\n";
 
@@ -348,7 +349,28 @@ struct UpdatePlan {
     bool available = false;
     bool local_edits = false;
     SkillDetail detail;
+    UpdateReview review;
 };
+
+std::string read_installed_body(const std::string& scope, const std::string& name) {
+    const std::string path = scope_root(scope) + "/" + name + "/SKILL.md";
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        return {};
+    return {(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
+}
+
+LedgerEntry entry_of(const InstalledPackage& package) {
+    LedgerEntry entry;
+    entry.id = package.id;
+    entry.source = package.source;
+    entry.slug = package.name;
+    entry.ref = package.ref;
+    entry.hash = package.hash;
+    entry.local_hash = package.local_hash;
+    entry.enabled = package.enabled;
+    return entry;
+}
 
 SkillRef ref_of(const InstalledPackage& package) {
     SkillRef ref;
@@ -370,6 +392,10 @@ UpdatePlan plan_update(const SkillCliBackends& backends, const InstalledPackage&
         return plan;
     plan.available = true;
     plan.local_edits = local_hash(scope_root(package.scope), package.name) != package.local_hash;
+    const std::string dir = scope_root(package.scope) + "/" + package.name;
+    plan.review = build_update_review(entry_of(package), plan.detail,
+                                      read_installed_body(package.scope, package.name),
+                                      installed_skill_files(dir));
     return plan;
 }
 
@@ -400,16 +426,40 @@ std::string update_status(const SkillCliCommand& cmd, const SkillCliBackends& ba
         ++failures;
         return "error: " + plan.error;
     }
-    if (plan.local_edits)
-        return "locally modified (update refused)";
     if (!plan.available)
         return "up to date";
     if (cmd.check)
-        return "update available";
+        return "update available: " + plan.review.status;
+    if (plan.local_edits && !cmd.force) {
+        ++failures; // skipped: a script must see that nothing was written
+        return "locally modified (--diff reviews, --force overrides)";
+    }
+    if (plan.local_edits)
+        return apply_plan(backends, package, plan.detail) + " (local edits overridden)";
     const std::string status = apply_plan(backends, package, plan.detail);
     if (status.rfind("error:", 0) == 0)
         ++failures;
     return status;
+}
+
+json update_row(const SkillCliCommand& cmd, const SkillCliBackends& backends,
+                const InstalledPackage& package, int& failures) {
+    const UpdatePlan plan = plan_update(backends, package);
+    const bool reviewed = cmd.diff && plan.available && plan.error.empty();
+    const std::string status =
+        reviewed ? plan.review.status : update_status(cmd, backends, package, plan, failures);
+    json row = {{"name", package.name},
+                {"scope", package.scope},
+                {"status", status},
+                {"from", package.hash},
+                {"to", plan.error.empty() ? plan.detail.hash : std::string()}};
+    if (reviewed) {
+        row["local_edits"] = plan.review.local_modified;
+        row["diff"] = update_review_lines(plan.review);
+        row["added"] = plan.review.added_files;
+        row["removed"] = plan.review.removed_files;
+    }
+    return row;
 }
 
 int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
@@ -429,20 +479,19 @@ int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
             continue;
         if (cmd.global && package.scope != "global")
             continue;
-        const UpdatePlan plan = plan_update(backends, package);
-        const std::string status = update_status(cmd, backends, package, plan, failures);
-        report.push_back({{"name", package.name},
-                          {"scope", package.scope},
-                          {"status", status},
-                          {"from", package.hash},
-                          {"to", plan.error.empty() ? plan.detail.hash : std::string()}});
+        report.push_back(update_row(cmd, backends, package, failures));
     }
     if (cmd.json) {
         out << report.dump(2) << "\n";
     } else {
-        for (const auto& row : report)
+        for (const auto& row : report) {
             out << row["scope"].get<std::string>() << " · " << row["name"].get<std::string>()
                 << ": " << row["status"].get<std::string>() << "\n";
+            if (row.contains("diff")) {
+                for (const auto& line : row["diff"])
+                    out << "    " << line.get<std::string>() << "\n";
+            }
+        }
     }
     return failures > 0 ? 1 : 0;
 }
@@ -521,6 +570,10 @@ bool parse_cli_flag(const std::string& arg, size_t& i, const std::vector<std::st
         cmd.all = true;
     else if (arg == "--check")
         cmd.check = true;
+    else if (arg == "--diff")
+        cmd.diff = true;
+    else if (arg == "--force")
+        cmd.force = true;
     else if (arg == "--refresh")
         cmd.refresh = true;
     else if (arg == "--limit" && i + 1 < args.size())

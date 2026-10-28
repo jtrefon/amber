@@ -187,6 +187,10 @@ TEST(skills_browse_tabs_and_lifecycle_intents) {
 
     i = core.key('u');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Update);
+    i = core.key('U');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::UpdateAll);
+    i = core.key('d');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Diff);
     i = core.key('D');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::Remove);
     i = core.key('x');

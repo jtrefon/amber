@@ -54,6 +54,7 @@ struct SkillIntent {
         Install,
         InstallMarked,
         Update,
+        UpdateAll,
         Remove,
         ToggleEnabled,
         Block,
