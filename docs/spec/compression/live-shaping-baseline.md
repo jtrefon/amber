@@ -92,6 +92,14 @@ Two harness bugs produced the first, wrong baseline, and both are fixed:
    model that asked for `superseded` got `unknown tool: context`. The queue is
    wired now, and the agent drains it.
 
+The shared provider-resolution module reads the user's global config, which is a
+path derived from `XDG_CONFIG_HOME`; CodeQL flags that as `cpp/path-injection`,
+exactly as it already flags the identical reads in `lib/config.cpp`,
+`tui/window_manager.cpp` and `lib/skill_ledger.cpp`. The path is resolved by
+`config_paths()`, which accepts an `XDG_CONFIG_HOME` only when it is absolute and
+free of `..`; the two alerts were dismissed as that same sibling, not because a
+new sink is safe to ignore.
+
 One endpoint fact belongs here because it changes how the suite is run: the free
 tier throttles a burst. A 5x repeat with no pacing produced 7 unmeasured runs
 out of 10 (`HTTP 429`), and those runs are reported by count rather than folded
