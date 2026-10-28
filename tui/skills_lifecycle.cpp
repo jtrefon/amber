@@ -50,13 +50,6 @@ std::optional<agent::LedgerEntry> SkillsLifecycle::entry_for(const std::string& 
     return options_.ledger ? options_.ledger(name) : std::nullopt;
 }
 
-std::string SkillsLifecycle::local_hash(const std::string& root, const std::string& name) const {
-    const std::string body = read_text(root + "/" + name + "/SKILL.md");
-    if (body.empty())
-        return {};
-    return agent::skill_content_hash(body);
-}
-
 std::string SkillsLifecycle::adopt(const SkillRow& row) {
     if (!row.installed)
         return "only installed skills can be adopted";

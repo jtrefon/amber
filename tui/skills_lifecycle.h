@@ -66,7 +66,6 @@ public:
 
 private:
     std::optional<agent::LedgerEntry> entry_for(const std::string& name) const;
-    std::string local_hash(const std::string& root, const std::string& name) const;
     std::string root_for(const SkillRow& row) const;
 
     SkillsLifecycleOptions options_;

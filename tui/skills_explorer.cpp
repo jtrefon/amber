@@ -426,16 +426,18 @@ private:
         core_.set_installed(installed_rows_);
     }
 
-    const SkillRow* find_row(const std::string& id) const {
+    // By value: `visible()` builds a fresh vector each call, so a pointer into
+    // it would dangle the moment it returns.
+    std::optional<SkillRow> find_row(const std::string& id) const {
         for (const auto& row : core_.visible()) {
             if (row.ref.id == id)
-                return &row;
+                return row;
         }
         for (const auto& row : installed_rows_) {
             if (row.ref.id == id)
-                return &row;
+                return row;
         }
-        return nullptr;
+        return std::nullopt;
     }
 
     std::optional<agent::SkillRef> find_ref(const std::string& id) const {
@@ -896,7 +898,7 @@ void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
         candidate.name = agent::skill_slug(id);
         candidate.previewed = previewed_.count(candidate.name) != 0;
         candidate.exists_in_scope = std::filesystem::exists(root + "/" + candidate.name);
-        if (const SkillRow* row = find_row(id))
+        if (const auto row = find_row(id))
             candidate.official = row->official;
         candidates.push_back(std::move(candidate));
     }
