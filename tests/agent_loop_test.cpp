@@ -871,11 +871,19 @@ TEST(agent_applies_a_shape_plan_at_the_next_request) {
     const std::string env = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
 
     std::vector<agent::Message> msgs;
-    msgs.push_back(agent::Message{"system", "Amber"});
-    msgs.push_back(agent::Message{"user", "start"});
+    agent::Message system;
+    system.role = "system";
+    system.content = "Amber";
+    msgs.push_back(std::move(system));
+    agent::Message user;
+    user.role = "user";
+    user.content = "start";
+    msgs.push_back(std::move(user));
     agent::Message call = agent_test::tool_call_msg("read", json{{"path", "Makefile"}}, "c1");
     msgs.push_back(std::move(call));
-    agent::Message result{"tool", env};
+    agent::Message result;
+    result.role = "tool";
+    result.content = env;
     result.name = "read";
     result.tool_call_id = "c1";
     msgs.push_back(std::move(result));
