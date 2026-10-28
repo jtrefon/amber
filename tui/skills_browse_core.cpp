@@ -120,6 +120,22 @@ bool SkillsBrowseCore::matches(const SkillRow& row) const {
            ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
 }
 
+BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required) {
+    BatchPlan plan;
+    for (const auto& candidate : candidates) {
+        if (candidate.exists_in_scope) {
+            plan.skipped.push_back(candidate.name + " (name collision)");
+            continue;
+        }
+        if (review_required && !candidate.official && !candidate.previewed) {
+            plan.skipped.push_back(candidate.name + " (review required: p reads it)");
+            continue;
+        }
+        plan.install_ids.push_back(candidate.id);
+    }
+    return plan;
+}
+
 bool skill_tab_available(SkillTab tab) noexcept {
     return tab == SkillTab::Top || tab == SkillTab::Installed || tab == SkillTab::Updates;
 }
@@ -389,11 +405,12 @@ SkillIntent SkillsBrowseCore::table_action(int ch, const SkillRow& row) {
         SkillIntent::Kind kind;
     };
     static constexpr Action kActions[] = {
-        {'u', SkillIntent::Kind::Update},        {'D', SkillIntent::Kind::Remove},
-        {'x', SkillIntent::Kind::ToggleEnabled}, {'b', SkillIntent::Kind::Block},
-        {'A', SkillIntent::Kind::Adopt},         {'d', SkillIntent::Kind::Diff},
-        {'p', SkillIntent::Kind::Preview},       {'v', SkillIntent::Kind::Audit},
-        {'o', SkillIntent::Kind::SourceUrl},     {'y', SkillIntent::Kind::Copy},
+        {'u', SkillIntent::Kind::Update}, {'U', SkillIntent::Kind::UpdateAll},
+        {'D', SkillIntent::Kind::Remove}, {'x', SkillIntent::Kind::ToggleEnabled},
+        {'b', SkillIntent::Kind::Block},  {'A', SkillIntent::Kind::Adopt},
+        {'d', SkillIntent::Kind::Diff},   {'p', SkillIntent::Kind::Preview},
+        {'v', SkillIntent::Kind::Audit},  {'o', SkillIntent::Kind::SourceUrl},
+        {'y', SkillIntent::Kind::Copy},
     };
     for (const auto& action : kActions) {
         if (action.key == ch)

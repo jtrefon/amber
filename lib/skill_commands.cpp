@@ -158,44 +158,91 @@ bool valid_index(const std::string& value) {
 
 } // namespace
 
-bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const std::string& value,
-                                     std::string& message) {
-    if (key == "review" || key == "audit") {
+namespace {
+
+// The keys whose value is on/off, and the field each one writes.
+struct FlagSetting {
+    const char* key;
+    bool Config::*field;
+};
+
+constexpr FlagSetting kFlagSettings[] = {
+    {"review", &Config::skills_review_required},
+    {"audit", &Config::skills_audit_required},
+    {"update-review", &Config::skills_update_review},
+};
+
+enum class SettingResult : unsigned char { Unknown, Applied, Invalid };
+
+SettingResult apply_flag_setting(Config& cfg, const std::string& key, const std::string& value,
+                                 std::string& message) {
+    for (const auto& setting : kFlagSettings) {
+        if (key != setting.key)
+            continue;
         bool on = false;
         if (!on_off(value, on)) {
             message = "usage: /set skills " + key + " on|off";
-            return false;
+            return SettingResult::Invalid;
         }
-        (key == "review" ? cfg.skills_review_required : cfg.skills_audit_required) = on;
+        cfg.*setting.field = on;
         message = "skills " + key + ": " + (on ? "on" : "off");
-        return true;
+        return SettingResult::Applied;
     }
+    return SettingResult::Unknown;
+}
+
+SettingResult apply_choice_setting(Config& cfg, const std::string& key, const std::string& value,
+                                   std::string& message) {
     if (key == "scope") {
         if (value != "project" && value != "global") {
             message = "usage: /set skills scope project|global";
-            return false;
+            return SettingResult::Invalid;
         }
         cfg.skills_install_scope = value;
         message = "skills install scope: " + value;
-        return true;
+        return SettingResult::Applied;
     }
-    if (key == "index") {
-        if (!valid_index(value)) {
-            message = "usage: /set skills index skills.sh|none|<http(s) base URL>";
-            return false;
+    if (key == "update-check") {
+        if (value != "manual" && value != "daily" && value != "never") {
+            message = "usage: /set skills update-check manual|daily|never";
+            return SettingResult::Invalid;
         }
-        cfg.skills_index = value;
-        message = "skills index: " + value;
-        return true;
+        cfg.skills_update_check = value;
+        message = "skills update check: " + value;
+        return SettingResult::Applied;
     }
-    message = "usage: /set skills review|audit|scope|index <value>";
+    if (key != "index")
+        return SettingResult::Unknown;
+    if (!valid_index(value)) {
+        message = "usage: /set skills index skills.sh|none|<http(s) base URL>";
+        return SettingResult::Invalid;
+    }
+    cfg.skills_index = value;
+    message = "skills index: " + value;
+    return SettingResult::Applied;
+}
+
+} // namespace
+
+bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const std::string& value,
+                                     std::string& message) {
+    const SettingResult flag = apply_flag_setting(cfg, key, value, message);
+    if (flag != SettingResult::Unknown)
+        return flag == SettingResult::Applied;
+    const SettingResult choice = apply_choice_setting(cfg, key, value, message);
+    if (choice != SettingResult::Unknown)
+        return choice == SettingResult::Applied;
+    message = "usage: /set skills review|audit|update-review|scope|index|update-check <value>";
     return false;
 }
 
 std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg) {
-    return {"index      " + cfg.skills_index, "scope      " + cfg.skills_install_scope,
+    return {"index      " + cfg.skills_index,
+            "scope      " + cfg.skills_install_scope,
             "review     " + std::string(cfg.skills_review_required ? "on" : "off"),
-            "audit      " + std::string(cfg.skills_audit_required ? "on" : "off")};
+            "audit      " + std::string(cfg.skills_audit_required ? "on" : "off"),
+            "update-review " + std::string(cfg.skills_update_review ? "on" : "off"),
+            "update-check " + cfg.skills_update_check};
 }
 
 } // namespace agent

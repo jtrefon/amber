@@ -41,15 +41,15 @@ std::string failure_text(const agent::IndexFailure& error) {
     case agent::IndexError::Disabled:
         return "index disabled (skills_index = none)";
     case agent::IndexError::Offline:
-        return "offline";
+        return "offline · R retries";
     case agent::IndexError::Timeout:
-        return "timed out";
+        return "timed out · R retries";
     case agent::IndexError::Cancelled:
         return "cancelled";
     case agent::IndexError::RateLimited:
         return "rate limited" + (error.retry_after_s > 0
                                      ? " (retry in " + std::to_string(error.retry_after_s) + "s)"
-                                     : "");
+                                     : " · R retries");
     case agent::IndexError::Http:
         return "registry returned HTTP " + std::to_string(error.status);
     case agent::IndexError::Malformed:
@@ -110,8 +110,15 @@ void draw_tabs(WINDOW* w, int row, int width, SkillTab tab) {
     }
 }
 
-void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, bool selected) {
+struct RowFlags {
+    bool selected = false;
+    bool marked = false;
+};
+
+void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, RowFlags flags) {
     std::string badges;
+    if (flags.marked)
+        badges += "\u2022";
     if (row.installed)
         badges += "*";
     if (row.update)
@@ -128,7 +135,7 @@ void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, bool sele
     const std::string tail = compact_installs(row.ref.installs);
     const int tail_x = std::max(28, width - static_cast<int>(tail.size()) - 1);
 
-    if (selected)
+    if (flags.selected)
         wattron(w, A_REVERSE);
     mvwhline(w, y, x, ' ', std::max(0, width));
     mvwaddnstr(w, y, x, name.c_str(), 27);
@@ -140,7 +147,7 @@ void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, bool sele
         mvwaddnstr(w, y, x + 32, source.c_str(), std::max(0, tail_x - 33));
     }
     mvwaddnstr(w, y, x + tail_x, tail.c_str(), static_cast<int>(tail.size()));
-    if (selected)
+    if (flags.selected)
         wattroff(w, A_REVERSE);
 }
 
@@ -250,8 +257,9 @@ void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& quer
         const int index = core.scroll_offset() + i;
         if (index >= static_cast<int>(rows_now.size()))
             break;
-        draw_row(w, rect.y + i, rect.x, rect.width, rows_now[static_cast<size_t>(index)],
-                 index == core.selection());
+        const SkillRow& row = rows_now[static_cast<size_t>(index)];
+        draw_row(w, rect.y + i, rect.x, rect.width, row,
+                 RowFlags{index == core.selection(), core.marked(row.ref.id)});
     }
     if (rows_now.empty()) {
         const char* message = "Type a query to search.";
@@ -279,6 +287,15 @@ void paint_detail_pane(WINDOW* w, const SkillsBrowseCore& core,
             view = it->second;
     }
     draw_detail(w, rect.y, rect.x, rect.height, rect.width, view);
+}
+
+std::string explorer_footer(const SkillsBrowseCore& core, const std::string& last_status) {
+    std::string footer;
+    if (!core.marks().empty())
+        footer = std::to_string(core.marks().size()) + " marked · i installs all · Space marks  ";
+    footer +=
+        core.error().kind != agent::IndexError::None ? failure_text(core.error()) : last_status;
+    return footer;
 }
 
 const char* sort_name(SkillSort sort) {
@@ -327,8 +344,7 @@ void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& 
     if (layout.show_facets)
         draw_facets(w, core, top, height, facet_w - 1);
     paint_rows(w, core, query, ListRect{list_x, top, list_w, height});
-    const std::string footer =
-        core.error().kind != agent::IndexError::None ? failure_text(core.error()) : last_status;
+    const std::string footer = explorer_footer(core, last_status);
     if (!footer.empty())
         mvwaddnstr(w, top + height, 0, footer.c_str(), std::max(0, aw - 1));
 
@@ -350,6 +366,8 @@ public:
                           {"Enter", "detail"},
                           {"i", "install"},
                           {"u", "update"},
+                          {"U", "update all"},
+                          {"d", "diff"},
                           {"?", "help"},
                           {"Esc", "close"}});
         keypad(dlg_->win(), TRUE);
@@ -408,6 +426,20 @@ private:
         core_.set_installed(installed_rows_);
     }
 
+    // By value: `visible()` builds a fresh vector each call, so a pointer into
+    // it would dangle the moment it returns.
+    std::optional<SkillRow> find_row(const std::string& id) const {
+        for (const auto& row : core_.visible()) {
+            if (row.ref.id == id)
+                return row;
+        }
+        for (const auto& row : installed_rows_) {
+            if (row.ref.id == id)
+                return row;
+        }
+        return std::nullopt;
+    }
+
     std::optional<agent::SkillRef> find_ref(const std::string& id) const {
         for (const auto& row : core_.visible())
             if (row.ref.id == id)
@@ -434,10 +466,18 @@ private:
     void on_detail(const SkillsEvent& event);
     void on_install(const SkillsEvent& event);
     void prompt_install(const std::string& id);
+    void install_marked(const std::vector<std::string>& ids);
+    void on_batch_install(const SkillsEvent& event);
+    std::string batch_summary() const;
+    void review_pending_update(const agent::SkillDetail& detail);
+    bool install_batched(const agent::SkillDetail& detail);
     bool apply_lifecycle(const SkillIntent& intent);
     bool preview(const SkillRow& row);
     bool audit(const SkillRow& row);
     void remove_current(const SkillRow& row);
+    void show_review(const agent::UpdateReview& review);
+    void update_all();
+    bool show_diff(const SkillRow& row);
     void update_current(const SkillRow& row);
     bool confirm(const std::string& title, const std::string& text,
                  const std::string& note = {}) const;
@@ -455,6 +495,14 @@ private:
     std::string query_;
     std::string pending_install_;
     std::string pending_update_;
+    std::string pending_diff_;
+    std::string pending_apply_;
+    std::set<std::string> previewed_;
+    std::set<std::string> batch_pending_;
+    std::set<std::string> batch_names_;
+    int batch_total_ = 0;
+    int batch_installed_ = 0;
+    std::vector<std::string> batch_skipped_;
     std::string pending_preview_;
     std::string last_status_;
     bool pending_search_ = false;
@@ -496,6 +544,9 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
     case SkillIntent::Kind::Install:
         prompt_install(intent.id);
         return true;
+    case SkillIntent::Kind::InstallMarked:
+        install_marked(intent.ids);
+        return true;
     case SkillIntent::Kind::SetTab:
         apply_tab(intent.tab);
         return true;
@@ -531,16 +582,72 @@ void SkillsExplorer::remove_current(const SkillRow& row) {
     refresh_installed();
 }
 
+void SkillsExplorer::show_review(const agent::UpdateReview& review) {
+    std::string body;
+    for (const auto& line : agent::update_review_lines(review))
+        body += line + "\n";
+    run_body_preview(review.name + " update", body);
+}
+
 void SkillsExplorer::update_current(const SkillRow& row) {
+    const std::string name = row.ref.name;
+    if (options_.update_check_disabled) {
+        last_status_ = "update checks are disabled (skills_update_check=never)";
+        return;
+    }
+    if (const auto review = life_->review_for(name)) {
+        // First press: show what would change. Second press: apply, and for a
+        // locally edited skill that second press is the explicit override.
+        if (options_.update_review_required && pending_apply_ != name) {
+            show_review(*review);
+            pending_apply_ = name;
+            last_status_ = review->needs_override()
+                               ? "local edits · u again overrides and replaces them"
+                               : "review closed · u applies";
+            return;
+        }
+        pending_apply_.clear();
+        last_status_ = life_->apply_update(row, review->needs_override());
+        refresh_installed();
+        return;
+    }
     agent::SkillRef ref;
     const UpdateAction action = life_->prepare_update(row, ref, last_status_);
     if (action == UpdateAction::Fetch) {
-        pending_update_ = row.ref.name;
+        pending_update_ = name;
         service_->detail(ref);
     } else if (action == UpdateAction::Apply) {
         last_status_ = life_->apply_update(row);
         refresh_installed();
     }
+}
+
+bool SkillsExplorer::show_diff(const SkillRow& row) {
+    if (options_.update_check_disabled && !life_->review_for(row.ref.name)) {
+        last_status_ = "update checks are disabled (skills_update_check=never)";
+        return true;
+    }
+    if (const auto review = life_->review_for(row.ref.name)) {
+        show_review(*review);
+        last_status_ = review->needs_override() ? "local edits · u overrides and replaces them"
+                                                : "diff closed · u applies";
+        return true;
+    }
+    agent::SkillRef ref;
+    const UpdateAction action = life_->prepare_update(row, ref, last_status_);
+    if (action == UpdateAction::Fetch) {
+        pending_diff_ = row.ref.name;
+        service_->detail(ref);
+    } else if (action == UpdateAction::None) {
+        return true;
+    }
+    return true;
+}
+
+void SkillsExplorer::update_all() {
+    last_status_ = life_->apply_all(installed_rows_);
+    pending_apply_.clear();
+    refresh_installed();
 }
 
 bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
@@ -560,6 +667,11 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
     case SkillIntent::Kind::Update:
         update_current(*row);
         return true;
+    case SkillIntent::Kind::UpdateAll:
+        update_all();
+        return true;
+    case SkillIntent::Kind::Diff:
+        return show_diff(*row);
     case SkillIntent::Kind::ToggleEnabled:
         last_status_ = life_->toggle(*row);
         refresh_installed();
@@ -587,6 +699,7 @@ bool SkillsExplorer::preview(const SkillRow& row) {
         last_status_ = "loading body...";
         return true;
     }
+    previewed_.insert(row.ref.name);
     run_body_preview(row.ref.name, raw->second.body);
     last_status_ = "preview closed";
     return true;
@@ -638,10 +751,14 @@ void SkillsExplorer::help() const {
         "i          install sheet (review gate)",
         "p          preview the body",
         "v          audit readout (risk signals)",
-        "u          check for an update; again to apply",
+        "u          review an update; u again applies",
+        "U          apply every reviewed update",
+        "d          diff installed vs remote",
         "D          remove the selected skill",
         "x / b      disable / block",
         "A          adopt an unmanaged directory",
+        "Space      mark a row; a marks the visible ones",
+        "i          install the marked rows, or open the sheet",
         "1..7       shelves (Top, Installed, Updates have data)",
         "s          cycle sort: relevance, installs, name",
         "Tab        move focus between panes",
@@ -697,6 +814,34 @@ void SkillsExplorer::on_search(const SkillsEvent& event) {
     last_status_ = std::to_string(event.search.page->skills.size()) + " results";
 }
 
+void SkillsExplorer::review_pending_update(const agent::SkillDetail& detail) {
+    const std::string name = detail.ref.name;
+    const bool wants_diff = pending_diff_ == name;
+    pending_update_.clear();
+    pending_diff_.clear();
+    const SkillRow* row = installed_row(installed_rows_, name);
+    if (!row)
+        return;
+    last_status_ = life_->check_update(*row, detail);
+    refresh_installed();
+    const auto review = life_->review_for(name);
+    if (review && (wants_diff || options_.update_review_required)) {
+        show_review(*review);
+        pending_apply_ = name;
+        last_status_ = review->needs_override() ? "local edits · u overrides and replaces them"
+                                                : "review closed · u applies";
+    }
+}
+
+bool SkillsExplorer::install_batched(const agent::SkillDetail& detail) {
+    if (batch_pending_.erase(detail.ref.id) == 0)
+        return false;
+    const std::string root = options_.install_global ? options_.global_root : options_.project_root;
+    service_->install(detail, agent::skill_slug(detail.ref.id), root, false, true);
+    last_status_ = "installing " + detail.ref.name + "...";
+    return true;
+}
+
 void SkillsExplorer::on_detail(const SkillsEvent& event) {
     if (!event.detail.detail) {
         last_status_ = failure_text(event.detail.error);
@@ -713,15 +858,12 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
         last_status_ = "preview closed";
         return;
     }
-    if (!pending_update_.empty()) {
-        const std::string name = pending_update_;
-        pending_update_.clear();
-        if (const SkillRow* row = installed_row(installed_rows_, name)) {
-            last_status_ = life_->check_update(*row, detail);
-            refresh_installed();
-        }
+    if (pending_update_ == detail.ref.name || pending_diff_ == detail.ref.name) {
+        review_pending_update(detail);
         return;
     }
+    if (install_batched(detail))
+        return;
     if (pending_install_ == detail.ref.id) {
         pending_install_.clear();
         prompt_install(detail.ref.id);
@@ -729,12 +871,79 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
 }
 
 void SkillsExplorer::on_install(const SkillsEvent& event) {
+    if (batch_total_ > 0) {
+        on_batch_install(event);
+        return;
+    }
     if (!event.install.ok) {
         last_status_ = "install failed: " + event.install.error;
         return;
     }
     last_status_ = "installed " + event.name + " · " + std::to_string(event.install.files) +
                    " files" + (event.ledger_saved ? "" : " (ledger not saved)");
+    refresh_installed();
+}
+
+void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
+    batch_pending_.clear();
+    batch_names_.clear();
+    batch_skipped_.clear();
+    batch_total_ = 0;
+    batch_installed_ = 0;
+    const std::string root = options_.install_global ? options_.global_root : options_.project_root;
+    std::vector<BatchCandidate> candidates;
+    for (const auto& id : ids) {
+        BatchCandidate candidate;
+        candidate.id = id;
+        candidate.name = agent::skill_slug(id);
+        candidate.previewed = previewed_.count(candidate.name) != 0;
+        candidate.exists_in_scope = std::filesystem::exists(root + "/" + candidate.name);
+        if (const auto row = find_row(id))
+            candidate.official = row->official;
+        candidates.push_back(std::move(candidate));
+    }
+    const BatchPlan plan = plan_batch(candidates, options_.review_required);
+    batch_skipped_ = plan.skipped;
+    for (const auto& id : plan.install_ids) {
+        const auto ref = find_ref(id);
+        if (!ref)
+            continue;
+        batch_pending_.insert(id);
+        batch_names_.insert(agent::skill_slug(id));
+        ++batch_total_;
+        service_->detail(*ref);
+    }
+    last_status_ =
+        plan.install_ids.empty()
+            ? batch_summary()
+            : "installing " + std::to_string(plan.install_ids.size()) + " marked skills...";
+}
+
+std::string SkillsExplorer::batch_summary() const {
+    std::string summary = std::to_string(batch_installed_) + " installed";
+    if (batch_skipped_.empty())
+        return summary;
+    summary += ", " + std::to_string(batch_skipped_.size()) + " skipped: ";
+    for (std::size_t i = 0; i < batch_skipped_.size(); ++i) {
+        if (i > 0)
+            summary += ", ";
+        summary += batch_skipped_[i];
+    }
+    return summary;
+}
+
+void SkillsExplorer::on_batch_install(const SkillsEvent& event) {
+    if (batch_names_.count(event.name) == 0)
+        return;
+    batch_names_.erase(event.name);
+    if (event.install.ok)
+        ++batch_installed_;
+    else
+        batch_skipped_.emplace_back(event.name + " (" + event.install.error + ")");
+    if (!batch_names_.empty())
+        return;
+    batch_total_ = 0;
+    last_status_ = batch_summary();
     refresh_installed();
 }
 

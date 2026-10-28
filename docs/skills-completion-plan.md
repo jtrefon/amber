@@ -7,10 +7,34 @@ fix). The plan file is updated as features land.
 | Feature | Closes | State |
 |---|---|---|
 | **F1 settings & truth** — the documented gates, scope and index become real; docs/help/website/MISSION stop overstating | #401, #411 residual | in progress |
-| **F2 browse surface** — shelves, facets, responsive layout | #397 (shell), #405 (Updates shelf), #406 (facets/sort) | in review |
-| **F3 update review** — diff pager, update-all, update settings | #402 | queued |
-| **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | queued |
+| **F2 browse surface** — shelves, facets, responsive layout | #397 (shell), #405 (Updates shelf), #406 (facets/sort) | landed (#471) |
+| **F3 update review** — diff pager, update-all, update settings | #402 | in review |
+| **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | in review |
 | **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | queued |
+
+## F4 tasks
+
+- [x] Marks: `Space` toggles, `a` marks the visible rows, the footer counts them,
+      rows paint the mark, `i` installs the marked set.
+- [x] `tui::plan_batch`: collisions and unread community sources are skipped by
+      name; official sources bypass the review gate; a batch summary reports both
+      halves.
+- [x] Degradation text names the cause and the way out: `offline · R retries`,
+      `rate limited (retry in Ns)`, `[cached]` for stale answers.
+- [ ] Cached search/detail reuse and a per-source backoff (#407 proper) — the
+      transport still re-asks on every explicit retry.
+
+## F3 tasks
+
+- [x] `agent::diff_lines` / `render_unified_diff`: bounded line diff with hunks.
+- [x] `agent::build_update_review`: body diff, added/removed files, local-edit flag.
+- [x] Explorer: `u` reviews then applies, `d` diffs alone, `U` applies every
+      reviewed update, `?` help lists them.
+- [x] Local edits need the second `u`; `skills_update_review` and
+      `skills_update_check` are real settings.
+- [x] CLI: `--diff`, `--force`, `--all`, `--check`, and a non-zero exit when an
+      update is refused.
+- [x] Docs: guide, spec, website, manual, command tree.
 
 ## F1 tasks
 

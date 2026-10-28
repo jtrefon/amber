@@ -89,13 +89,15 @@ tui::SkillsLifecycleOptions options_for(const std::string& root,
     return options;
 }
 
-agent::SkillDetail detail_for(const std::string& name, const std::string& hash) {
+agent::SkillDetail detail_for(const std::string& name, const std::string& hash,
+                              const std::string& body = {}) {
     agent::SkillDetail detail;
     detail.ref.id = "acme/skills/" + name;
     detail.ref.name = name;
     detail.ref.source = "acme/skills";
     detail.hash = hash;
     detail.default_branch = "main";
+    detail.body = body;
     return detail;
 }
 
@@ -164,12 +166,17 @@ TEST(lifecycle_update_check_reports_and_flags) {
               std::string("mine is up to date"));
     ASSERT_TRUE(!life.has_update("mine"));
 
-    ASSERT_EQ(life.check_update(row, detail_for("mine", "new")),
-              std::string("update available for mine (u applies)"));
+    const std::string status = life.check_update(row, detail_for("mine", "new", kSkillMd));
+    ASSERT_TRUE(status.find("mine: remote → new") != std::string::npos);
+    ASSERT_TRUE(status.find("+") != std::string::npos); // the body delta is named
     ASSERT_TRUE(life.has_update("mine"));
+    const auto review = life.review_for("mine");
+    ASSERT_TRUE(review.has_value());
+    ASSERT_TRUE(review->has_changes());
+    ASSERT_FALSE(review->needs_override());
 }
 
-TEST(lifecycle_update_refuses_a_local_edit) {
+TEST(lifecycle_local_edit_is_flagged_and_needs_an_override) {
     TempDir tmp("localedit");
     write(tmp.path + "/mine/SKILL.md", kSkillMd);
     put_ledger(tmp.path, "mine", entry_for("mine", "remote", "stale-hash"));
@@ -178,8 +185,20 @@ TEST(lifecycle_update_refuses_a_local_edit) {
     tui::SkillsLifecycle life(options_for(tmp.path, nullptr), service);
     const auto row = row_for(tmp.path, "mine");
 
-    ASSERT_EQ(life.check_update(row, detail_for("mine", "new")),
-              std::string("mine has local edits; update refused"));
+    const std::string status =
+        life.check_update(row, detail_for("mine", "new", "---\nname: mine\n---\nremote\n"));
+    ASSERT_TRUE(status.find("local edits") != std::string::npos);
+    ASSERT_TRUE(life.has_update("mine")); // the update is still offered, with a warning
+
+    const auto review = life.review_for("mine");
+    ASSERT_TRUE(review.has_value());
+    ASSERT_TRUE(review->needs_override());
+
+    ASSERT_TRUE(life.apply_update(row).find("override") != std::string::npos);
+    ASSERT_TRUE(life.has_update("mine")); // a refusal changes nothing
+
+    ASSERT_TRUE(life.apply_update(row, true).find("updating mine") != std::string::npos);
+    life.on_install("mine"); // the badge clears when the install event arrives
     ASSERT_TRUE(!life.has_update("mine"));
 }
 
@@ -199,7 +218,7 @@ TEST(lifecycle_prepare_update_handles_unmanaged_fetch_and_apply) {
     ASSERT_TRUE(life.prepare_update(row, ref, status) == tui::UpdateAction::Fetch);
     ASSERT_EQ(ref.id, std::string("acme/skills/mine"));
 
-    life.check_update(row, detail_for("mine", "new"));
+    life.check_update(row, detail_for("mine", "new", kSkillMd));
     ASSERT_TRUE(life.prepare_update(row, ref, status) == tui::UpdateAction::Apply);
 
     ASSERT_TRUE(life.apply_update(row).find("updating") != std::string::npos);
@@ -215,5 +234,33 @@ TEST(lifecycle_update_without_details_is_refused) {
     tui::SkillsService service(tui::SkillsBackends{});
     tui::SkillsLifecycle life(options_for(tmp.path, nullptr), service);
 
-    ASSERT_TRUE(life.apply_update(row_for(tmp.path, "mine")).find("details") != std::string::npos);
+    ASSERT_TRUE(life.apply_update(row_for(tmp.path, "mine")).find("review") != std::string::npos);
+}
+
+TEST(lifecycle_apply_all_reports_each_outcome) {
+    TempDir tmp("applyall");
+    for (const char* name : {"clean", "edited"}) {
+        write(tmp.path + "/" + name + "/SKILL.md", kSkillMd);
+        put_ledger(tmp.path, name, entry_for(name, "remote", agent::skill_content_hash(kSkillMd)));
+    }
+    // `edited` was changed after install, so its local hash no longer matches.
+    write(tmp.path + "/edited/SKILL.md", std::string(kSkillMd) + "my notes\n");
+    tui::SkillsService service(tui::SkillsBackends{});
+    tui::SkillsLifecycle life(options_for(tmp.path, nullptr), service);
+    std::vector<tui::SkillRow> rows;
+    for (const char* name : {"clean", "edited"})
+        rows.push_back(row_for(tmp.path, name));
+    life.set_installed(rows);
+
+    life.check_update(rows[0], detail_for("clean", "new", kSkillMd));
+    life.check_update(rows[1], detail_for("edited", "new", "remote body\n"));
+
+    const std::string summary = life.apply_all(rows);
+    ASSERT_TRUE(summary.find("1 updated") != std::string::npos);
+    ASSERT_TRUE(summary.find("1 skipped") != std::string::npos);
+    ASSERT_TRUE(summary.find("edited (local edits)") != std::string::npos);
+    ASSERT_TRUE(life.has_update("clean"));  // cleared by the install event, not the request
+    ASSERT_TRUE(life.has_update("edited")); // skipped, so still offered
+    life.on_install("clean");
+    ASSERT_TRUE(!life.has_update("clean"));
 }

@@ -202,27 +202,61 @@ bool valid_index_source(const std::string& value) {
            value.rfind("https://", 0) == 0;
 }
 
+// The two boolean acquisition keys, as data: adding one is a row, not a branch.
+struct AcquisitionFlag {
+    const char* key;
+    bool Config::*field;
+};
+
+constexpr AcquisitionFlag kAcquisitionFlags[] = {
+    {"skills_review_required", &Config::skills_review_required},
+    {"skills_audit_required", &Config::skills_audit_required},
+    {"skills_update_review", &Config::skills_update_review},
+};
+
+const char* acquisition_string_warning(const std::string& key, const std::string& value) {
+    if (key == "skills_index" && !valid_index_source(value))
+        return "skills_index: expected skills.sh, none or an http(s) URL";
+    if (key == "skills_install_scope" && value != "project" && value != "global")
+        return "skills_install_scope: expected project or global";
+    if (key == "skills_update_check" && value != "manual" && value != "daily" && value != "never")
+        return "skills_update_check: expected manual, daily or never";
+    return nullptr;
+}
+
+void apply_acquisition_string(Config& c, const std::string& key, const std::string& val,
+                              std::vector<std::string>& warnings) {
+    if (const char* problem = acquisition_string_warning(key, val)) {
+        warnings.emplace_back(problem);
+        return;
+    }
+    if (key == "skills_index")
+        c.skills_index = val;
+    else if (key == "skills_install_scope")
+        c.skills_install_scope = val;
+    else if (key == "skills_update_check")
+        c.skills_update_check = val;
+    else if (key == "skills_index_token_env")
+        c.skills_index_token_env = val;
+    else if (key == "skills_github_token_env")
+        c.skills_github_token_env = val;
+}
+
+bool is_acquisition_string_key(const std::string& key) {
+    return key == "skills_index" || key == "skills_install_scope" || key == "skills_update_check" ||
+           key == "skills_index_token_env" || key == "skills_github_token_env";
+}
+
 void apply_acquisition_keys(Config& c, const std::string& key, const std::string& val,
                             std::vector<std::string>& warnings) {
-    if (key == "skills_index") {
-        if (valid_index_source(val))
-            c.skills_index = val;
-        else
-            warnings.emplace_back("skills_index: expected skills.sh, none or an http(s) URL");
-    } else if (key == "skills_install_scope") {
-        if (val == "project" || val == "global")
-            c.skills_install_scope = val;
-        else
-            warnings.emplace_back("skills_install_scope: expected project or global");
-    } else if (key == "skills_review_required") {
-        c.skills_review_required = parse_bool(val);
-    } else if (key == "skills_audit_required") {
-        c.skills_audit_required = parse_bool(val);
-    } else if (key == "skills_index_token_env") {
-        c.skills_index_token_env = val;
-    } else if (key == "skills_github_token_env") {
-        c.skills_github_token_env = val;
+    for (const auto& flag : kAcquisitionFlags) {
+        if (key == flag.key) {
+            c.*flag.field = parse_bool(val);
+            return;
+        }
     }
+    if (is_acquisition_string_key(key))
+        apply_acquisition_string(c, key, val, warnings);
 }
 
 void apply_skills_keys(Config& c, const std::string& key, const std::string& val,
@@ -433,6 +467,8 @@ bool Config::save_settings(const std::string& path) const {
     f << "skills_install_scope=" << skills_install_scope << "\n";
     f << "skills_review_required=" << (skills_review_required ? 1 : 0) << "\n";
     f << "skills_audit_required=" << (skills_audit_required ? 1 : 0) << "\n";
+    f << "skills_update_review=" << (skills_update_review ? 1 : 0) << "\n";
+    f << "skills_update_check=" << skills_update_check << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
     return write_private_file(path, f.str());
 }
