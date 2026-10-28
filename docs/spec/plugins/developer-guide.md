@@ -69,7 +69,7 @@ bug.
 | External tool plugin (subprocess, JSON-RPC) | ✅ Available | `plugins/README.md` |
 | Tool contribution (incl. the core tool set) | ✅ Available | `ToolCapability` |
 | Tool source — a tool set discovered while the plugin is active | ✅ Available | `ToolSourceCapability`, owner-scoped `ToolPort`, §2; the `mcp` plugin is the worked example |
-| Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token |
+| Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token, shaping queue |
 | Typed event subscription | ✅ Available | `Events`, §3 |
 | Prompt block contribution | ✅ Available | `PromptBlockCapability` |
 | External plugins under the unified registry | ✅ Available | `ExternalPluginAdapter` |
@@ -667,7 +667,10 @@ in one sitting and each a template for the next:
 The other bundled plugins are not providers. The tool set is one plugin per
 tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
-`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_plan/`,
+`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_context/` (the
+`context` tool, which lets the model name tool results the conversation has
+stopped needing and leaves the plan on the host's shaping queue for the agent
+to apply at its next request boundary), `plugins/tool_plan/`,
 `plugins/tool_task/`, `plugins/tool_skills/` and `plugins/tool_rate/` (the
 `wait` and `throttle` tools, which expose the provider governor's one-off pause
 and its interval/ceiling controls) (read_skill, list_skills and

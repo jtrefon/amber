@@ -600,6 +600,30 @@ TEST(test_drawer_rows_children_and_help) {
     ASSERT(found);
 }
 
+// ── Test: an empty or non-command line cannot be parsed as a drawer query ──
+//
+// The renderer paints the drawer from the command line's text. A stale "open"
+// flag used to reach drawer_rows() with an empty line, and parse_drawer_input
+// sliced it with substr(1), throwing out_of_range out of the idle tick — the
+// whole TUI died with "fatal: basic_string::substr: __pos (which is 1) > this
+// (which is 0)". The parser itself must refuse a line that has no leading "/".
+TEST(test_drawer_rows_tolerates_a_line_without_a_slash) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    bool threw = false;
+    std::vector<std::string> empty_rows;
+    std::vector<std::string> plain_rows;
+    try {
+        empty_rows = tui::drawer_rows("", reg, "");
+        plain_rows = tui::drawer_rows("set model", reg, "");
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    ASSERT(!threw);
+    ASSERT(empty_rows.empty());
+    ASSERT(plain_rows.empty());
+}
+
 // ── Test: the drawer filter matches anywhere in the id, not only its prefix ──
 //
 // Model ids are "vendor/name". Someone hunting for "space bunny" types
@@ -1928,6 +1952,7 @@ int main() {
         test_complete_depth1_namespace_matches_at_top();
         test_empty_registry();
         test_drawer_namespace_levels();
+        test_drawer_rows_tolerates_a_line_without_a_slash();
         test_model_command_is_leaf();
         test_model_lives_under_get_set();
         test_set_model_feed_leaves_complete();

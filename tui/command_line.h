@@ -189,6 +189,10 @@ private:
     size_t history_pos_ = 0;
 
     // Internal helpers
+    // Every edit ends here: the drawer flag and the shadow are derived from the
+    // text, so a line that lost its leading "/" (Ctrl-U, Ctrl-K, undo) cannot
+    // leave a drawer open over an empty prompt.
+    void edited();
     void recompute(); // update shadow, drawer after mutation
     void save_undo(); // save state for undo
 

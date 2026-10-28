@@ -30,6 +30,8 @@
 
 namespace agent {
 
+class ShapeQueue;
+
 // Coarse activity state for a status-bar connection indicator.
 enum class RunState : std::uint8_t {
     Idle,      // waiting, no request in flight
@@ -160,6 +162,11 @@ public:
     // Replace the conversation with a previously saved one (e.g. loaded from a
     // session file). Clears telemetry log association.
     void set_context(std::vector<Message> messages);
+
+    // The host's shaping queue: the model's plan waits here until the next
+    // request boundary. Null means the host did not wire shaping.
+    void set_shape_queue(ShapeQueue* queue) { shape_queue_ = queue; }
+    ShapeQueue* shape_queue() const { return shape_queue_; }
 
     // Force immediate compression of the conversation history, bypassing
     // the gate.  The compressed history replaces the full history (via
@@ -412,6 +419,11 @@ private:
                                   std::vector<Message>& compressed,
                                   const CompressionRequestPrefix& prefix);
     void rebuild_context(std::vector<Message>& compressed);
+
+    // Validate and apply plans the model submitted, at this request boundary.
+    // Once per user turn, and only when the freed content is worth the rebuild a
+    // changed prefix forces. Returns true when the context was rebuilt.
+    bool apply_pending_shapes(std::vector<Message>& prompt_copy);
     void count_segments(const CompressionResponse& cr, CompressionResult& r);
     void finish_compression(CompressionResult& r, const CompressionResponse& cr, size_t msgs_before,
                             size_t tokens_before, CompressionReporter& reporter,
@@ -532,6 +544,8 @@ private:
     Context context_;
     ContextEventSource context_events_;
     std::set<std::string> session_approved_; // tools granted for the session
+    ShapeQueue* shape_queue_ = nullptr;
+    std::size_t last_shape_turn_ = 0;
     std::unique_ptr<CompressionStrategy> compression_;
     std::unique_ptr<CompressionGate> gate_;
     std::shared_ptr<MemoryStore> memory_store_;

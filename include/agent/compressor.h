@@ -219,6 +219,11 @@ void collapse_loops(std::vector<Message>& history);
 // two-user guard are pruned. Returns the number of messages replaced.
 std::size_t prune_tool_io(std::vector<Message>& history, const CompressionConfig* cfg = nullptr);
 
+// Replace one tool message with a recallable digest, storing the payload on
+// demand when the envelope has no handle. Returns false for a message that is
+// already a digest (the pass stays idempotent).
+bool digest_tool_message(Message& message);
+
 // Keep the newest tool results inside the protected tail that fit its token
 // budget and digest the older ones. This is what gives a single oversized turn
 // relief: the final user prompt and every assistant message always survive, the

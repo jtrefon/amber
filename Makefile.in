@@ -87,6 +87,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/compressor_request.o \
              $(BUILD_DIR)/lib/compressor_parser.o \
              $(BUILD_DIR)/lib/compressor_apply.o \
+             $(BUILD_DIR)/lib/context_shape.o \
              $(BUILD_DIR)/lib/compressor_reporter.o \
               $(BUILD_DIR)/lib/memory_store.o \
               $(BUILD_DIR)/lib/memory_scoring.o \
@@ -131,6 +132,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/tool_write/tool_write_plugin.o \
               $(BUILD_DIR)/plugins/tool_bash/tool_bash_plugin.o \
               $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
+              $(BUILD_DIR)/plugins/tool_context/tool_context_plugin.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
               $(BUILD_DIR)/plugins/tool_skills/tool_skills_plugin.o \
@@ -185,6 +187,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/search_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/todowrite_tool.o \
+             $(BUILD_DIR)/tools/context_tool.o \
              $(BUILD_DIR)/tools/task_tool.o \
              $(BUILD_DIR)/lib/subagent.o \
              $(BUILD_DIR)/lib/providers_service.o \

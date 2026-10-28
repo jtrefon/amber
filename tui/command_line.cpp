@@ -103,6 +103,11 @@ std::string CommandLine::completion_shadow(const std::string& partial) const {
     return "";
 }
 
+void CommandLine::edited() {
+    reset_cycle();
+    recompute();
+}
+
 void CommandLine::recompute() {
     shadow_.clear();
 
@@ -347,8 +352,7 @@ CommandLine::Result CommandLine::on_backspace() {
         --cursor_;
         input_.erase(cursor_, 1);
     }
-    reset_cycle();
-    recompute();
+    edited();
     return r;
 }
 
@@ -390,6 +394,7 @@ CommandLine::Result CommandLine::on_ctrl_w() {
         input_.erase(start, cursor_ - start);
         cursor_ = start;
     }
+    edited();
     return Result{};
 }
 
@@ -397,12 +402,14 @@ CommandLine::Result CommandLine::on_ctrl_u() {
     save_undo();
     input_.erase(0, cursor_);
     cursor_ = 0;
+    edited();
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_ctrl_k() {
     save_undo();
     input_.erase(cursor_);
+    edited();
     return Result{};
 }
 
@@ -412,6 +419,7 @@ CommandLine::Result CommandLine::on_ctrl_y() {
         input_.insert(cursor_, kill_buffer_);
         cursor_ += kill_buffer_.size();
     }
+    edited();
     return Result{};
 }
 
@@ -421,12 +429,14 @@ CommandLine::Result CommandLine::on_ctrl_t() {
         std::swap(input_[cursor_ - 1], input_[cursor_]);
         ++cursor_;
     }
+    edited();
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_undo() {
     std::swap(input_, undo_buffer_);
     std::swap(cursor_, undo_cursor_);
+    edited();
     return Result{};
 }
 

@@ -102,6 +102,11 @@ std::string format_tool_envelope(const std::string& name, const json& args,
                                  const ToolResult& result,
                                  std::size_t budget = kToolResultBudgetDefault);
 
+// The value of one call argument the envelope header echoes (path, pattern),
+// or empty when the header omitted it. The header carries args only for compact
+// calls, which is exactly the case a path lookup needs.
+std::string tool_arg_of(const Message& message, const std::string& key);
+
 // The `result_id` an envelope already carries, or empty when it has none. The
 // id is what `read_result` needs, so a caller that is about to replace the
 // payload asks first and stores it only when the answer is empty.

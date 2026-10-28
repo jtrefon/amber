@@ -241,6 +241,37 @@ static int test_ctrl_k() {
     return 0;
 }
 
+// ── Test: clearing the line closes the drawer with it ──
+//
+// The drawer flag and the text are one piece of state: a command line with no
+// text cannot open a drawer. Ctrl-U used to leave the flag set, so the renderer
+// went on to parse an empty line as a command ("".substr(1)) and threw
+// out_of_range from the idle tick, killing the TUI with no warning.
+static int test_ctrl_u_closes_an_open_drawer() {
+    tui::CommandLine cl;
+    cl.on_char('/');
+    cl.on_char('s');
+    ASSERT(cl.drawer_open());
+    cl.on_ctrl_u();
+    ASSERT_EQ(cl.text(), "");
+    ASSERT(!cl.drawer_open());
+    return 0;
+}
+
+static int test_ctrl_k_closes_an_open_drawer() {
+    tui::CommandLine cl;
+    cl.on_char('/');
+    cl.on_char('s');
+    ASSERT(cl.drawer_open());
+    cl.on_ctrl_k(); // cursor is at the end, so nothing is deleted yet
+    ASSERT(cl.drawer_open());
+    cl.on_ctrl_a();
+    cl.on_ctrl_k(); // now the whole "/s" goes
+    ASSERT_EQ(cl.text(), "");
+    ASSERT(!cl.drawer_open());
+    return 0;
+}
+
 // ── Test: undo ──
 static int test_undo() {
     tui::CommandLine cl;
@@ -494,6 +525,8 @@ int main() {
     failed += run_test("Ctrl-W delete word", test_ctrl_w);
     failed += run_test("Ctrl-U delete to start", test_ctrl_u);
     failed += run_test("Ctrl-K delete to end", test_ctrl_k);
+    failed += run_test("Ctrl-U closes the drawer", test_ctrl_u_closes_an_open_drawer);
+    failed += run_test("Ctrl-K closes the drawer", test_ctrl_k_closes_an_open_drawer);
     failed += run_test("undo", test_undo);
     failed += run_test("? without space → popup", test_question_no_space);
     failed += run_test("? with space → help page", test_question_with_space);

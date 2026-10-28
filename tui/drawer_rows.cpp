@@ -25,6 +25,12 @@ void append_choices(std::string& line, const std::string& key, const SettingRegi
         line += "  [" + std::to_string((int)rlo) + "-" + std::to_string((int)rhi) + "]";
 }
 
+// The drawer is only meaningful for a command line: every row it paints is
+// reachable by typing "/" plus that path.
+bool is_command_line(const std::string& input) {
+    return !input.empty() && input.front() == '/';
+}
+
 // Convert "get policy mode" → "get.policy.mode" (namespaces are indexed
 // by their full display path).
 std::string dotted_path(const std::string& space_separated) {
@@ -82,6 +88,11 @@ struct DrawerQuery {
 // "mode". A missing space means the whole token is partial.
 DrawerQuery parse_drawer_input(const std::string& input, const SettingRegistry& settings) {
     DrawerQuery q;
+    // The drawer belongs to a command line, and a command line starts with "/".
+    // A shorter line has nothing to slice: returning an empty query keeps a
+    // stale caller from throwing out of substring arithmetic.
+    if (input.size() < 2)
+        return q;
     std::string ns_path = input.substr(1);
     const size_t sp = input.find(' ', 1);
     if (sp == std::string::npos) {
@@ -117,8 +128,37 @@ DrawerQuery parse_drawer_input(const std::string& input, const SettingRegistry& 
     return q;
 }
 
+// The keys the drawer lists for a parsed query, and the prefix their full key
+// needs. A partial that names a child with children of its own descends into
+// it -- the rows are that namespace's children, so the partial is consumed
+// rather than applied -- otherwise the partial filters this namespace's
+// children. Rows and entry names share this, because Enter dispatches the entry
+// name while the paint shows the row: they must index the same set.
+std::vector<std::string> drawer_keys(const DrawerQuery& q, const std::vector<std::string>& kids,
+                                     const SettingRegistry& settings, std::string& full_prefix) {
+    full_prefix = q.ns.empty() ? std::string() : q.ns + ".";
+    if (!q.partial.empty()) {
+        const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
+        auto sub = settings.children_of(sub_key);
+        if (!sub.empty()) {
+            full_prefix = sub_key + ".";
+            return sub;
+        }
+    }
+    std::vector<std::string> keys;
+    for (const auto& k : kids)
+        if (drawer_row_matches(k, q.partial))
+            keys.push_back(k);
+    return keys;
+}
+
 std::vector<std::string> drawer_rows(const std::string& input, const SettingRegistry& settings,
                                      const std::string& provider) {
+    // The drawer is a view of a command line. A line that is not one has no
+    // rows -- not the top-level rows, which is what an empty namespace would
+    // otherwise paint under a prompt the user is still typing.
+    if (!is_command_line(input))
+        return {};
     const DrawerQuery q = parse_drawer_input(input, settings);
     std::vector<std::string> rows;
     const auto kids = settings.children_of(q.ns);
@@ -134,26 +174,8 @@ std::vector<std::string> drawer_rows(const std::string& input, const SettingRegi
         return rows;
     }
 
-    // If the partial exactly matches a child that has its own children,
-    // descend into that child's namespace: the rows are that namespace's
-    // children, so the partial is consumed rather than applied. Either way the
-    // provider tab narrows the list to its own rows.
-    std::string full_prefix = q.ns.empty() ? std::string() : q.ns + ".";
-    std::vector<std::string> keys;
-    if (!q.partial.empty()) {
-        const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
-        auto sub = settings.children_of(sub_key);
-        if (!sub.empty()) {
-            keys = std::move(sub);
-            full_prefix = sub_key + ".";
-        }
-    }
-    if (keys.empty()) {
-        for (const auto& k : kids)
-            if (drawer_row_matches(k, q.partial))
-                keys.push_back(k);
-    }
-
+    std::string full_prefix;
+    const std::vector<std::string> keys = drawer_keys(q, kids, settings, full_prefix);
     for (const auto& k : keys) {
         if (!drawer_row_in_provider(k, provider))
             continue;
@@ -179,23 +201,14 @@ std::pair<int, int> drawer_window(int count, int max_visible, int sel) {
 
 std::vector<std::string> drawer_entry_names(const std::string& input,
                                             const SettingRegistry& settings) {
+    if (!is_command_line(input))
+        return {};
     const DrawerQuery q = parse_drawer_input(input, settings);
     const auto kids = settings.children_of(q.ns);
     if (kids.empty())
         return {};
-    if (!q.partial.empty()) {
-        const std::string sub_key = q.ns.empty() ? q.partial : q.ns + "." + q.partial;
-        auto sub = settings.children_of(sub_key);
-        if (!sub.empty())
-            return sub;
-    }
-    std::vector<std::string> out;
-    for (const auto& k : kids) {
-        if (!drawer_row_matches(k, q.partial))
-            continue;
-        out.push_back(k);
-    }
-    return out;
+    std::string full_prefix;
+    return drawer_keys(q, kids, settings, full_prefix);
 }
 
 } // namespace tui

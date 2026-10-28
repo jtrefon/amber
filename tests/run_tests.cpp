@@ -11,6 +11,7 @@
 #include "agent/dialect_openai.h"
 #include "agent/stream_decoder.h"
 #include "agent/compressor.h"
+#include "agent/context_shape.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
 #include "agent/environment.h"
@@ -6202,6 +6203,144 @@ TEST(subagent_tail_is_bounded) {
     for (int i = 0; i < 50; ++i)
         agent::append_task_tail(wide, std::string(500, 'x'));
     ASSERT(wide.size() <= agent::kTaskTailMaxBytes);
+}
+
+TEST(shape_plan_digests_a_live_result_and_keeps_it_recallable) {
+    // The model names evidence; the harness replaces it with a digest that still
+    // carries the handle, so the payload is a read away, not gone.
+    XdgGuard xdg("shape_drop");
+    agent::ToolResult r;
+    r.ok = true;
+    r.output = std::string(4000, 's');
+    const std::string plain = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
+    const std::string id = agent::store_digested_artifact(r.output);
+    ASSERT_EQ(id.size(), 16u);
+    r.meta = {{"result_id", id}};
+    const std::string env = agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),     msg("user", "go"),        tool_call_msg("c1", "read"),
+        tool_result_msg("c1", env), msg("assistant", "done"),
+    };
+    agent::ShapePlan plan;
+    plan.op = agent::ShapeOp::Drop;
+    plan.result_ids = {id};
+    const agent::ShapeOutcome out = agent::apply_shape_plan(hist, plan);
+    ASSERT_EQ(out.applied, 1u);
+    ASSERT(out.freed_bytes > 0u);
+    ASSERT(hist[3].content.rfind("[tool output omitted", 0) == 0);
+    ASSERT(hist[3].content.find("result_id=" + id) != std::string::npos);
+    std::string error;
+    const auto original = agent::read_tool_artifact(id, 0, 8192, "", error);
+    ASSERT(original.has_value());
+    ASSERT_EQ(*original, r.output); // the paged payload, byte for byte
+}
+
+TEST(shape_plan_rejects_an_id_that_is_not_live) {
+    // An id the context no longer carries is reported, not guessed at.
+    XdgGuard xdg("shape_reject");
+    std::vector<agent::Message> hist = {msg("system", "Amber"), msg("user", "go")};
+    agent::ShapePlan plan;
+    plan.result_ids = {"00000000000000ff"};
+    const agent::ShapeOutcome out = agent::apply_shape_plan(hist, plan);
+    ASSERT_EQ(out.applied, 0u);
+    ASSERT_EQ(out.rejected.size(), 1u);
+    ASSERT_EQ(out.rejected.front(), std::string("00000000000000ff"));
+}
+
+TEST(shape_plan_superseded_drops_only_the_earlier_read) {
+    // Read the same file twice: the first read is stale, the second is the one
+    // the task stands on.
+    XdgGuard xdg("shape_superseded");
+    const auto read_env = [](const std::string& body) {
+        agent::ToolResult r;
+        r.ok = true;
+        r.output = body;
+        return agent::format_tool_envelope("read", {{"path", "Makefile"}}, r, 32 * 1024);
+    };
+    const std::string first = read_env(std::string(4000, 'a'));
+    const std::string second = read_env(std::string(4000, 'b'));
+    const std::string id1 = agent::store_digested_artifact(first);
+    const std::string id2 = agent::store_digested_artifact(second);
+    ASSERT_EQ(id1.size(), 16u);
+    ASSERT_EQ(id2.size(), 16u);
+    std::vector<agent::Message> hist = {
+        msg("system", "Amber"),       msg("user", "go"),           tool_call_msg("c1", "read"),
+        tool_result_msg("c1", first), tool_call_msg("c2", "read"), tool_result_msg("c2", second),
+    };
+    agent::ShapePlan plan;
+    plan.op = agent::ShapeOp::Superseded;
+    const agent::ShapeOutcome out = agent::apply_shape_plan(hist, plan);
+    ASSERT_EQ(out.applied, 1u);
+    ASSERT(hist[3].content.rfind("[tool output omitted", 0) == 0);
+    ASSERT_EQ(hist[5].content, second);
+}
+
+TEST(shape_queue_drains_once) {
+    agent::ShapeQueue queue;
+    ASSERT(queue.empty());
+    agent::ShapePlan first;
+    first.result_ids = {"aa"};
+    agent::ShapePlan second;
+    second.op = agent::ShapeOp::Superseded;
+    queue.push(first);
+    queue.push(second);
+    ASSERT(!queue.empty());
+    const std::vector<agent::ShapePlan> drained = queue.drain();
+    ASSERT_EQ(drained.size(), 2u);
+    ASSERT(queue.empty());
+    ASSERT(queue.drain().empty());
+}
+
+TEST(context_tool_queues_a_drop_plan) {
+    // The tool's whole job is to put a plan where the agent will find it. It
+    // never touches the context: the payload's fate is decided at the boundary,
+    // against the history that is there then.
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    ASSERT_EQ(tool->name(), std::string("context"));
+    agent::json args = {
+        {"op", "drop"}, {"result_ids", {"0123456789abcdef"}}, {"reason", "read twice"}};
+    const agent::ToolResult r = tool->execute(args);
+    ASSERT(r.ok);
+    ASSERT(r.output.find("queued") != std::string::npos);
+    ASSERT(!queue.empty());
+    const std::vector<agent::ShapePlan> plans = queue.drain();
+    ASSERT_EQ(plans.size(), 1u);
+    ASSERT(plans.front().op == agent::ShapeOp::Drop);
+    ASSERT_EQ(plans.front().result_ids.size(), 1u);
+    ASSERT_EQ(plans.front().result_ids.front(), std::string("0123456789abcdef"));
+    ASSERT_EQ(plans.front().reason, std::string("read twice"));
+}
+
+TEST(context_tool_superseded_needs_no_ids) {
+    // The agent can ask for the repeated-read set without naming it: the rule
+    // lives in the harness, the trigger lives here.
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "superseded"}});
+    ASSERT(r.ok);
+    const std::vector<agent::ShapePlan> plans = queue.drain();
+    ASSERT_EQ(plans.size(), 1u);
+    ASSERT(plans.front().op == agent::ShapeOp::Superseded);
+    ASSERT(plans.front().result_ids.empty());
+}
+
+TEST(context_tool_refuses_a_drop_without_ids) {
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "drop"}});
+    ASSERT(!r.ok);
+    ASSERT(r.error.find("result_ids") != std::string::npos);
+    ASSERT(queue.empty());
+}
+
+TEST(context_tool_refuses_an_unknown_op) {
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "edit"}});
+    ASSERT(!r.ok);
+    ASSERT(r.error.find("op") != std::string::npos);
+    ASSERT(queue.empty());
 }
 
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {

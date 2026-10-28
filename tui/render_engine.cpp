@@ -743,7 +743,11 @@ void RenderEngine::draw_drawer_tabs(int top) {
 }
 
 void RenderEngine::draw_drawer(const std::string& input) {
-    if (!drawer_open_)
+    // The flag mirrors CommandLine's drawer state, but the line is the fact: a
+    // closed and idle UI repaints the input every tick, and painting a drawer
+    // from text that is no longer a command is how an empty line reached the
+    // parser (and killed the process from the idle tick).
+    if (!drawer_open_ || input.empty() || input.front() != '/')
         return;
     const int bar_row = height() - 2;
     if (tui_.modal_open_) {

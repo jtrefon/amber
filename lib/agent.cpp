@@ -8,6 +8,7 @@
 #include "agent/subagent.h"
 #include "agent/tool_call_parser.h"
 #include "agent/agent_helpers.h"
+#include "agent/context_shape.h"
 #include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
 #include "agent/tools.h"
@@ -459,6 +460,49 @@ bool Agent::maybe_compress(std::vector<Message>& prompt_copy,
     return true;
 }
 
+namespace {
+// The smallest saving worth the rebuild a changed prefix forces. Below this the
+// model asked for a prefill and would get nothing back for it.
+constexpr std::size_t kShapeMinFreedBytes = 2048;
+} // namespace
+
+bool Agent::apply_pending_shapes(std::vector<Message>& prompt_copy) {
+    if (!shape_queue_ || shape_queue_->empty())
+        return false;
+    const std::vector<ShapePlan> plans = shape_queue_->drain();
+    if (last_shape_turn_ == user_turn_counter_ && user_turn_counter_ != 0) {
+        inject_harness_note("[harness] context shaping already ran this turn; "
+                            "the next plan applies after the next user message.");
+        return false;
+    }
+    const auto msgs = context_.get_all();
+    std::vector<Message> next(msgs.begin(), msgs.end());
+    ShapeOutcome total;
+    for (const ShapePlan& plan : plans) {
+        const ShapeOutcome one = apply_shape_plan(next, plan);
+        total.applied += one.applied;
+        total.freed_bytes += one.freed_bytes;
+        total.rejected.insert(total.rejected.end(), one.rejected.begin(), one.rejected.end());
+    }
+    if (total.applied == 0 || total.freed_bytes < kShapeMinFreedBytes) {
+        inject_harness_note("[harness] context shaping freed " + std::to_string(total.freed_bytes) +
+                            " bytes from " + std::to_string(total.applied) +
+                            " result(s); below the " + std::to_string(kShapeMinFreedBytes) +
+                            "-byte floor, so nothing was removed.");
+        return false;
+    }
+    last_shape_turn_ = user_turn_counter_;
+    rebuild_context(next);
+    prompt_copy.assign(next.begin(), next.end());
+    std::string note = "[harness] context shaping replaced " + std::to_string(total.applied) +
+                       " result(s) (" + std::to_string(total.freed_bytes) +
+                       " bytes) with recallable digests; read_result restores any of them.";
+    if (!total.rejected.empty())
+        note += " Ignored " + std::to_string(total.rejected.size()) + " unknown id(s).";
+    inject_harness_note(note);
+    return true;
+}
+
 // Surface streamed reasoning and tokens to the host.
 void Agent::on_stream_chunk(const AgentHooks& h, const StreamChunk& ch) const {
     if (ch.done)
@@ -520,6 +564,10 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
 
     // Check compression gate. If triggered, compress and persist.
     maybe_compress(prompt_copy, tools);
+
+    // A plan the agent submitted between requests is applied here, at the
+    // boundary, so the history and the request agree.
+    apply_pending_shapes(prompt_copy);
 
     // Every injected block is assembled here, ONCE, and only after the gate.
     // Injection used to be spread across four sites above and below this point,

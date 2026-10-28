@@ -225,6 +225,18 @@ std::string last_line(const std::string& body) {
 
 } // namespace
 
+std::string tool_arg_of(const Message& message, const std::string& key) {
+    const std::size_t header_end = message.content.find('\n');
+    const std::string header = message.content.substr(0, header_end);
+    const std::string needle = "\"" + key + "\":\"";
+    const std::size_t at = header.find(needle);
+    if (at == std::string::npos)
+        return {};
+    const std::size_t from = at + needle.size();
+    const std::size_t to = header.find('"', from);
+    return to == std::string::npos ? std::string() : header.substr(from, to - from);
+}
+
 std::string result_id_of(const Message& message) {
     return meta_string(header_meta(message.content), "result_id");
 }
