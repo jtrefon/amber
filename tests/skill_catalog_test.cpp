@@ -336,6 +336,8 @@ TEST(skill_catalog_universal_root_is_read_only_and_shadowed) {
     catalog.discover({});
     ASSERT(catalog.lookup("shared").has_value());
     ASSERT(catalog.lookup("shared")->scope == agent::SkillScope::Universal);
+    ASSERT_EQ(std::string(agent::skill_scope_name(agent::SkillScope::Universal)),
+              std::string("universal"));
     ASSERT(catalog.lookup("mine")->scope == agent::SkillScope::Project);
 
     catalog.set_interop_enabled(false);
