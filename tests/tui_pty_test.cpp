@@ -889,6 +889,23 @@ std::string read_text_file(const std::string& path) {
     return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 }
 
+// Puts a file back when the test leaves, however it leaves. The PTY tests share
+// one fixture workspace, so a test that mutates the settings file and returns
+// early must not leave those values for everything after it.
+class RestoreFile {
+public:
+    explicit RestoreFile(std::string path)
+        : path_(std::move(path)), contents_(read_text_file(path_)) {}
+    ~RestoreFile() { write_file(path_, contents_); }
+
+    RestoreFile(const RestoreFile&) = delete;
+    RestoreFile& operator=(const RestoreFile&) = delete;
+
+private:
+    std::string path_;
+    std::string contents_;
+};
+
 } // namespace
 
 // ── Down moves the selection; it must not cancel the browser ──
@@ -2539,6 +2556,10 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
 
     // Acquisition settings are real: they apply live, persist, and the
     // explorer honours them (index none disables discovery and still opens).
+    // The file is shared with every later PTY test, so it is restored from a
+    // copy on every exit path rather than by three more interactive commands:
+    // a drawer can swallow those, which is what made this step flaky on CI.
+    RestoreFile restore_settings(agent::Workspace::settings_path());
     tui.raw.clear();
     tui.send("/set skills review off\r");
     if (!require(tui.wait_for("skills review: off", 10000), "review setting was not applied", tui))
@@ -2566,20 +2587,6 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the no-index explorer",
                  tui))
         return;
-
-    // Restore through the same door every time: close whatever drawer the last
-    // command left open, then type. A drawer swallows the keystrokes it is
-    // filtering, which is how this step once failed only on CI.
-    for (const auto& [command, marker] : std::vector<std::pair<std::string, std::string>>{
-             {"/set skills review on", "skills review: on"},
-             {"/set skills scope project", "skills install scope: project"},
-             {"/set skills index skills.sh", "skills index: skills.sh"}}) {
-        tui.send("\x1b");
-        tui.pump(150);
-        tui.send(command + "\r");
-        if (!require(tui.wait_for(marker, 10000), "settings were not restored: " + command, tui))
-            return;
-    }
 
     // The shell: category facets at wide sizes, the full tab strip, an honest
     // empty Updates shelf and the key help.
