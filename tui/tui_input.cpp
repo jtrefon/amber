@@ -522,20 +522,6 @@ void SlashDispatcher::cmd_get_compression() {
 
 namespace {
 
-const char* skill_scope_label(agent::SkillScope scope) {
-    switch (scope) {
-    case agent::SkillScope::Project:
-        return "project";
-    case agent::SkillScope::Global:
-        return "global";
-    case agent::SkillScope::Interop:
-        return "interop";
-    case agent::SkillScope::System:
-        return "system";
-    }
-    return "skill";
-}
-
 std::vector<std::string> skill_sources_lines() {
     const agent::SkillSources sources = agent::skill_sources(false);
     return {"index       " + sources.index_base + " (unauthenticated search)",
@@ -674,7 +660,7 @@ installed_skill_rows(const agent::SkillCatalog& catalog,
         tui::SkillRow row;
         row.ref.id = entry.path.empty() ? entry.name : entry.path;
         row.ref.name = entry.name;
-        row.ref.source = skill_scope_label(entry.scope);
+        row.ref.source = agent::skill_scope_name(entry.scope);
         row.description = entry.meta.description;
         row.state = entry.state;
         row.installed = true;

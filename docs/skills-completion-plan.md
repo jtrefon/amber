@@ -10,7 +10,18 @@ fix). The plan file is updated as features land.
 | **F2 browse surface** — shelves, facets, responsive layout | #397 (shell), #405 (Updates shelf), #406 (facets/sort) | landed (#471) |
 | **F3 update review** — diff pager, update-all, update settings | #402 | in review |
 | **F4 resilience & batch** — offline/stale/429, multi-select | #407, #408 | in review |
-| **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | queued |
+| **F5 sources** — `.agents/skills`, packs/well-known; v1 conditional | #409, #412 (#410 conditional) | in review |
+
+## F5 tasks
+
+- [x] `.agents/skills` as a universal, opt-in, read-only scan root with a
+      precedence of project → global → universal → interop (#412).
+- [x] `SkillScope::Universal` labels it in the catalog, the explorer and
+      `/skills list`; removal stays refused for it, as for interop.
+- [ ] `#409`'s well-known index and pack installs: the pack half already shipped
+      (`install_skill_pack` handles tar.gz, path and URL); the well-known index
+      is not built.
+- [ ] `#410`: still conditional on Vercel OIDC and cannot be verified anonymously.
 
 ## F4 tasks
 

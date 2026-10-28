@@ -255,6 +255,7 @@ std::vector<SkillFile> scan_skills(const SkillScanPaths& paths, bool interop_ena
     absorb(scan_skill_dir(paths.project, SkillScope::Project, warnings));
     absorb(scan_skill_dir(paths.global, SkillScope::Global, warnings));
     if (interop_enabled) {
+        absorb(scan_skill_dir(paths.universal, SkillScope::Universal, warnings));
         absorb(scan_skill_dir(paths.claude, SkillScope::Interop, warnings));
         absorb(scan_skill_dir(paths.codex, SkillScope::Interop, warnings));
     }
@@ -266,6 +267,7 @@ SkillScanPaths default_scan_paths() {
     paths.project = Workspace::local_dir() + "/skills";
     paths.global = global_config_dir() + "/skills";
     std::string ws = Workspace::project_root();
+    paths.universal = ws + "/.agents/skills";
     paths.claude = ws + "/.claude/skills";
     paths.codex = ws + "/.codex/skills";
     return paths;
