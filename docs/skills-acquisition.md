@@ -91,7 +91,10 @@ risk-signal counts with the same honesty.
 
 ## Where skills live
 
-- project scope: `<project>/.amber/skills/<name>/` (shareable, default)
+- project scope: `<project>/.amber/skills/<name>/`
+- universal (opt-in, read-only): `<project>/.agents/skills/<name>/` — shared
+  with other agents, scanned only when interop is on, after the amber scopes so
+  an amber-authored skill of the same name wins (shareable, default)
 - global scope: `~/.config/amber/skills/<name>/`
 - provenance: `<skills root>/.lock.json` (id, source, ref, blob hash, local hash,
   file/byte counts, enabled state)

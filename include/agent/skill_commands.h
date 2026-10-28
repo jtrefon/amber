@@ -45,6 +45,10 @@ bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const 
 // The acquisition settings as `/get skills settings` prints them.
 std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg);
 
+// The scope as it is printed: project, global, universal, interop, system.
+// One mapping, so the catalog readout and the explorer cannot disagree.
+const char* skill_scope_name(SkillScope scope) noexcept;
+
 } // namespace agent
 
 #endif // AGENT_SKILL_COMMANDS_H
