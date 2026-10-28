@@ -528,6 +528,8 @@ const char* skill_scope_label(agent::SkillScope scope) {
         return "project";
     case agent::SkillScope::Global:
         return "global";
+    case agent::SkillScope::Universal:
+        return "universal";
     case agent::SkillScope::Interop:
         return "interop";
     case agent::SkillScope::System:

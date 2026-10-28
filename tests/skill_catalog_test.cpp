@@ -48,6 +48,7 @@ struct CatalogEnv {
     std::string project_skills;
     std::string global_skills;
     std::string claude_skills;
+    std::string universal_skills;
     agent::SkillScanPaths paths;
 
     CatalogEnv(const std::string& tag)
@@ -55,10 +56,12 @@ struct CatalogEnv {
         project_skills = ws + "/.amber/skills";
         global_skills = home + "/.config/amber/skills";
         claude_skills = ws + "/.claude/skills";
+        universal_skills = ws + "/.agents/skills";
         run_cmd("rm -rf " + ws + " " + home);
         agent::Workspace::set_root(ws);
         paths.project = project_skills;
         paths.global = global_skills;
+        paths.universal = universal_skills;
         paths.claude = claude_skills;
         paths.codex = ws + "/.codex/skills";
     }
@@ -314,6 +317,31 @@ TEST(skill_catalog_interop_gate) {
     catalog.discover({});
     ASSERT(catalog.lookup("claude-skill").has_value());
     ASSERT(catalog.lookup("claude-skill")->scope == agent::SkillScope::Interop);
+}
+
+// `.agents/skills` is the agent-neutral root: read it like interop, label it
+// universal, and let an amber-authored skill of the same name win.
+TEST(skill_catalog_universal_root_is_read_only_and_shadowed) {
+    CatalogEnv env("universal");
+    write_skill(env.universal_skills, "shared", "from the universal root");
+    write_skill(env.universal_skills, "mine", "universal copy");
+    write_skill(env.project_skills, "mine", "project copy");
+
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+    catalog.discover({});
+    ASSERT(!catalog.lookup("shared")); // gated exactly like interop
+
+    catalog.set_interop_enabled(true);
+    catalog.discover({});
+    ASSERT(catalog.lookup("shared").has_value());
+    ASSERT(catalog.lookup("shared")->scope == agent::SkillScope::Universal);
+    ASSERT(catalog.lookup("mine")->scope == agent::SkillScope::Project);
+
+    catalog.set_interop_enabled(false);
+    catalog.discover({});
+    ASSERT(!catalog.lookup("shared"));
+    ASSERT_TRUE(std::filesystem::exists(env.universal_skills + "/shared/SKILL.md"));
 }
 
 // [SK-02] read_skill activates and caches; second call is served from cache.

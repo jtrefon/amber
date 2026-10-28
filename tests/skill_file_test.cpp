@@ -140,11 +140,14 @@ TEST(skill_scan_precedence_and_interop_gate) {
     write_skill(ws + "/.amber/skills", "dup", "---\ndescription: project\n---\n");
     write_skill(global + "/skills", "dup", "---\ndescription: global\n---\n");
     write_skill(global + "/skills", "global-only", "---\ndescription: g\n---\n");
+    write_skill(ws + "/.agents/skills", "agent-skill", "---\ndescription: a\n---\n");
+    write_skill(ws + "/.agents/skills", "dup", "---\ndescription: universal dup\n---\n");
     write_skill(ws + "/.claude/skills", "claude-skill", "---\ndescription: c\n---\n");
 
     agent::SkillScanPaths paths;
     paths.project = ws + "/.amber/skills";
     paths.global = global + "/skills";
+    paths.universal = ws + "/.agents/skills";
     paths.claude = ws + "/.claude/skills";
     paths.codex = ws + "/.codex/skills";
 
@@ -158,13 +161,15 @@ TEST(skill_scan_precedence_and_interop_gate) {
     }
 
     auto with_interop = agent::scan_skills(paths, true);
-    ASSERT_EQ(with_interop.size(), 3u);
+    ASSERT_EQ(with_interop.size(), 4u);
     for (const auto& f : with_interop) {
+        // A user-authored amber skill is never shadowed by a shared copy.
         if (f.name == "dup")
             ASSERT(f.scope == agent::SkillScope::Project);
-        if (f.name == "claude-skill") {
+        if (f.name == "agent-skill")
+            ASSERT(f.scope == agent::SkillScope::Universal);
+        if (f.name == "claude-skill")
             ASSERT(f.scope == agent::SkillScope::Interop);
-        }
     }
 }
 

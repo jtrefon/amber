@@ -17,7 +17,9 @@ namespace agent {
 // system. `System` is a skill contributed by CODE (a bundled plugin registers
 // it), not a SKILL.md file: nothing on disk can be damaged or edited, and its
 // body is rendered from the app's own tables so it cannot drift from them.
-enum class SkillScope : std::uint8_t { Project, Global, Interop, System };
+// Universal is the agent-neutral `.agents/skills` root: shared with other
+// agents, so amber reads it and never writes to it.
+enum class SkillScope : std::uint8_t { Project, Global, Universal, Interop, System };
 
 // Where a skill comes from. Authored = deliberate SKILL.md packages; learned =
 // procedures extracted into the experience store.
@@ -58,15 +60,17 @@ std::vector<SkillFile> scan_skill_dir(const std::string& root, SkillScope scope,
 
 // Where the scanner looks for skills.
 struct SkillScanPaths {
-    std::string project; // <workspace>/.amber/skills
-    std::string global;  // ~/.config/amber/skills
-    std::string claude;  // <workspace>/.claude/skills (interop, opt-in)
-    std::string codex;   // <workspace>/.codex/skills (interop, opt-in)
+    std::string project;   // <workspace>/.amber/skills
+    std::string global;    // ~/.config/amber/skills
+    std::string universal; // <workspace>/.agents/skills (shared, opt-in)
+    std::string claude;    // <workspace>/.claude/skills (interop, opt-in)
+    std::string codex;     // <workspace>/.codex/skills (interop, opt-in)
 };
 
-// Scan all roots in precedence order (project -> global -> interop). The first
-// occurrence of a name wins (project shadows global, global shadows interop).
-// Interop roots are scanned only when `interop_enabled`.
+// Scan all roots in precedence order (project -> global -> universal ->
+// interop). The first occurrence of a name wins, so a user-authored amber skill
+// is never shadowed by another tool's copy of the same name. The universal and
+// interop roots are scanned only when `interop_enabled`.
 std::vector<SkillFile> scan_skills(const SkillScanPaths& paths, bool interop_enabled,
                                    std::vector<std::string>* warnings = nullptr);
 

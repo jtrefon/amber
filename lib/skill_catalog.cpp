@@ -173,6 +173,7 @@ void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
     absorb_authored(paths_.project, SkillScope::Project, selected, warnings);
     absorb_authored(paths_.global, SkillScope::Global, selected, warnings);
     if (interop_enabled_) {
+        absorb_authored(paths_.universal, SkillScope::Universal, selected, warnings);
         absorb_authored(paths_.claude, SkillScope::Interop, selected, warnings);
         absorb_authored(paths_.codex, SkillScope::Interop, selected, warnings);
     }

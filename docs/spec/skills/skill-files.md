@@ -25,6 +25,7 @@ opt-in interop gate.
 |-------|------|----------|
 | Project | `<workspace>/.amber/skills/` | Team-shared playbooks, git-committed |
 | Global | `~/.config/amber/skills/` | Personal library, cross-project |
+| Universal (opt-in) | `<workspace>/.agents/skills/` | The agent-neutral root other agents share; read-only here |
 | Interop (opt-in) | `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/` | Skills authored for other agents |
 
 Each skill is a **directory** whose name is the kebab-case skill name,
@@ -103,12 +104,15 @@ body. `metadata` parse errors degrade to empty metadata, not exclusion.
 | **Output** | Ordered list of `SkillFile { name, path, scope, meta, enabled }` |
 | **Traversal** | Recursive, one level deep per skill directory (a skill dir contains `SKILL.md` at its root; nested skill dirs are not scanned) |
 | **Exclusions** | Non-directory entries; dirs without `SKILL.md`; hidden entries; symlinks resolved per `workspace/path-confinement.md` |
-| **Ordering** | Scan roots in precedence order: project → global → interop; within a root, lexicographic by dir name |
+| **Ordering** | Scan roots in precedence order: project → global → universal → interop; within a root, lexicographic by dir name |
 | **Dedup** | First occurrence of a name wins (project shadows global); later scopes skipped for that name |
 | **Errors** | Unreadable `SKILL.md` → excluded with warning. Missing root dir → skipped (not an error) |
 
-**Interop gate:** `.claude/skills` and `.codex/skills` are scanned only when
-`skills_interop = true` (config or `/set skills interop on`). Off by default.
+**Interop gate:** `.agents/skills`, `.claude/skills` and `.codex/skills` are
+scanned only when `skills_interop = true` (config or `/set skills interop on`).
+Off by default. The universal root sits after global and before the other
+agents' roots so a user-authored amber skill is never shadowed by a tool's copy
+of the same name; it is read-only, since other agents install there too.
 
 ---
 
@@ -174,14 +178,23 @@ body. `metadata` parse errors degrade to empty metadata, not exclusion.
 - **Expected**: Project `deploy` listed; global `deploy` skipped for the name.
 - **On failure**: Both listed; conflicting instructions.
 
-#### [SF-06] Interop gate off by default
+#### [SF-06] Universal root is gated and shadowed
+
+- **Given**: `.agents/skills/shared/` exists, and `shared` also exists in
+  `<workspace>/.amber/skills/`; `skills_interop` off
+- **Input**: Scan
+- **Expected**: Nothing from `.agents/skills`. With the gate on: `shared` is the
+  project copy, and skills only in the universal root are labelled `universal`.
+- **On failure**: Another agent's directory silently changes what amber loads.
+
+#### [SF-07] Interop gate off by default
 
 - **Given**: `.claude/skills/` populated, `skills_interop` unset (false)
 - **Input**: Scan
 - **Expected**: No interop skills discovered.
 - **On failure**: Third-party skills loaded without consent.
 
-#### [SF-07] Unknown frontmatter keys ignored
+#### [SF-08] Unknown frontmatter keys ignored
 
 - **Given**: Frontmatter with `name`, `description`, plus `metadata: {author: x}` and an unknown `custom-field: y`
 - **Input**: Parse

@@ -19,6 +19,8 @@ const char* scope_name(SkillScope scope) {
         return "project";
     case SkillScope::Global:
         return "global";
+    case SkillScope::Universal:
+        return "universal";
     case SkillScope::Interop:
         return "interop";
     case SkillScope::System:

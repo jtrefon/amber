@@ -761,7 +761,7 @@
       "interop": {
        "action": "core.config.set.skills.interop",
        "help": "Toggle .claude/skills interop.",
-       "man": "When on, skill packages from .claude/skills directories are loaded into the catalog.",
+       "man": "When on, skills from the shared .agents/skills root and the .claude/skills and .codex/skills interop roots are loaded into the catalog. The universal root is read-only and is scanned after the amber scopes, so an amber-authored skill wins a name clash.",
        "choices": [
         "on",
         "off"
