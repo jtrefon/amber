@@ -1,0 +1,25 @@
+{
+  "name": "s-01-stale-early-evidence",
+  "suite": "shaping",
+  "description": "a token read once at the start must survive a long survey; the early read is the evidence shaping may digest, the token is what must not be lost",
+  "difficulty": 5,
+  "platforms": ["linux", "darwin"],
+  "setup": {
+    "files": {
+      "config/app.conf": "deployment_token = KESTREL-4417\n",
+      "src/a.cpp": "int alpha() { return 1; }\n",
+      "src/b.cpp": "int beta() { return 2; }\n",
+      "src/c.cpp": "int gamma() { return 3; }\n",
+      "docs/notes.md": "# notes\n\nalpha, beta and gamma are the three entry points.\n"
+    }
+  },
+  "prompt": "Read config/app.conf and remember the deployment token. Then survey src/a.cpp, src/b.cpp, src/c.cpp and docs/notes.md, one file per call, and afterwards tell me in one line what each of the three entry points does, followed by the deployment token exactly as written. When a tool result has stopped being useful, the context tool can name it so the harness replaces it with a digest you can read back.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "config/app.conf"}}
+  ],
+  "checks": {
+    "must_contain": ["KESTREL-4417"],
+    "must_not_contain": ["deployment_token ="]
+  },
+  "budget": {"max_steps": 16, "max_wall_ms": 240000}
+}
