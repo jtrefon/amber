@@ -132,6 +132,58 @@ results that fit the tail budget and digesting the older ones. The properties:
 - **Idempotent.** A message that is already a digest is skipped, so a second
   pass cannot digest the index away.
 
+### Shaping on request (the model's own trim)
+
+Compaction decides what to keep from a summary of the session. Only the model
+knows which evidence has stopped mattering — an early read a later read
+replaced, output it already extracted a fact from. The `context` tool is that
+judgement as a request: the model names results, the harness validates and
+applies them.
+
+- **A plan, never an edit.** `{"op": "drop", "result_ids": [...]}` or
+  `{"op": "superseded"}`, plus a short reason. The tool only pushes a
+  `ShapePlan` onto the host's `ShapeQueue`; it never touches the context. The
+  agent drains the queue at the top of its next request, so the request it was
+  building is not modified underneath it.
+- **Validated against the live history.** A `drop` applies only to ids a live
+  tool message still carries; ids that are gone are reported back, never
+  guessed at. `superseded` is the CC-18 rule (earlier reads of a path read
+  again), chosen by the agent instead of a timer.
+- **At most once per user turn, above a floor.** A rebuild changes the prefix,
+  which is a full prefill. The harness applies one plan per user turn and only
+  when it frees at least **2 KiB**; below that, or on a second plan in the same
+  turn, a `[harness]` notice says what happened and why.
+- **Recallable.** Every replacement goes through the same digest path as
+  compaction, so the digest carries the `result_id` and `read_result` serves the
+  original byte for byte. A wrong drop costs a tool call, not the evidence.
+- **No timer.** Nothing is shaken on a schedule: shaping happens because the
+  model asked, at a boundary it did not have to guess at (D7, D9).
+
+**Naming at the source.** A model cannot name what has no id, and only results
+the envelope paged out (over 32 KiB, or `bash` over 8 KiB) carried one. Every
+result the compactor can digest — anything over **200 bytes**, the same
+threshold the digest uses — is now stored and named at dispatch, so a plan can
+point at it before it is ever destroyed. The cost is one small file per
+non-trivial result, under the same retention as any other artefact.
+
+**What it can free (replay, measured).** `amber-bench shape-replay --window
+32768` over the 30 largest recorded sessions (1,540,531 tool tokens):
+
+| rule | tokens saved | replaced | referenced later |
+|---|---|---|---|
+| in-turn (shipped) | 5.8% | 74 | 30 |
+| bash projection (shipped) | 2.8% | 11 | 2 |
+| superseded reads | 67.7% | 462 | 462 |
+| drop everything | 90.5% | 832 | 533 |
+
+The last two are the ceiling, not a prediction: `drop-all` is what a perfect
+planner could reach if nothing it dropped was needed, and 533 of its 832
+payloads are named again later. `superseded` marks every dropped read as
+referenced because the later read of the same path repeats the same lines — the
+count cannot tell a stale copy from a different range, which is why the trigger
+is the agent and not the metric. The free seams are the floor; the gap between
+them is what the model's judgement is for.
+
 ### Source projection (before the context)
 
 The cheapest shaping happens before a result is ever pushed: `page_out_oversized`
@@ -190,14 +242,18 @@ reduced nothing left the size unchanged.
 ### Known gaps (measured, not assumed)
 
 1. **The archive is not LLM-summarised on re-compression.** It is capped and
-   merged; the classifier's summary is the semantic channel.
-2. **Per-provider prompt caching is not modelled.** The prefix replay is a
+   merged; the classifier's summary is the semantic channel. (M2.)
+2. **The shaping queue is one per process.** A plan names ids; an id another
+   window's context does not carry is refused, so a plan can only ever apply to
+   the history that asked for it. A per-window queue would save the refusal
+   notice, not change what is applied.
+3. **Per-provider prompt caching is not modelled.** The prefix replay is a
    token-prefix guarantee; Anthropic `cache_control` and provider-specific
    cache APIs are out of scope.
-3. **The classifier's index grounding is a heuristic.** The manifest gives it
+4. **The classifier's index grounding is a heuristic.** The manifest gives it
    numbers; a mis-tagged range is still possible. The tail and default-core
    rules make the failure safe, not accurate.
-4. **In-turn compaction keeps the newest evidence, not all of it.** Older
+5. **In-turn compaction keeps the newest evidence, not all of it.** Older
    results of the active turn become digests once the tail budget is spent; they
    are recallable through `read_result`, not present in the prompt. A session
    with one enormous result that must be read whole gets one rebuild, not a
