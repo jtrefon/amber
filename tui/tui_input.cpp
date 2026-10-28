@@ -1402,10 +1402,14 @@ void wire_skill_setting_actions(tui::ActionRegistry& registry,
                                 const std::function<void(const std::string&)>& set_skills,
                                 const std::function<void(const std::string&)>& get_settings) {
     for (const char* key : {"review", "audit", "update-review", "update-check", "scope", "index"}) {
-        const std::string name = key;
-        registry.register_action(
-            "core.config.set.skills." + name,
-            [set_skills, name](const std::string& v) { set_skills(name + " " + v); });
+        std::string name = "core.config.set.skills.";
+        name.append(key);
+        const std::string verb = key;
+        registry.register_action(name, [set_skills, verb](const std::string& v) {
+            std::string args = verb;
+            args.append(" ").append(v);
+            set_skills(args);
+        });
     }
     registry.register_action("core.config.get.skills.settings",
                              [get_settings](const std::string&) { get_settings("settings"); });

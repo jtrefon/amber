@@ -15,7 +15,7 @@ std::string read_text(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
     if (!f)
         return {};
-    return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    return {(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
 }
 
 } // namespace
@@ -193,12 +193,11 @@ std::string SkillsLifecycle::apply_update(const SkillRow& row, bool force) {
 }
 
 std::string SkillsLifecycle::apply_all(const std::vector<SkillRow>& rows) {
-    std::vector<std::string> ready;
-    for (const auto& name : updates_)
-        ready.push_back(name);
+    std::vector<std::string> ready(updates_.begin(), updates_.end());
 
     int applied = 0;
     std::vector<std::string> skipped;
+    skipped.reserve(ready.size());
     for (const auto& name : ready) {
         const auto row = std::find_if(rows.begin(), rows.end(),
                                       [&name](const SkillRow& r) { return r.ref.name == name; });
@@ -206,14 +205,17 @@ std::string SkillsLifecycle::apply_all(const std::vector<SkillRow>& rows) {
             continue;
         const auto review = reviews_.find(name);
         if (review != reviews_.end() && review->second.needs_override()) {
-            skipped.push_back(name + " (local edits)");
+            skipped.emplace_back(name + " (local edits)");
             continue;
         }
         const std::string status = apply_update(*row, false);
-        if (status.rfind("updating ", 0) == 0)
+        if (status.rfind("updating ", 0) == 0) {
             ++applied;
-        else
-            skipped.push_back(name + " (" + status + ")");
+            continue;
+        }
+        std::string entry = name;
+        entry.append(" (").append(status).append(")");
+        skipped.push_back(std::move(entry));
     }
 
     std::string summary = std::to_string(applied) + " updated";
