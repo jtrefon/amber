@@ -1,4 +1,6 @@
 #include "agent/skill_cli.h"
+
+#include "agent/skill_ledger.h"
 #include "agent/workspace.h"
 
 #include "tests/test_util.h"
@@ -387,4 +389,34 @@ TEST(skill_cli_update_checks_can_be_disabled) {
     ASSERT_EQ(agent::run_skill_cli({"update", "--check"}, out, err, backends), 1);
     ASSERT_TRUE(err.str().find("disabled") != std::string::npos);
     unsetenv("AMBER_SKILLS_UPDATE_CHECK");
+}
+
+TEST(skill_cli_update_keeps_a_disabled_skill_disabled) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody one\n";
+    std::string sha = "sha-1";
+    const agent::SkillCliBackends backends = fake_backends(body, sha);
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills/tdd", "--yes"}, out, err, backends), 0);
+
+    // The catalog override decides enabled state; the ledger records it too.
+    agent::SkillLedger ledger = agent::SkillLedger::for_root(sandbox.path + "/.amber/skills");
+    ledger.load();
+    auto entry = ledger.find("tdd");
+    ASSERT_TRUE(entry.has_value());
+    entry->enabled = false;
+    ledger.upsert("tdd", *entry);
+
+    sha = "sha-2";
+    body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody two\n";
+    out.str("");
+    ASSERT_EQ(agent::run_skill_cli({"update"}, out, err, backends), 0);
+
+    ledger.load();
+    const auto updated = ledger.find("tdd");
+    ASSERT_TRUE(updated.has_value());
+    ASSERT_FALSE(updated->enabled); // an update never re-enables a skill
+    ASSERT_EQ(updated->hash, std::string("sha-2"));
 }
