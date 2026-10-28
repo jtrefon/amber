@@ -125,7 +125,7 @@ public:
 };
 
 std::optional<WatchRecord> wait_terminal(WatchService& service, const std::string& id,
-                                         int seconds = 5) {
+                                         int seconds = 10) {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     while (std::chrono::steady_clock::now() < end) {
         auto record = service.get(id);
@@ -133,7 +133,19 @@ std::optional<WatchRecord> wait_terminal(WatchService& service, const std::strin
             return record;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    return service.get(id);
+    // A non-terminal record is not what the caller asked for, and returning one
+    // let a slow machine turn "still running" into a nonsense later failure.
+    return std::nullopt;
+}
+
+bool wait_gone(WatchService& service, const std::string& id, int seconds = 10) {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    while (std::chrono::steady_clock::now() < end) {
+        if (!service.get(id))
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return !service.get(id);
 }
 
 WatchStart process_options(const std::string& command, const std::string& label = "test watch") {
@@ -505,6 +517,44 @@ TEST(watch_retention_keeps_the_newest_terminal_records) {
     const std::string second = service.start(process_options("true", "second"), err);
     ASSERT_TRUE(err.empty());
     ASSERT_TRUE(wait_terminal(service, second).has_value());
+    const auto records = service.list();
+    ASSERT_EQ(records.size(), std::size_t{1});
+    ASSERT_EQ(records[0].id, second);
+    ASSERT_FALSE(service.get(first).has_value());
+}
+
+// Retention is about the newest *watch*, not the watch that happened to finish
+// last. A slow watch started first can end after a fast one started later; the
+// fast, newer record must survive.
+TEST(watch_retention_keeps_the_newest_watch_when_it_finishes_first) {
+    ScratchEnv env("retention_order");
+    auto runner = std::make_shared<FakeRunner>();
+    std::atomic<bool> release{false};
+    runner->handler = [&release](const std::string& command, const std::string&, int,
+                                 const CancellationToken&) {
+        if (command == "slow") {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!release.load() && std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        return CommandRunner::Result{"done", 0, false, false};
+    };
+    auto observer = std::make_shared<FakeObserver>();
+    WatchSettings settings;
+    settings.retention = 1;
+    WatchService service(runner, observer, WatchStore(env.path("watch")), "observer", nullptr,
+                         settings);
+    std::string err;
+    const std::string first = service.start(process_options("slow", "first"), err);
+    ASSERT_TRUE(err.empty());
+    const std::string second = service.start(process_options("fast", "second"), err);
+    ASSERT_TRUE(err.empty());
+    ASSERT_TRUE(wait_terminal(service, second).has_value());
+    release.store(true);
+    // `first` becomes terminal now, and retention=1 evicts it in the same step
+    // because `second` is the newer watch.
+    ASSERT_TRUE(wait_gone(service, first));
+
     const auto records = service.list();
     ASSERT_EQ(records.size(), std::size_t{1});
     ASSERT_EQ(records[0].id, second);
