@@ -985,6 +985,225 @@ TEST(agent_shapes_once_per_user_turn) {
     ASSERT(queue.empty());
 }
 
+// The archive is capped by merging its oldest entries into one placeholder
+// line: cheap, but the detail is gone. Once it outgrows the cap, one extra
+// request folds those entries into a real summary, and the newest entries stay
+// verbatim so the recent work is unchanged.
+TEST(compression_folds_an_oversized_archive_with_one_extra_call) {
+    agent::test::XdgGuard xdg("archive_fold_pipeline");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.target_pct = 10;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor();
+    agent_test::FakeLLMClient fake;
+    push_text(
+        fake,
+        R"({"summary":"work state: wiring the archive","classification":[{"turns":"2-17","tag":"context","summary":"earlier rounds"}]})");
+    push_text(fake, R"({"memories":[],"skills":[]})");
+    push_text(fake, "folded: the auth token lives in config.cpp");
+
+    agent::json entries = agent::json::array();
+    for (int i = 0; i < 40; ++i)
+        entries.push_back(
+            {{"turns", std::to_string(i)}, {"summary", "archived work " + std::to_string(i)}});
+
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message arch;
+    arch.role = "system";
+    arch.content = std::string(agent::kCompressedContextPrefix) + "\n" +
+                   agent::json{{"archive", entries}}.dump(2);
+    ctx.push(std::move(arch));
+    for (int i = 0; i < 16; ++i) {
+        agent::Message u;
+        u.role = "user";
+        u.content = "older question " + std::to_string(i);
+        ctx.push(std::move(u));
+        agent::Message a;
+        a.role = "assistant";
+        a.content = "older answer " + std::to_string(i);
+        ctx.push(std::move(a));
+    }
+    agent::Message current;
+    current.role = "user";
+    current.content = "current task";
+    ctx.push(std::move(current));
+
+    const std::size_t before = ctx.token_count();
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT(agent::estimate_tokens(out) < before);
+    ASSERT_EQ(fake.chat_calls, 3); // classify, extract, fold
+
+    // The fold request is standalone: replaying the live prefix for it would
+    // cost the context-sized prefill the pipeline exists to avoid.
+    ASSERT(fake.requests.back().size() <= 2u);
+    // It carries the entries being folded and not the newest window, which the
+    // fold below keeps verbatim.
+    bool names_old = false;
+    bool names_new = false;
+    for (const auto& m : fake.requests.back()) {
+        names_old = names_old || m.content.find("archived work 0") != std::string::npos;
+        names_new = names_new || m.content.find("archived work 39") != std::string::npos;
+    }
+    ASSERT(names_old);
+    ASSERT(!names_new);
+
+    agent::json body;
+    for (const auto& m : out)
+        if (m.content.rfind(agent::kCompressedContextPrefix, 0) == 0)
+            body = agent::json::parse(
+                m.content.substr(std::string(agent::kCompressedContextPrefix).size()), nullptr,
+                false);
+    ASSERT(body.is_object());
+    ASSERT_EQ(body["archive"].front()["summary"],
+              std::string("folded: the auth token lives in config.cpp"));
+    // One folded entry, the newest entries verbatim, and this pass's segment.
+    ASSERT(body["archive"].size() <= agent::kArchiveKeepVerbatim + 2);
+    ASSERT_EQ(body["archive"].back()["summary"], std::string("earlier rounds"));
+    ASSERT_EQ(body["summary"], std::string("work state: wiring the archive"));
+}
+
+// An archive inside its cap has nothing to fold: spending a request on it would
+// be the pipeline paying for a summary of text that already fits.
+TEST(compression_spends_no_fold_call_inside_the_cap) {
+    agent::test::XdgGuard xdg("archive_fold_small");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.target_pct = 10;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor();
+    agent_test::FakeLLMClient fake;
+    push_text(
+        fake,
+        R"({"summary":"work state","classification":[{"turns":"2-9","tag":"context","summary":"earlier"}]})");
+    push_text(fake, R"({"memories":[],"skills":[]})");
+
+    agent::json entries = agent::json::array();
+    for (int i = 0; i < 4; ++i)
+        entries.push_back({{"turns", std::to_string(i)}, {"summary", "archived work"}});
+    agent::Context ctx;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "Amber";
+    ctx.push(std::move(sys));
+    agent::Message arch;
+    arch.role = "system";
+    arch.content = std::string(agent::kCompressedContextPrefix) + "\n" +
+                   agent::json{{"archive", entries}}.dump(2);
+    ctx.push(std::move(arch));
+    for (int i = 0; i < 10; ++i) {
+        agent::Message u;
+        u.role = "user";
+        u.content = "older question " + std::to_string(i);
+        ctx.push(std::move(u));
+        agent::Message a;
+        a.role = "assistant";
+        a.content = "older answer " + std::to_string(i);
+        ctx.push(std::move(a));
+    }
+    agent::Message current;
+    current.role = "user";
+    current.content = "current task";
+    ctx.push(std::move(current));
+
+    agent::CompressionResponse cr;
+    auto out = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    ASSERT_EQ(fake.chat_calls, 2); // classify + extract, no fold
+    ASSERT(!out.empty());
+}
+
+// Three compactions in a row, each carrying the previous archive forward. What
+// must hold at the end: the archive stays bounded, the work-state summary is
+// still there, and an entry the model marked as a fact survives the passes that
+// fold everything older than the newest window.
+TEST(three_compactions_keep_a_bounded_archive_and_the_work_state) {
+    agent::test::XdgGuard xdg("archive_three_passes");
+    agent::CompressionConfig cc;
+    cc.context_size = 32768;
+    cc.target_pct = 10;
+    cc.keep_last_prompts = 10;
+    auto compressor = agent::make_compressor();
+    agent_test::FakeLLMClient fake;
+    std::vector<agent::Message> history;
+    {
+        agent::Message sys;
+        sys.role = "system";
+        sys.content = "Amber";
+        history.push_back(std::move(sys));
+    }
+
+    for (int pass = 1; pass <= 3; ++pass) {
+        const std::string folded =
+            "folded pass " + std::to_string(pass) + ": the retry budget lives in policy.cpp";
+        push_text(fake,
+                  agent::json{{"summary", "work state: pass " + std::to_string(pass)},
+                              {"classification",
+                               agent::json::array({agent::json{
+                                   {"turns", "0-40"}, {"tag", "context"}, {"summary", "rounds"}}})}}
+                      .dump());
+        push_text(fake, R"({"memories":[],"skills":[]})");
+        push_text(fake, folded);
+
+        // Grow the session: an archive that needs folding, then new turns.
+        agent::json entries = agent::json::array();
+        for (int i = 0; i < 40; ++i)
+            entries.push_back({{"turns", std::to_string(i)}, {"summary", "archived work"}});
+        entries.push_back(
+            {{"turns", "fact"}, {"summary", "fact: the retry budget lives in policy.cpp"}});
+
+        agent::Context ctx;
+        agent::Message sys;
+        sys.role = "system";
+        sys.content = "Amber";
+        ctx.push(std::move(sys));
+        agent::Message arch;
+        arch.role = "system";
+        arch.content = std::string(agent::kCompressedContextPrefix) + "\n" +
+                       agent::json{{"archive", entries}}.dump(2);
+        ctx.push(std::move(arch));
+        for (int i = 0; i < 8; ++i) {
+            agent::Message u;
+            u.role = "user";
+            u.content = "question " + std::to_string(pass) + "." + std::to_string(i);
+            ctx.push(std::move(u));
+            agent::Message a;
+            a.role = "assistant";
+            a.content = "answer " + std::to_string(pass) + "." + std::to_string(i);
+            ctx.push(std::move(a));
+        }
+        agent::Message current;
+        current.role = "user";
+        current.content = "current task " + std::to_string(pass);
+        ctx.push(std::move(current));
+
+        agent::CompressionResponse cr;
+        history = compressor->compress(ctx, cc, fake, nullptr, &cr);
+    }
+
+    agent::json body;
+    for (const auto& m : history)
+        if (m.content.rfind(agent::kCompressedContextPrefix, 0) == 0)
+            body = agent::json::parse(
+                m.content.substr(std::string(agent::kCompressedContextPrefix).size()), nullptr,
+                false);
+    ASSERT(body.is_object());
+    ASSERT(body["archive"].size() <= agent::kMaxArchiveEntries);
+    ASSERT_EQ(body["summary"], std::string("work state: pass 3"));
+    ASSERT_EQ(body["archive"].front()["summary"],
+              std::string("folded pass 3: the retry budget lives in policy.cpp"));
+    bool fact_kept = false;
+    for (const auto& e : body["archive"])
+        if (e["summary"].get<std::string>().find("the retry budget lives in policy.cpp") !=
+            std::string::npos)
+            fact_kept = true;
+    ASSERT(fact_kept);
+}
+
 TEST(compression_request_replays_the_live_prefix) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor();
