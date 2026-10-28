@@ -48,6 +48,9 @@ struct WatchRecord {
     std::string cwd;
     WatchState state = WatchState::Queued;
     long created_ms = 0;
+    // Monotonic within the host, so two watches created in the same
+    // millisecond still have a total creation order for retention.
+    long seq = 0;
     long started_ms = 0;
     long ended_ms = 0;
     int interval_s = 20;
