@@ -730,6 +730,15 @@ TEST(skill_acquisition_settings_apply_and_validate) {
         agent::apply_skill_acquisition_setting(cfg, "index", "https://mirror.example", message));
     ASSERT_EQ(cfg.skills_index, "https://mirror.example");
 
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "update-review", "off", message));
+    ASSERT_FALSE(cfg.skills_update_review);
+    ASSERT_EQ(message, std::string("skills update-review: off"));
+
+    ASSERT_TRUE(agent::apply_skill_acquisition_setting(cfg, "update-check", "never", message));
+    ASSERT_EQ(cfg.skills_update_check, "never");
+    ASSERT_EQ(message, std::string("skills update check: never"));
+    ASSERT_FALSE(agent::apply_skill_acquisition_setting(cfg, "update-check", "hourly", message));
+
     ASSERT_FALSE(agent::apply_skill_acquisition_setting(cfg, "scope", "everywhere", message));
     ASSERT_TRUE(message.find("usage:") == 0);
     ASSERT_EQ(cfg.skills_install_scope, "global"); // a bad value changes nothing
@@ -744,10 +753,13 @@ TEST(skill_acquisition_settings_lines_report_the_four_keys) {
     cfg.skills_install_scope = "global";
     cfg.skills_review_required = false;
     cfg.skills_audit_required = true;
+    cfg.skills_update_review = true;
     const auto lines = agent::skill_acquisition_settings_lines(cfg);
-    ASSERT_EQ(lines.size(), static_cast<size_t>(4));
+    ASSERT_EQ(lines.size(), static_cast<size_t>(6));
     ASSERT_EQ(lines[0], std::string("index      none"));
     ASSERT_EQ(lines[1], std::string("scope      global"));
     ASSERT_EQ(lines[2], std::string("review     off"));
     ASSERT_EQ(lines[3], std::string("audit      on"));
+    ASSERT_EQ(lines[4], std::string("update-review on"));
+    ASSERT_EQ(lines[5], std::string("update-check manual"));
 }

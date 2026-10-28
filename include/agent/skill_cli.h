@@ -36,6 +36,8 @@ struct SkillCliCommand {
     bool yes = false;
     bool all = false;
     bool check = false;
+    bool force = false; // apply over local edits the user has reviewed
+    bool diff = false;  // print the review instead of applying
     bool refresh = false;
     std::string error; // non-empty = usage error
 };

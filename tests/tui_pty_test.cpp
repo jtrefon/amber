@@ -2392,6 +2392,21 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(tui.wait_for("engineering (1)", 5000), "the category facet did not appear", tui))
         return;
 
+    // A batch install refuses the same way the sheet does: an unread community
+    // skill is skipped by name, and nothing is written.
+    tui.send(" ");
+    if (!require(tui.wait_for("1 marked", 10000), "Space did not mark the row", tui))
+        return;
+    tui.send("i");
+    if (!require(tui.wait_for("0 installed, 1 skipped: tdd (review required", 10000),
+                 "the batch install ignored the review gate", tui))
+        return;
+    if (!require(!fs::exists(installed_dir), "a batch install wrote an unread skill", tui))
+        return;
+    tui.send(" ");
+    if (!require(tui.wait_for("loaded tdd", 10000), "Space did not unmark the row", tui))
+        return;
+
     tui.send("i");
     if (!require(tui.wait_for("review required", 10000), "the install sheet did not open", tui))
         return;
@@ -2437,7 +2452,13 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("/tdd\r");
 
     tui.send("u");
-    if (!require(tui.wait_for("update available", 20000), "the update was not detected", tui))
+    // The update is reviewed before it is applied: the body diff names the
+    // added line, and only the second u writes anything.
+    if (!require(tui.wait_for("+body two", 20000), "the update diff was not shown", tui))
+        return;
+    tui.send("\x1b");
+    if (!require(tui.wait_for("u applies", 10000), "the diff did not hand back to the explorer",
+                 tui))
         return;
 
     tui.send("u");

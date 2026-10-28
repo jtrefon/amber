@@ -2,11 +2,23 @@
 
 #include "agent/skill_install.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 
 namespace tui {
+
+namespace {
+
+std::string read_text(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f)
+        return {};
+    return {(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
+}
+
+} // namespace
 
 SkillsLifecycle::SkillsLifecycle(SkillsLifecycleOptions options, SkillsService& service)
     : options_(std::move(options)), service_(service) {}
@@ -36,14 +48,6 @@ std::string SkillsLifecycle::install_root(const SkillRow& row) const {
 
 std::optional<agent::LedgerEntry> SkillsLifecycle::entry_for(const std::string& name) const {
     return options_.ledger ? options_.ledger(name) : std::nullopt;
-}
-
-std::string SkillsLifecycle::local_hash(const std::string& root, const std::string& name) const {
-    std::ifstream f(root + "/" + name + "/SKILL.md", std::ios::binary);
-    if (!f)
-        return {};
-    const std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    return agent::skill_content_hash(body);
 }
 
 std::string SkillsLifecycle::adopt(const SkillRow& row) {
@@ -137,16 +141,28 @@ std::string SkillsLifecycle::check_update(const SkillRow& row, const agent::Skil
     const std::string root = root_for(row);
     if (root.empty())
         return "unknown install root for " + row.ref.name;
-    if (local_hash(root, row.ref.name) != entry->local_hash)
-        return row.ref.name + " has local edits; update refused";
-
+    const std::string dir = root + "/" + row.ref.name;
+    agent::UpdateReview review = agent::build_update_review(
+        *entry, detail, read_text(dir + "/SKILL.md"), agent::installed_skill_files(dir));
     details_[entry->id] = detail;
     updates_.insert(row.ref.name);
     update_ready_.insert(row.ref.name);
-    return "update available for " + row.ref.name + " (u applies)";
+
+    std::string status = review.status;
+    if (review.needs_override())
+        status += " · local edits: d reviews, u overrides";
+    reviews_[row.ref.name] = std::move(review);
+    return status;
 }
 
-std::string SkillsLifecycle::apply_update(const SkillRow& row) {
+std::optional<agent::UpdateReview> SkillsLifecycle::review_for(const std::string& name) const {
+    const auto it = reviews_.find(name);
+    if (it == reviews_.end())
+        return std::nullopt;
+    return it->second;
+}
+
+std::string SkillsLifecycle::apply_update(const SkillRow& row, bool force) {
     const auto entry = entry_for(row.ref.name);
     if (!entry)
         return row.ref.name + " is unmanaged";
@@ -156,20 +172,61 @@ std::string SkillsLifecycle::apply_update(const SkillRow& row) {
 
     const auto detail = details_.find(entry->id);
     if (detail == details_.end())
-        return "load " + row.ref.name + " details first";
-    if (local_hash(root, row.ref.name) != entry->local_hash) {
-        updates_.erase(row.ref.name);
-        update_ready_.erase(row.ref.name);
-        return row.ref.name + " has local edits; update refused";
-    }
+        return "review " + row.ref.name + " first (u)";
+    const auto review = reviews_.find(row.ref.name);
+    if (review == reviews_.end())
+        return "review " + row.ref.name + " first (u)";
+    if (review->second.needs_override() && !force)
+        return row.ref.name + " has local edits; d reviews, u again overrides";
+
     service_.install(detail->second, row.ref.name, root, true, entry->enabled);
     update_ready_.erase(row.ref.name);
+    reviews_.erase(row.ref.name);
     return "updating " + row.ref.name + "...";
+}
+
+std::string SkillsLifecycle::apply_all(const std::vector<SkillRow>& rows) {
+    std::vector<std::string> ready(updates_.begin(), updates_.end());
+
+    int applied = 0;
+    std::vector<std::string> skipped;
+    skipped.reserve(ready.size());
+    for (const auto& name : ready) {
+        const auto row = std::find_if(rows.begin(), rows.end(),
+                                      [&name](const SkillRow& r) { return r.ref.name == name; });
+        if (row == rows.end())
+            continue;
+        const auto review = reviews_.find(name);
+        if (review != reviews_.end() && review->second.needs_override()) {
+            skipped.emplace_back(name + " (local edits)");
+            continue;
+        }
+        const std::string status = apply_update(*row, false);
+        if (status.rfind("updating ", 0) == 0) {
+            ++applied;
+            continue;
+        }
+        std::string entry = name;
+        entry.append(" (").append(status).append(")");
+        skipped.push_back(std::move(entry));
+    }
+
+    std::string summary = std::to_string(applied) + " updated";
+    if (!skipped.empty()) {
+        summary += ", " + std::to_string(skipped.size()) + " skipped: ";
+        for (std::size_t i = 0; i < skipped.size(); ++i) {
+            if (i > 0)
+                summary += ", ";
+            summary += skipped[i];
+        }
+    }
+    return summary;
 }
 
 void SkillsLifecycle::on_install(const std::string& name) {
     updates_.erase(name);
     update_ready_.erase(name);
+    reviews_.erase(name);
     for (auto it = details_.begin(); it != details_.end();) {
         if (it->second.ref.name == name)
             it = details_.erase(it);
