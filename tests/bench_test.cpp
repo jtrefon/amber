@@ -1851,6 +1851,18 @@ TEST(repeat_reports_the_token_spread) {
     // A single run has no spread to claim.
     std::vector<bench::ScenarioReport> one = {score_report("s1", 90.0)};
     ASSERT(bench::token_spread_suffix(bench::aggregate_repeats(one)).empty());
+
+    // A run that produced no usage measured nothing: its zero is not a sample of
+    // the token distribution, and folding it in would report a range that no run
+    // ever had (measured live: one throttled run of five read "prompt 0..60083").
+    std::vector<bench::ScenarioReport> mixed = runs;
+    bench::ScenarioReport dead = score_report("s1", 54.0);
+    mixed.push_back(std::move(dead));
+    const bench::ScenarioReport mixed_agg = bench::aggregate_repeats(mixed);
+    ASSERT_EQ(mixed_agg.repeat_n, 4);
+    ASSERT_EQ(mixed_agg.repeat_prompt_tokens.size(), 3u);
+    ASSERT_EQ(mixed_agg.repeat_unmeasured, 1);
+    ASSERT(bench::token_spread_suffix(mixed_agg).find("1 unmeasured") != std::string::npos);
 }
 
 // The JSON report exposes the aggregate fields when repeats were run.

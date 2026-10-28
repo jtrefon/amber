@@ -83,6 +83,11 @@ struct ScenarioReport {
     // whether the model got there; these say what it spent on the way.
     std::vector<long> repeat_prompt_tokens;
     std::vector<long> repeat_completion_tokens;
+    // Runs in the population that produced no usage at all (a throttled or
+    // refused request): their outcome still counts in the score, but a zero is
+    // not a sample of what the answer cost, so it stays out of the token spread
+    // and is reported by count instead.
+    int repeat_unmeasured = 0;
 };
 
 // Difficulty-weighted aggregate of per-scenario totals: 0..100 (×10 = /1000).

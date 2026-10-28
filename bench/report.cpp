@@ -112,8 +112,13 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     agg.repeat_scores.clear();
     agg.repeat_prompt_tokens.clear();
     agg.repeat_completion_tokens.clear();
+    agg.repeat_unmeasured = 0;
     for (const auto& r : runs) {
         agg.repeat_scores.push_back(r.score.total);
+        if (r.kpi.prompt_tokens <= 0) {
+            ++agg.repeat_unmeasured;
+            continue;
+        }
         agg.repeat_prompt_tokens.push_back(r.kpi.prompt_tokens);
         agg.repeat_completion_tokens.push_back(r.kpi.completion_tokens);
     }
@@ -253,8 +258,11 @@ std::string token_line(const char* label, const std::vector<long>& values) {
 std::string token_spread_suffix(const ScenarioReport& r) {
     if (r.repeat_n <= 1)
         return "";
-    return token_line("prompt", r.repeat_prompt_tokens) +
-           token_line("completion", r.repeat_completion_tokens);
+    std::string out = token_line("prompt", r.repeat_prompt_tokens) +
+                      token_line("completion", r.repeat_completion_tokens);
+    if (r.repeat_unmeasured > 0)
+        out += "  (" + std::to_string(r.repeat_unmeasured) + " unmeasured)";
+    return out;
 }
 
 // One scenario's summary line.
@@ -442,13 +450,9 @@ agent::json json_tool_details(const ScenarioReport& r) {
     return details;
 }
 
-// One scenario's JSON object.
-agent::json json_scenario(const ScenarioReport& r) {
-    agent::json j = json_kpi(r);
-    j["name"] = r.name;
-    j["suite"] = r.suite;
-    j["difficulty"] = r.difficulty;
-    j["score"] = r.score.total;
+// The population fields of a repeated scenario: the median and spread a stored
+// report has to keep to be readable as a measurement rather than a number.
+void add_repeat_fields(agent::json& j, const ScenarioReport& r) {
     j["repeat_n"] = r.repeat_n;
     j["score_median"] = r.score_median;
     j["score_stddev"] = r.score_stddev;
@@ -458,6 +462,17 @@ agent::json json_scenario(const ScenarioReport& r) {
         j["repeat_prompt_tokens"] = r.repeat_prompt_tokens;
     if (!r.repeat_completion_tokens.empty())
         j["repeat_completion_tokens"] = r.repeat_completion_tokens;
+    j["repeat_unmeasured"] = r.repeat_unmeasured;
+}
+
+// One scenario's JSON object.
+agent::json json_scenario(const ScenarioReport& r) {
+    agent::json j = json_kpi(r);
+    j["name"] = r.name;
+    j["suite"] = r.suite;
+    j["difficulty"] = r.difficulty;
+    j["score"] = r.score.total;
+    add_repeat_fields(j, r);
     j["score_correctness"] = r.score.correctness;
     j["score_efficiency"] = r.score.efficiency;
     j["score_robustness"] = r.score.robustness;
@@ -894,6 +909,7 @@ void parse_scenario_score(const agent::json& e, ScenarioReport& rep) {
         for (const auto& v : e["repeat_completion_tokens"])
             if (v.is_number())
                 rep.repeat_completion_tokens.push_back(v.get<long>());
+    rep.repeat_unmeasured = e.value("repeat_unmeasured", 0);
 }
 
 void parse_scenario_agentic(const agent::json& e, ScenarioReport& rep) {
