@@ -5,6 +5,7 @@
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
 #include "agent/context_shape.h"
+#include "agent/global_config.h"
 #include "agent/plugin_runtime.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
@@ -107,31 +108,13 @@ void parse_tui_args(int argc, char** argv, agent::Config& cfg, TuiCliArgs& args)
     }
 }
 
-// Global settings: LLM provider config lives in ~/.config/amber/config. This is
-// loaded first so project-level and env overrides can layer on top. The provider
-// domain resolves the active provider and auto-loads its last-used model; the
-// user's explicit choice is remembered per provider (default_model), so it
-// survives restarts. The user's explicit context window applies regardless of
-// the provider default.
+// Global settings: the provider the user selected (~/.config/amber/config) is
+// applied by agent::apply_global_selection, shared with the CLI and the
+// benchmark. Project-level amber.conf is a base layer here: it pins data paths,
+// and its endpoint applies only when no provider is selected -- it cannot
+// redirect the provider domain's traffic.
 void apply_global_config(agent::Config& cfg) {
-    agent::Config tmp;
-    const std::string global_path = agent::global_config_path();
-    std::ifstream sf(global_path);
-    if (sf)
-        tmp.load(global_path);
-    if (tmp.context_explicit && tmp.context_size > 0) {
-        cfg.context_size = tmp.context_size;
-        cfg.context_explicit = true;
-    }
-    auto providers = agent::make_default_provider_service(cfg);
-    if (!tmp.provider_name.empty()) {
-        auto sel = providers->select(tmp.provider_name);
-        if (sel.ok())
-            agent::apply_selection(cfg, sel);
-    }
-    // Project-level amber.conf is a base layer: it pins data paths, and its
-    // endpoint applies only when no provider is selected -- it cannot redirect
-    // the provider domain's traffic.
+    (void)agent::apply_global_selection(cfg);
     std::ifstream sf2("amber.conf");
     if (sf2)
         cfg.load_workspace_defaults("amber.conf");

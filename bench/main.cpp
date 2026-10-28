@@ -51,6 +51,7 @@ void print_usage(const char* prog) {
         << "  --model NAME     model override (live)\n"
         << "  --temperature T  temperature override (live)\n"
         << "  --repeat N       run each scenario N times\n"
+        << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
         << "  --cat NAME       category: model | harness | both (default)\n"
         << "  --out FILE       write JSON report to FILE\n"
         << "  --format FMT     report output: text (default), markdown, json\n"
@@ -166,6 +167,7 @@ struct CliOptions {
     std::string model;
     double temperature = -1;
     int repeat = 1;
+    int repeat_gap_ms = 0;
     std::string out_file;
     std::string debug_dir;
     std::string category;
@@ -193,7 +195,9 @@ bool parse_positive_int(const std::string& text, int& out) {
 }
 
 // Flags that consume the next argument.
-bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+// The flags that shape one live run: which scenarios, against which model, how
+// many times, and how far apart.
+bool apply_run_flag(const std::string& a, const NextArg& next, CliOptions& o) {
     if (a == "--suite")
         o.suite = next("");
     else if (a == "--scenario")
@@ -206,7 +210,16 @@ bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) 
         o.temperature = std::atof(next("0").c_str());
     else if (a == "--repeat")
         o.repeat = std::atoi(next("1").c_str());
-    else if (a == "--debug")
+    else if (a == "--repeat-gap-ms")
+        o.repeat_gap_ms = std::atoi(next("0").c_str());
+    else
+        return false;
+    return true;
+}
+
+// The flags that shape the report and the run's diagnostics.
+bool apply_output_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+    if (a == "--debug")
         o.debug_dir = next("");
     else if (a == "--disable")
         o.disable = next("");
@@ -221,6 +234,10 @@ bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) 
     else
         return false;
     return true;
+}
+
+bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+    return apply_run_flag(a, next, o) || apply_output_flag(a, next, o);
 }
 
 // Parse the command line after the subcommand. Returns 0 when a flag asked to
@@ -268,6 +285,7 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.disable_plugins = parse_disable_list(args.disable);
     opts.live = args.live;
     opts.repeat = args.repeat;
+    opts.repeat_gap_ms = args.repeat_gap_ms;
     opts.model = args.model;
     opts.temperature = args.temperature;
     opts.debug_dir = args.debug_dir;

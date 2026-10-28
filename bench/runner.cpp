@@ -15,6 +15,8 @@
 #include "agent/compressor.h"
 #include "agent/data_path.h"
 #include "agent/experience.h"
+#include "agent/context_shape.h"
+#include "agent/global_config.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
 #include "agent/tools.h"
@@ -123,13 +125,14 @@ struct RunHost {
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::ShapeQueue shapes;
     agent::SubAgentExecutor subagents;
     agent::Workspace workspace;
     agent::HostServices host_services;
     agent::PluginRuntime plugins;
 
     explicit RunHost(agent::Config c)
-        : cfg(std::move(c)), host_services{&jobs, &todos, &subagents, &cfg.cancel_token},
+        : cfg(std::move(c)), host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes},
           plugins(registry, cfg, workspace) {}
 };
 
@@ -167,9 +170,16 @@ struct RunComponents {
 agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
     agent::Config cfg;
     if (opts.live) {
-        std::ifstream def("amber.conf");
-        if (def)
-            cfg.load("amber.conf");
+        // The configuration the user actually runs: the provider selected in
+        // the global config owns the endpoint and the key, and a repository's
+        // amber.conf is a base layer that cannot redirect that traffic. Loading
+        // the project file directly (as this used to) sent a live run at the
+        // repository's fallback endpoint -- 127.0.0.1 for this project -- while
+        // every host was talking to the configured provider.
+        const agent::GlobalConfig global = agent::apply_global_selection(cfg);
+        if (fs::is_regular_file("amber.conf"))
+            cfg.load_workspace_defaults("amber.conf");
+        agent::apply_global_model(cfg, global);
         cfg.apply_environment();
         if (!opts.model.empty()) {
             cfg.model = opts.model;
@@ -210,7 +220,13 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
 // record the plugin set on the run meta. Returns false (with `err` set) when a
 // requested plugin does not exist or nothing installed a tool.
 bool setup_plugins(const RunOptions& opts, agent::PluginRuntime& plugins,
-                   const agent::ToolRegistry& registry, RunMeta& meta, std::string& err) {
+                   const agent::HostServices& host_services, const agent::ToolRegistry& registry,
+                   RunMeta& meta, std::string& err) {
+    // The host services are what the host-bound tools are built from: jobs,
+    // todos, sub-agents and the shaping queue. Attaching after activation would
+    // leave those plugins with nothing to bind to, which is how the benchmark
+    // ran without a `context` tool while every real host had one.
+    plugins.attach_host_services(host_services);
     plugins.add_bundled();
     for (const auto& id : opts.disable_plugins) {
         if (!plugins.has(id)) {
@@ -339,6 +355,16 @@ void pin_prompt_paths(agent::Config& cfg) {
         cfg.tools_prompt_path = fs::absolute(cfg.tools_prompt_path).string();
 }
 
+// Bind the run's runtime services to the agent before its first turn: the
+// prompt registry carries every tool plugin's documentation, and the shaping
+// queue is where the `context` tool leaves a plan. A host that skips this
+// measures a harness without the tools those services install.
+void wire_run_services(agent::Agent& agent, RunHost& host) {
+    agent.set_prompt_registry(host.plugins.prompts());
+    agent.set_shape_queue(&host.shapes);
+    agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
+}
+
 // Run the agent with the workspace as CWD (the env card advertises getcwd()).
 // Returns false and fills `error` when the run threw.
 bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& comps,
@@ -353,8 +379,7 @@ bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& com
         // The runtime's prompt registry carries the documentation each tool
         // plugin contributes, exactly as it does in every host: a run measures
         // the prompt a user would see, not one silently missing its docs.
-        agent.set_prompt_registry(host.plugins.prompts());
-        agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
+        wire_run_services(agent, host);
         t0 = now_ms();
         final_text = agent.run(s.prompt);
         wall_ms = now_ms() - t0;
@@ -642,7 +667,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     RunHost host(build_run_config(s, opts));
     host.plugins.attach_host_services(host.host_services);
     host.plugins.attach_config(host.cfg);
-    if (!setup_plugins(opts, host.plugins, host.registry, meta, err))
+    if (!setup_plugins(opts, host.plugins, host.host_services, host.registry, meta, err))
         return {};
     prepare_subagents(s, opts, host);
 
@@ -678,6 +703,10 @@ std::vector<ScenarioReport> run_scenarios(const std::vector<Scenario>& scenarios
         std::string err;
         std::vector<ScenarioReport> runs;
         for (int i = 0; i < std::max(1, opts.repeat); ++i) {
+            // Pacing is part of a repeatable live measurement: a throttled run
+            // is a property of the endpoint's rate limit, not of the model.
+            if (i > 0 && opts.repeat_gap_ms > 0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(opts.repeat_gap_ms));
             ScenarioReport rep = run_one_scenario(s, opts, meta, err);
             if (rep.name.empty()) {
                 // The scenario could not be set up. Name it and carry the
