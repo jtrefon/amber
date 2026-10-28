@@ -58,22 +58,29 @@ std::string scope_root(const std::string& scope) {
     return Workspace::local_dir() + "/skills";
 }
 
-std::string local_hash(const std::string& root, const std::string& name) {
+// Reads one file of an installed skill, confined to its scope root: the name is
+// a kebab slug, the path is canonicalised, and the result has to stay under the
+// root. Every read of an installed skill goes through this one door.
+std::string read_installed_file(const std::string& root, const std::string& name,
+                                const std::string& leaf) {
     if (!is_kebab_name(name))
         return {};
     std::error_code ec;
     const std::filesystem::path base = std::filesystem::weakly_canonical(root, ec);
     if (ec)
         return {};
-    const std::filesystem::path file =
-        std::filesystem::weakly_canonical(base / name / "SKILL.md", ec);
+    const std::filesystem::path file = std::filesystem::weakly_canonical(base / name / leaf, ec);
     if (ec || file.string().rfind(base.string() + "/", 0) != 0)
         return {};
     std::ifstream f(file, std::ios::binary);
     if (!f)
         return {};
-    const std::string body((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-    return skill_content_hash(body);
+    return {(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
+}
+
+std::string local_hash(const std::string& root, const std::string& name) {
+    const std::string body = read_installed_file(root, name, "SKILL.md");
+    return body.empty() ? std::string() : skill_content_hash(body);
 }
 
 // "owner/repo" or "owner/repo/skill" -> the registry identity.
@@ -355,11 +362,7 @@ struct UpdatePlan {
 };
 
 std::string read_installed_body(const std::string& scope, const std::string& name) {
-    const std::string path = scope_root(scope) + "/" + name + "/SKILL.md";
-    std::ifstream f(path, std::ios::binary);
-    if (!f)
-        return {};
-    return {(std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>()};
+    return read_installed_file(scope_root(scope), name, "SKILL.md");
 }
 
 LedgerEntry entry_of(const InstalledPackage& package) {
