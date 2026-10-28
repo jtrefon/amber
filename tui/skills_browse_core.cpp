@@ -120,6 +120,22 @@ bool SkillsBrowseCore::matches(const SkillRow& row) const {
            ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
 }
 
+BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required) {
+    BatchPlan plan;
+    for (const auto& candidate : candidates) {
+        if (candidate.exists_in_scope) {
+            plan.skipped.push_back(candidate.name + " (name collision)");
+            continue;
+        }
+        if (review_required && !candidate.official && !candidate.previewed) {
+            plan.skipped.push_back(candidate.name + " (review required: p reads it)");
+            continue;
+        }
+        plan.install_ids.push_back(candidate.id);
+    }
+    return plan;
+}
+
 bool skill_tab_available(SkillTab tab) noexcept {
     return tab == SkillTab::Top || tab == SkillTab::Installed || tab == SkillTab::Updates;
 }
