@@ -211,6 +211,7 @@ TEST(config_load_covers_every_key) {
         f << "skills_review_required=false\n";
         f << "skills_audit_required=true\n";
         f << "skills_update_review=false\n";
+        f << "skills_update_check=never\n";
         f << "skills_index_token_env=INDEX_TOKEN\n";
         f << "skills_github_token_env=GH_TOKEN\n";
         f << "work_auto_attach=agents\n";
@@ -272,6 +273,7 @@ TEST(config_load_covers_every_key) {
     ASSERT_FALSE(c.skills_review_required);
     ASSERT_TRUE(c.skills_audit_required);
     ASSERT_FALSE(c.skills_update_review);
+    ASSERT_EQ(c.skills_update_check, "never");
     ASSERT_EQ(c.skills_index_token_env, "INDEX_TOKEN");
     ASSERT_EQ(c.skills_github_token_env, "GH_TOKEN");
     ASSERT_EQ(c.work_auto_attach, "agents");
@@ -288,6 +290,7 @@ TEST(config_acquisition_settings_validate_and_round_trip) {
     {
         std::ofstream f(path, std::ios::trunc);
         f << "skills_index=ftp://mirror\n";
+        f << "skills_update_check=hourly\n";
         f << "skills_install_scope=everywhere\n";
         f << "skills_index=none\n"; // last write wins and is valid
         f << "skills_install_scope=global\n";
@@ -304,6 +307,7 @@ TEST(config_acquisition_settings_validate_and_round_trip) {
     c.skills_review_required = false;
     c.skills_audit_required = true;
     c.skills_update_review = false;
+    c.skills_update_check = "daily";
     const std::string saved = "/tmp/amber_acq_settings_saved.conf";
     ASSERT_TRUE(c.save_settings(saved));
     agent::Config d;
@@ -313,6 +317,7 @@ TEST(config_acquisition_settings_validate_and_round_trip) {
     ASSERT_FALSE(d.skills_review_required);
     ASSERT_TRUE(d.skills_audit_required);
     ASSERT_FALSE(d.skills_update_review);
+    ASSERT_EQ(d.skills_update_check, "daily");
     ASSERT_TRUE(d.warnings.empty());
     std::remove(path.c_str());
     std::remove(saved.c_str());

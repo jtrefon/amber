@@ -163,6 +163,8 @@ Config load_acquisition_config() {
         cfg.skills_install_scope = *scope == 'g' ? "global" : "project";
     if (const char* index = std::getenv("AMBER_SKILLS_INDEX"); index && *index)
         cfg.skills_index = index;
+    if (const char* check = std::getenv("AMBER_SKILLS_UPDATE_CHECK"); check && *check)
+        cfg.skills_update_check = check;
     cfg.apply_environment();
     return cfg;
 }
@@ -462,10 +464,12 @@ json update_row(const SkillCliCommand& cmd, const SkillCliBackends& backends,
     return row;
 }
 
-int run_update(const SkillCliCommand& cmd, std::ostream& out, std::ostream& err,
+int run_update(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out, std::ostream& err,
                const SkillCliBackends& backends) {
-    (void)err; // failures are reported per row, not as a single line
-    Config cfg;
+    if (cfg.skills_update_check == "never") {
+        err << "skills update: update checks are disabled (skills_update_check=never)\n";
+        return 1;
+    }
     SkillCatalog catalog(cfg);
     const auto entries = catalog.entries();
     std::vector<InstalledPackage> packages = packages_from("project", entries);
@@ -736,7 +740,7 @@ int run_skill_cli(const std::vector<std::string>& args, std::ostream& out, std::
         return looks_like_pack(cmd.target) ? install_pack(cmd, settings, out, err)
                                            : install_registry(cmd, settings, out, err, wired);
     case SkillVerb::Update:
-        return run_update(cmd, out, err, wired);
+        return run_update(cmd, settings, out, err, wired);
     case SkillVerb::Remove:
         return run_remove(cmd, settings, out, err);
     case SkillVerb::Sources:

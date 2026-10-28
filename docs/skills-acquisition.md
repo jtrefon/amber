@@ -34,7 +34,11 @@ installs, license, category, file count). Press `i` for the install sheet.
 | `p` | preview the skill body (also satisfies the review gate) |
 | `v` | audit readout: risk-signal counts, and "not audited" when there is no audit source |
 | `6` | Installed shelf |
-| `u` | check for an update; press again to apply |
+| `7` | Updates shelf: installed rows whose remote differs |
+| `u` | check for an update and show its diff; press again to apply |
+| `U` | apply every reviewed update, with one line per outcome |
+| `d` | diff installed vs remote (no write) |
+| `?` | key help |
 | `D` | remove (confirmation required) |
 | `A` | adopt an unmanaged skill directory (adds provenance, rewrites nothing) |
 | `x` | enable / disable through the catalog override |
@@ -54,7 +58,10 @@ backends.
 | `/skills list` | print the catalog (scope, origin, name, state) |
 | `/skills show <name>` | print one catalog entry |
 | `/skills install <id> [--global]` | fetch the skill and open the install sheet |
-| `/skills update` | open the Installed shelf, where `u` checks and applies |
+| `/skills update` | open the Installed shelf, where `u` reviews and applies |
+| `/skills sources` | print the index/GitHub endpoints and the cache size |
+| `/set skills update-review on\|off` | require the diff before an update applies |
+| `/set skills update-check manual\|daily\|never` | when updates are checked |
 | `/skills remove <name>` | open the Installed shelf filtered to that skill |
 | `/skills sources` | print the index/GitHub endpoints and the cache size |
 
@@ -97,10 +104,21 @@ need) comes from the ledger.
 ## Updates and removal
 
 On an installed, managed skill, `u` fetches the remote detail and compares its
-`SKILL.md` blob hash with the ledger. If it differs, the row gets an update
-marker and a second `u` applies the update, preserving the enabled state. If the
-installed `SKILL.md` no longer matches the ledger hash, the update is refused
-(`has local edits; update refused`).
+`SKILL.md` blob hash with the ledger. If it differs, amber shows the review
+before writing: the `SKILL.md` diff, the files the remote adds, and the files it
+no longer has. The second `u` applies, preserving the enabled state. A diff is
+also available on its own with `d`, and `U` applies every reviewed update,
+reporting each outcome (`2 updated, 1 skipped: tdd (local edits)`).
+
+If the installed `SKILL.md` no longer matches the ledger hash, the review says so
+and the update needs that explicit second `u`; amber never replaces edits it did
+not write without one. `skills_update_review = off` applies on the first `u` for
+unmodified skills, but a locally edited one still asks.
+
+Checks are explicit: opening the explorer never spends a request on them.
+`skills_update_check = never` refuses them with that reason, `manual` (the
+default) checks only when asked, and `daily` currently checks on the same
+explicit triggers until the update-check cache lands (#407).
 
 `D` removes the tree and its ledger entry. Overrides (`disable`, `block`) are
 deliberately left alone. If the conversation has activated the skill, the
@@ -116,7 +134,7 @@ amber-cli skills search <query> [--limit N] [--json]
 amber-cli skills list [--global] [--json]
 amber-cli skills show <name|owner/repo/skill> [--json]
 amber-cli skills install <id|owner/repo|url> [--global] [--yes] [--json]
-amber-cli skills update [<name>|--all] [--check] [--json]
+amber-cli skills update [<name>|--all] [--check|--diff|--force] [--json]
 amber-cli skills remove <name> [--global] [--json]
 amber-cli skills sources [--refresh] [--json]
 ```
@@ -132,8 +150,10 @@ source, no audit).
 ```
 
 `update` compares the recorded remote hash with the ledger, reports
-`up to date`, `update available`, `locally modified (update refused)` or
-`updated`, and exits non-zero only when a step errored. `sources --refresh`
+`up to date`, `update available: <name>: <from> → <to>, +N -M lines` or
+`updated`, and exits non-zero when a step errored or an update was refused.
+`--diff` prints the review and writes nothing, `--force` applies over local
+edits the user has now read, and `--all` reports each row. `sources --refresh`
 empties the regenerable cache.
 
 ## Mirrors and offline registries
@@ -153,8 +173,8 @@ Empty values keep the public defaults.
 
 Not implemented yet:
 
-- the update diff pager, update-all from the TUI and the explicit
-  remote-deleted/renamed states (#402);
+- the explicit remote-deleted/renamed states, and rename detection on update
+  (#402, remaining);
 - per-file install progress, cancellation and multi-select installs (#399,
   #408);
 - shelves (For you / Trending / Top / Official / Collections), facets and

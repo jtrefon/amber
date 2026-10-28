@@ -175,6 +175,15 @@ bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const 
         message = "skills " + key + ": " + (on ? "on" : "off");
         return true;
     }
+    if (key == "update-check") {
+        if (value != "manual" && value != "daily" && value != "never") {
+            message = "usage: /set skills update-check manual|daily|never";
+            return false;
+        }
+        cfg.skills_update_check = value;
+        message = "skills update check: " + value;
+        return true;
+    }
     if (key == "scope") {
         if (value != "project" && value != "global") {
             message = "usage: /set skills scope project|global";
@@ -198,10 +207,12 @@ bool apply_skill_acquisition_setting(Config& cfg, const std::string& key, const 
 }
 
 std::vector<std::string> skill_acquisition_settings_lines(const Config& cfg) {
-    return {"index      " + cfg.skills_index, "scope      " + cfg.skills_install_scope,
+    return {"index      " + cfg.skills_index,
+            "scope      " + cfg.skills_install_scope,
             "review     " + std::string(cfg.skills_review_required ? "on" : "off"),
             "audit      " + std::string(cfg.skills_audit_required ? "on" : "off"),
-            "update-review " + std::string(cfg.skills_update_review ? "on" : "off")};
+            "update-review " + std::string(cfg.skills_update_review ? "on" : "off"),
+            "update-check " + cfg.skills_update_check};
 }
 
 } // namespace agent

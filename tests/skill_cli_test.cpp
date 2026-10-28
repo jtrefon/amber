@@ -374,3 +374,17 @@ TEST(skill_cli_update_refuses_local_edits_until_forced) {
     ASSERT_TRUE(read_file(skill_md).find("body two") != std::string::npos);
     ASSERT_TRUE(read_file(skill_md).find("my own notes") == std::string::npos);
 }
+
+TEST(skill_cli_update_checks_can_be_disabled) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    setenv("AMBER_SKILLS_UPDATE_CHECK", "never", 1);
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody one\n";
+    std::string sha = "sha-1";
+    const agent::SkillCliBackends backends = fake_backends(body, sha);
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"update", "--check"}, out, err, backends), 1);
+    ASSERT_TRUE(err.str().find("disabled") != std::string::npos);
+    unsetenv("AMBER_SKILLS_UPDATE_CHECK");
+}

@@ -734,6 +734,16 @@
         "off"
        ]
       },
+      "update-check": {
+       "action": "core.config.set.skills.update-check",
+       "help": "When updates are checked: manual, daily, or never.",
+       "man": "manual (the default) checks only when you ask: u in the explorer, R to refresh, or amber-cli skills update --check. never refuses those checks and says why. daily is accepted and currently checks on the same explicit triggers; the once-a-day throttle arrives with the update cache (see docs/skills-completion-plan.md, F4).",
+       "choices": [
+        "manual",
+        "daily",
+        "never"
+       ]
+      },
       "scope": {
        "action": "core.config.set.skills.scope",
        "help": "Default install scope (project or global).",

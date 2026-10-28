@@ -788,7 +788,7 @@ void SlashDispatcher::cmd_skills_set(const std::string& rest) {
     // Acquisition settings are host-level: they apply before a window exists
     // and do not depend on the catalog.
     if (sub == "review" || sub == "audit" || sub == "scope" || sub == "index" ||
-        sub == "update-review") {
+        sub == "update-review" || sub == "update-check") {
         std::string message;
         if (!agent::apply_skill_acquisition_setting(tui_.cfg_, sub, args, message)) {
             tui_.append_line(P_STATUS, message);
@@ -1401,7 +1401,7 @@ void SlashDispatcher::register_set_policy_actions() {
 void wire_skill_setting_actions(tui::ActionRegistry& registry,
                                 const std::function<void(const std::string&)>& set_skills,
                                 const std::function<void(const std::string&)>& get_settings) {
-    for (const char* key : {"review", "audit", "update-review", "scope", "index"}) {
+    for (const char* key : {"review", "audit", "update-review", "update-check", "scope", "index"}) {
         const std::string name = key;
         registry.register_action(
             "core.config.set.skills." + name,

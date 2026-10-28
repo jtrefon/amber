@@ -547,6 +547,10 @@ void SkillsExplorer::show_review(const agent::UpdateReview& review) {
 
 void SkillsExplorer::update_current(const SkillRow& row) {
     const std::string name = row.ref.name;
+    if (options_.update_check_disabled) {
+        last_status_ = "update checks are disabled (skills_update_check=never)";
+        return;
+    }
     if (const auto review = life_->review_for(name)) {
         // First press: show what would change. Second press: apply, and for a
         // locally edited skill that second press is the explicit override.
@@ -575,6 +579,10 @@ void SkillsExplorer::update_current(const SkillRow& row) {
 }
 
 bool SkillsExplorer::show_diff(const SkillRow& row) {
+    if (options_.update_check_disabled && !life_->review_for(row.ref.name)) {
+        last_status_ = "update checks are disabled (skills_update_check=never)";
+        return true;
+    }
     if (const auto review = life_->review_for(row.ref.name)) {
         show_review(*review);
         last_status_ = review->needs_override() ? "local edits · u overrides and replaces them"

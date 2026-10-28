@@ -220,6 +220,11 @@ void apply_acquisition_keys(Config& c, const std::string& key, const std::string
         c.skills_audit_required = parse_bool(val);
     } else if (key == "skills_update_review") {
         c.skills_update_review = parse_bool(val);
+    } else if (key == "skills_update_check") {
+        if (val == "manual" || val == "daily" || val == "never")
+            c.skills_update_check = val;
+        else
+            warnings.emplace_back("skills_update_check: expected manual, daily or never");
     } else if (key == "skills_index_token_env") {
         c.skills_index_token_env = val;
     } else if (key == "skills_github_token_env") {
@@ -436,6 +441,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "skills_review_required=" << (skills_review_required ? 1 : 0) << "\n";
     f << "skills_audit_required=" << (skills_audit_required ? 1 : 0) << "\n";
     f << "skills_update_review=" << (skills_update_review ? 1 : 0) << "\n";
+    f << "skills_update_check=" << skills_update_check << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
     return write_private_file(path, f.str());
 }
