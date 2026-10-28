@@ -35,6 +35,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "agent/model_probe.h"
@@ -521,8 +522,9 @@ bool open_browser(Tui& tui) {
     return tui.wait_for("Sessions", 10000);
 }
 
-// Report a failed step once, with the screen state, and stop the test.
-bool require(bool ok, const char* what, const Tui& tui) {
+// Report a failed step once, with the screen state, and stop the test. The
+// message is a string so a caller can name the command that failed.
+bool require(bool ok, const std::string& what, const Tui& tui) {
     if (ok)
         return true;
     std::cerr << "FAIL: " << what << "\n";
@@ -2565,16 +2567,19 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
                  tui))
         return;
 
-    tui.send("/set skills review on\r");
-    if (!require(tui.wait_for("skills review: on", 10000), "review was not restored", tui))
-        return;
-    tui.send("/set skills scope project\r");
-    if (!require(tui.wait_for("skills install scope: project", 10000), "scope was not restored",
-                 tui))
-        return;
-    tui.send("/set skills index skills.sh\r");
-    if (!require(tui.wait_for("skills index: skills.sh", 10000), "index was not restored", tui))
-        return;
+    // Restore through the same door every time: close whatever drawer the last
+    // command left open, then type. A drawer swallows the keystrokes it is
+    // filtering, which is how this step once failed only on CI.
+    for (const auto& [command, marker] : std::vector<std::pair<std::string, std::string>>{
+             {"/set skills review on", "skills review: on"},
+             {"/set skills scope project", "skills install scope: project"},
+             {"/set skills index skills.sh", "skills index: skills.sh"}}) {
+        tui.send("\x1b");
+        tui.pump(150);
+        tui.send(command + "\r");
+        if (!require(tui.wait_for(marker, 10000), "settings were not restored: " + command, tui))
+            return;
+    }
 
     // The shell: category facets at wide sizes, the full tab strip, an honest
     // empty Updates shelf and the key help.
