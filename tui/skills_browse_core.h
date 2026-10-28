@@ -79,6 +79,25 @@ struct SkillIntent {
     SkillSort sort = SkillSort::Relevance;
 };
 
+// One row considered for a batch install, before anything is fetched.
+struct BatchCandidate {
+    std::string id;
+    std::string name;
+    bool official = false;
+    bool previewed = false;       // the body has been read this session
+    bool exists_in_scope = false; // a directory of that name is already there
+};
+
+// A batch install is decided before any request: skills whose gate is unmet or
+// whose name is taken are skipped by name, never installed blind and never
+// silently dropped.
+struct BatchPlan {
+    std::vector<std::string> install_ids;
+    std::vector<std::string> skipped; // "name (reason)"
+};
+
+BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required);
+
 // Pane widths for one terminal size. Pure so the three breakpoints are tested
 // without a terminal.
 struct SkillsLayout {

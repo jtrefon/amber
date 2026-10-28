@@ -30,7 +30,8 @@ installs, license, category, file count). Press `i` for the install sheet.
 | `/` | focus the search field |
 | `j`/`k`, arrows | move |
 | `Enter` | leave the search field / load the selected detail |
-| `i` | open the install sheet |
+| `Space` | mark a row; `a` marks every visible row |
+| `i` | install the marked rows, or open the sheet for one |
 | `p` | preview the skill body (also satisfies the review gate) |
 | `v` | audit readout: risk-signal counts, and "not audited" when there is no audit source |
 | `6` | Installed shelf |
@@ -43,6 +44,7 @@ installs, license, category, file count). Press `i` for the install sheet.
 | `A` | adopt an unmanaged skill directory (adds provenance, rewrites nothing) |
 | `x` | enable / disable through the catalog override |
 | `b` | block |
+| `R` | retry after an offline, timeout or rate-limit answer |
 | `q`, `Esc` | close |
 
 ## Command forms
@@ -138,6 +140,12 @@ amber-cli skills update [<name>|--all] [--check|--diff|--force] [--json]
 amber-cli skills remove <name> [--global] [--json]
 amber-cli skills sources [--refresh] [--json]
 ```
+
+A marked batch installs sequentially in the configured default scope and
+reports one line: `3 installed, 1 skipped: tdd (review required: p reads it)`.
+It applies the same gates as the sheet, so an unread community skill and a name
+collision are skipped by name instead of installed blind, and a failure never
+aborts the rest.
 
 An unattended install refuses a community source without `--yes` and names the
 step that satisfies the gate:

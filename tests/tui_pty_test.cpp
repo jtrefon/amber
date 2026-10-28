@@ -2392,6 +2392,21 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(tui.wait_for("engineering (1)", 5000), "the category facet did not appear", tui))
         return;
 
+    // A batch install refuses the same way the sheet does: an unread community
+    // skill is skipped by name, and nothing is written.
+    tui.send(" ");
+    if (!require(tui.wait_for("1 marked", 10000), "Space did not mark the row", tui))
+        return;
+    tui.send("i");
+    if (!require(tui.wait_for("0 installed, 1 skipped: tdd (review required", 10000),
+                 "the batch install ignored the review gate", tui))
+        return;
+    if (!require(!fs::exists(installed_dir), "a batch install wrote an unread skill", tui))
+        return;
+    tui.send(" ");
+    if (!require(tui.wait_for("loaded tdd", 10000), "Space did not unmark the row", tui))
+        return;
+
     tui.send("i");
     if (!require(tui.wait_for("review required", 10000), "the install sheet did not open", tui))
         return;
