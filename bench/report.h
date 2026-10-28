@@ -78,6 +78,11 @@ struct ScenarioReport {
     double score_median = 0.0;
     double score_stddev = 0.0;
     std::vector<double> repeat_scores;
+    // Per-run token totals, so a repeated scenario reports what the answer cost
+    // as a distribution rather than one representative number. The score says
+    // whether the model got there; these say what it spent on the way.
+    std::vector<long> repeat_prompt_tokens;
+    std::vector<long> repeat_completion_tokens;
 };
 
 // Difficulty-weighted aggregate of per-scenario totals: 0..100 (×10 = /1000).
@@ -113,6 +118,10 @@ double median(std::vector<double> values) noexcept;
 
 // Sample standard deviation (0 when n < 2).
 double stddev(const std::vector<double>& values) noexcept;
+
+// The prompt/completion token spread across a repeated scenario, empty for a
+// single run: a one-run baseline must not claim a distribution it never saw.
+std::string token_spread_suffix(const ScenarioReport& r);
 
 // Collapse N runs of one scenario into a single median report carrying the
 // population statistics. Single-run input still initializes the metadata

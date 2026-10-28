@@ -214,6 +214,30 @@ TEST(scenario_loader_roundtrip) {
     ASSERT(bench::platform_supported(*s));
 }
 
+// The live shaping suite is a measurement, so a scenario that cannot measure
+// anything must not load: no retention oracle, no prompt, or a "live" scenario
+// that would silently run in hermetic mode are all broken by construction.
+TEST(shaping_suite_scenarios_carry_a_retention_oracle) {
+    for (const char* dir : {"bench/scenarios/shaping"}) {
+        int loaded = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
+            if (entry.path().extension() != ".json")
+                continue;
+            std::string err;
+            auto s = bench::load_scenario(entry.path().string(), err);
+            ASSERT(s.has_value());
+            ASSERT_EQ(s->suite, std::string("shaping"));
+            ASSERT(!s->prompt.empty());
+            ASSERT(!s->checks.must_contain.empty()); // the retention oracle
+            ASSERT(!s->oracle.empty());
+            ASSERT(!s->hermetic_only); // live-only: skipped in a hermetic run
+            ASSERT(s->fake_replies.empty());
+            ++loaded;
+        }
+        ASSERT(loaded >= 2);
+    }
+}
+
 TEST(scenario_loader_missing_prompt_fails) {
     std::string dir = tmp_dir("loader");
     write_file(dir + "/s.json", R"({"name": "x", "suite": "s"})");
@@ -1803,6 +1827,30 @@ TEST(resolution_rule_enforces_noise_floor) {
     ASSERT_FALSE(bench::resolvable(10.0, 100.0, 10.0, 91.0));
     // Same gap, tight runs (sigma ~ 1): resolvable.
     ASSERT(bench::resolvable(2.0, 100.0, 2.0, 91.0));
+}
+
+// A repeated scenario reports the token spread too: the score says whether the
+// model got there, the tokens say what it cost on the way, and a single run
+// hides exactly the variance a live baseline needs to show.
+TEST(repeat_reports_the_token_spread) {
+    std::vector<bench::ScenarioReport> runs;
+    for (long prompt : {9000L, 12000L, 15000L}) {
+        bench::ScenarioReport r = score_report("s1", 90.0);
+        r.kpi.prompt_tokens = prompt;
+        r.kpi.completion_tokens = 120;
+        runs.push_back(std::move(r));
+    }
+    const bench::ScenarioReport agg = bench::aggregate_repeats(runs);
+    ASSERT_EQ(agg.repeat_prompt_tokens.size(), 3u);
+    ASSERT_EQ(agg.repeat_completion_tokens.size(), 3u);
+    ASSERT_EQ(agg.repeat_prompt_tokens.front(), 9000L);
+    ASSERT_EQ(agg.repeat_prompt_tokens.back(), 15000L);
+    ASSERT(bench::token_spread_suffix(agg).find("9000") != std::string::npos);
+    ASSERT(bench::token_spread_suffix(agg).find("15000") != std::string::npos);
+
+    // A single run has no spread to claim.
+    std::vector<bench::ScenarioReport> one = {score_report("s1", 90.0)};
+    ASSERT(bench::token_spread_suffix(bench::aggregate_repeats(one)).empty());
 }
 
 // The JSON report exposes the aggregate fields when repeats were run.

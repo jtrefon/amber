@@ -110,8 +110,13 @@ ScenarioReport aggregate_repeats(const std::vector<ScenarioReport>& runs) {
     ScenarioReport agg = runs.front();
     agg.repeat_n = static_cast<int>(runs.size());
     agg.repeat_scores.clear();
-    for (const auto& r : runs)
+    agg.repeat_prompt_tokens.clear();
+    agg.repeat_completion_tokens.clear();
+    for (const auto& r : runs) {
         agg.repeat_scores.push_back(r.score.total);
+        agg.repeat_prompt_tokens.push_back(r.kpi.prompt_tokens);
+        agg.repeat_completion_tokens.push_back(r.kpi.completion_tokens);
+    }
     if (runs.size() == 1) {
         // Single runs still carry the metadata: median = the score itself.
         agg.score_median = agg.score.total;
@@ -227,13 +232,39 @@ std::string repeat_suffix(const ScenarioReport& r) {
     return ss.str();
 }
 
+namespace {
+// "median (σ s, lo..hi)" for one token series.
+std::string token_line(const char* label, const std::vector<long>& values) {
+    if (values.size() < 2)
+        return {};
+    std::vector<double> as_double;
+    as_double.reserve(values.size());
+    for (long v : values)
+        as_double.push_back(static_cast<double>(v));
+    const auto [lo, hi] = std::minmax_element(values.begin(), values.end());
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(0) << "  " << label << " " << median(as_double)
+       << "tok (σ " << std::setprecision(1) << stddev(as_double) << ", " << *lo << ".." << *hi
+       << ")";
+    return ss.str();
+}
+} // namespace
+
+std::string token_spread_suffix(const ScenarioReport& r) {
+    if (r.repeat_n <= 1)
+        return "";
+    return token_line("prompt", r.repeat_prompt_tokens) +
+           token_line("completion", r.repeat_completion_tokens);
+}
+
 // One scenario's summary line.
 void render_scenario_line(std::ostream& out, const ScenarioReport& r) {
     out << (r.kpi.success ? "PASS" : "FAIL") << "  " << r.name << " (" << r.suite << ")"
-        << "  score=" << static_cast<int>(r.score.total) << repeat_suffix(r) << " d" << r.difficulty
-        << " bullseye=" << r.kpi.bullseye << " steps=" << r.kpi.steps
-        << " cd=" << r.kpi.bash_cd_prefix << " wasted=" << r.kpi.wasted << " wall=" << r.kpi.wall_ms
-        << "ms" << " retries=" << r.kpi.retries << " recoveries=" << r.kpi.recoveries;
+        << "  score=" << static_cast<int>(r.score.total) << repeat_suffix(r)
+        << token_spread_suffix(r) << " d" << r.difficulty << " bullseye=" << r.kpi.bullseye
+        << " steps=" << r.kpi.steps << " cd=" << r.kpi.bash_cd_prefix << " wasted=" << r.kpi.wasted
+        << " wall=" << r.kpi.wall_ms << "ms" << " retries=" << r.kpi.retries
+        << " recoveries=" << r.kpi.recoveries;
     if (r.kpi.compressions > 0) {
         out << " compact=" << r.kpi.compaction_tokens_before << "->"
             << r.kpi.compaction_tokens_after << "tok";
@@ -423,6 +454,10 @@ agent::json json_scenario(const ScenarioReport& r) {
     j["score_stddev"] = r.score_stddev;
     if (!r.repeat_scores.empty())
         j["repeat_scores"] = r.repeat_scores;
+    if (!r.repeat_prompt_tokens.empty())
+        j["repeat_prompt_tokens"] = r.repeat_prompt_tokens;
+    if (!r.repeat_completion_tokens.empty())
+        j["repeat_completion_tokens"] = r.repeat_completion_tokens;
     j["score_correctness"] = r.score.correctness;
     j["score_efficiency"] = r.score.efficiency;
     j["score_robustness"] = r.score.robustness;
@@ -851,6 +886,14 @@ void parse_scenario_score(const agent::json& e, ScenarioReport& rep) {
     rep.score_median = e.value("score_median", rep.score.total);
     rep.score_stddev = e.value("score_stddev", 0.0);
     parse_repeat_scores(e, rep);
+    if (e.contains("repeat_prompt_tokens") && e["repeat_prompt_tokens"].is_array())
+        for (const auto& v : e["repeat_prompt_tokens"])
+            if (v.is_number())
+                rep.repeat_prompt_tokens.push_back(v.get<long>());
+    if (e.contains("repeat_completion_tokens") && e["repeat_completion_tokens"].is_array())
+        for (const auto& v : e["repeat_completion_tokens"])
+            if (v.is_number())
+                rep.repeat_completion_tokens.push_back(v.get<long>());
 }
 
 void parse_scenario_agentic(const agent::json& e, ScenarioReport& rep) {
