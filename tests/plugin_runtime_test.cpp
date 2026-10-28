@@ -5,6 +5,7 @@
 
 #include "agent.h"
 #include "agent/dialect.h"
+#include "agent/context_shape.h"
 #include "agent/extensions.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
@@ -441,6 +442,53 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     ASSERT_TRUE(runtime.set_state("tool_plan", false));
     ASSERT_FALSE((bool)f.tools.find("todowrite"));
     ASSERT_TRUE((bool)f.tools.find("task"));
+}
+
+// The model's own trim ships as a tool plugin, bound to the host's queue. The
+// plugin is the unit: switching it off takes the tool, its prose and the ability
+// to ask for shaping with it, and a host that never wired a queue simply gets
+// no tool instead of one that silently drops the plan.
+TEST(runtime_tool_plugin_state_controls_the_context_tool) {
+    ScratchConfig scratch("coretools-shape");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    ShapeQueue shapes;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token, &shapes};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    auto tool = f.tools.find("context");
+    ASSERT_TRUE((bool)tool);
+    ASSERT_TRUE(shapes.empty());
+    const ToolResult r = tool->execute({{"op", "superseded"}});
+    ASSERT_TRUE(r.ok);
+    ASSERT_FALSE(shapes.empty());
+    ASSERT_EQ(shapes.drain().size(), 1u);
+
+    ASSERT_TRUE(runtime.set_state("tool_context", false));
+    ASSERT_FALSE((bool)f.tools.find("context"));
+}
+
+TEST(the_context_tool_declines_without_a_shape_queue) {
+    ScratchConfig scratch("coretools-shape-unwired");
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    ASSERT_FALSE((bool)f.tools.find("context"));
+    ASSERT_TRUE(runtime.status("tool_context").enabled);
 }
 
 // A discovered set is contributed through the runtime's port, which records

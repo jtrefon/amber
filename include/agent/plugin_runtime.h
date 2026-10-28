@@ -121,6 +121,9 @@ public:
     // this is what lets the core's tools be plugin contributions. Attach before
     // start(), like the config.
     void attach_host_services(const HostServices& host) noexcept;
+    // The host services this runtime was given, for a collaborator that needs
+    // one of them (the window manager handing each agent its shaping queue).
+    const HostServices& host_services() const noexcept { return host_services_; }
 
     // Attach the host's user-interaction port. Until this is called, a plugin's
     // questions fail closed (NullUiServices); a host that cannot ask a user

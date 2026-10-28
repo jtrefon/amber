@@ -235,6 +235,10 @@ struct HostServices {
     class TodoStore* todos = nullptr;
     class SubAgentExecutor* subagents = nullptr;
     const struct CancellationToken* cancel_token = nullptr;
+    // Where the model's trimming tool leaves its plan for the agent to apply at
+    // the next request boundary. Null means shaping is not wired on this host,
+    // and the tool is not installed at all.
+    class ShapeQueue* shape = nullptr;
 };
 
 // ---------------------------------------------------------------------------

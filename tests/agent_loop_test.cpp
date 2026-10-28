@@ -906,6 +906,85 @@ TEST(agent_applies_a_shape_plan_at_the_next_request) {
     ASSERT_EQ(*payload, r.output);
 }
 
+// One application per user turn. A rebuild changes the prefix, so a turn that
+// trimmed once has already paid for it; a second plan inside the same turn is
+// refused with a reason rather than spending another prefill on its own say-so.
+TEST(agent_shapes_once_per_user_turn) {
+    agent::test::XdgGuard xdg("agent_shape_once");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    agent::ShapeQueue queue;
+    reg.register_tool(agent::make_context_tool(queue));
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+
+    // Two named results, each big enough to clear the 2 KiB floor on its own.
+    const auto named_result = [](const char* id) {
+        agent::ToolResult r;
+        r.ok = true;
+        r.output = std::string(4000, 'z');
+        r.meta = {{"result_id", id}};
+        return agent::format_tool_envelope("read", json::object(), r, 32 * 1024);
+    };
+    const std::string first_env = named_result("aaaaaaaaaaaaaaaa");
+    const std::string second_env = named_result("bbbbbbbbbbbbbbbb");
+
+    push_tool_call(*fake, "context", {{"op", "drop"}, {"result_ids", {"aaaaaaaaaaaaaaaa"}}}, "c1");
+    push_tool_call(*fake, "context", {{"op", "drop"}, {"result_ids", {"bbbbbbbbbbbbbbbb"}}}, "c2");
+    push_text(*fake, "done");
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_shape_queue(&queue);
+
+    std::vector<agent::Message> msgs;
+    agent::Message system;
+    system.role = "system";
+    system.content = "Amber";
+    msgs.push_back(std::move(system));
+    agent::Message user;
+    user.role = "user";
+    user.content = "start";
+    msgs.push_back(std::move(user));
+    msgs.push_back(agent_test::tool_call_msg("read", json::object(), "r1"));
+    agent::Message first;
+    first.role = "tool";
+    first.content = first_env;
+    first.name = "read";
+    first.tool_call_id = "r1";
+    msgs.push_back(std::move(first));
+    msgs.push_back(agent_test::tool_call_msg("read", json::object(), "r2"));
+    agent::Message second;
+    second.role = "tool";
+    second.content = second_env;
+    second.name = "read";
+    second.tool_call_id = "r2";
+    msgs.push_back(std::move(second));
+    ag.set_context(std::move(msgs));
+
+    ASSERT_EQ(ag.run("trim"), "done");
+    ASSERT_EQ(raw->chat_calls, 3);
+
+    std::size_t digested = 0;
+    bool told_why = false;
+    for (const auto& m : ag.context().get_all()) {
+        if (m.role == "tool" && m.content.rfind("[tool output omitted", 0) == 0)
+            ++digested;
+        if (m.harness && m.content.find("already ran this turn") != std::string::npos)
+            told_why = true;
+    }
+    // The first plan freed 4 KiB and applied; the second was refused, so the
+    // second result is still whole and the model was told why.
+    ASSERT_EQ(digested, 1u);
+    bool second_whole = false;
+    for (const auto& m : ag.context().get_all())
+        if (m.role == "tool" && m.content == second_env)
+            second_whole = true;
+    ASSERT(second_whole);
+    ASSERT(told_why);
+    ASSERT(queue.empty());
+}
+
 TEST(compression_request_replays_the_live_prefix) {
     agent::CompressionConfig cc;
     auto compressor = agent::make_compressor();

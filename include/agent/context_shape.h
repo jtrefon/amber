@@ -38,6 +38,9 @@ ShapeOutcome apply_shape_plan(std::vector<Message>& history, const ShapePlan& pl
 
 // Plans submitted by the tool between two request boundaries. Drained by the
 // agent at the top of the next request; the tool never touches the context.
+// One queue per process, like the task list: a plan names ids, and an id that a
+// window's context does not carry is refused, so a plan can only ever apply to
+// the history that asked for it.
 class ShapeQueue {
 public:
     void push(ShapePlan plan);

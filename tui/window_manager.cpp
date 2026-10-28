@@ -56,6 +56,11 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
     if (!project_root.empty())
         w->agent->set_project_root(project_root);
     w->agent->set_owner_id(w->owner_id);
+    // Shaping is per-process, like the task list: the tool pushes a plan and the
+    // agent whose history carries those ids applies it. A window in a runtime
+    // with no queue simply has no `context` tool installed.
+    if (plugin_runtime_)
+        w->agent->set_shape_queue(plugin_runtime_->host_services().shape);
     w->agent->policy().init(agent::Workspace::policy_path_for(
         project_root.empty() ? agent::Workspace::project_root() : project_root));
     // Attach the harness bus so plugins observe this window's turns. Without a

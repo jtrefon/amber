@@ -2,6 +2,7 @@
 #include <agent.h>
 #include <agent/model_probe.h>
 #include <agent/compressor.h>
+#include <agent/context_shape.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
@@ -480,6 +481,7 @@ struct CliHost {
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::ShapeQueue shapes;
     agent::SubAgentExecutor subagents;
     agent::Workspace workspace;
     agent::PluginManager plugins;
@@ -498,7 +500,7 @@ struct CliHost {
 
     CliHost(agent::Config& cfg, bool tty)
         : plugin_runtime(registry, cfg, workspace),
-          host_services{&jobs, &todos, &subagents, &cfg.cancel_token}, cli_ui(tty),
+          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes}, cli_ui(tty),
           comp_cfg(agent::load_compression_config(cfg)),
           gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
           exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
@@ -676,6 +678,7 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
                            std::move(host.gate), std::move(host.mem_store),
                            std::move(host.retriever));
         agent.policy().init(agent::Workspace::policy_path());
+        agent.set_shape_queue(&host.shapes);
         agent.set_events(host.plugin_runtime.events());
         agent.set_prompt_registry(host.plugin_runtime.prompts());
         agent.set_owner_id("cli");

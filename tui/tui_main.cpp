@@ -4,6 +4,7 @@
 #include "agent/private_file.h"
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
+#include "agent/context_shape.h"
 #include "agent/plugin_runtime.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
@@ -177,6 +178,7 @@ struct TuiHost {
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
+    agent::ShapeQueue shapes;
     agent::SubAgentExecutor subagents;
     agent::PluginManager plugins;
     agent::Workspace workspace;
@@ -185,7 +187,7 @@ struct TuiHost {
 
     explicit TuiHost(agent::Config& cfg)
         : plugin_runtime(registry, cfg, workspace),
-          host_services{&jobs, &todos, &subagents, &cfg.cancel_token} {
+          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes} {
         subagents.set_config(cfg);
         subagents.set_parallel(cfg.subagent_parallel);
         subagents.set_max(cfg.subagent_max);

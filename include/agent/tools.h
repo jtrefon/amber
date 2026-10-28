@@ -14,6 +14,7 @@ namespace agent {
 
 class JobService; // process_* tools bind to the host-owned job service
 class SkillCatalog;
+class ShapeQueue;       // context tool binds to the host-owned shaping queue
 class TodoStore;        // todowrite tool binds to the host-owned task list
 class SubAgentExecutor; // task tool binds to the host-owned sub-agent executor
 
@@ -28,6 +29,9 @@ std::unique_ptr<Tool> make_write_tool();
 // registry pointer and names no backend itself.
 std::unique_ptr<Tool> make_search_tool(SearchBackendProvider provider);
 std::unique_ptr<Tool> make_todowrite_tool(TodoStore& todos);
+// The model's own trim: it names evidence the conversation has stopped needing
+// and the harness applies it at the next request boundary.
+std::unique_ptr<Tool> make_context_tool(ShapeQueue& shapes);
 std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor, ToolRegistry& registry);
 std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
                                      const CancellationToken& cancel_token = {});

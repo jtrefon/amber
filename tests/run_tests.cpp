@@ -6282,6 +6282,58 @@ TEST(shape_queue_drains_once) {
     ASSERT(queue.drain().empty());
 }
 
+TEST(context_tool_queues_a_drop_plan) {
+    // The tool's whole job is to put a plan where the agent will find it. It
+    // never touches the context: the payload's fate is decided at the boundary,
+    // against the history that is there then.
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    ASSERT_EQ(tool->name(), std::string("context"));
+    agent::json args = {
+        {"op", "drop"}, {"result_ids", {"0123456789abcdef"}}, {"reason", "read twice"}};
+    const agent::ToolResult r = tool->execute(args);
+    ASSERT(r.ok);
+    ASSERT(r.output.find("queued") != std::string::npos);
+    ASSERT(!queue.empty());
+    const std::vector<agent::ShapePlan> plans = queue.drain();
+    ASSERT_EQ(plans.size(), 1u);
+    ASSERT(plans.front().op == agent::ShapeOp::Drop);
+    ASSERT_EQ(plans.front().result_ids.size(), 1u);
+    ASSERT_EQ(plans.front().result_ids.front(), std::string("0123456789abcdef"));
+    ASSERT_EQ(plans.front().reason, std::string("read twice"));
+}
+
+TEST(context_tool_superseded_needs_no_ids) {
+    // The agent can ask for the repeated-read set without naming it: the rule
+    // lives in the harness, the trigger lives here.
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "superseded"}});
+    ASSERT(r.ok);
+    const std::vector<agent::ShapePlan> plans = queue.drain();
+    ASSERT_EQ(plans.size(), 1u);
+    ASSERT(plans.front().op == agent::ShapeOp::Superseded);
+    ASSERT(plans.front().result_ids.empty());
+}
+
+TEST(context_tool_refuses_a_drop_without_ids) {
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "drop"}});
+    ASSERT(!r.ok);
+    ASSERT(r.error.find("result_ids") != std::string::npos);
+    ASSERT(queue.empty());
+}
+
+TEST(context_tool_refuses_an_unknown_op) {
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    const agent::ToolResult r = tool->execute(agent::json{{"op", "edit"}});
+    ASSERT(!r.ok);
+    ASSERT(r.error.find("op") != std::string::npos);
+    ASSERT(queue.empty());
+}
+
 TEST(prune_tool_io_removes_bulky_output_outside_tail) {
     XdgGuard xdg("prune_outside_tail");
     std::vector<agent::Message> hist = {

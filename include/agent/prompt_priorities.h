@@ -106,6 +106,7 @@ constexpr int prompt_band_end(PromptBand band) noexcept {
     X(kWrite, 520, PromptBand::ToolDoc)                                                            \
     X(kBash, 530, PromptBand::ToolDoc)                                                             \
     X(kProcess, 540, PromptBand::ToolDoc)                                                          \
+    X(kContext, 545, PromptBand::ToolDoc)                                                          \
     X(kPlan, 550, PromptBand::ToolDoc)                                                             \
     X(kSkills, 560, PromptBand::ToolDoc)                                                           \
     X(kMcp, 570, PromptBand::ToolDoc)                                                              \
