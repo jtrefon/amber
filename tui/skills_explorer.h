@@ -17,6 +17,7 @@ namespace tui {
 struct SkillsExplorerOptions {
     int rows = 24;
     int cols = 80;
+    std::string repo_root;    // the checkout, for project signals
     std::string project_root; // <project>/.amber/skills
     std::string global_root;  // ~/.config/amber/skills
     std::string cache_root;

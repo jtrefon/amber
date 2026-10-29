@@ -729,6 +729,7 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
     opts.rows = LINES;
     opts.cols = COLS;
     const agent::SkillScanPaths paths = agent::default_scan_paths();
+    opts.repo_root = agent::Workspace::project_root();
     opts.project_root = paths.project;
     opts.global_root = paths.global;
     opts.cache_root = agent::skills_index_cache_dir();

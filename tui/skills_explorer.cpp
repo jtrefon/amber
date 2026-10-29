@@ -805,7 +805,7 @@ bool SkillsExplorer::audit(const SkillRow& row) {
 
 bool SkillsExplorer::shelf_for_you() {
     const agent::ProjectFacts facts =
-        agent::detect_project_signals(options_.project_signals, options_.project_root);
+        agent::detect_project_signals(options_.project_signals, options_.repo_root);
     if (facts.labels.empty()) {
         last_status_ = "no project signals here";
         return false;

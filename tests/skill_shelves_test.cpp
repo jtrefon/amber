@@ -145,3 +145,22 @@ TEST(skill_collections_load_and_validate) {
     ASSERT_TRUE(load_collections(tree.root + "/broken.json", error).empty());
     ASSERT_TRUE(error.empty()); // wrong shape is empty, not an error string
 }
+
+TEST(project_signals_detect_this_repository) {
+    std::string error;
+    const auto table = load_project_signals("data/project-signals.json", error);
+    ASSERT_TRUE(error.empty());
+    const ProjectFacts facts = detect_project_signals(table, ".");
+    // This checkout has a docs/ dir and a tests/ dir, so those reasons apply and
+    // nothing is invented from a package.json it does not have.
+    bool saw_tests = false;
+    bool saw_docs = false;
+    for (const auto& label : facts.labels) {
+        saw_tests = saw_tests || label == "tests";
+        saw_docs = saw_docs || label == "docs";
+    }
+    ASSERT_TRUE(saw_tests);
+    ASSERT_TRUE(saw_docs);
+    for (const auto& query : facts.queries)
+        ASSERT_FALSE(query.empty());
+}
