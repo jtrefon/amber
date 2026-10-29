@@ -122,6 +122,16 @@ bool name_before(const KnowledgeItem& a, const KnowledgeItem& b) {
     return a.id < b.id;
 }
 
+// Two-way float comparison (never == / !=) with the stable tie-break. The
+// scores are sums of small rationals, so the exact ordering is meaningful.
+bool higher_score(double a, double b, const KnowledgeItem& a_item, const KnowledgeItem& b_item) {
+    if (a > b)
+        return true;
+    if (b > a)
+        return false;
+    return name_before(a_item, b_item);
+}
+
 } // namespace
 
 std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Memory>& memories,
@@ -138,9 +148,7 @@ std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Me
         scored.emplace_back(s, std::move(copy));
     }
     std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) {
-        if (a.first != b.first)
-            return a.first > b.first;
-        return name_before(a.second, b.second);
+        return higher_score(a.first, b.first, a.second, b.second);
     });
     std::vector<Memory> result;
     for (size_t i = 0; i < std::min(k, scored.size()); ++i)
@@ -190,9 +198,7 @@ std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory
     std::sort(out.begin(), out.end(), [&](const Memory& a, const Memory& b) {
         const double a_score = compute_score(a, "", current_turn);
         const double b_score = compute_score(b, "", current_turn);
-        if (a_score != b_score)
-            return a_score > b_score;
-        return name_before(a, b);
+        return higher_score(a_score, b_score, a, b);
     });
     return out;
 }
@@ -206,9 +212,7 @@ std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& s
     std::sort(out.begin(), out.end(), [&](const Skill& a, const Skill& b) {
         const double a_score = compute_score(a, "", current_turn);
         const double b_score = compute_score(b, "", current_turn);
-        if (a_score != b_score)
-            return a_score > b_score;
-        return name_before(a, b);
+        return higher_score(a_score, b_score, a, b);
     });
     return out;
 }
