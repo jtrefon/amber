@@ -68,6 +68,17 @@ std::optional<ProjectSignal> parse_signal(const json& entry) {
     return signal;
 }
 
+std::optional<CuratedOwner> parse_owner(const json& entry) {
+    if (!entry.is_object())
+        return std::nullopt;
+    CuratedOwner owner;
+    owner.name = entry.value("name", std::string());
+    owner.label = entry.value("label", owner.name);
+    if (owner.name.empty())
+        return std::nullopt;
+    return owner;
+}
+
 std::optional<SkillCollection> parse_collection(const json& entry) {
     if (!entry.is_object())
         return std::nullopt;
@@ -120,6 +131,10 @@ std::vector<ProjectSignal> load_project_signals(const std::string& path, std::st
 
 std::vector<SkillCollection> load_collections(const std::string& path, std::string& error) {
     return parse_table<SkillCollection>(path, "collections", parse_collection, error);
+}
+
+std::vector<CuratedOwner> load_curated_owners(const std::string& path, std::string& error) {
+    return parse_table<CuratedOwner>(path, "owners", parse_owner, error);
 }
 
 ProjectFacts detect_project_signals(const std::vector<ProjectSignal>& table,

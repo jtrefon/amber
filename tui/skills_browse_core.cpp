@@ -294,6 +294,24 @@ std::string SkillsBrowseCore::filter_banner() const {
                        : "results come from a live query";
 }
 
+std::vector<SkillRow> merge_shelf_rows(const std::vector<ShelfPage>& pages, bool& stale,
+                                       agent::IndexFailure& error) {
+    std::vector<SkillRow> merged;
+    std::set<std::string> seen;
+    stale = false;
+    error = {};
+    for (const auto& page : pages) {
+        stale = stale || page.stale;
+        if (error.kind == agent::IndexError::None && page.error.kind != agent::IndexError::None)
+            error = page.error;
+        for (const auto& row : page.rows) {
+            if (seen.insert(row.ref.id).second)
+                merged.push_back(row);
+        }
+    }
+    return merged;
+}
+
 BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required) {
     BatchPlan plan;
     for (const auto& candidate : candidates) {

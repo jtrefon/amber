@@ -524,3 +524,34 @@ TEST(skills_tabs_keep_their_own_position) {
     ASSERT_EQ(core.selection(), 2); // and the Top shelf is where it was left
     ASSERT_EQ(core.tab_position(tui::SkillTab::Top).selection, 2);
 }
+
+TEST(skills_shelf_merge_dedupes_keeps_order_and_surfaces_staleness) {
+    tui::ShelfPage first;
+    first.rows = {row("a", 10), row("b", 20)};
+    tui::ShelfPage second;
+    second.rows = {row("b", 99), row("c", 5)};
+    second.stale = true;
+    second.error.kind = agent::IndexError::RateLimited;
+    second.error.retry_after_s = 30;
+
+    bool stale = false;
+    agent::IndexFailure error;
+    const auto merged = tui::merge_shelf_rows({first, second}, stale, error);
+    ASSERT_EQ(merged.size(), static_cast<size_t>(3)); // b appears once, from the first page
+    ASSERT_EQ(merged[0].ref.name, std::string("a"));
+    ASSERT_EQ(merged[1].ref.installs, 20);
+    ASSERT_EQ(merged[2].ref.name, std::string("c"));
+    ASSERT_TRUE(stale);
+    ASSERT_TRUE(error.kind == agent::IndexError::RateLimited);
+    ASSERT_EQ(error.retry_after_s, 30);
+}
+
+TEST(skills_shelf_merge_of_nothing_is_empty_not_an_error) {
+    bool stale = true;
+    agent::IndexFailure error;
+    error.kind = agent::IndexError::Offline;
+    const auto merged = tui::merge_shelf_rows({}, stale, error);
+    ASSERT_TRUE(merged.empty());
+    ASSERT_FALSE(stale);
+    ASSERT_TRUE(error.kind == agent::IndexError::None);
+}

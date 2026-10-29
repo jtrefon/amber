@@ -17,6 +17,8 @@
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
 #include "agent/config_paths.h"
+#include "agent/data_path.h"
+#include "agent/skill_shelves.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/skill_cli.h"
@@ -730,6 +732,21 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
     opts.project_root = paths.project;
     opts.global_root = paths.global;
     opts.cache_root = agent::skills_index_cache_dir();
+    // Shelf data. A missing or invalid file is reported once, here, and the
+    // shelf simply has nothing to show.
+    std::string table_error;
+    const std::string signals_path = agent::resolve_data_path("data/project-signals.json", nullptr);
+    if (!signals_path.empty())
+        opts.project_signals = agent::load_project_signals(signals_path, table_error);
+    const std::string collections_path =
+        agent::resolve_data_path("data/skill-collections.json", nullptr);
+    if (!collections_path.empty())
+        opts.collections = agent::load_collections(collections_path, table_error);
+    const std::string owners_path = agent::resolve_data_path("data/skill-owners.json", nullptr);
+    if (!owners_path.empty()) {
+        for (const auto& owner : agent::load_curated_owners(owners_path, table_error))
+            opts.owners.push_back(owner.name);
+    }
     apply_skill_source_options(cfg_, opts);
     if (arg == "installed")
         opts.initial_tab = tui::SkillTab::Installed;

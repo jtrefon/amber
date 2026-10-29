@@ -2,6 +2,7 @@
 #define AMBER_TUI_SKILLS_EXPLORER_H
 
 #include "agent/skill_ledger.h"
+#include "agent/skill_shelves.h"
 #include "tui/skills_browse_core.h"
 
 #include <functional>
@@ -42,6 +43,11 @@ struct SkillsExplorerOptions {
     bool audit_required = false;        // `skills_audit_required`
     bool index_disabled = false;        // `skills_index = none`
     std::string github_token;           // separate from the index token when configured
+    // Shelf data, loaded once by the host so a bad file is reported once, not
+    // per repaint.
+    std::vector<agent::ProjectSignal> project_signals;
+    std::vector<agent::SkillCollection> collections;
+    std::vector<std::string> owners;
 };
 
 // Run the modal explorer until Esc/q. `status` receives one line per outcome

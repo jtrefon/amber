@@ -8,6 +8,7 @@
 #include "tui/skills_sheet_view.h"
 
 #include <algorithm>
+#include <deque>
 #include <chrono>
 #include <filesystem>
 #include <cstdlib>
@@ -508,6 +509,16 @@ private:
     void apply_tab(SkillTab tab);
     void tick();
     void on_search(const SkillsEvent& event);
+    void run_shelf(SkillTab tab);
+    void run_collection(const std::string& name);
+    bool open_detail(const std::string& id);
+    bool apply_override(const SkillRow& row, bool block);
+    bool shelf_for_you();
+    bool shelf_collections();
+    bool shelf_official();
+    bool shelf_trending();
+    void shelf_next();
+    void shelf_done();
     void on_detail(const SkillsEvent& event);
     void on_install(const SkillsEvent& event);
     void prompt_install(const std::string& id);
@@ -545,6 +556,13 @@ private:
     std::string pending_update_;
     std::string pending_diff_;
     std::string pending_apply_;
+    // Shelf runner: queries are asked one at a time (the service takes one at a
+    // time) and their pages merge when the last lands.
+    bool shelf_running_ = false;
+    std::deque<std::string> shelf_queue_;
+    std::vector<SkillRow> shelf_rows_;
+    std::vector<ShelfPage> shelf_pages_;
+    std::string shelf_reason_;
     std::set<std::string> previewed_;
     std::set<std::string> batch_pending_;
     std::set<std::string> batch_names_;
@@ -588,10 +606,7 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
         last_input_ = Clock::now();
         return true;
     case SkillIntent::Kind::OpenDetail:
-        if (const auto ref = find_ref(intent.id))
-            service_->detail(*ref);
-        last_status_ = "loading details...";
-        return true;
+        return open_detail(intent.id);
     case SkillIntent::Kind::Install:
         prompt_install(intent.id);
         return true;
@@ -719,6 +734,10 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
         last_status_ = "no skill selected";
         return true;
     }
+    if (row->collection) {
+        last_status_ = "that is an editorial shelf; Enter opens the skills it lists";
+        return true;
+    }
     switch (intent.kind) {
     case SkillIntent::Kind::Adopt:
         last_status_ = life_->adopt(*row);
@@ -736,13 +755,9 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
     case SkillIntent::Kind::Diff:
         return show_diff(*row);
     case SkillIntent::Kind::ToggleEnabled:
-        last_status_ = life_->toggle(*row);
-        refresh_installed();
-        return true;
+        return apply_override(*row, false);
     case SkillIntent::Kind::Block:
-        last_status_ = life_->block(*row);
-        refresh_installed();
-        return true;
+        return apply_override(*row, true);
     case SkillIntent::Kind::Preview:
         return preview(*row);
     case SkillIntent::Kind::Audit:
@@ -788,6 +803,152 @@ bool SkillsExplorer::audit(const SkillRow& row) {
     return true;
 }
 
+bool SkillsExplorer::shelf_for_you() {
+    const agent::ProjectFacts facts =
+        agent::detect_project_signals(options_.project_signals, options_.project_root);
+    if (facts.labels.empty()) {
+        last_status_ = "no project signals here";
+        return false;
+    }
+    shelf_reason_ = "Based on: ";
+    for (std::size_t i = 0; i < facts.labels.size(); ++i) {
+        if (i > 0)
+            shelf_reason_ += ", ";
+        shelf_reason_ += facts.labels[i];
+    }
+    for (const auto& query : facts.queries)
+        shelf_queue_.push_back(query);
+    return true;
+}
+
+bool SkillsExplorer::shelf_collections() {
+    // Editorial shelves are rows in their own right; Enter runs a collection's
+    // queries, so nothing here claims to be a registry category.
+    std::vector<SkillRow> rows;
+    for (const auto& collection : options_.collections) {
+        SkillRow row;
+        row.ref.id = "collection:" + collection.name;
+        row.ref.name = collection.name;
+        row.ref.source = "editorial";
+        row.description = collection.description;
+        row.collection = true;
+        rows.push_back(std::move(row));
+    }
+    core_.set_rows(std::move(rows));
+    shelf_reason_ = "editorial collections, not registry categories";
+    last_status_ = "collections";
+    return false;
+}
+
+bool SkillsExplorer::shelf_official() {
+    for (const auto& owner : options_.owners)
+        shelf_queue_.push_back(owner);
+    shelf_reason_ = "curated owners";
+    return !shelf_queue_.empty();
+}
+
+bool SkillsExplorer::shelf_trending() {
+    if (query_.empty()) {
+        last_status_ = "no trend signal: type a query, or use Top";
+        return false;
+    }
+    shelf_queue_.push_back(query_);
+    shelf_reason_ = "no trend signal: sorted by installs";
+    return true;
+}
+
+bool SkillsExplorer::open_detail(const std::string& id) {
+    if (id.rfind("collection:", 0) == 0) {
+        run_collection(id.substr(std::string("collection:").size()));
+        return true;
+    }
+    if (const auto ref = find_ref(id))
+        service_->detail(*ref);
+    last_status_ = "loading details...";
+    return true;
+}
+
+bool SkillsExplorer::apply_override(const SkillRow& row, bool block) {
+    last_status_ = block ? life_->block(row) : life_->toggle(row);
+    refresh_installed();
+    return true;
+}
+
+void SkillsExplorer::run_collection(const std::string& name) {
+    for (const auto& collection : options_.collections) {
+        if (collection.name != name)
+            continue;
+        shelf_queue_.clear();
+        shelf_pages_.clear();
+        for (const auto& query : collection.queries)
+            shelf_queue_.push_back(query);
+        shelf_reason_ = "collection: " + collection.name;
+        if (shelf_queue_.empty()) {
+            last_status_ = "that collection has ids only; install them by name";
+            return;
+        }
+        shelf_running_ = true;
+        last_status_ = "loading " + collection.name + "...";
+        shelf_next();
+        return;
+    }
+    last_status_ = "unknown collection";
+}
+
+void SkillsExplorer::run_shelf(SkillTab tab) {
+    shelf_queue_.clear();
+    shelf_pages_.clear();
+    shelf_reason_.clear();
+    bool loads = false;
+    switch (tab) {
+    case SkillTab::ForYou:
+        loads = shelf_for_you();
+        break;
+    case SkillTab::Collections:
+        loads = shelf_collections();
+        break;
+    case SkillTab::Official:
+        loads = shelf_official();
+        break;
+    case SkillTab::Trending:
+        loads = shelf_trending();
+        break;
+    default:
+        return;
+    }
+    if (!loads || shelf_queue_.empty())
+        return;
+    shelf_running_ = true;
+    last_status_ = std::string("loading ") + skill_tab_name(tab) + "...";
+    shelf_next();
+}
+
+void SkillsExplorer::shelf_next() {
+    if (shelf_queue_.empty()) {
+        shelf_done();
+        return;
+    }
+    const std::string query = shelf_queue_.front();
+    shelf_queue_.pop_front();
+    service_->search(query, 20);
+}
+
+void SkillsExplorer::shelf_done() {
+    shelf_running_ = false;
+    bool stale = false;
+    agent::IndexFailure error;
+    std::vector<SkillRow> merged = merge_shelf_rows(shelf_pages_, stale, error);
+    if (core_.sort() == SkillSort::Installs) {
+        std::stable_sort(merged.begin(), merged.end(), [](const SkillRow& a, const SkillRow& b) {
+            return a.ref.installs > b.ref.installs;
+        });
+    }
+    core_.set_rows(std::move(merged), stale, error);
+    core_.set_query_live(false);
+    last_status_ =
+        shelf_reason_.empty() ? std::to_string(core_.visible_count()) + " results" : shelf_reason_;
+}
+
 void SkillsExplorer::apply_tab(SkillTab tab) {
     core_.set_tab(tab);
     if (tab == SkillTab::Installed) {
@@ -800,7 +961,7 @@ void SkillsExplorer::apply_tab(SkillTab tab) {
         pending_search_ = !query_.empty();
         last_status_ = "top skills";
     } else {
-        last_status_ = std::string(skill_tab_name(tab)) + " has no source yet";
+        run_shelf(tab);
     }
 }
 
@@ -895,6 +1056,19 @@ void SkillsExplorer::tick() {
 }
 
 void SkillsExplorer::on_search(const SkillsEvent& event) {
+    if (shelf_running_) {
+        ShelfPage page;
+        if (event.search.page) {
+            page.stale = event.search.page->cached;
+            for (const auto& ref : event.search.page->skills)
+                page.rows.push_back(decorate(ref));
+        } else {
+            page.error = event.search.error;
+        }
+        shelf_pages_.push_back(std::move(page));
+        shelf_next();
+        return;
+    }
     if (event.query != query_)
         return;
     if (!event.search.page) {
@@ -1059,6 +1233,10 @@ void SkillsExplorer::on_batch_install(const SkillsEvent& event) {
 }
 
 void SkillsExplorer::prompt_install(const std::string& id) {
+    if (const auto row = find_row(id); row && row->collection) {
+        last_status_ = "that is an editorial shelf; Enter opens the skills it lists";
+        return;
+    }
     const auto raw = raw_details_.find(id);
     if (raw == raw_details_.end()) {
         pending_install_ = id;

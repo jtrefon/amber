@@ -35,7 +35,13 @@ struct SkillCollection {
 // Both loaders are tolerant by design: a missing file yields an empty table, a
 // malformed one yields an empty table plus `error`, and neither throws. The
 // shelf simply has nothing to show, which the UI says.
+struct CuratedOwner {
+    std::string name;  // the registry source owner
+    std::string label; // what the shelf shows
+};
+
 std::vector<ProjectSignal> load_project_signals(const std::string& path, std::string& error);
+std::vector<CuratedOwner> load_curated_owners(const std::string& path, std::string& error);
 std::vector<SkillCollection> load_collections(const std::string& path, std::string& error);
 
 // Reads the repository at `project_root` with `table` and reports what it found.

@@ -49,6 +49,9 @@ struct SkillRow {
     bool audited = false; // a passing audit; `audit` is the full verdict
     agent::AuditVerdict audit = agent::AuditVerdict::NotAudited;
     bool official = false;
+    // An editorial collection is a shelf entry, not a skill: it carries queries
+    // and refuses install/update/remove.
+    bool collection = false;
 };
 
 // The value a row contributes to a group. Always non-empty: a row with no
@@ -93,6 +96,21 @@ struct SkillIntent {
     SkillTab tab = SkillTab::Top;
     SkillSort sort = SkillSort::Relevance;
 };
+
+// One shelf query's answer, kept as a page so the merge can be tested without a
+// service: the runner appends one per query and merges when the last lands.
+struct ShelfPage {
+    std::vector<SkillRow> rows;
+    bool stale = false;
+    agent::IndexFailure error;
+};
+
+// Merge shelf pages by id, first occurrence winning (the order the queries were
+// asked in is the order the shelf shows). `stale` is true when any page came
+// from the cache and `error` keeps the first failure, so a shelf that half
+// succeeded still says so.
+std::vector<SkillRow> merge_shelf_rows(const std::vector<ShelfPage>& pages, bool& stale,
+                                       agent::IndexFailure& error);
 
 // One row considered for a batch install, before anything is fetched.
 struct BatchCandidate {
