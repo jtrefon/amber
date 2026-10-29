@@ -16,7 +16,7 @@
       },
       "bench::run_agent_in_workspace": {
         "ccn": 2,
-        "nloc": 20,
+        "nloc": 19,
         "param": 9
       }
     },
@@ -32,16 +32,6 @@
         "ccn": 4,
         "nloc": 24,
         "param": 10
-      },
-      "agent::Agent::dispatch_with_loop_detection": {
-        "ccn": 5,
-        "nloc": 17,
-        "param": 7
-      },
-      "agent::handle_fail_streak": {
-        "ccn": 4,
-        "nloc": 16,
-        "param": 8
       }
     },
     "lib/agent_helpers.cpp": {
@@ -51,15 +41,15 @@
         "param": 7
       },
       "agent::chat_with_retry_impl": {
-        "ccn": 9,
-        "nloc": 30,
+        "ccn": 5,
+        "nloc": 20,
         "param": 7
       }
     },
     "lib/dispatch.cpp": {
       "agent::dispatch_tool_calls": {
-        "ccn": 10,
-        "nloc": 35,
+        "ccn": 7,
+        "nloc": 30,
         "param": 9
       },
       "agent::prepare_call": {
@@ -77,9 +67,9 @@
     },
     "lib/http_transport.cpp": {
       "agent::curl_exec": {
-        "ccn": 7,
-        "nloc": 38,
-        "param": 11
+        "ccn": 6,
+        "nloc": 35,
+        "param": 8
       }
     },
     "lib/mcp_transport_http.cpp": {
