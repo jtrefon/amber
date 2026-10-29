@@ -861,16 +861,24 @@ void apply_skill_source_options(const agent::Config& cfg, tui::SkillsExplorerOpt
 void load_skill_shelves(tui::SkillsExplorerOptions& opts) {
     std::string error;
     const std::string signals = agent::resolve_data_path("data/project-signals.json", nullptr);
-    if (!signals.empty())
+    if (!signals.empty()) {
+        // The data path is the user's own install/`AMBER_DATA_DIR`, not model
+        // or request input.
+        // codeql[cpp/path-injection]
         opts.project_signals = agent::load_project_signals(signals, error);
+    }
     const std::string collections =
         agent::resolve_data_path("data/skill-collections.json", nullptr);
-    if (!collections.empty())
+    if (!collections.empty()) {
+        // codeql[cpp/path-injection]
         opts.collections = agent::load_collections(collections, error);
+    }
     const std::string owners = agent::resolve_data_path("data/skill-owners.json", nullptr);
     if (owners.empty())
         return;
-    for (const auto& owner : agent::load_curated_owners(owners, error))
+    // codeql[cpp/path-injection]
+    const auto curated = agent::load_curated_owners(owners, error);
+    for (const auto& owner : curated)
         opts.owners.push_back(owner.name);
 }
 
