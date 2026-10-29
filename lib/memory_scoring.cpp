@@ -152,23 +152,35 @@ std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Me
 
 std::vector<Skill> select_top_skills(const std::unordered_map<std::string, Skill>& skills, size_t k,
                                      const std::string& user_message) {
-    std::vector<Skill> filtered;
+    std::vector<Skill> matched;
+    std::vector<Skill> fallback;
     for (const auto& [id, sk] : skills) {
         if (!sk.promoted)
             continue;
-        if (sk.trigger_phrase.empty() ||
-            user_message.find(sk.trigger_phrase) != std::string::npos) {
-            filtered.push_back(sk);
-        }
+        const bool matches =
+            !sk.trigger_phrase.empty() && user_message.find(sk.trigger_phrase) != std::string::npos;
+        (matches ? matched : fallback).push_back(sk);
     }
-    std::sort(filtered.begin(), filtered.end(), [](const Skill& a, const Skill& b) {
+    const auto by_rank = [](const Skill& a, const Skill& b) {
         if (a.evidence_count != b.evidence_count)
             return a.evidence_count > b.evidence_count;
         return name_before(a, b);
-    });
-    if (filtered.size() > k)
-        filtered.resize(k);
-    return filtered;
+    };
+    std::sort(matched.begin(), matched.end(), by_rank);
+    std::sort(fallback.begin(), fallback.end(), by_rank);
+
+    // Trigger matches lead; the remaining promoted skills are the documented
+    // fallback (memory-store.md MS-05), capped at k.
+    std::vector<Skill> result;
+    result.reserve(std::min(k, matched.size() + fallback.size()));
+    for (const auto* group : {&matched, &fallback}) {
+        for (const auto& sk : *group) {
+            if (result.size() == k)
+                return result;
+            result.push_back(sk);
+        }
+    }
+    return result;
 }
 
 std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory>& memories,

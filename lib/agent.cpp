@@ -1500,6 +1500,11 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
 
     decay_and_persist();
 
+    // A skill learned by this cycle is usable now, not after a restart. The
+    // catalog is shared per project, so every window on it sees the new entry.
+    if (skills_ && memory_store_)
+        skills_->discover(memory_store_->top_skills(experience_cfg_.max_skills, ""));
+
     if (!hooks_.on_status)
         return;
     const std::string summary = ops_summary(mem, skill);
