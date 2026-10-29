@@ -96,6 +96,7 @@ class Tui {
     friend class RenderEngine;
     friend class SessionController;
     friend class SlashDispatcher;
+    friend class LearnSurface;
     friend class TuiWindowOpsHooks;
 
 public:
@@ -180,10 +181,9 @@ private:
     std::shared_ptr<detail::UiPostQueue> ui_posts_ = std::make_shared<detail::UiPostQueue>();
     // The port itself, handed to the runtime so plugins can ask the user.
     std::unique_ptr<TuiUiServices> ui_services_;
-    bool modal_open_ = false;
     // Mouse reporting is on by default (wheel scrolls the chat log). Off lets
     // the terminal select and copy with a plain drag.
-    bool mouse_on_ = true;
+    bool modal_open_ = false, mouse_on_ = true;
 
     // Per-window run slots: each window's agent has its own worker thread,
     // busy/cancel flags, and pending-prompt queue (see run_registry.h).
