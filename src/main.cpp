@@ -3,6 +3,7 @@
 #include <agent/model_probe.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
+#include <agent/global_config.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
@@ -242,44 +243,6 @@ std::optional<int> parse_args(int argc, char** argv, agent::Config& cfg, CliArgs
 
 // The user's global config, kept so its model choice can outrank the project
 // default after that file is loaded.
-struct GlobalConfig {
-    agent::Config cfg;
-    bool loaded = false;
-};
-
-// Apply the global config's context window and provider selection. The user's
-// explicit context window applies regardless of the provider default (the
-// provider domain only fills it when the config leaves it unknown).
-GlobalConfig apply_global_config(agent::Config& cfg) {
-    GlobalConfig g;
-    const std::string global_path = agent::global_config_path();
-    std::ifstream gf(global_path);
-    if (!gf)
-        return g;
-    g.cfg.load(global_path);
-    g.loaded = true;
-    if (g.cfg.context_explicit && g.cfg.context_size > 0) {
-        cfg.context_size = g.cfg.context_size;
-        cfg.context_explicit = true;
-    }
-    auto providers = agent::make_default_provider_service(cfg);
-    if (!g.cfg.provider_name.empty()) {
-        auto sel = providers->select(g.cfg.provider_name);
-        if (sel.ok())
-            agent::apply_selection(cfg, sel);
-    }
-    return g;
-}
-
-// A model explicitly saved to the global config (e.g. via the TUI's /model set)
-// outranks the project default, so user choices persist.
-void apply_global_model(agent::Config& cfg, const GlobalConfig& g) {
-    if (!g.loaded || g.cfg.model.empty() || !g.cfg.model_explicit)
-        return;
-    cfg.model = g.cfg.model;
-    cfg.model_explicit = true;
-}
-
 // MCP surfaces (headless): --mcp-list, --mcp <server> <prompt> [k=v ...],
 // --mcp-connect <name>. Returns the exit code, or -1 when none was requested.
 namespace {
@@ -577,11 +540,11 @@ int run_mcp_surfaces(agent::Config& cfg, const CliArgs& args, bool no_plugins) {
 // The project config is a base layer: a selected provider owns the endpoint
 // (load_workspace_defaults), a model saved to the global config outranks the
 // project's, and --config plus env vars layer on top.
-void load_run_config(agent::Config& cfg, const CliArgs& args, const GlobalConfig& global) {
+void load_run_config(agent::Config& cfg, const CliArgs& args, const agent::GlobalConfig& global) {
     std::ifstream def("amber.conf");
     if (def)
         cfg.load_workspace_defaults("amber.conf");
-    apply_global_model(cfg, global);
+    agent::apply_global_model(cfg, global);
     if (!args.config_file.empty())
         cfg.load(args.config_file);
     cfg.apply_environment();
@@ -716,7 +679,7 @@ int main(int argc, char** argv) try {
     agent::Config cfg;
     CliArgs args;
 
-    const GlobalConfig global = apply_global_config(cfg);
+    const agent::GlobalConfig global = agent::apply_global_selection(cfg);
     write_default_config_once(args);
 
     if (std::optional<int> rc = parse_args(argc, argv, cfg, args))

@@ -1,0 +1,23 @@
+{
+  "name": "s-02-superseded-read",
+  "suite": "shaping",
+  "description": "the same file is read before and after a write; the newer read is the truth, and a superseded-read trim must not make the answer stale",
+  "difficulty": 5,
+  "platforms": ["linux", "darwin"],
+  "setup": {
+    "files": {
+      "version.txt": "v1\n",
+      "CHANGELOG.md": "# changelog\n\n- v1: initial release\n"
+    }
+  },
+  "prompt": "Read version.txt. Then change it to v2 with the write tool. Read it once more to confirm the change, and finish with one line saying which version the file holds now. When a tool result has stopped being useful, the context tool can name it so the harness replaces it with a digest you can read back.",
+  "oracle": [
+    {"tool": "read", "args": {"path": "version.txt"}},
+    {"tool": "write", "args": {"path": "version.txt"}},
+    {"tool": "read", "args": {"path": "version.txt"}}
+  ],
+  "checks": {
+    "must_contain": ["v2"]
+  },
+  "budget": {"max_steps": 12, "max_wall_ms": 180000}
+}
