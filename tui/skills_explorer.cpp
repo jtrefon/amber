@@ -223,23 +223,59 @@ InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string&
     return evidence;
 }
 
+std::string facet_line(const std::string& value, int count, bool selected) {
+    return std::string(selected ? "[x] " : "[ ] ") + value + " (" + std::to_string(count) + ")";
+}
+
+struct FacetRect {
+    int top = 0;
+    int height = 0;
+    int width = 0;
+};
+
+// One facet group, drawn from `y`, returning the next free line. Extracted so
+// the column is a loop over groups, not five nested conditions.
+int draw_facet_group(WINDOW* w, const SkillsBrowseCore& core, FacetGroup group, int y,
+                     const FacetRect& rect, bool focused) {
+    if (y >= rect.top + rect.height)
+        return y;
+    mvwaddnstr(w, y++, 0, facet_group_name(group), std::max(0, rect.width - 1));
+    const auto counts = core.facet_counts(group);
+    for (std::size_t i = 0; i < counts.size() && y < rect.top + rect.height; ++i) {
+        const bool cursor =
+            focused && core.facet_cursor().group == group && core.facet_cursor().index == i;
+        const std::string line = facet_line(counts[i].first, counts[i].second,
+                                            core.facet_selected(group, counts[i].first));
+        if (cursor)
+            wattron(w, A_REVERSE);
+        mvwaddnstr(w, y++, 0, line.c_str(), std::max(0, rect.width - 1));
+        if (cursor)
+            wattroff(w, A_REVERSE);
+    }
+    return y + 1; // blank line between groups
+}
+
+// The facet column: one block per group, values ranked by count, the cursor
+// reversed while the pane is focused. Selecting a value filters locally; the
+// header says so when a live query is also narrowing the set.
 void draw_facets(WINDOW* w, const SkillsBrowseCore& core, int top, int height, int width) {
     if (width < 8 || height < 3)
         return;
-    mvwaddnstr(w, top, 0, "Categories", std::max(0, width - 1));
-    int y = top + 2;
-    const auto categories = core.categories();
-    if (categories.empty()) {
-        mvwaddnstr(w, y, 0, "load a detail", std::max(0, width - 1));
-        if (y + 1 < top + height)
-            mvwaddnstr(w, y + 1, 0, "to see categories", std::max(0, width - 1));
+    const bool focused = core.pane() == SkillPane::Facets;
+    mvwaddnstr(w, top, 0, focused ? "Filters (j/k, Enter, f)" : "Filters", std::max(0, width - 1));
+    const std::vector<FacetGroup> groups = core.facet_groups();
+    if (groups.empty()) {
+        mvwaddnstr(w, top + 2, 0, "load a detail", std::max(0, width - 1));
+        if (top + 3 < top + height)
+            mvwaddnstr(w, top + 3, 0, "to see filters", std::max(0, width - 1));
         return;
     }
-    for (const auto& [name, count] : categories) {
+    const FacetRect rect{top, height, width};
+    int y = top + 2;
+    for (FacetGroup group : groups) {
         if (y >= top + height)
-            break;
-        const std::string line = name + " (" + std::to_string(count) + ")";
-        mvwaddnstr(w, y++, 0, line.c_str(), std::max(0, width - 1));
+            return;
+        y = draw_facet_group(w, core, group, y, rect, focused);
     }
 }
 
@@ -459,6 +495,8 @@ private:
 
     bool apply(const SkillIntent& intent);
     void help() const;
+    bool layout_shows_facets() const;
+    bool facet_overlay();
     void apply_initial_state();
     void apply_tab(SkillTab tab);
     void tick();
@@ -478,6 +516,7 @@ private:
     void show_review(const agent::UpdateReview& review);
     void update_all();
     bool show_diff(const SkillRow& row);
+    bool apply_facet_intent(const SkillIntent& intent);
     void update_current(const SkillRow& row);
     bool confirm(const std::string& title, const std::string& text,
                  const std::string& note = {}) const;
@@ -553,17 +592,30 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
     case SkillIntent::Kind::Refresh:
         pending_search_ = true;
         return true;
-    case SkillIntent::Kind::Help:
-        help();
-        return true;
+
     case SkillIntent::Kind::Close:
         status_("skills closed");
         return false;
+    case SkillIntent::Kind::Help:
+    case SkillIntent::Kind::FocusFacets:
+    case SkillIntent::Kind::ToggleFacet:
+    case SkillIntent::Kind::ClearFacets:
+        return apply_facet_intent(intent);
     case SkillIntent::Kind::None:
         return true;
     default:
         return apply_lifecycle(intent);
     }
+}
+
+bool SkillsExplorer::apply_facet_intent(const SkillIntent& intent) {
+    if (intent.kind == SkillIntent::Kind::Help) {
+        help();
+        return true;
+    }
+    if (intent.kind == SkillIntent::Kind::FocusFacets && !layout_shows_facets())
+        return facet_overlay();
+    return true;
 }
 
 void SkillsExplorer::remove_current(const SkillRow& row) {
@@ -738,6 +790,39 @@ void SkillsExplorer::apply_tab(SkillTab tab) {
         last_status_ = "top skills";
     } else {
         last_status_ = std::string(skill_tab_name(tab)) + " has no source yet";
+    }
+}
+
+bool SkillsExplorer::layout_shows_facets() const {
+    return skills_layout(options_.cols, options_.rows).show_facets;
+}
+
+// Narrow terminals get the same facet state in a modal: the column would eat
+// the list, and hiding the filters entirely is the one thing the spec forbids.
+bool SkillsExplorer::facet_overlay() {
+    if (core_.facet_groups().empty()) {
+        last_status_ = "no filters to show yet";
+        return true;
+    }
+    Dialog dlg(std::min(18, options_.rows - 2), std::min(56, options_.cols - 4), "Filters");
+    dlg.set_footer({{"j/k", "move"}, {"Enter", "toggle"}, {"r", "reset"}, {"Esc", "close"}});
+    WINDOW* w = dlg.content();
+    dlg.show();
+    while (true) {
+        werase(w);
+        draw_facets(w, core_, 0, dlg.rows() - 2, dlg.cols() - 2);
+        wrefresh(w);
+        const int ch = wgetch(w);
+        if (ch == ERR)
+            continue;
+        const SkillIntent intent = core_.facet_key(ch);
+        if (intent.kind == SkillIntent::Kind::Close)
+            return true;
+        if (core_.pane() != SkillPane::Facets) {
+            core_.set_pane(SkillPane::Facets); // stay in the overlay until Esc
+            if (ch == 27)
+                return true;
+        }
     }
 }
 

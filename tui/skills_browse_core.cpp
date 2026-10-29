@@ -93,6 +93,8 @@ void SkillsBrowseCore::set_pane(SkillPane pane) {
 }
 
 void SkillsBrowseCore::set_tab(SkillTab tab) {
+    if (pane_ == SkillPane::Facets)
+        pane_ = SkillPane::List;
     tab_ = tab;
     reset_cursor();
 }
@@ -216,6 +218,59 @@ std::vector<std::pair<std::string, int>> SkillsBrowseCore::facet_counts(FacetGro
         return a.first < b.first;
     });
     return out;
+}
+
+std::vector<FacetGroup> SkillsBrowseCore::facet_groups() const {
+    static constexpr FacetGroup kGroups[] = {FacetGroup::Status, FacetGroup::Trust,
+                                             FacetGroup::Category, FacetGroup::Source};
+    std::vector<FacetGroup> groups;
+    for (FacetGroup group : kGroups) {
+        if (!facet_counts(group).empty())
+            groups.push_back(group);
+    }
+    return groups;
+}
+
+std::string SkillsBrowseCore::facet_cursor_value() const {
+    const auto counts = facet_counts(facet_cursor_.group);
+    if (facet_cursor_.index >= counts.size())
+        return {};
+    return counts[facet_cursor_.index].first;
+}
+
+void SkillsBrowseCore::move_facet_cursor(int delta) {
+    const std::vector<FacetGroup> groups = facet_groups();
+    if (groups.empty())
+        return;
+    const auto it = std::find(groups.begin(), groups.end(), facet_cursor_.group);
+    int group_index = it == groups.end() ? 0 : static_cast<int>(it - groups.begin());
+    int index = static_cast<int>(facet_cursor_.index) + delta;
+    const int count = static_cast<int>(facet_counts(facet_cursor_.group).size());
+    if (index >= count) {
+        group_index = (group_index + 1) % static_cast<int>(groups.size());
+        facet_cursor_.group = groups[static_cast<std::size_t>(group_index)];
+        facet_cursor_.index = 0;
+        return;
+    }
+    if (index < 0) {
+        group_index =
+            (group_index - 1 + static_cast<int>(groups.size())) % static_cast<int>(groups.size());
+        facet_cursor_.group = groups[static_cast<std::size_t>(group_index)];
+        const int last = static_cast<int>(facet_counts(facet_cursor_.group).size());
+        facet_cursor_.index = last > 0 ? static_cast<std::size_t>(last - 1) : 0;
+        return;
+    }
+    facet_cursor_.index = static_cast<std::size_t>(index);
+}
+
+void SkillsBrowseCore::toggle_facet_at_cursor() {
+    const std::string value = facet_cursor_value();
+    if (value.empty())
+        return;
+    toggle_facet(facet_cursor_.group, value);
+    const std::size_t count = facet_counts(facet_cursor_.group).size();
+    if (facet_cursor_.index >= count && count > 0)
+        facet_cursor_.index = count - 1;
 }
 
 std::string SkillsBrowseCore::filter_banner() const {
@@ -349,11 +404,42 @@ void SkillsBrowseCore::move(int delta, int visible_rows) {
 SkillIntent SkillsBrowseCore::key(int ch, int visible_rows) {
     if (pane_ == SkillPane::Search)
         return plain_key(ch, visible_rows);
+    if (pane_ == SkillPane::Facets)
+        return facet_key(ch);
     if (auto nav = navigation_key(ch, visible_rows))
         return *nav;
     if (auto global = global_key(ch))
         return *global;
     return action_key(ch);
+}
+
+SkillIntent SkillsBrowseCore::facet_key(int ch) {
+    switch (ch) {
+    case 27: // Esc
+    case 'f':
+        pane_ = SkillPane::List;
+        return {};
+    case 'q':
+        return intent(SkillIntent::Kind::Close);
+    case 'j':
+    case keys::kDown:
+        move_facet_cursor(1);
+        return {};
+    case 'k':
+    case keys::kUp:
+        move_facet_cursor(-1);
+        return {};
+    case '\r':
+    case '\n':
+    case ' ':
+        toggle_facet_at_cursor();
+        return intent(SkillIntent::Kind::ToggleFacet);
+    case 'r':
+        clear_facets();
+        return intent(SkillIntent::Kind::ClearFacets);
+    default:
+        return {};
+    }
 }
 
 std::optional<SkillIntent> SkillsBrowseCore::navigation_key(int ch, int visible_rows) {
@@ -421,7 +507,38 @@ std::optional<SkillIntent> SkillsBrowseCore::page_key(int ch, int visible_rows) 
     }
 }
 
+std::optional<SkillIntent> SkillsBrowseCore::view_key(int ch) {
+    switch (ch) {
+    case 's':
+        sort_ = sort_ == SkillSort::Installs ? SkillSort::Name
+                : sort_ == SkillSort::Name   ? SkillSort::Relevance
+                                             : SkillSort::Installs;
+        reset_cursor();
+        {
+            SkillIntent i = intent(SkillIntent::Kind::Sort);
+            i.sort = sort_;
+            return i;
+        }
+    case 'R':
+        return intent(SkillIntent::Kind::Refresh);
+    case 'f':
+        if (!facet_groups().empty()) {
+            pane_ = SkillPane::Facets;
+            facet_cursor_.index = 0;
+        }
+        return intent(SkillIntent::Kind::FocusFacets);
+    case 'r':
+        return intent(SkillIntent::Kind::ClearFacets);
+    case '?':
+        return intent(SkillIntent::Kind::Help);
+    default:
+        return std::nullopt;
+    }
+}
+
 std::optional<SkillIntent> SkillsBrowseCore::global_key(int ch) {
+    if (auto view = view_key(ch))
+        return view;
     switch (ch) {
     case 27: // Esc
         if (pane_ == SkillPane::Detail) {
@@ -437,24 +554,6 @@ std::optional<SkillIntent> SkillsBrowseCore::global_key(int ch) {
         return SkillIntent{};
     case 'q':
         return intent(SkillIntent::Kind::Close);
-    case 's':
-        sort_ = sort_ == SkillSort::Installs ? SkillSort::Name
-                : sort_ == SkillSort::Name   ? SkillSort::Relevance
-                                             : SkillSort::Installs;
-        reset_cursor();
-        {
-            SkillIntent i = intent(SkillIntent::Kind::Sort);
-            i.sort = sort_;
-            return i;
-        }
-    case 'R':
-        return intent(SkillIntent::Kind::Refresh);
-    case 'f':
-        return intent(SkillIntent::Kind::FocusFacets);
-    case 'r':
-        return intent(SkillIntent::Kind::ClearFacets);
-    case '?':
-        return intent(SkillIntent::Kind::Help);
     default:
         break;
     }

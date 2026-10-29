@@ -442,3 +442,43 @@ TEST(skills_facet_and_clear_keys_are_intents) {
     i = core.key('r');
     ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::ClearFacets);
 }
+
+TEST(skills_facet_pane_walks_groups_and_toggles_values) {
+    tui::SkillsBrowseCore core;
+    core.set_rows({facet_row("a", "testing", agent::TrustTier::Community, false),
+                   facet_row("b", "docs", agent::TrustTier::Official, false)});
+
+    core.key('f');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Facets);
+    ASSERT_EQ(tui::facet_group_name(core.facet_cursor().group), std::string("status"));
+    ASSERT_EQ(core.facet_cursor_value(), std::string("not installed"));
+
+    // Toggling the value under the cursor is a state change plus an intent, so
+    // the renderer can repaint and the host can persist.
+    const auto toggled = core.key('\r');
+    ASSERT_TRUE(toggled.kind == tui::SkillIntent::Kind::ToggleFacet);
+    ASSERT_TRUE(core.any_facet());
+    ASSERT_TRUE(core.facet_selected(tui::FacetGroup::Status, "not installed"));
+    ASSERT_EQ(core.visible_count(), static_cast<size_t>(2)); // both are not installed
+
+    // j walks to the next value, or wraps into the next group.
+    core.key('j');
+    ASSERT_EQ(tui::facet_group_name(core.facet_cursor().group), std::string("trust"));
+    ASSERT_EQ(core.facet_cursor_value(), std::string("community"));
+
+    core.key('r');
+    ASSERT_FALSE(core.any_facet());
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Facets); // reset keeps the pane
+
+    core.key(27);
+    ASSERT_TRUE(core.pane() == tui::SkillPane::List);
+}
+
+TEST(skills_facet_pane_leaves_on_tab_switch) {
+    tui::SkillsBrowseCore core;
+    core.set_rows({facet_row("a", "testing", agent::TrustTier::Community, false)});
+    core.key('f');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Facets);
+    core.set_tab(tui::SkillTab::Installed);
+    ASSERT_TRUE(core.pane() == tui::SkillPane::List);
+}

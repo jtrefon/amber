@@ -27,7 +27,7 @@ enum class SkillTab : unsigned char {
 
 enum class SkillSort : unsigned char { Relevance, Installs, Name };
 
-enum class SkillPane : unsigned char { Search, List, Detail };
+enum class SkillPane : unsigned char { Search, List, Detail, Facets };
 
 // Local filters. A facet never reaches the registry: it narrows the rows that
 // are already loaded, and the header says so when a live query is also active.
@@ -81,6 +81,7 @@ struct SkillIntent {
         Sort,
         FocusFacets,
         ClearFacets,
+        ToggleFacet,
         Help,
         Close,
     };
@@ -144,6 +145,9 @@ public:
     void set_status(std::string status);
 
     SkillIntent key(int ch, int visible_rows = 20);
+    // The facet pane's keys, exposed so a host that renders the filters as a
+    // modal (narrow terminals) drives the same state machine as the column.
+    SkillIntent facet_key(int ch);
 
     SkillTab tab() const noexcept { return tab_; }
     SkillSort sort() const noexcept { return sort_; }
@@ -163,6 +167,17 @@ public:
     // Counts over the rows that pass the text filter but not the facets, so a
     // count never moves because of its own selection.
     std::vector<std::pair<std::string, int>> facet_counts(FacetGroup group) const;
+
+    // The facet pane's cursor: a group and one of its ranked values. Every
+    // group with values is reachable, selected or not, so a filter can always
+    // be undone from the keyboard.
+    struct FacetCursor {
+        FacetGroup group = FacetGroup::Status;
+        std::size_t index = 0;
+    };
+    FacetCursor facet_cursor() const noexcept { return facet_cursor_; }
+    std::vector<FacetGroup> facet_groups() const;
+    std::string facet_cursor_value() const;
     // Non-empty when a server query limits the set the facets narrow.
     std::string filter_banner() const;
     void set_query_live(bool live) noexcept { query_live_ = live; }
@@ -202,6 +217,7 @@ private:
     std::optional<SkillIntent> jump_key(int ch, int visible_rows);
     std::optional<SkillIntent> page_key(int ch, int visible_rows);
     std::optional<SkillIntent> global_key(int ch);
+    std::optional<SkillIntent> view_key(int ch);
     std::optional<SkillIntent> shelf_key(int ch);
     SkillIntent action_key(int ch);
     std::optional<SkillIntent> special_action(int ch, const SkillRow& row);
@@ -214,6 +230,9 @@ private:
     std::string status_;
     std::set<std::string> marked_;
     std::map<FacetGroup, std::set<std::string>> facets_;
+    FacetCursor facet_cursor_;
+    void move_facet_cursor(int delta);
+    void toggle_facet_at_cursor();
     bool query_live_ = false;
     SkillTab tab_ = SkillTab::Top;
     SkillSort sort_ = SkillSort::Installs;
