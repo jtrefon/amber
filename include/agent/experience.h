@@ -2,6 +2,7 @@
 #ifndef AGENT_EXPERIENCE_H
 #define AGENT_EXPERIENCE_H
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -136,6 +137,11 @@ public:
 
     virtual void decay_all() = 0;
 
+    // Monotonic counter of knowledge changes (upsert/remove/pin/decay/load).
+    // The prompt block is the [system][memory] prefix, so it may be rebuilt
+    // only when this moves. A fresh store starts at 0.
+    virtual std::uint64_t version() const { return 0; }
+
     // Total number of items (memories + skills) in the store.
     virtual size_t store_size() const = 0;
 
@@ -143,14 +149,23 @@ public:
     virtual bool save(const std::string& path) const = 0;
 };
 
+// Renders the learned-memory block injected after the system prompt. The
+// block is a function of the store alone: selection does not depend on the
+// current question, and the render is cached until the store version moves.
+// One retriever belongs to one agent worker, so the cache needs no lock.
 class MemoryRetriever {
 public:
-    explicit MemoryRetriever(const MemoryStore& store);
-    std::string build_system_prompt_suffix(const std::string& user_message,
-                                           size_t max_tokens = 500) const;
+    explicit MemoryRetriever(const MemoryStore& store, ExperienceConfig cfg = {});
+    std::string build_block() const;
 
 private:
+    std::string render_block() const;
+
     const MemoryStore& store_;
+    ExperienceConfig cfg_;
+    mutable std::string cached_;
+    mutable std::uint64_t cached_version_ = 0;
+    mutable bool has_cache_ = false;
 };
 
 // ---------------------------------------------------------------------------

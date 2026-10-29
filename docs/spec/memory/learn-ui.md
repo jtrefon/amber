@@ -16,11 +16,13 @@ panel: the management surface for the learning subsystem, mirroring how
   `lib/memory_store.cpp` (store list/remove/promote APIs), `include/agent/agent.h` +
   `lib/agent.cpp` (learn accessors + forget/pin wrappers),
   `include/agent/learn_commands.h` + `lib/learn_commands.cpp` (command
-  backends), `tui/tui_input.cpp` (`cmd_learn`, `/get learn`), `tui/tui_session.cpp`
-  (panel wiring where feasible)
-- **Test files** (target): `tests/run_tests.cpp` (store + agent ops),
-  `tests/learn_commands_test.cpp` (new, added to `UNITTEST_OBJ` in `Makefile.in`)
-- **Spec status**: design — implementation tracked in `docs/learn-tracker.md`.
+  backends), `completions.json` (the `learn` namespace), `tui/tui_input.cpp`
+  (`cmd_learn_*`, `/get learn`)
+- **Test files**: `tests/run_tests.cpp` (store + agent ops),
+  `tests/learn_commands_test.cpp` (backends), `tests/completions_test.cpp`
+  (tree nodes), `tests/tui_pty_test.cpp` (the surface in a real terminal)
+- **Spec status**: implemented. The `learn` namespace is the command tree's
+  single source of truth; the handlers are `(action, arg)` closures.
 
 ---
 
@@ -31,13 +33,13 @@ panel: the management surface for the learning subsystem, mirroring how
 | `/learn show [type\|tag]` | Table of all learned items: `id · type · name · evidence · score · promoted · turn`. Optional filter: `memory`, `skill`, or a tag substring. |
 | `/learn show <id>` | Full detail: content, tags, evidence, score, promoted flag, last-confirm turn, trigger phrase (skills). |
 | `/learn forget <id>` | Remove one item from the store and persist. Errors on unknown id. |
-| `/learn pin <id> on\|off` | Set/clear the promoted flag manually and persist (pin = "keep this, don't let decay demote it"). |
-| `/learn panel` | TUI list panel: filter box, evidence column, Enter = inspect, `d` = forget (confirm), `p` = pin. |
+| `/learn pin <id> on\|off` | Force-promote (or clear) an item and persist. A pin is a manual promotion, not immortality: decay still applies until the item is reconfirmed. |
+| `/learn panel` | TUI list panel: filter box, evidence column, Enter opens the actions (inspect, forget with a confirmation, promote/unpromote, close). |
 | `/get learn` | Summary: item counts, promoted counts, budget usage (`top_memories`/`top_skills` caps), store path. |
 
 All surfaces are **read-only by default**; the only mutating actions are the
-explicit `forget` and `pin` commands. There is no bulk clear in v1 (the
-store is project-scoped and rebuilds from interaction).
+explicit `forget` and `pin` commands. There is no bulk clear in v1 (the store
+is per-project state and rebuilds from interaction).
 
 ---
 
@@ -111,15 +113,17 @@ number always matches the listing order.
    both are explicit one-item operations.
 2. **Forget is persistent and narrow.** `remove(id)` + save; nothing else in
    the store is touched. A reloaded store reflects the deletion.
-3. **Pin is a manual override.** `set_promoted` flips the flag; decay logic
-   (`decay_all`) demotes only items whose evidence reaches zero — a pinned
-   item stays promoted unless the user unpins it. Documented interplay, not a
-   new flag.
+3. **Pin is a manual promotion, not immortality.** `set_promoted` flips the one
+   flag; decay still reduces evidence and removes the item like any other. The
+   single flag cannot distinguish a manual pin from automatic promotion, so a
+   distinct persisted `pinned` field was considered and deliberately not added.
+   The command's help says exactly this.
 4. **The UI never knows the store path.** All persistence goes through the
    `Agent` wrappers.
-5. **Relevance ranking is unchanged.** `all_*` is a new listing path; the
-   prompt-injection path (`top_memories`/`top_skills` via `MemoryRetriever`)
-   is untouched.
+5. **The injected block is stable; the listing is separate.** `all_*` is the
+   `/learn` listing path (score-sorted). The prompt block uses `top_memories`
+   at an empty query and is cached by the store version; learned skills are
+   catalog entries, not block content (see `extraction.md` ME-09/ME-10).
 
 ---
 
@@ -165,7 +169,7 @@ number always matches the listing order.
 
 - **Given**: mixed store
 - **Input**: `/learn show skill` (and `/learn show memory`, `/learn show <tag>`)
-- **Expected**: Only matching items; invalid filter → usage line.
+- **Expected**: Only matching items; a filter that matches nothing reports `(no learned items)`.
 - **On failure**: Filter silently ignored.
 
 #### [LU-07] Empty store
@@ -208,3 +212,4 @@ number always matches the listing order.
 | Date | Reason |
 |------|--------|
 | 2026-07-31 | Initial spec (read-only default; forget/pin as the only mutations; backends in lib for testability) |
+| 2026-10-29 | `/learn` restored as a `completions.json` namespace (#487); panel uses an action menu; pin semantics corrected to "force-promote, decay still applies"; filter misses report `(no learned items)` |

@@ -1293,6 +1293,167 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     (void)ctx.get_all(); // hash chain intact
 }
 
+// Decay is the signal that knowledge was not reconfirmed. A compression that
+// returns no memory/skill ops is still a cycle, so the store must decay.
+TEST(compression_without_ops_still_decays) {
+    agent::test::XdgGuard xdg("compression_decay_no_ops");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    store->set_current_turn(0);
+    agent::Memory old;
+    old.name = "old";
+    old.content = "old fact";
+    old.evidence_count = 4;
+    old.promoted = true;
+    store->upsert(old);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, 3);
+}
+
+// An item the extract step just created was confirmed this cycle. "Absence of
+// reconfirmation" cannot apply to it, so it must leave the cycle at the
+// threshold, not one below it.
+TEST(freshly_confirmed_item_keeps_threshold_evidence) {
+    agent::test::XdgGuard xdg("compression_fresh_confirm");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[{"name":"fresh","content":"a fresh fact",)"
+                     R"("tags":["fresh"],"action":"upsert"}],"skills":[]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, ag.memory_store()->memory_promote_threshold());
+}
+
+// A skill learned by this compression must be usable now, not after a restart:
+// it is indexed in the shared catalog and its body comes from the store.
+TEST(learned_skill_is_discoverable_and_readable_after_extraction) {
+    agent::test::XdgGuard xdg("learned_skill_index");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+    auto skills = std::make_shared<agent::SkillCatalog>(cfg);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[],"skills":[{"name":"run-tests",)"
+                     R"("content":"run make test","trigger_phrase":"test",)"
+                     R"("action":"upsert"}]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake), {}, skills);
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+
+    const auto entry = ag.skills().lookup("run-tests");
+    ASSERT(entry.has_value());
+    ASSERT(entry->origin == agent::SkillOrigin::Learned);
+    const auto body = ag.skills().read_body("run-tests");
+    ASSERT(body.has_value());
+    ASSERT_EQ(*body, std::string("run make test"));
+
+    bool described = false;
+    for (const auto& line : ag.skills().discovery_block())
+        if (line == "run-tests: test")
+            described = true;
+    ASSERT(described);
+}
+
+// The acceptance proof for the memory/learn pipeline: one compression cycle
+// extracts a memory, the store persists it, and the next request carries it in
+// the [system][memory] block without touching the system prompt.
+TEST(compression_extracts_persists_and_injects_memories) {
+    agent::test::XdgGuard xdg("compression_memory_e2e");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[{"name":"proj-name","content":"project uses make",)"
+                     R"("tags":["build"],"action":"upsert"}],"skills":[]})");
+    push_text(*fake, "done");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("project uses make"));
+    ASSERT_EQ(all[0].evidence_count, ag.memory_store()->memory_promote_threshold());
+    ASSERT(all[0].promoted);
+
+    auto reloaded = agent::make_memory_store(ec);
+    ASSERT(reloaded->load(ec.store_path));
+    ASSERT_EQ(reloaded->all_memories().size(), size_t{1});
+    ASSERT_EQ(reloaded->all_memories()[0].content, std::string("project uses make"));
+
+    ag.run("what did you learn?");
+    ASSERT(!raw->requests.empty());
+    const auto& request = raw->requests.back();
+    ASSERT(request.size() >= 2u);
+    ASSERT(request[0].content.find("project uses make") == std::string::npos);
+    ASSERT(request[1].content.find("project uses make") != std::string::npos);
+}
+
 // KV-reuse guarantee: the compression pipeline makes TWO LLM calls
 // (classify, then extract). For the server's prompt cache to stay warm the
 // extract request must replay the classify request as a prefix — the second
@@ -3411,6 +3572,52 @@ TEST(agent_injects_in_memory_blocks_without_compression) {
 
     // The control case: this holds today, and must keep holding.
     ASSERT(request_contains(*raw, "the build system is make"));
+}
+
+// The learned-memory block is [system][memory]: knowledge changes may move the
+// block, but the system prompt at index 0 never changes for memory. A change
+// also invalidates the cached block.
+TEST(agent_never_rewrites_the_system_prompt_for_memory) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store, mem.cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+    push_text(*fake, "three");
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
+
+    ag.run("first");
+    ag.run("second");
+    ASSERT(raw->requests.size() >= 2u);
+    ASSERT(raw->requests[0].size() >= 2u);
+    const std::string first_system = raw->requests[0][0].content;
+    const std::string first_block = raw->requests[0][1].content;
+    ASSERT_EQ(raw->requests[0][0].content, raw->requests[1][0].content);
+    ASSERT_EQ(raw->requests[0][1].content, raw->requests[1][1].content);
+    ASSERT(first_system.find("the build system is make") == std::string::npos);
+
+    agent::Memory learned;
+    learned.name = "tests";
+    learned.content = "run make test";
+    learned.evidence_count = 2;
+    learned.promoted = true;
+    ag.memory_store()->upsert(learned);
+
+    ag.run("third");
+    ASSERT(raw->requests.size() >= 3u);
+    const auto& third = raw->requests[2];
+    ASSERT_EQ(third[0].content, first_system);
+    ASSERT(third[1].content.find("run make test") != std::string::npos);
+    ASSERT(third[1].content != first_block);
 }
 
 // A System block is part of the system prompt itself, not a message after it:

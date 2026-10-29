@@ -1,8 +1,14 @@
 # amber — Learn UI Implementation Tracker
 
-- **Status:** 🟢 Complete — LI-IMP-001..005 implemented on `feat/learn-ui`, all gates green
+- **Status:** 🟢 Delivered in `main`. The backends landed in `7f7fb701`; the
+  `/learn` surface was deleted in the JSON-tree rewrite `589bc7e3` and restored
+  in #487 (`feat/memory-learn-integrity`), with pty coverage.
 - **Reference:** `docs/spec/memory/learn-ui.md`
 - **Issues register:** `docs/issues.md`
+
+> The `feat/learn-ui` branch no longer exists (local or remote). This tracker
+> is the historical task record; the current surface is the `learn` namespace in
+> `completions.json` plus the handlers in `tui/tui_input.cpp`.
 
 ---
 
@@ -183,6 +189,10 @@ No user-facing surface exists.
 
 - [x] Manual: `/learn show`, `forget`, `pin`, `/get learn` in the TUI with a
       real store; panel actions
+- [x] Restored after `589bc7e3` as a `completions.json` namespace (#487); the
+      panel is a `ListPanel` with an action menu (inspect/forget/promote/close)
+- [x] pty: `learn_show_inspect_and_forget_the_project_store`,
+      `learn_panel_opens_and_returns_to_the_prompt`
 - [x] `make clean && make && make test && make lint && make analyze` clean
 
 ---

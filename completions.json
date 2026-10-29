@@ -47,6 +47,33 @@
     }
    }
   },
+  "learn": {
+   "action": "core.learn",
+   "help": "See and curate what the agent has learned.",
+   "man": "The learned-knowledge surface. '/learn show [memory|skill|tag]' lists every item, '/learn show <id>' shows one, '/learn forget <id>' removes one, '/learn pin <id> on|off' force-promotes or clears it, and '/learn panel' opens the list. Learned items come from compression; authored skills live under '/skills'.",
+   "children": {
+    "show": {
+     "action": "core.learn.show",
+     "help": "List learned items, or show one by id.",
+     "man": "With no argument lists every learned memory and skill, sorted by score. 'memory' or 'skill' filters by type; any other word filters by name or tag substring. An id prints the full detail page."
+    },
+    "forget": {
+     "action": "core.learn.forget",
+     "help": "Remove one learned item.",
+     "man": "Usage: '/learn forget <id>'. Deletes the item from the project experience store and persists the file. An unknown id leaves the store untouched and reports the error."
+    },
+    "pin": {
+     "action": "core.learn.pin",
+     "help": "Force-promote or unpin a learned item.",
+     "man": "Usage: '/learn pin <id> on|off'. 'on' sets the promoted flag so the item is injected and indexed now; 'off' clears it. Decay still applies: a pinned item loses evidence like any other until it is reconfirmed."
+    },
+    "panel": {
+     "action": "core.learn.panel",
+     "help": "Open the learned-items panel.",
+     "man": "A scrollable list of every learned item with its type, name, evidence and state. Enter opens the actions: inspect, forget with a confirmation, promote or unpromote, close. The filter box narrows by name."
+    }
+   }
+  },
   "help": {
    "action": "core.help",
    "help": "Show command help. Use '/help <command>' for details, or type '?' at the end of any command path.",

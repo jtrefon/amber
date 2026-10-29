@@ -6896,6 +6896,54 @@ TEST(memory_store_upsert_and_retrieve) {
     ASSERT(results[0].content == "project uses make");
 }
 
+// The store, not its callers, owns the no-edit rule: a same-name entry with
+// different content is skipped, and the original survives.
+TEST(store_skips_a_name_conflict) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory original;
+    original.name = "build";
+    original.content = "make build";
+    original.evidence_count = 3;
+    original.promoted = true;
+    store->upsert(original);
+
+    agent::Memory conflicting;
+    conflicting.name = "build";
+    conflicting.content = "cmake --build";
+    conflicting.evidence_count = 3;
+    conflicting.promoted = true;
+    store->upsert(conflicting);
+
+    auto all = store->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("make build"));
+}
+
+TEST(store_skips_a_skill_name_conflict) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Skill original;
+    original.name = "run-tests";
+    original.content = "run make test";
+    original.trigger_phrase = "test";
+    original.evidence_count = 5;
+    original.promoted = true;
+    store->upsert(original);
+
+    agent::Skill conflicting;
+    conflicting.name = "run-tests";
+    conflicting.content = "run ctest";
+    conflicting.trigger_phrase = "test";
+    conflicting.evidence_count = 5;
+    conflicting.promoted = true;
+    store->upsert(conflicting);
+
+    auto all = store->all_skills();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("run make test"));
+}
+
 TEST(memory_store_top_k_limits) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
@@ -6924,8 +6972,10 @@ TEST(memory_store_skill_trigger) {
     auto results = store->top_skills(10, "run the tests");
     ASSERT(!results.empty());
     ASSERT(results[0].content == "run tests");
+    // No trigger match: promoted skills are the documented fallback, capped.
     auto no_match = store->top_skills(10, "build the project");
-    ASSERT(no_match.empty());
+    ASSERT_EQ(no_match.size(), size_t{1});
+    ASSERT_EQ(no_match[0].content, std::string("run tests"));
 }
 
 TEST(skill_no_dead_fields_in_serialization) {
@@ -6962,6 +7012,21 @@ TEST(skill_legacy_json_loads_without_dead_fields) {
     ASSERT(skills.size() == 1u);
     ASSERT(skills[0].content == "make deploy");
     ASSERT(skills[0].trigger_phrase == "deploy");
+}
+
+TEST(experience_disabled_makes_no_store) {
+    agent::ExperienceConfig ec;
+    ec.enabled = false;
+    ASSERT(agent::make_memory_store(ec) == nullptr);
+}
+
+TEST(experience_disabled_config_makes_no_store) {
+    agent::Config cfg;
+    cfg.experience_enabled = false;
+    cfg.experience_store_path = "/tmp/amber_disabled_experience.json";
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_FALSE(ec.enabled);
+    ASSERT(agent::make_memory_store(ec) == nullptr);
 }
 
 TEST(experience_store_project_default) {
@@ -7032,6 +7097,7 @@ TEST(memory_store_decay) {
     mem.evidence_count = 3;
     mem.promoted = true;
     store->upsert(mem);
+    store->set_current_turn(2); // a later cycle: the turn-1 confirmation is old
     store->decay_all();
     auto results = store->top_memories(10, "");
     ASSERT(!results.empty());
@@ -7042,7 +7108,7 @@ TEST(memory_retriever_empty) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
     agent::MemoryRetriever retriever(*store);
-    auto suffix = retriever.build_system_prompt_suffix("hello");
+    auto suffix = retriever.build_block();
     ASSERT(suffix.empty());
 }
 
@@ -7057,9 +7123,110 @@ TEST(memory_retriever_with_memories) {
     mem.promoted = true;
     store->upsert(mem);
     agent::MemoryRetriever retriever(*store);
-    auto suffix = retriever.build_system_prompt_suffix("how to build");
+    auto suffix = retriever.build_block();
     ASSERT(!suffix.empty());
     ASSERT(suffix.find("build system") != std::string::npos);
+}
+
+// The injected block is the stable prefix [system][memory], so it must be a
+// function of the store alone. Selection by the current question reordered it
+// on every turn, which is exactly a prefix change.
+TEST(memory_block_is_a_function_of_the_store) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory build;
+    build.name = "build";
+    build.content = "the build system is make";
+    build.tags = {"build"};
+    build.evidence_count = 3;
+    build.promoted = true;
+    store->upsert(build);
+    agent::Memory deploy;
+    deploy.name = "deploy";
+    deploy.content = "deployment uses ansible";
+    deploy.tags = {"deploy"};
+    deploy.evidence_count = 3;
+    deploy.promoted = true;
+    store->upsert(deploy);
+
+    // The query is gone from the API, so selection cannot follow the question
+    // any more. Two independent retrievers over one store must still render
+    // the same bytes.
+    agent::MemoryRetriever first(*store, ec);
+    agent::MemoryRetriever second(*store, ec);
+    ASSERT_EQ(first.build_block(), second.build_block());
+}
+
+// The cache is keyed by the store version: a turn-counter change (which moves
+// freshness but not knowledge) must not re-render the prefix. A real upsert
+// must.
+TEST(memory_block_survives_a_turn_counter_change) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "build";
+    mem.content = "the build system is make";
+    mem.evidence_count = 3;
+    mem.promoted = true;
+    store->upsert(mem);
+
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string first = retriever.build_block();
+    store->set_current_turn(100);
+    ASSERT_EQ(retriever.build_block(), first);
+
+    agent::Memory extra;
+    extra.name = "tests";
+    extra.content = "run make test";
+    extra.evidence_count = 2;
+    extra.promoted = true;
+    store->upsert(extra);
+    ASSERT(retriever.build_block() != first);
+}
+
+TEST(memory_block_honours_the_configured_cap) {
+    agent::ExperienceConfig ec;
+    ec.max_memories = 1;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory high;
+    high.name = "high";
+    high.content = "highest evidence memory";
+    high.evidence_count = 5;
+    high.promoted = true;
+    store->upsert(high);
+    agent::Memory low;
+    low.name = "low";
+    low.content = "lower evidence memory";
+    low.evidence_count = 2;
+    low.promoted = true;
+    store->upsert(low);
+
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string block = retriever.build_block();
+    ASSERT(block.find("highest evidence memory") != std::string::npos);
+    ASSERT(block.find("lower evidence memory") == std::string::npos);
+}
+
+TEST(memory_block_honours_the_token_budget) {
+    agent::ExperienceConfig ec;
+    ec.max_prompt_tokens = 30; // ~120 chars: the header plus one entry only
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    for (int i = 0; i < 4; ++i) {
+        agent::Memory mem;
+        mem.name = "m" + std::to_string(i);
+        mem.content = "memory " + std::to_string(i) + " " + std::string(40, 'x');
+        mem.evidence_count = 10 - i;
+        mem.promoted = true;
+        store->upsert(mem);
+    }
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string block = retriever.build_block();
+    ASSERT(block.find("memory 0") != std::string::npos);
+    ASSERT(block.find("memory 3") == std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -7129,13 +7296,14 @@ TEST(integration_apply_and_retrieve) {
 
     // Phase 3: Retrieve relevant memories
     agent::MemoryRetriever retriever(*store);
-    std::string suffix = retriever.build_system_prompt_suffix("how do I build this project?");
+    std::string suffix = retriever.build_block();
     ASSERT(!suffix.empty());
     bool found = suffix.find("GNU make") != std::string::npos ||
                  suffix.find("./configure") != std::string::npos;
     ASSERT(found);
 
-    // Phase 4: Verify decay — evidence 3 → 2 after one decay call
+    // Phase 4: Verify decay — evidence 3 → 2 after one later cycle
+    store->set_current_turn(2);
     store->decay_all();
     auto after_decay = store->top_memories(10, "build");
     ASSERT(!after_decay.empty());

@@ -156,9 +156,9 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | File | Covers |
 |------|--------|
 | `memory/extraction.md` | Extraction triggers, signal detection, quality gating |
-| `memory/memory-store.md` | Storage, dedup, query, recall-injection into context (project-scoped learned skills) |
+| `memory/memory-store.md` | Storage, dedup, query, and the versioned learned-memory prefix (per-project state) |
 | `memory/skill-operations.md` | Learned skill upsert/deprecate lifecycle (authored skills live in `skills/`) |
-| `memory/learn-ui.md` | `/learn` visibility + management: show/inspect/forget/pin, `/get learn` summary, store list/remove/promote APIs |
+| `memory/learn-ui.md` | `/learn` command-tree namespace: show/inspect/forget/pin, `/learn panel`, `/get learn` summary, store list/remove/promote APIs |
 
 ## Session
 

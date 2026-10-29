@@ -64,15 +64,19 @@ Agent::apply_compression_result(cr)
 
 1. **Extraction only happens during compression.** There is no standalone extraction path. Every extraction is a side effect of a compression cycle (manual or automatic).
 
-2. **Conflict = skip, not overwrite.** If the LLM returns a knowledge op with the same name but different content as an existing item, the op is skipped. The old item is preserved unmodified. This prevents edit wars between compression cycles where the LLM disagrees with itself.
+2. **Conflict = skip, not overwrite.** If the LLM returns a knowledge op with the same name but different content as an existing item, the op is skipped. The old item is preserved unmodified. This prevents edit wars between compression cycles where the LLM disagrees with itself. `apply_memory_ops` reports the conflict to the host; the store enforces the same rule for any other caller.
 
 3. **Reconfirmation = strengthen.** If the LLM returns a knowledge op with the same name AND same content (matching content hash) as an existing item, the item's `evidence_count` increments. The fact is confirmed again — it's more trustworthy.
 
-4. **New items start at promote_threshold, not 1.** When the LLM creates a new memory or skill, its initial `evidence_count` is set to the store's `promote_threshold` and it is immediately `promoted = true`. The LLM's single confirmation is treated as sufficient for initial promotion. Further reconfirmations increase evidence; failure to reconfirm causes decay.
+4. **New items start at promote_threshold, not 1.** When the LLM creates a new memory or skill, its initial `evidence_count` is set to the store's `promote_threshold` and it is immediately `promoted = true`. The LLM's single confirmation is treated as sufficient for initial promotion. The same cycle does not decay it: it was confirmed now, so it leaves the cycle at the threshold. Further reconfirmations increase evidence; failure to reconfirm causes decay.
 
-5. **Decay runs every extraction cycle, even when no ops are returned.** `decay_all()` is unconditional. Absence of reconfirmation IS the signal that knowledge is not being used.
+5. **Decay runs every extraction cycle, even when no ops are returned.** `decay_all()` is unconditional (an empty store has nothing to write). Absence of reconfirmation IS the signal that knowledge is not being used. Items whose `last_confirm_turn` is the current turn are skipped — they were just reconfirmed.
 
 6. **Save is atomic.** Uses `.tmp` + `std::rename` pattern. Incomplete writes don't corrupt the store.
+
+7. **Learned skills are re-indexed at the end of the cycle.** After decay, the shared `SkillCatalog` is discovered from the promoted store list, so a skill learned now is `read_skill`-able and in the discovery block immediately, not after a restart.
+
+8. **The injected memory block is versioned.** The `[system][memory]` prefix is rebuilt only when the store version changes; it never depends on the current question. See `memory-store.md` invariant 8.
 
 ---
 
@@ -127,58 +131,67 @@ Agent::apply_compression_result(cr)
 
 #### [ME-08] Decay runs even when no ops returned
 
-- **Given**: Store with 5 items (all evidence > 0). Compression returns empty `memory_ops` and `skill_ops`.
+- **Given**: Store with 5 items (all evidence > 0, confirmed on an earlier turn). Compression returns empty `memory_ops` and `skill_ops`.
 - **Input**: `apply_compression_result(empty_response)`
-- **Expected**: `decay_all()` runs. All items lose proportional evidence. Items reaching 0 are depromoted.
+- **Expected**: `decay_all()` runs. All items lose proportional evidence. Items reaching 0 are depromoted. An item confirmed at the current turn is skipped.
 - **Rationale**: Absence of reconfirmation across a compression cycle means the knowledge isn't being used. It should decay.
+- **Regression guard**: `compression_without_ops_still_decays`, `freshly_confirmed_item_keeps_threshold_evidence`.
 
-#### [ME-09] Memory retrieval — system prompt suffix
+#### [ME-09] Memory retrieval — the injected block
 
-- **Given**: MemoryStore has 5 memories (3 promoted), 2 skills (1 with matching trigger phrase). User says "tell me about the build system".
-- **Input**: `retriever.build_system_prompt_suffix("tell me about the build system", 500)`
-- **Expected**: Returns formatted string with `"=== Learned Knowledge ==="` header. Top 20 memories by relevance score. Top 10 skills with matching trigger phrase. Truncated to ~2000 chars (500 tokens × 4).
-- **On failure**: Knowledge block missing from prompt. Empty store → empty suffix → skipped.
+- **Given**: MemoryStore has 5 memories (3 promoted) and learned skills. User says "tell me about the build system".
+- **Input**: `retriever.build_block()`
+- **Expected**: Returns a `"=== Learned memories ==="` block with the promoted memories ordered by evidence/freshness, capped by `ExperienceConfig::max_memories` and `max_prompt_tokens`. It does **not** depend on the user message. Learned skills are not in this block; they are in the catalog discovery and load on demand with `read_skill`.
+- **On failure**: Knowledge block missing from the prompt, or the block changes when only the question changed.
+- **Regression guard**: `memory_block_is_a_function_of_the_store`, `memory_block_honours_the_configured_cap`, `memory_block_honours_the_token_budget`.
 
-#### [ME-10] Store version tracking — skip injection when unchanged
+#### [ME-10] Store version tracking — the prefix stays byte-identical
 
-- **Given**: MemoryStore has a version counter. Compression ran on turn N, extracted 2 memories. Turn N+1 runs with same store (no new memories).
-- **Input**: `chat_once()` calls `retriever.build_system_prompt_suffix()`
-- **Expected**: Store version matches the cached version on Agent. Injection skipped. System prompt unchanged from previous turn.
-- **Rationale**: Avoids modifying the system prompt copy when nothing changed. Reduces forward-pass cost for the injected portion.
+- **Given**: `MemoryStore::version()` is monotonic. Compression ran on turn N, extracted 2 memories. Turn N+1 runs with the same store.
+- **Input**: `MemoryRetriever::build_block()` on both turns.
+- **Expected**: The version matches the retriever's cache, so the block is returned as-is. `set_current_turn` alone does not bump the version. The `[system][memory]` prefix is byte-identical; only the conversation appends.
+- **Rationale**: The block is the KV prefix; a rebuild that produces the same bytes is harmless but a rebuild that reorders on a tie is not. The cache and the deterministic tie-break make stability structural.
+- **Regression guard**: `memory_block_survives_a_turn_counter_change`, `agent_never_rewrites_the_system_prompt_for_memory`.
+
+#### [ME-11] A learned skill is usable in the cycle it arrives
+
+- **Given**: Compression returns a skill op for `run-tests`.
+- **Input**: `apply_compression_result(response)`, then `SkillCatalog::lookup("run-tests")` / `read_body("run-tests")`.
+- **Expected**: The shared catalog is rediscovered from the promoted store list, so the entry exists with origin `Learned`, its trigger (or first body line) is the discovery description, and `read_body` returns the stored content.
+- **Regression guard**: `learned_skill_is_discoverable_and_readable_after_extraction`, `skill_catalog_describes_learned_skills`.
 
 ---
 
 ### Injection into context
 
-Memories and learned skills are injected into the **prompt copy** before every LLM call:
+Memories are injected into the **prompt copy** before every LLM call, as a
+separate `system` message immediately after the system prompt:
 
 ```
 [system] "You are an AI assistant..."
-[injected knowledge] "=== Learned Knowledge ===
-  Memory \"build-system\": Project X uses GNU Make  (evidence: 8)
-  Skill \"run-tests\": To run tests, call 'make test'  [trigger: test]
-=== End Learned Knowledge ==="
+[memory] "=== Learned memories ===
+  "build-system"
+    Project X uses GNU Make
+=== End learned memories ==="
+[user] ...
 ```
 
-The authored-skill **discovery metadata** block is injected as a *separate slot*
-immediately after this learned-knowledge block (fixed order preserves the
-KV-cache prefix), and activated skill bodies append later slots on demand. See
-`skills/agent-skills.md` (injection-slot rules, [AS-01]).
+The authored-skill **discovery metadata** block is the next head slot; learned
+skills are part of that catalog too (name + trigger/description), and their
+bodies load with `read_skill` as a tail slot. See `skills/agent-skills.md`
+(injection-slot rules, [AS-01]).
 
 **This is done on a COPY of the prompt**, not the live context. The live
-context's system message is never modified. This ensures the KV cache within
-each request is maximally reused — the system prompt prefix is the same until
-the injection block.
+context's system message is never modified. The dialect layer merges every
+`system` message into one top-level block on the wire, in order; the memory
+block is after the system prompt and before the conversation, so the stable
+part of the prefix is `[system prompt][memory block]`.
 
-**Optimization:** The injection is only performed when the store's version has
-changed since the last call. If no new memories or skills were added/removed
-between turns, the injection block is identical and can be skipped (the
-per-request KV cache still processes it, but the HTTP overhead is reduced).
-
-**Store location:** The learned store is **project-scoped** by default at
-`<workspace>/.amber/experience.json` (override via `experience_store_path`). The
-legacy global `~/.amber/memories.json` is migration-seeded once on first use —
-see `memory/memory-store.md` ([MS-10]) and `skills/agent-skills.md` ([AS-09]).
+**Store location:** The learned store is **per-project state** by default at
+`$XDG_STATE_HOME/amber/projects/<slug>/experience.json` (override via
+`experience_store_path`). A pre-move project-tree store is adopted once and the
+legacy global `~/.amber/memories.json` is seeded once — see
+`memory/memory-store.md` ([MS-10]) and `skills/agent-skills.md` ([AS-09]).
 
 ---
 
@@ -194,14 +207,17 @@ see `memory/memory-store.md` ([MS-10]) and `skills/agent-skills.md` ([AS-09]).
 
 2. **No undo/rollback for extraction** — Once `apply_memory_ops` modifies the store, there's no rollback if a subsequent step fails. The store is persisted independently. Acceptable for current scope.
 
-3. **Store version tracking not yet implemented** — The optimization to skip injection on unchanged store is designed but not coded. Currently every turn pays the injection cost. Low priority — the cost is ~500 tokens of compute per turn.
+3. **Store version tracking is implemented** — The retriever caches the block by `MemoryStore::version()`, so an unchanged store yields a byte-identical `[system][memory]` prefix (ME-10). The counter is in memory; a new process rebuilds the block.
 
-4. **Decay rate was hardcoded to -1** — Now fixed to use the configured `decay_rate` with proportional decay (see `memory-store.md` [MS-06]).
+4. **Decay rate was hardcoded to -1** — Fixed to use the configured `decay_rate` with proportional decay, and a fresh confirmation is exempt for its own cycle (see `memory-store.md` [MS-06], invariant 5).
 
 5. **Learned skills are the automatic tier only** — Extraction never produces authored `SKILL.md` packages. Authoring is explicit-request only (`write_skill`/`/set skills create`); see `skills/skill-catalog.md` [SK-05].
+
+6. **The injected block is memories only** — Learned skills are indexed in the catalog and activated with `read_skill`; their bodies are not resident in the prefix. This removes the previous double injection (name in discovery + body in the block) and keeps the stable prefix small.
 
 ### Revision history
 
 | Date | Reason |
 |------|--------|
 | 2026-07-31 | Dropped dead `steps`/`expected_outcome` skill fields; injection order with authored-skill discovery slot; project-scoped store + legacy migration note; two-tier cross-references |
+| 2026-10-29 | Decay every cycle with a fresh-confirmation exemption; learned skills re-indexed after extraction; the block is memories-only and versioned; store path corrected to per-project state; `build_block()` replaces the query-dependent suffix |

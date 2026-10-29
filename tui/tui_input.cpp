@@ -75,6 +75,18 @@ std::vector<std::string> split_words(const std::string& text) {
     return out;
 }
 
+std::vector<std::string> learn_panel_rows(const std::vector<agent::LearnItem>& items) {
+    std::vector<std::string> rows;
+    rows.reserve(items.size());
+    for (const auto& item : items) {
+        std::string row = item.type + " · " + item.name + " · ev " + std::to_string(item.evidence);
+        if (item.promoted)
+            row += " · promoted";
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
 const char* worktree_state_label(agent::WorktreeState state) {
     switch (state) {
     case agent::WorktreeState::Live:
@@ -327,18 +339,136 @@ void SlashDispatcher::cmd_get(const std::string& arg) {
         }
         return;
     }
-    if (arg == "learn" || arg == "learn ") {
-        if (tui_.win().agent) {
-            auto lines = agent::learn_summary_lines(tui_.win().agent->memory_store(),
-                                                    tui_.win().agent->experience_config());
-            for (const auto& l : lines)
-                tui_.append_line(P_STATUS, l);
-        }
-        tui_.draw();
-        return;
-    }
     tui_.config_screen();
     tui_.redraw_after_modal();
+}
+
+void LearnSurface::summary() {
+    if (!ui_.win().agent) {
+        ui_.append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    auto lines = agent::learn_summary_lines(ui_.win().agent->memory_store(),
+                                            ui_.win().agent->experience_config());
+    for (const auto& line : lines)
+        ui_.append_line(P_STATUS, line);
+    ui_.draw();
+}
+
+void LearnSurface::usage() {
+    ui_.append_line(P_STATUS, "usage: /learn show [memory|skill|tag] | show <id> | "
+                              "forget <id> | pin <id> on|off | panel");
+    ui_.draw();
+}
+
+void LearnSurface::show(const std::string& arg) {
+    if (!ui_.win().agent) {
+        ui_.append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    agent::MemoryStore* store = ui_.win().agent->memory_store();
+    if (store && !arg.empty() && arg != "memory" && arg != "skill") {
+        std::string error;
+        auto detail = agent::learn_inspect_lines(store, arg, error);
+        if (error.empty()) {
+            for (const auto& line : detail)
+                ui_.append_line(P_STATUS, line);
+            ui_.draw();
+            return;
+        }
+    }
+    for (const auto& line : agent::learn_show_lines(store, arg))
+        ui_.append_line(P_STATUS, line);
+    ui_.draw();
+}
+
+void LearnSurface::forget(const std::string& arg) {
+    if (!ui_.win().agent) {
+        ui_.append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    if (arg.empty()) {
+        usage();
+        return;
+    }
+    const std::string error = ui_.win().agent->learn_forget(arg);
+    ui_.append_line(P_STATUS, error.empty() ? "removed " + arg : error);
+    ui_.draw();
+}
+
+void LearnSurface::pin(const std::string& arg) {
+    if (!ui_.win().agent) {
+        ui_.append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    const std::size_t space = arg.find(' ');
+    const std::string id = space == std::string::npos ? arg : arg.substr(0, space);
+    const std::string value = space == std::string::npos ? "" : arg.substr(space + 1);
+    if (id.empty() || (value != "on" && value != "off")) {
+        usage();
+        return;
+    }
+    const std::string error = ui_.win().agent->learn_pin(id, value == "on");
+    ui_.append_line(P_STATUS, error.empty() ? "pinned " + id + ": " + value : error);
+    ui_.draw();
+}
+
+bool LearnSurface::panel_action(const agent::LearnItem& item, agent::MemoryStore* store) {
+    const int action = menu_select(item.name, {"Inspect", "Forget", "Promote/Unpromote", "Close"});
+    if (action < 0 || action == 3)
+        return false;
+    if (action == 0) {
+        std::string error;
+        auto detail = agent::learn_inspect_lines(store, item.id, error);
+        if (error.empty())
+            info_dialog(item.name, detail);
+        return true;
+    }
+    if (action == 1) {
+        ConfirmPanel confirm("Forget learned item", "Forget \"" + item.name + "\"?");
+        if (!confirm.run())
+            return true;
+        const std::string error = ui_.win().agent->learn_forget(item.id);
+        if (!error.empty())
+            ui_.append_line(P_STATUS, error);
+        return true;
+    }
+    const std::string error = ui_.win().agent->learn_pin(item.id, !item.promoted);
+    if (!error.empty())
+        ui_.append_line(P_STATUS, error);
+    return true;
+}
+
+void LearnSurface::panel() {
+    if (!ui_.win().agent) {
+        ui_.append_line(P_STATUS, "no agent in this window");
+        return;
+    }
+    agent::MemoryStore* store = ui_.win().agent->memory_store();
+    if (!store) {
+        ui_.append_line(P_STATUS, "experience store disabled");
+        ui_.draw();
+        return;
+    }
+
+    ModalScope scope;
+    curs_set(0);
+    bool keep_open = true;
+    while (keep_open) {
+        const auto items = agent::learn_items(store, "");
+        if (items.empty()) {
+            ui_.append_line(P_STATUS, "(no learned items)");
+            break;
+        }
+        ListPanel panel("Learned items", learn_panel_rows(items));
+        const int selected = panel.run();
+        if (selected < 0 || static_cast<std::size_t>(selected) >= items.size())
+            keep_open = false;
+        else
+            keep_open = panel_action(items[static_cast<std::size_t>(selected)], store);
+    }
+    curs_set(1);
+    ui_.draw();
 }
 
 void SlashDispatcher::cmd_get_config() {
@@ -1194,6 +1324,7 @@ void SlashDispatcher::register_builtin_actions() {
     register_os_actions();
     register_config_set_actions();
     register_config_get_actions();
+    register_actions(*this);
 }
 
 // /window*: screen lifecycle and resource attachment.
@@ -1518,8 +1649,17 @@ void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.set.model", [this](const std::string& a) { cmd_model_set(a); });
     register_action("core.config.set.model.context",
                     [this](const std::string& a) { cmd_model_context(a); });
-    register_action("core.config.get.learn", [this](const std::string& a) { cmd_get(a); });
+    register_action("core.config.get.learn", [this](const std::string&) { summary(); });
     register_action("core.panel", [this](const std::string& a) { tui_.open_panels(a); });
+}
+
+// /learn*: the learned-knowledge surface. /get learn is its summary.
+void LearnSurface::register_actions(SlashDispatcher& dispatcher) {
+    dispatcher.register_action("core.learn", [this](const std::string&) { usage(); });
+    dispatcher.register_action("core.learn.show", [this](const std::string& a) { show(a); });
+    dispatcher.register_action("core.learn.forget", [this](const std::string& a) { forget(a); });
+    dispatcher.register_action("core.learn.pin", [this](const std::string& a) { pin(a); });
+    dispatcher.register_action("core.learn.panel", [this](const std::string&) { panel(); });
 }
 
 // /get plugin, /set plugin, /get provider, /get policy, display, think,

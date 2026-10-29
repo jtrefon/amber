@@ -35,6 +35,21 @@ std::string read_whole_file(const std::string& path) {
     return ss.str();
 }
 
+// The discovery line for a learned skill: its trigger phrase when it has one,
+// otherwise the first line of the body. A learned entry has no frontmatter, so
+// without this it rendered as "(no description)".
+std::string learned_description(const Skill& sk) {
+    if (!sk.trigger_phrase.empty())
+        return sk.trigger_phrase;
+    std::string line = sk.content;
+    if (auto nl = line.find('\n'); nl != std::string::npos)
+        line.resize(nl);
+    constexpr std::size_t kMax = 80;
+    if (line.size() > kMax)
+        line.replace(kMax - 3, std::string::npos, "...");
+    return line;
+}
+
 } // namespace
 
 namespace {
@@ -185,6 +200,7 @@ void SkillCatalog::discover_locked(const std::vector<Skill>& learned) {
         e.scope = SkillScope::Project;
         e.origin = SkillOrigin::Learned;
         e.meta.name = sk.name;
+        e.meta.description = learned_description(sk);
         e.meta.body = sk.content;
         if (selected.count(e.name)) {
             e.state = kSuppressed;

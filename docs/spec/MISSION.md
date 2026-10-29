@@ -168,11 +168,11 @@ Status: ✅ design resolved, 🔧 needs implementation, ❓ needs decision
 | No file-path completion | Implementation | P2 | 🔧 | Standard shell behaviour (bash/zsh). Spec'd AC-20. |
 | Up/Down arbitration | Implementation | P2 | ✅ | zsh rule: empty=history, has matches=cycle, no matches=history-filtered |
 | `config` key-chain not implemented | Implementation | P3 | 🔧 | Unlimited depth config |
-| Memory/skill UI not wired | Implementation | P3 | 🔧 | Spec: `docs/spec/memory/learn-ui.md`. Tracker: `docs/learn-tracker.md`. |
+| Memory/skill UI not wired | Implementation | P3 | ✅ | `/learn` and `/get learn` are a `completions.json` namespace with pty coverage; spec `docs/spec/memory/learn-ui.md` (#487). |
 | Skills system + acquisition | Implementation | P3 | ✅ | Authored/learned catalog, `/set skills`, and the skills.sh acquisition surface (explorer, install gate, updates, `amber-cli skills`). Spec: `docs/spec/skills/`; guide: `docs/skills-acquisition.md`. |
 | Agent loop untested (concrete LLMClient, no hermetic loop tests) | Implementation | P2 | ✅ | LLMClient is now a port with a scripted fake; hermetic loop tests landed (incl. a text-loop hard-stop fix). Spec: `docs/spec/llm-client/agent-loop-reliability.md`. Tracker: `docs/agent-loop-tracker.md`. |
 | MCP client not implemented | Implementation | P6 | 🔧 | Spec: `docs/spec/mcp/` (architecture, transport, client, ui, security). Tracker: `docs/mcp-tracker.md`. Client-only; no roots/sampling; untrusted-by-default. |
-| Learned store global-scoped (leaks across projects) | Design | P3 | ✅ | Project-scoped `<workspace>/.amber/experience.json` + one-time legacy migration, per `memory/memory-store.md` |
+| Learned store global-scoped (leaks across projects) | Design | P3 | ✅ | Per-project state at `$XDG_STATE_HOME/amber/projects/<slug>/experience.json` + one-time legacy adoption, per `memory/memory-store.md` |
 | Dead `Skill::steps`/`expected_outcome` fields | Design | P3 | ✅ | Dropped; learned skills are single-content entries, per `memory/extraction.md` |
 | Compression pipeline not visible in TUI | Implementation | P3 | 🔧 | Progress not shown |
 | Multi-agent orchestration | Strategy | P3 | ❓ | Future, no design yet |
