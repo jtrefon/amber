@@ -118,5 +118,11 @@ Held back (deliberately):
   (`p`), not in the pane itself; the issue lists it under the preview surface.
 
 Every commit is green: `make`, the unit suite (1,604), the PTY suite,
-complexity, nesting, class-size, duplicates, format-check-changed and
-clang-tidy.
+complexity, nesting, class-size, duplicates, format-check-changed, clang-tidy
+and cppcheck (`make analyze`).
+
+The PTY suite now covers the three breakpoints the issue names (120x40 with
+facets, 80x24 list+detail, 58x17 list-only with the size hint), a restored
+shelf across a reopen, and an explicit command overriding it. The live
+registry was driven by hand for the CLI surface (`skills sources`, `search`,
+`show`); the TUI flows are driven by the PTY scenarios above.
