@@ -14,6 +14,8 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <set>
+#include <string>
 #include <system_error>
 
 namespace agent {
@@ -442,6 +444,38 @@ std::string skill_slug(const std::string& id) {
 }
 
 GitHubIndex::GitHubIndex(GithubOptions opts) : opts_(std::move(opts)) {}
+
+std::vector<SkillRef> GitHubIndex::list_skills(const std::string& source,
+                                               const CancellationToken& cancel,
+                                               std::string& error) const {
+    error.clear();
+    std::string owner, repo;
+    if (!split_github_source(source, owner, repo)) {
+        error = "expected owner/repo";
+        return {};
+    }
+    const BundleOutcome outcome = resolve_bundle(opts_, source, owner, repo, cancel);
+    if (!outcome.bundle) {
+        error = outcome.error.detail.empty() ? "cannot read the repository" : outcome.error.detail;
+        return {};
+    }
+    std::vector<SkillRef> refs;
+    std::set<std::string> seen;
+    for (const auto& file : outcome.bundle->files) {
+        if (!is_skill_md(file.path))
+            continue;
+        const std::string dir = parent_dir(file.path);
+        SkillRef ref;
+        ref.source = source;
+        ref.name = dir.empty() ? repo : base_name(dir);
+        ref.id = source + "/" + ref.name;
+        if (seen.insert(ref.id).second)
+            refs.push_back(std::move(ref));
+    }
+    if (refs.empty())
+        error = "no SKILL.md in " + source;
+    return refs;
+}
 
 IndexResult GitHubIndex::search(const std::string&, int, const CancellationToken&) const {
     return {std::nullopt, {IndexError::Unsupported, 0, 0, "github adapter does not search"}};

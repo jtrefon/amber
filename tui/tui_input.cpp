@@ -17,6 +17,8 @@
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
 #include "agent/config_paths.h"
+#include "agent/data_path.h"
+#include "agent/skill_shelves.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/skill_cli.h"
@@ -853,13 +855,37 @@ void apply_skill_source_options(const agent::Config& cfg, tui::SkillsExplorerOpt
         opts.github_raw_base = raw;
 }
 
+// The bundled shelf tables, resolved through the same data-path rules as every
+// other data file. A missing or invalid table leaves the shelf empty; the
+// loader records the reason and the explorer simply has nothing to show.
+void load_skill_shelves(tui::SkillsExplorerOptions& opts) {
+    std::string error;
+    const std::string signals = agent::resolve_data_path("data/project-signals.json", nullptr);
+    if (!signals.empty())
+        opts.project_signals = agent::load_project_signals(signals, error);
+    const std::string collections =
+        agent::resolve_data_path("data/skill-collections.json", nullptr);
+    if (!collections.empty())
+        opts.collections = agent::load_collections(collections, error);
+    const std::string owners = agent::resolve_data_path("data/skill-owners.json", nullptr);
+    if (owners.empty())
+        return;
+    for (const auto& owner : agent::load_curated_owners(owners, error))
+        opts.owners.push_back(owner.name);
+}
+
 void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
     opts.rows = LINES;
     opts.cols = COLS;
     const agent::SkillScanPaths paths = agent::default_scan_paths();
+    opts.repo_root = agent::Workspace::project_root();
     opts.project_root = paths.project;
     opts.global_root = paths.global;
     opts.cache_root = agent::skills_index_cache_dir();
+    opts.ui_state_path = agent::Workspace::state_dir() + "/skills-ui.json";
+    // Shelf data. A missing or invalid file is reported once, here, and the
+    // shelf simply has nothing to show.
+    load_skill_shelves(opts);
     apply_skill_source_options(cfg_, opts);
     if (arg == "installed")
         opts.initial_tab = tui::SkillTab::Installed;
@@ -878,6 +904,8 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
             [&name](const agent::ActivatedSkill& skill) { return skill.name == name; });
     };
     opts.budget = skill_budget_text(win().agent->skills());
+    opts.body_budget_tokens =
+        cfg_.skills_body_budget_tokens > 0 ? cfg_.skills_body_budget_tokens : 5000;
     opts.installed = [this, ledger] { return installed_skill_rows(win().agent->skills(), ledger); };
 }
 

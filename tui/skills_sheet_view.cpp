@@ -2,6 +2,8 @@
 
 #include "tui/dialog.h"
 #include "tui/keys.h"
+#include "tui/markdown.h"
+#include "tui/rich_paint.h"
 
 #include <algorithm>
 #include <string>
@@ -56,8 +58,7 @@ void paint_settings(WINDOW* w, const InstallSheet& sheet, int aw) {
 void paint_evidence(WINDOW* w, const InstallSheet& sheet, int aw, int ah) {
     int y = 8;
     mvwaddnstr(w, y++, 0, "Evidence", std::max(0, aw - 1));
-    const char* audit =
-        sheet.evidence().audited ? "audited" : "not audited (no audit source for this registry)";
+    const char* audit = agent::audit_verdict_name(sheet.evidence().audit);
     mvwaddnstr(w, y++, 2, audit, std::max(0, aw - 3));
 
     int shown = 0;
@@ -85,87 +86,58 @@ void paint_sheet(WINDOW* w, const InstallSheet& sheet) {
     doupdate();
 }
 
-// Word-wrap one logical line into `width` columns.
-void wrap_line(const std::string& line, int width, std::vector<std::string>& out) {
-    if (line.empty()) {
-        out.emplace_back();
-        return;
-    }
-    std::string current;
-    size_t i = 0;
-    while (i < line.size()) {
-        size_t end = line.find(' ', i);
-        if (end == std::string::npos)
-            end = line.size();
-        const std::string word = line.substr(i, end - i);
-        if (!current.empty() && static_cast<int>(current.size() + 1 + word.size()) > width) {
-            out.push_back(current);
-            current.clear();
-        }
-        if (!current.empty())
-            current += ' ';
-        if (static_cast<int>(word.size()) > width) {
-            // A long token (a URL, a hash) is broken rather than overflowing.
-            size_t at = 0;
-            while (at < word.size()) {
-                if (!current.empty()) {
-                    out.push_back(current);
-                    current.clear();
-                }
-                current = word.substr(at, static_cast<size_t>(width));
-                at += static_cast<size_t>(width);
-                if (at < word.size()) {
-                    out.push_back(current);
-                    current.clear();
-                }
-            }
-        } else {
-            current += word;
-        }
-        i = end + 1;
-    }
-    out.push_back(current);
-}
-
-std::vector<std::string> wrap_body(const std::string& body, int width) {
-    std::vector<std::string> lines;
-    std::string logical;
-    for (char ch : body) {
-        if (ch == '\r')
-            continue;
-        if (ch == '\n') {
-            wrap_line(logical, width, lines);
-            logical.clear();
-        } else {
-            logical += ch;
-        }
-    }
-    if (!logical.empty())
-        wrap_line(logical, width, lines);
-    return lines;
-}
-
 } // namespace
 
 namespace {
 
-void paint_preview(WINDOW* w, const std::vector<std::string>& lines, int top, int height,
-                   int width) {
+std::string line_text(const rich::Line& line) {
+    std::string text;
+    for (const auto& run : line.runs)
+        text += run.text;
+    return text;
+}
+
+bool ci_find(const std::string& haystack, const std::string& needle) {
+    if (needle.empty())
+        return false;
+    const auto it = std::search(
+        haystack.begin(), haystack.end(), needle.begin(), needle.end(),
+        [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); });
+    return it != haystack.end();
+}
+
+void paint_preview(WINDOW* w, const std::vector<rich::Line>& lines, int top, int height, int width,
+                   const std::string& search) {
     werase(w);
     for (int i = 0; i < height; ++i) {
         const int index = top + i;
         if (index >= static_cast<int>(lines.size()))
             break;
-        mvwaddnstr(w, i, 0, lines[static_cast<size_t>(index)].c_str(), width);
+        rich::paint_line(w, i, width, lines[static_cast<size_t>(index)]);
     }
-    const std::string position =
-        std::to_string(std::min(top + height, static_cast<int>(lines.size()))) + "/" +
-        std::to_string(lines.size());
+    std::string position = std::to_string(std::min(top + height, static_cast<int>(lines.size()))) +
+                           "/" + std::to_string(lines.size());
+    if (!search.empty())
+        position = "/" + search + "   " + position;
     mvwaddnstr(w, height - 1, std::max(0, width - static_cast<int>(position.size())),
                position.c_str(), static_cast<int>(position.size()));
     wnoutrefresh(w);
     update_panels();
     doupdate();
+}
+
+// The next line (in `step` direction) containing the query, wrapping at the
+// ends. Returns `from` when nothing matches.
+int find_line(const std::vector<rich::Line>& lines, int from, const std::string& query, int step) {
+    if (query.empty() || lines.empty())
+        return from;
+    const int count = static_cast<int>(lines.size());
+    for (int i = 1; i <= count; ++i) {
+        const int index = ((from + step * i) % count + count) % count;
+        if (ci_find(line_text(lines[static_cast<size_t>(index)]), query))
+            return index;
+    }
+    return from;
 }
 
 int preview_top(int ch, int top, int height, int count) {
@@ -194,24 +166,67 @@ int preview_top(int ch, int top, int height, int count) {
     }
 }
 
+// Read a search query on the footer row. Enter keeps it, Esc clears it.
+std::string read_search(WINDOW* w, int row, int width) {
+    std::string query;
+    while (true) {
+        const std::string shown = "/" + query;
+        mvwhline(w, row, 0, ' ', std::max(0, width));
+        mvwaddnstr(w, row, 0, shown.c_str(), std::max(0, width));
+        wrefresh(w);
+        const int ch = wgetch(w);
+        if (ch == ERR)
+            continue;
+        if (ch == '\n' || ch == '\r' || ch == keys::kEnter)
+            return query;
+        if (ch == 27) {
+            query.clear();
+            return query;
+        }
+        if (ch == 127 || ch == 8 || ch == keys::kBackspace) {
+            if (query.empty())
+                return query;
+            query.pop_back();
+        } else if (ch >= 32 && ch < 127) {
+            query.push_back(static_cast<char>(ch));
+        }
+    }
+}
+
 } // namespace
 
 void run_body_preview(const std::string& title, const std::string& body) {
     Dialog dlg(std::max(12, LINES - 2), std::max(40, COLS - 4), "Preview: " + title);
-    dlg.set_footer({{"j/k", "scroll"}, {"Space", "page"}, {"Esc", "back"}});
+    dlg.set_footer({{"j/k", "scroll"},
+                    {"Space", "page"},
+                    {"/", "search"},
+                    {"n/N", "next/prev"},
+                    {"Esc", "back"}});
     WINDOW* w = dlg.content();
     const int width = std::max(10, dlg.cols() - 3);
     const int height = std::max(1, dlg.rows() - 2);
-    const std::vector<std::string> lines = wrap_body(body, width);
+    // The real renderer: what the model would read, not a summary of it.
+    const std::vector<rich::Line> lines = rich::rewrap_all(md::render(body), width);
     int top = 0;
+    std::string search;
     dlg.show();
     while (true) {
-        paint_preview(w, lines, top, height, width);
+        paint_preview(w, lines, top, height, width, search);
         const int ch = wgetch(w);
         if (ch == ERR)
             continue;
         if (ch == 27 || ch == 'q')
             return;
+        if (ch == '/') {
+            search = read_search(w, height - 1, width);
+            top = find_line(lines, top - 1, search, 1);
+            continue;
+        }
+        if (ch == 'n' || ch == 'N') {
+            top = find_line(lines, top, search, ch == 'n' ? 1 : -1);
+            top = std::max(0, std::min(top, std::max(0, static_cast<int>(lines.size()) - height)));
+            continue;
+        }
         top = preview_top(ch, top, height, static_cast<int>(lines.size()));
     }
 }

@@ -1,0 +1,30 @@
+{
+  "$comment": "Editorial shelves, not registry categories. A collection is a name, a reason and the queries or ids it holds; it works offline and an invalid file is reported, never fatal.",
+  "collections": [
+    {
+      "name": "Testing",
+      "description": "Make the test the first thing you write.",
+      "queries": ["testing", "tdd", "test-driven"]
+    },
+    {
+      "name": "Review",
+      "description": "Read code the way a reviewer does.",
+      "queries": ["code-review", "review", "pull-request"]
+    },
+    {
+      "name": "Git",
+      "description": "History, commits and the awkward parts of branching.",
+      "queries": ["git", "commit", "rebase"]
+    },
+    {
+      "name": "Docs",
+      "description": "Write the thing people will read first.",
+      "queries": ["documentation", "readme", "writing"]
+    },
+    {
+      "name": "Context",
+      "description": "Keep a long session inside the window.",
+      "queries": ["context", "compaction", "summarise"]
+    }
+  ]
+}

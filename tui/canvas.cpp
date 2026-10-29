@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cwchar>
 
+#include "rich_paint.h"
 #include "textutil.h"
 
 namespace tui {
@@ -49,58 +50,23 @@ void Canvas::rewrap() {
         top_ = max_top();
 }
 
-namespace {
-
-// Fit `ws` into `budget` display columns: sets `count` to how many wide chars
-// fit and returns the columns consumed. mvwaddnwstr does not clip, so the
-// caller must — and by DISPLAY COLUMNS, not wide-char count, because a run may
-// hold double-width glyphs (emoji, CJK) that occupy two columns each.
-int clamp_to_columns(const std::wstring& ws, int budget, int& count) {
-    count = 0;
-    int remaining = budget;
-    for (wchar_t wc : ws) {
-        int w = wcwidth(wc);
-        if (w < 0)
-            w = 1;
-        if (w > remaining)
-            break;
-        remaining -= w;
-        ++count;
-    }
-    return budget - remaining;
-}
-
-} // namespace
-
-// The rule is drawn at the window's cursor (whline takes no row), which is the
-// behaviour this has always had.
 void Canvas::draw_hr(const rich::Line& l) {
+    // The caller has already positioned the cursor on this line's row; a rule
+    // spans the full width rather than starting where the previous write ended.
+    const int row = getcury(win_);
     const int pair = l.runs.empty() ? P_BAR_DIM : l.runs[0].pair;
     wattron(win_, COLOR_PAIR(pair));
-    whline(win_, ACS_HLINE, cols_);
+    mvwhline(win_, row, 0, ACS_HLINE, cols_);
     wattroff(win_, COLOR_PAIR(pair));
 }
 
 void Canvas::draw_run(int row, int& x, const rich::Run& r) {
-    const int room = cols_ - x;
-    if (room <= 0)
-        return;
-    const int attr = (r.bold ? A_BOLD : 0) | (r.dim ? A_DIM : 0) | (r.italic ? A_ITALIC : 0) |
-                     (r.under ? A_UNDERLINE : 0);
-    wattron(win_, COLOR_PAIR(r.pair) | attr);
-    const std::wstring ws = text::to_wide(r.text);
-    int n = 0;
-    const int drawn = clamp_to_columns(ws, room, n);
-    if (n > 0)
-        mvwaddnwstr(win_, row, x, ws.c_str(), n);
-    wattroff(win_, COLOR_PAIR(r.pair) | attr);
-    // Advance by the true drawn width (double-width glyphs consume two
-    // columns), not by display_cols() which counts each char as 1.
-    x += drawn;
+    x = rich::paint_run(win_, row, x, cols_, r);
 }
 
 void Canvas::draw_line(int row, const rich::Line& l) {
     if (l.is_hr) {
+        wmove(win_, row, 0);
         draw_hr(l);
         return;
     }

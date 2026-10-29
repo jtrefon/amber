@@ -26,8 +26,9 @@ struct SkillRef {
 struct SkillPage {
     std::vector<SkillRef> skills;
     int total = 0;
-    bool cached = false; // served from the on-disk cache
-    bool stale = false;  // cache older than the TTL, served because live failed
+    bool cached = false;         // served from the on-disk cache
+    bool stale = false;          // cache older than the TTL, served because live failed
+    long long fetched_at_ms = 0; // when the cached page was fetched; 0 for a live page
 };
 
 enum class IndexError : unsigned char {
@@ -74,6 +75,13 @@ struct SkillAsset {
 
 // Everything a detail pane and an installer need, from one repo listing plus
 // one SKILL.md fetch.
+// An audit verdict, when the source supplies one. The anonymous registry does
+// not, so `NotAudited` is a statement about the source, never a check mark.
+enum class AuditVerdict : unsigned char { NotAudited, Pass, Warn, Fail };
+
+const char* audit_verdict_name(AuditVerdict verdict) noexcept;
+AuditVerdict audit_verdict_from(const std::string& text) noexcept;
+
 struct SkillDetail {
     SkillRef ref;
     std::string description;
@@ -87,6 +95,9 @@ struct SkillDetail {
     // remote string.
     std::string body;
     std::vector<SkillAsset> assets;
+    // Optional audit, filled by a source that has one (v1 adapter, a mirror).
+    AuditVerdict audit = AuditVerdict::NotAudited;
+    std::string audit_note;
 };
 
 struct DetailResult {
@@ -118,6 +129,9 @@ struct SkillIndexOptions {
     std::string token;
     long timeout_s = 15;
     long long cache_ttl_ms = 60LL * 1000;
+    // One backoff retry after a 5xx or a timeout. Zero retries immediately
+    // (what a suite that asserts call counts wants); negative disables it.
+    int retry_delay_ms = 200;
     // Injected so a test can run without curl and without a clock.
     HttpGet http;
     std::function<long long()> now_ms;

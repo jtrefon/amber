@@ -72,6 +72,14 @@ void SkillsService::install(agent::SkillDetail detail, std::string name, std::st
     post(std::move(job), true);
 }
 
+void SkillsService::files(agent::SkillDetail detail) {
+    Job job;
+    job.kind = Job::Kind::Files;
+    job.detail = std::move(detail);
+    job.cancel = search_cancel_;
+    post(std::move(job), true);
+}
+
 void SkillsService::cancel() {
     search_cancel_.request();
     install_cancel_.request();
@@ -106,40 +114,64 @@ void SkillsService::work() {
 
 void SkillsService::run(const Job& job) {
     switch (job.kind) {
-    case Job::Kind::Search: {
-        SkillsEvent event;
-        event.kind = SkillsEvent::Kind::SearchDone;
-        event.query = job.text;
-        if (backends_.search) {
-            event.search = backends_.search(job.text, job.limit, job.cancel);
-        } else {
-            event.search.error = {agent::IndexError::Unsupported, 0, 0, "no search backend"};
-        }
-        emit(std::move(event));
+    case Job::Kind::Search:
+        run_search(job);
+        return;
+    case Job::Kind::Detail:
+        run_detail(job);
+        return;
+    case Job::Kind::Files:
+        run_files(job);
+        return;
+    case Job::Kind::Install:
+        run_install_job(job);
         return;
     }
-    case Job::Kind::Detail: {
-        SkillsEvent event;
-        event.kind = SkillsEvent::Kind::DetailDone;
-        if (backends_.detail) {
-            event.detail = backends_.detail(job.ref, job.cancel);
-        } else {
-            event.detail.error = {agent::IndexError::Unsupported, 0, 0, "no detail backend"};
-        }
-        emit(std::move(event));
-        return;
-    }
-    case Job::Kind::Install: {
-        bool ledger_saved = false;
-        SkillsEvent event;
-        event.kind = SkillsEvent::Kind::InstallDone;
-        event.name = job.name;
-        event.install = run_install(job, ledger_saved);
-        event.ledger_saved = ledger_saved;
-        emit(std::move(event));
-        return;
-    }
-    }
+}
+
+void SkillsService::run_search(const Job& job) {
+    SkillsEvent event;
+    event.kind = SkillsEvent::Kind::SearchDone;
+    event.query = job.text;
+    event.search =
+        backends_.search
+            ? backends_.search(job.text, job.limit, job.cancel)
+            : agent::IndexResult{std::nullopt,
+                                 {agent::IndexError::Unsupported, 0, 0, "no search backend"}};
+    emit(std::move(event));
+}
+
+void SkillsService::run_detail(const Job& job) {
+    SkillsEvent event;
+    event.kind = SkillsEvent::Kind::DetailDone;
+    event.detail =
+        backends_.detail
+            ? backends_.detail(job.ref, job.cancel)
+            : agent::DetailResult{std::nullopt,
+                                  {agent::IndexError::Unsupported, 0, 0, "no detail backend"}};
+    emit(std::move(event));
+}
+
+void SkillsService::run_files(const Job& job) {
+    SkillsEvent event;
+    event.kind = SkillsEvent::Kind::FilesDone;
+    event.detail_id = job.detail.ref.id;
+    event.files =
+        backends_.assets
+            ? backends_.assets(job.detail, job.cancel)
+            : agent::AssetsResult{std::nullopt,
+                                  {agent::IndexError::Unsupported, 0, 0, "no asset backend"}};
+    emit(std::move(event));
+}
+
+void SkillsService::run_install_job(const Job& job) {
+    bool ledger_saved = false;
+    SkillsEvent event;
+    event.kind = SkillsEvent::Kind::InstallDone;
+    event.name = job.name;
+    event.install = run_install(job, ledger_saved);
+    event.ledger_saved = ledger_saved;
+    emit(std::move(event));
 }
 
 agent::SkillInstallResult SkillsService::run_install(const Job& job, bool& ledger_saved) {

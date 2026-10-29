@@ -1,0 +1,10 @@
+{
+  "$comment": "Curated owners for the Official shelf. Searched by name and kept only when the result's source owner matches, so the shelf never claims an editorial pick the registry did not return.",
+  "owners": [
+    {"name": "vercel", "label": "Vercel"},
+    {"name": "anthropics", "label": "Anthropic"},
+    {"name": "openai", "label": "OpenAI"},
+    {"name": "microsoft", "label": "Microsoft"},
+    {"name": "github", "label": "GitHub"}
+  ]
+}

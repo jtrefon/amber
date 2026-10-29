@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <thread>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -141,6 +142,13 @@ int retry_after_seconds(const HttpResponse& r) {
     return std::atoi(it->second.c_str());
 }
 
+// A 5xx or a timeout is worth one more attempt; a 4xx is a statement about the
+// request and repeating it cannot change the answer.
+bool retryable(const IndexFailure& failure) {
+    return failure.kind == IndexError::Timeout ||
+           (failure.kind == IndexError::Http && failure.status >= 500);
+}
+
 IndexFailure classify(const std::optional<HttpResponse>& r) {
     if (!r)
         return failure(IndexError::Offline, "no response");
@@ -164,6 +172,7 @@ std::optional<IndexResult> fresh_cache(const std::optional<CachedPage>& cached, 
     IndexResult parsed = parse_skills_search(cached->body, limit, true);
     if (!parsed.page)
         return std::nullopt;
+    parsed.page->fetched_at_ms = cached->fetched_at_ms;
     return parsed;
 }
 
@@ -175,6 +184,7 @@ IndexResult fallback_to_cache(const std::optional<CachedPage>& cached, int limit
         IndexResult parsed = parse_skills_search(cached->body, limit, true);
         if (parsed.page) {
             parsed.page->stale = true;
+            parsed.page->fetched_at_ms = cached->fetched_at_ms;
             parsed.error = std::move(f);
             return parsed;
         }
@@ -194,6 +204,30 @@ std::string url_encode_component(const std::string& in) {
 
 IndexFailure classify_http(const std::optional<HttpResponse>& response) {
     return classify(response);
+}
+
+const char* audit_verdict_name(AuditVerdict verdict) noexcept {
+    switch (verdict) {
+    case AuditVerdict::NotAudited:
+        return "not audited";
+    case AuditVerdict::Pass:
+        return "pass";
+    case AuditVerdict::Warn:
+        return "warn";
+    case AuditVerdict::Fail:
+        return "fail";
+    }
+    return "not audited";
+}
+
+AuditVerdict audit_verdict_from(const std::string& text) noexcept {
+    if (text == "pass" || text == "passed")
+        return AuditVerdict::Pass;
+    if (text == "warn" || text == "warning" || text == "warned")
+        return AuditVerdict::Warn;
+    if (text == "fail" || text == "failed")
+        return AuditVerdict::Fail;
+    return AuditVerdict::NotAudited;
 }
 
 DetailResult SkillIndex::detail(const SkillRef&, const CancellationToken&) const {
@@ -287,6 +321,12 @@ IndexResult SkillsShIndex::search(const std::string& query, int limit,
         return *fresh;
 
     IndexResult live = fetch(query, capped, now, cancel);
+    if (!live.ok() && retryable(live.error) && opts_.retry_delay_ms >= 0 &&
+        !cancel.is_requested()) {
+        if (opts_.retry_delay_ms > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(opts_.retry_delay_ms));
+        live = fetch(query, capped, now, cancel);
+    }
     if (live.ok())
         return live;
     return fallback_to_cache(cached, capped, std::move(live.error));

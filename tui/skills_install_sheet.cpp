@@ -1,5 +1,7 @@
 #include "tui/skills_install_sheet.h"
 
+#include "tui/skills_format.h"
+
 #include <algorithm>
 
 namespace tui {
@@ -13,11 +15,7 @@ bool vetted(agent::TrustTier tier) {
 } // namespace
 
 std::string human_bytes(long long bytes) {
-    if (bytes >= 1024LL * 1024LL)
-        return std::to_string(bytes / (1024LL * 1024LL)) + " MB";
-    if (bytes >= 1024)
-        return std::to_string(bytes / 1024) + " KB";
-    return std::to_string(bytes) + " B";
+    return human_size(bytes);
 }
 
 InstallSheet::InstallSheet(InstallEvidence evidence, InstallSheetOptions options)

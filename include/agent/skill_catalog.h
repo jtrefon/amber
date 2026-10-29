@@ -15,6 +15,11 @@
 
 namespace agent {
 
+// The catalog's token estimate (four characters to a token). Public so the
+// detail pane, the install sheet and the budget check cannot disagree about
+// how big a body is.
+int estimate_skill_tokens(const std::string& text) noexcept;
+
 // Runtime union entry for one skill name. Precedence and overrides are already
 // applied; `state` says how the skill surfaces to the agent and user.
 struct SkillEntry {

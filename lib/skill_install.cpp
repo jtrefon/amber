@@ -324,6 +324,9 @@ LedgerEntry ledger_entry_for(const SkillDetail& detail, const std::string& name,
     entry.files = result.files;
     entry.bytes = result.bytes;
     entry.enabled = enabled;
+    // Record what the sheet showed; "not audited" is a fact about the source,
+    // and the next reviewer deserves the answer the user actually accepted.
+    entry.audit = audit_verdict_name(detail.audit);
     return entry;
 }
 

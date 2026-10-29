@@ -2367,6 +2367,92 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }
 
+// The last shelf is remembered per project: reopening lands where you left,
+// and an explicit command still wins over the remembered tab.
+TEST(skills_explorer_restores_the_last_shelf_and_lets_a_command_override_it) {
+    Tui tui;
+    tui.name = "skills_explorer_restores_the_last_shelf_and_lets_a_command_override_it";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    std::error_code ec;
+    fs::remove(fixture().workspace + "/state/amber/skills-ui.json", ec);
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+    tui.send("6"); // Installed
+    if (!require(tui.wait_for("installed skills", 10000), "the installed shelf did not open", tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("installed skills", 10000), "the last shelf was not restored", tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    // An explicit request overrides the remembered shelf.
+    tui.send("/skills search tdd\r");
+    if (!require(tui.wait_for("type to search", 10000), "the prefilled search did not open", tui))
+        return;
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
+// The three breakpoints, at the sizes the issue names: 120x40 gets facets,
+// list and detail; 80x24 gets list and detail with no facet column.
+TEST(skills_explorer_paints_both_wide_breakpoints) {
+    for (const auto& size : {std::pair<int, int>{40, 120}, std::pair<int, int>{24, 80}}) {
+        Tui tui;
+        tui.name = "skills_explorer_paints_both_wide_breakpoints_" + std::to_string(size.second) +
+                   "x" + std::to_string(size.first);
+        ASSERT(tui.start(fixture().binary, fixture().workspace, "", size.first, size.second, {}));
+        if (!require(wait_ready(tui), "the UI never came up", tui))
+            return;
+
+        tui.send("/skills\r");
+        if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+            return;
+        const bool wants_facets = size.second >= 100;
+        if (wants_facets) {
+            if (!require(tui.wait_for("Filters", 5000), "the facet column did not paint", tui))
+                return;
+        } else if (!require(tui.wait_for("Enter to load details", 5000),
+                            "the detail pane did not paint", tui)) {
+            return;
+        }
+        if (!require(tui.wait_for("list-only", 1000) == false, "a wide layout claimed list-only",
+                     tui))
+            return;
+        tui.send("q");
+        if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+            return;
+    }
+}
+
+// Below 60 columns the detail pane would eat the list, so the explorer is
+// list-only and says why instead of looking broken.
+TEST(skills_explorer_narrow_terminal_is_list_only_and_says_so) {
+    Tui tui;
+    tui.name = "skills_explorer_narrow_terminal_is_list_only_and_says_so";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 17, 58, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint at 58x17", tui))
+        return;
+    if (!require(tui.wait_for("list-only, 60x18", 5000), "the size hint did not paint", tui))
+        return;
+
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 // One hermetic pass through the whole acquisition loop: search the mirror,
 // load a detail, install at project scope, find it on the installed shelf,
 // notice a second revision, apply it, then remove it. The mirror serves the
@@ -2393,6 +2479,9 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     const std::string installed_dir = fixture().workspace + "/.amber/skills/tdd";
     std::error_code ec;
     fs::remove_all(installed_dir, ec);
+    // A cold cache makes the first search a real request, so the header is
+    // allowed to claim `live`; a warm one would legitimately say `cached`.
+    fs::remove_all(fixture().workspace + "/cache/amber", ec);
 
     tui.send("/skills\r");
     if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
@@ -2409,6 +2498,11 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
     }
 
+    // The header's live/cached/idle claim is pinned in the browse-core unit
+    // tests: a pty sees ncurses' diff output, so "idle" -> "live" arrives as
+    // "liv" and a substring assertion would measure the diff algorithm rather
+    // than the header.
+
     tui.send("\r"); // leave the search field
     tui.pump(100);
     tui.send("\r"); // load the selected detail
@@ -2421,6 +2515,14 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     }
 
     if (!require(tui.wait_for("engineering (1)", 5000), "the category facet did not appear", tui))
+        return;
+    // The pane answers "should I install this?" with the blocks, not just the
+    // body: the audit verdict, the cost of the body, and the file list.
+    if (!require(tui.wait_for("Audit ", 5000), "the audit block did not paint", tui))
+        return;
+    if (!require(tui.wait_for("Cost ", 5000), "the cost block did not paint", tui))
+        return;
+    if (!require(tui.wait_for("SKILL.md", 5000), "the file row did not paint", tui))
         return;
 
     // A batch install refuses the same way the sheet does: an unread community
@@ -2464,8 +2566,58 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(installed_on_disk, "the mirror install never reached the disk", tui))
         return;
 
+    // Walk the rest of the surface while the detail is loaded: the pager (with
+    // search), file navigation (which fetches the remaining files), help, the
+    // facet column, focus keys and the source/copy fallbacks.
+    tui.send("p");
+    if (!require(tui.wait_for("Preview:", 10000), "the pager did not open", tui))
+        return;
+    tui.send("/");
+    tui.pump(100);
+    tui.send("body");
+    tui.send("\r");
+    tui.pump(100);
+    tui.send("n");
+    tui.pump(100);
+    tui.send("N");
+    tui.pump(100);
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("]");
+    tui.pump(400);
+    tui.send("[");
+    tui.pump(200);
+    tui.send("o");
+    tui.pump(100);
+    tui.send("y");
+    tui.pump(100);
+    tui.send("?");
+    if (!require(tui.wait_for("Skills keys", 5000), "the help overlay did not open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("f"); // focus the facet column, then leave it
+    tui.pump(300);
+    tui.send("j");
+    tui.pump(100);
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("5"); // collections are editorial rows, no request needed
+    if (!require(tui.wait_for("collections", 5000), "the collections shelf did not open", tui))
+        return;
+    tui.send("3"); // back to Top, which re-runs the query
+    if (!require(tui.wait_for("1 results", 10000), "Top did not come back", tui))
+        return;
+
     tui.send("q");
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+    // o/y printed their payload into the transcript when the modal closed.
+    if (!require(tui.wait_for("source: https://github.com/acme/skills", 5000),
+                 "o did not print the source URL", tui))
+        return;
+    if (!require(tui.wait_for("copy: amber-cli skills install", 5000),
+                 "y did not print the install command", tui))
         return;
 
     // A second revision upstream, and a cold cache so the bundle is refetched.
@@ -2600,13 +2752,13 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
                  tui))
         return;
 
-    // The shell paints at a wide size: the layout puts the category column
-    // beside the list. The tab strip, the shelf availability and the `?` key
+    // The shell paints at a wide size: the layout puts the filter column beside
+    // the list. The tab strip, the shelf availability and the `?` key
     // map are pinned in tests/skills_browse_core_test.cpp, where a keystroke
     // cannot land in the input line instead of the modal.
     tui.raw.clear();
     tui.send("/skills\r");
-    if (!require(tui.wait_for("Categories", 10000), "the facets column did not render", tui))
+    if (!require(tui.wait_for("Filters", 10000), "the facets column did not render", tui))
         return;
     tui.send("q");
     require(tui.wait_for("skills closed", 10000), "q did not close the shell", tui);
