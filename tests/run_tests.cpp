@@ -6972,8 +6972,10 @@ TEST(memory_store_skill_trigger) {
     auto results = store->top_skills(10, "run the tests");
     ASSERT(!results.empty());
     ASSERT(results[0].content == "run tests");
+    // No trigger match: promoted skills are the documented fallback, capped.
     auto no_match = store->top_skills(10, "build the project");
-    ASSERT(no_match.empty());
+    ASSERT_EQ(no_match.size(), size_t{1});
+    ASSERT_EQ(no_match[0].content, std::string("run tests"));
 }
 
 TEST(skill_no_dead_fields_in_serialization) {

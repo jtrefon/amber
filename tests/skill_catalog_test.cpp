@@ -145,6 +145,34 @@ TEST(skill_catalog_project_shadows_global) {
     ASSERT_EQ(catalog.discovery_block().size(), 2u);
 }
 
+// A learned skill is an index row like an authored one. Its trigger is the
+// description; without one, the first line of its body is.
+TEST(skill_catalog_describes_learned_skills) {
+    CatalogEnv env("learned-desc");
+    agent::Config cfg;
+    agent::SkillCatalog catalog(cfg, env.paths, env.home);
+
+    agent::Skill triggered;
+    triggered.name = "run-tests";
+    triggered.content = "run make test";
+    triggered.trigger_phrase = "test";
+    agent::Skill plain;
+    plain.name = "no-trigger";
+    plain.content = "first line of the body\nsecond line";
+
+    catalog.discover({triggered, plain});
+    bool saw_trigger = false;
+    bool saw_body = false;
+    for (const auto& line : catalog.discovery_block()) {
+        if (line == "run-tests: test")
+            saw_trigger = true;
+        if (line == "no-trigger: first line of the body")
+            saw_body = true;
+    }
+    ASSERT(saw_trigger);
+    ASSERT(saw_body);
+}
+
 // [AS-03] Authored beats learned: learned entry suppressed, not injected.
 TEST(skill_catalog_authored_shadows_learned) {
     CatalogEnv env("lshadow");

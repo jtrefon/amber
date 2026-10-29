@@ -1362,6 +1362,49 @@ TEST(freshly_confirmed_item_keeps_threshold_evidence) {
     ASSERT_EQ(all[0].evidence_count, ag.memory_store()->memory_promote_threshold());
 }
 
+// A skill learned by this compression must be usable now, not after a restart:
+// it is indexed in the shared catalog and its body comes from the store.
+TEST(learned_skill_is_discoverable_and_readable_after_extraction) {
+    agent::test::XdgGuard xdg("learned_skill_index");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+    auto skills = std::make_shared<agent::SkillCatalog>(cfg);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[],"skills":[{"name":"run-tests",)"
+                     R"("content":"run make test","trigger_phrase":"test",)"
+                     R"("action":"upsert"}]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake), {}, skills);
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+
+    const auto entry = ag.skills().lookup("run-tests");
+    ASSERT(entry.has_value());
+    ASSERT(entry->origin == agent::SkillOrigin::Learned);
+    const auto body = ag.skills().read_body("run-tests");
+    ASSERT(body.has_value());
+    ASSERT_EQ(*body, std::string("run make test"));
+
+    bool described = false;
+    for (const auto& line : ag.skills().discovery_block())
+        if (line == "run-tests: test")
+            described = true;
+    ASSERT(described);
+}
+
 // KV-reuse guarantee: the compression pipeline makes TWO LLM calls
 // (classify, then extract). For the server's prompt cache to stay warm the
 // extract request must replay the classify request as a prefix — the second
