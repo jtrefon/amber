@@ -41,7 +41,7 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
     // Skills and learned memories are per-project data shared across every
     // window on this project (see shared_skills/shared_store).
     auto mem_store = shared_store(exp_cfg);
-    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem_store);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem_store, exp_cfg);
     // cfg_ is the shared template — its cancel_token flag is shared too.
     // Give this window's agent a fresh flag so cancelling one run can
     // never cancel a sibling's.

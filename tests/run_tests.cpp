@@ -7042,7 +7042,7 @@ TEST(memory_retriever_empty) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
     agent::MemoryRetriever retriever(*store);
-    auto suffix = retriever.build_system_prompt_suffix("hello");
+    auto suffix = retriever.build_block();
     ASSERT(suffix.empty());
 }
 
@@ -7057,7 +7057,7 @@ TEST(memory_retriever_with_memories) {
     mem.promoted = true;
     store->upsert(mem);
     agent::MemoryRetriever retriever(*store);
-    auto suffix = retriever.build_system_prompt_suffix("how to build");
+    auto suffix = retriever.build_block();
     ASSERT(!suffix.empty());
     ASSERT(suffix.find("build system") != std::string::npos);
 }
@@ -7085,9 +7085,80 @@ TEST(memory_block_is_a_function_of_the_store) {
     store->upsert(deploy);
 
     agent::MemoryRetriever retriever(*store);
-    auto build_block = retriever.build_system_prompt_suffix("build");
-    auto deploy_block = retriever.build_system_prompt_suffix("deploy");
+    auto build_block = retriever.build_block();
+    auto deploy_block = retriever.build_block();
     ASSERT_EQ(build_block, deploy_block);
+}
+
+// The cache is keyed by the store version: a turn-counter change (which moves
+// freshness but not knowledge) must not re-render the prefix. A real upsert
+// must.
+TEST(memory_block_survives_a_turn_counter_change) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory mem;
+    mem.name = "build";
+    mem.content = "the build system is make";
+    mem.evidence_count = 3;
+    mem.promoted = true;
+    store->upsert(mem);
+
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string first = retriever.build_block();
+    store->set_current_turn(100);
+    ASSERT_EQ(retriever.build_block(), first);
+
+    agent::Memory extra;
+    extra.name = "tests";
+    extra.content = "run make test";
+    extra.evidence_count = 2;
+    extra.promoted = true;
+    store->upsert(extra);
+    ASSERT(retriever.build_block() != first);
+}
+
+TEST(memory_block_honours_the_configured_cap) {
+    agent::ExperienceConfig ec;
+    ec.max_memories = 1;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory high;
+    high.name = "high";
+    high.content = "highest evidence memory";
+    high.evidence_count = 5;
+    high.promoted = true;
+    store->upsert(high);
+    agent::Memory low;
+    low.name = "low";
+    low.content = "lower evidence memory";
+    low.evidence_count = 2;
+    low.promoted = true;
+    store->upsert(low);
+
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string block = retriever.build_block();
+    ASSERT(block.find("highest evidence memory") != std::string::npos);
+    ASSERT(block.find("lower evidence memory") == std::string::npos);
+}
+
+TEST(memory_block_honours_the_token_budget) {
+    agent::ExperienceConfig ec;
+    ec.max_prompt_tokens = 30; // ~120 chars: the header plus one entry only
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    for (int i = 0; i < 4; ++i) {
+        agent::Memory mem;
+        mem.name = "m" + std::to_string(i);
+        mem.content = "memory " + std::to_string(i) + " " + std::string(40, 'x');
+        mem.evidence_count = 10 - i;
+        mem.promoted = true;
+        store->upsert(mem);
+    }
+    agent::MemoryRetriever retriever(*store, ec);
+    const std::string block = retriever.build_block();
+    ASSERT(block.find("memory 0") != std::string::npos);
+    ASSERT(block.find("memory 3") == std::string::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -7157,7 +7228,7 @@ TEST(integration_apply_and_retrieve) {
 
     // Phase 3: Retrieve relevant memories
     agent::MemoryRetriever retriever(*store);
-    std::string suffix = retriever.build_system_prompt_suffix("how do I build this project?");
+    std::string suffix = retriever.build_block();
     ASSERT(!suffix.empty());
     bool found = suffix.find("GNU make") != std::string::npos ||
                  suffix.find("./configure") != std::string::npos;

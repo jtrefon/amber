@@ -467,7 +467,7 @@ struct CliHost {
           comp_cfg(agent::load_compression_config(cfg)),
           gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
           exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
-          retriever(std::make_unique<agent::MemoryRetriever>(*mem_store)) {
+          retriever(std::make_unique<agent::MemoryRetriever>(*mem_store, exp_cfg)) {
         // Tools (including the core set) are plugin contributions now: the tool
         // plugins build them from the host services above.
         subagents.set_config(cfg);

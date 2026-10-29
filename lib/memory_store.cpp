@@ -29,10 +29,12 @@ public:
     void upsert(const Memory& m) override {
         std::scoped_lock lk(mtx_);
         memory_detail::upsert_memory(memories_, m, cfg_, current_turn_);
+        ++version_;
     }
     void upsert(const Skill& s) override {
         std::scoped_lock lk(mtx_);
         memory_detail::upsert_skill(skills_, s, cfg_, current_turn_);
+        ++version_;
     }
     std::vector<Memory> top_memories(size_t k, const std::string& q) const override {
         std::scoped_lock lk(mtx_);
@@ -52,9 +54,15 @@ public:
     }
     bool remove(const std::string& id) override {
         std::scoped_lock lk(mtx_);
-        if (memories_.erase(id) > 0)
+        if (memories_.erase(id) > 0) {
+            ++version_;
             return true;
-        return skills_.erase(id) > 0;
+        }
+        if (skills_.erase(id) > 0) {
+            ++version_;
+            return true;
+        }
+        return false;
     }
     double score_of(const KnowledgeItem& item) const override {
         std::scoped_lock lk(mtx_);
@@ -63,11 +71,17 @@ public:
     bool set_promoted(const std::string& id, bool pinned) override {
         std::scoped_lock lk(mtx_);
         if (auto it = memories_.find(id); it != memories_.end()) {
-            it->second.promoted = pinned;
+            if (it->second.promoted != pinned) {
+                it->second.promoted = pinned;
+                ++version_;
+            }
             return true;
         }
         if (auto it = skills_.find(id); it != skills_.end()) {
-            it->second.promoted = pinned;
+            if (it->second.promoted != pinned) {
+                it->second.promoted = pinned;
+                ++version_;
+            }
             return true;
         }
         return false;
@@ -89,6 +103,11 @@ public:
     void decay_all() override {
         std::scoped_lock lk(mtx_);
         memory_detail::decay_maps(memories_, skills_, cfg_);
+        ++version_;
+    }
+    std::uint64_t version() const override {
+        std::scoped_lock lk(mtx_);
+        return version_;
     }
     size_t store_size() const override {
         std::scoped_lock lk(mtx_);
@@ -96,7 +115,10 @@ public:
     }
     bool load(const std::string& path) override {
         std::scoped_lock lk(mtx_);
-        return memory_detail::load_store(path, memories_, skills_);
+        if (!memory_detail::load_store(path, memories_, skills_))
+            return false;
+        ++version_;
+        return true;
     }
     bool save(const std::string& path) const override {
         std::scoped_lock lk(mtx_);
@@ -125,6 +147,7 @@ private:
     std::unordered_map<std::string, Memory> memories_;
     std::unordered_map<std::string, Skill> skills_;
     int current_turn_ = 0;
+    std::uint64_t version_ = 0;
 };
 
 std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {

@@ -380,12 +380,10 @@ private:
     // The blocks that injection would add, in request order. Compression
     // replays them so its classify/extract calls are extensions of the cached
     // prefix (see CompressionRequestPrefix).
-    void collect_prompt_blocks(const std::vector<Message>& prompt_copy,
-                               std::vector<PromptBlock>& head,
+    void collect_prompt_blocks(std::vector<PromptBlock>& head,
                                std::vector<PromptBlock>& tail) const;
     CompressionRequestPrefix
-    compression_prefix(const std::vector<Message>& history,
-                       const std::vector<std::shared_ptr<Tool>>& tools) const;
+    compression_prefix(const std::vector<std::shared_ptr<Tool>>& tools) const;
 
     // Build and push the system message if the conversation is empty. Idempotent.
     void ensure_system_prompt();
@@ -405,7 +403,7 @@ private:
     // strategies themselves never see an Agent (repair.h).
     class RepairBridge;
     RepairLadder repairs_ = make_default_repair_ladder();
-    std::string retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const;
+    std::string retrieve_memory_block() const;
     void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
                               std::size_t& seq) const;
 

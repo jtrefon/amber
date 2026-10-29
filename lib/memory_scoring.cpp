@@ -90,6 +90,19 @@ void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& s
     }
 }
 
+namespace {
+
+// Ties are broken by name, then id. Without this the block order follows
+// unordered_map iteration, so a rebuild can reorder the [system][memory]
+// prefix even when no knowledge changed.
+bool name_before(const KnowledgeItem& a, const KnowledgeItem& b) {
+    if (a.name != b.name)
+        return a.name < b.name;
+    return a.id < b.id;
+}
+
+} // namespace
+
 std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Memory>& memories,
                                         size_t k, const std::string& user_message,
                                         int current_turn) {
@@ -103,8 +116,11 @@ std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Me
         copy.score = s;
         scored.emplace_back(s, std::move(copy));
     }
-    std::sort(scored.begin(), scored.end(),
-              [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) {
+        if (a.first != b.first)
+            return a.first > b.first;
+        return name_before(a.second, b.second);
+    });
     std::vector<Memory> result;
     for (size_t i = 0; i < std::min(k, scored.size()); ++i)
         result.push_back(std::move(scored[i].second));
@@ -122,8 +138,11 @@ std::vector<Skill> select_top_skills(const std::unordered_map<std::string, Skill
             filtered.push_back(sk);
         }
     }
-    std::sort(filtered.begin(), filtered.end(),
-              [](const Skill& a, const Skill& b) { return a.evidence_count > b.evidence_count; });
+    std::sort(filtered.begin(), filtered.end(), [](const Skill& a, const Skill& b) {
+        if (a.evidence_count != b.evidence_count)
+            return a.evidence_count > b.evidence_count;
+        return name_before(a, b);
+    });
     if (filtered.size() > k)
         filtered.resize(k);
     return filtered;
@@ -136,7 +155,11 @@ std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory
     for (const auto& [id, mem] : memories)
         out.push_back(mem);
     std::sort(out.begin(), out.end(), [&](const Memory& a, const Memory& b) {
-        return compute_score(a, "", current_turn) > compute_score(b, "", current_turn);
+        const double a_score = compute_score(a, "", current_turn);
+        const double b_score = compute_score(b, "", current_turn);
+        if (a_score != b_score)
+            return a_score > b_score;
+        return name_before(a, b);
     });
     return out;
 }
@@ -148,7 +171,11 @@ std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& s
     for (const auto& [id, sk] : skills)
         out.push_back(sk);
     std::sort(out.begin(), out.end(), [&](const Skill& a, const Skill& b) {
-        return compute_score(a, "", current_turn) > compute_score(b, "", current_turn);
+        const double a_score = compute_score(a, "", current_turn);
+        const double b_score = compute_score(b, "", current_turn);
+        if (a_score != b_score)
+            return a_score > b_score;
+        return name_before(a, b);
     });
     return out;
 }

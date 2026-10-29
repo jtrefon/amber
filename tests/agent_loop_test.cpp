@@ -3413,6 +3413,52 @@ TEST(agent_injects_in_memory_blocks_without_compression) {
     ASSERT(request_contains(*raw, "the build system is make"));
 }
 
+// The learned-memory block is [system][memory]: knowledge changes may move the
+// block, but the system prompt at index 0 never changes for memory. A change
+// also invalidates the cached block.
+TEST(agent_never_rewrites_the_system_prompt_for_memory) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store, mem.cfg);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+    push_text(*fake, "three");
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
+
+    ag.run("first");
+    ag.run("second");
+    ASSERT(raw->requests.size() >= 2u);
+    ASSERT(raw->requests[0].size() >= 2u);
+    const std::string first_system = raw->requests[0][0].content;
+    const std::string first_block = raw->requests[0][1].content;
+    ASSERT_EQ(raw->requests[0][0].content, raw->requests[1][0].content);
+    ASSERT_EQ(raw->requests[0][1].content, raw->requests[1][1].content);
+    ASSERT(first_system.find("the build system is make") == std::string::npos);
+
+    agent::Memory learned;
+    learned.name = "tests";
+    learned.content = "run make test";
+    learned.evidence_count = 2;
+    learned.promoted = true;
+    ag.memory_store()->upsert(learned);
+
+    ag.run("third");
+    ASSERT(raw->requests.size() >= 3u);
+    const auto& third = raw->requests[2];
+    ASSERT_EQ(third[0].content, first_system);
+    ASSERT(third[1].content.find("run make test") != std::string::npos);
+    ASSERT(third[1].content != first_block);
+}
+
 // A System block is part of the system prompt itself, not a message after it:
 // tool documentation describes the harness, so it belongs in the stable prefix
 // the server caches rather than at the end of the conversation.
