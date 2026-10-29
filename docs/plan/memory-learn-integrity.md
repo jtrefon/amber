@@ -2,9 +2,14 @@
 
 - **Issue:** #444 (validate and close gaps in the memory/learn system)
 - **Branch:** `feat/memory-learn-integrity` from `main` @ `1da04e2e`
-- **Status:** proposal — no production code before sign-off
+- **Status:** **delivered** — PR #487
 - **Delivery:** one milestone PR; each numbered item below is a commit (red test
   first, green fix, docs in the same feature commit when the contract changes)
+
+**Delivered (2026-10-29):** proposal `c026d466`, red tests `f3248be1`,
+`be4e7a1a`, `d43dbbef`, `7e27a6fb`, fixes `741e12d7`, `61fa1279`, `e9e5aa2c`,
+`e44bfda9`, `/learn` `60c6dd42`, baseline `a15afc4b`, end-to-end
+`25abe5ee`. D1–D3 were signed off as recommended.
 
 ---
 
@@ -206,14 +211,17 @@ a classify response and an extract response carrying one memory and one skill:
 
 | # | Commit | Content | Red test |
 |---|---|---|---|
-| 0 | `docs: memory/learn integrity proposal` | this document | — |
-| 1 | `memory: a versioned, stable knowledge block` | store `version()`, retriever cache, config budgets, deterministic ordering, memories-only block (D1) | `memory_block_is_a_function_of_the_store` (red), `memory_block_survives_a_turn_counter_change` (guard) |
-| 2 | `memory: decay every compression and spare fresh confirmations` | remove early return, `decay_maps` skip | `compression_without_ops_still_decays`, `freshly_confirmed_item_keeps_threshold_evidence` |
-| 3 | `memory: enforce conflict and enablement at the store` | store name-conflict, `enabled → nullptr`, host wiring | `store_skips_a_name_conflict`, `experience_disabled_makes_no_store` |
-| 4 | `memory: index learned skills immediately` | catalog refresh, `top_skills` fallback, description | `learned_skill_is_discoverable_and_readable_after_extraction` |
-| 5 | `learn: restore the /learn command surface` | `completions.json` nodes, actions, panel, `/get learn` cleanup | tree test + pty scenario |
-| 6 | `test: prove compress → extract → persist → inject` | the end-to-end test | (green from the start once 1–4 land) |
-| 7 | `docs: reconcile the memory specs and the learn tracker` | tracker, store path, pin, budgets, MISSION row, audit status | — |
+| 0 | ✅ `docs: memory/learn integrity proposal` | this document | — |
+| 1 | ✅ `memory: a versioned, stable knowledge block` | store `version()`, retriever cache, config budgets, deterministic ordering, memories-only block (D1) | `memory_block_is_a_function_of_the_store` (red), `memory_block_survives_a_turn_counter_change` (guard) |
+| 2 | ✅ `memory: decay every compression and spare fresh confirmations` | remove early return, `decay_maps` skip | `compression_without_ops_still_decays`, `freshly_confirmed_item_keeps_threshold_evidence` |
+| 3 | ✅ `memory: enforce conflict and enablement at the store` | store name-conflict, `enabled → nullptr`, host wiring | `store_skips_a_name_conflict`, `experience_disabled_makes_no_store` |
+| 4 | ✅ `memory: index learned skills immediately` | catalog refresh, `top_skills` fallback, description | `learned_skill_is_discoverable_and_readable_after_extraction` |
+| 5 | ✅ `learn: restore the /learn command surface` | `completions.json` nodes, actions, panel, `/get learn` cleanup | tree test + pty scenario |
+| 6 | ✅ `test: prove compress → extract → persist → inject` | the end-to-end test | (green once 1–4 land) |
+| 7 | ✅ `docs: reconcile the memory specs and the learn tracker` | tracker, store path, pin, budgets, MISSION row, audit status | — |
+
+A separate `complexity: record the baseline shrink` commit lowered the ratchet
+after the refactor.
 
 Each behavioral commit carries its red test first; where a test changes an
 existing expectation (skill fallback, decay order) the commit says why.
@@ -241,7 +249,7 @@ existing expectation (skill fallback, decay order) the commit says why.
 
 ---
 
-## 5. Decisions requiring sign-off
+## 5. Decisions (signed off 2026-10-29)
 
 **D1 — What the stable block contains.**
 Recommended: **memories only**. Learned skills move to the catalog (index +

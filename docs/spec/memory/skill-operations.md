@@ -12,7 +12,7 @@ skills** (deliberate `SKILL.md` packages) are the other and live in
 ### Ownership
 
 - **Source files**: `lib/memory_store.cpp` (`JsonMemoryStore::upsert(Skill)`, `top_skills()`), `lib/compressor_apply.cpp` (`apply_skill_ops()`), `include/agent/experience.h` (`Skill`, `KnowledgeItem`)
-- **Test files**: `tests/run_tests.cpp` — `skill_trigger` test
+- **Test files**: `tests/run_tests.cpp` — `memory_store_skill_trigger` test
 
 ---
 
@@ -75,9 +75,9 @@ injection. `export` graduates a learned skill into a global authored one — see
 
 ### Invariants
 
-1. **Learned skills follow the same storage and decay rules as memories.** Same content-hash keying, same proportional decay, same conflict resolution. The only difference is the trigger phrase field and how retrieval works.
+1. **Learned skills follow the same storage and decay rules as memories.** Same content-hash keying, same proportional decay, same conflict resolution, same fresh-confirmation exemption (a skill created or reconfirmed in a cycle is not decayed by that cycle). The only difference is the trigger phrase field and how retrieval works.
 
-2. **Learned skills are retrieved by trigger phrase match.** A skill is returned from `top_skills()` if the user message contains its `trigger_phrase` (case-sensitive substring match). If no skill's trigger phrase matches, all promoted skills are returned as a fallback.
+2. **`top_skills(k, msg)` orders by trigger match, with promoted skills as fallback.** Matches come first, then the remaining promoted skills, capped at `k` (case-sensitive substring match). With an empty message every promoted skill is a fallback entry, which is how the catalog indexes them.
 
 3. **No edits in place.** Same rule as memories: if the LLM returns a skill with the same name but different content, the op is skipped. Old knowledge is preserved. New knowledge creates a new entry.
 
@@ -85,9 +85,11 @@ injection. `export` graduates a learned skill into a global authored one — see
 
 5. **Deprecated skills are not deleted.** Evidence decremented by 1 (floor 0). Item stays in the store un-promoted, waiting for possible future reconfirmation.
 
-6. **Skills without a trigger phrase are treated as memories with extra fields.** They can still be injected via the fallback path (all promoted skills) but won't trigger on user messages.
+6. **A learned skill is a catalog entry, not resident prompt text.** The injected memory block is memories-only. Learned skills are indexed in the shared `SkillCatalog` (name + trigger, or the first body line) and their body loads with `read_skill`, exactly like authored skills. A skill without a trigger phrase is still discoverable by name.
 
-7. **Learned skills are project-scoped.** The store lives at `<workspace>/.amber/experience.json`; learned knowledge never leaks across projects. Cross-project reuse is the job of authored skills via `export`.
+7. **Learned skills are project-scoped.** The store lives in per-project **state** (`$XDG_STATE_HOME/amber/projects/<slug>/experience.json`); learned knowledge never leaks across projects. Cross-project reuse is the job of authored skills via `export`.
+
+8. **The catalog is refreshed at the end of the extraction cycle.** A skill learned now is `read_skill`-able immediately; every window on the project shares the catalog, so the refresh reaches all of them.
 
 ---
 
@@ -124,7 +126,7 @@ injection. `export` graduates a learned skill into a global authored one — see
 - **Expected 2**: Skill "build-cmd" returned. "deploy-cmd" NOT returned (no trigger match). Other promoted skills as fallback.
 - **Input 3**: `store.top_skills(5, "hello world")`
 - **Expected 3**: No trigger match. All promoted skills returned sorted by evidence.
-- **Regression guard**: `skill_trigger` test.
+- **Regression guard**: `memory_store_skill_trigger` test.
 
 #### [SO-05] Deprecate skill
 
@@ -188,7 +190,7 @@ skills (which are activated via `read_skill`); see `skills/skill-catalog.md`.
 
 - **Depends on**: `memory/memory-store.md` (storage, decay), `memory/extraction.md` (extraction pipeline), `skills/agent-skills.md` (two-tier model, precedence), `skills/skill-catalog.md` (export, shadowing)
 - **Depended on by**: `agent-loop/core-loop.md` (skill injection in prompt copy suffix)
-- **Test coverage**: `tests/run_tests.cpp`: `skill_trigger` test
+- **Test coverage**: `tests/run_tests.cpp`: `memory_store_skill_trigger`; `tests/skill_catalog_test.cpp`: `skill_catalog_describes_learned_skills`
 
 ### Known gaps
 
@@ -203,3 +205,4 @@ skills (which are activated via `read_skill`); see `skills/skill-catalog.md`.
 | Date | Reason |
 |------|--------|
 | 2026-07-31 | Re-scoped to learned skills only (authored tier in `docs/spec/skills/`); dropped dead `steps`/`expected_outcome` fields; added precedence/shadowing + export + project-scope scenarios |
+| 2026-10-29 | `top_skills` fallback matches the code; learned skills are catalog entries activated with `read_skill`, refreshed after each extraction; decay exemption; store path corrected to per-project state |
