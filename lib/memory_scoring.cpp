@@ -51,10 +51,8 @@ template <typename T>
 bool name_conflicts(const std::unordered_map<std::string, T>& items, const std::string& name) {
     if (name.empty())
         return false;
-    for (const auto& [id, item] : items)
-        if (item.name == name)
-            return true;
-    return false;
+    return std::any_of(items.begin(), items.end(),
+                       [&name](const auto& entry) { return entry.second.name == name; });
 }
 
 } // namespace
