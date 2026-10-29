@@ -564,9 +564,17 @@ when to start. GitHub holds the live state; this table is the static plan.
 | CC-15 | [#464](https://github.com/jtrefon/amber/issues/464) | Replay + adversarial acceptance for context shaping | P1 | done | CC-14 | `bench/shape_replay.*`, `tests/` |
 | CC-16 | [#465](https://github.com/jtrefon/amber/issues/465) | Every digested result recallable by id | P1 | done | — | `artifacts.cpp`, `compressor_apply.cpp` |
 | CC-17 | [#466](https://github.com/jtrefon/amber/issues/466) | Project bulky bash output at the source (8 KiB, head+tail+handle) | P2 | done | CC-15 | `dispatch.cpp` |
-| CC-18 | [#467](https://github.com/jtrefon/amber/issues/467) | Deterministic supersession at rebuild | P3 | deferred | CC-15 | `compressor_apply.cpp` |
+| CC-18 | [#467](https://github.com/jtrefon/amber/issues/467) | Supersession on request (the agent asks; the harness validates) | P3 | done | CC-15 | `context_shape.cpp`, `agent.cpp` |
 
-### CC-18: deferred on measurement, not on opinion
+### CC-18: the rule was right, the automatic trigger was not
+
+**Resolved 2026-10-28** by M1 (#477): supersession ships as
+`context {"op": "superseded"}`. The rule is unchanged — earlier reads of a path
+read again — but the agent asks for it, and the harness validates the ids still
+live, applies at most one plan per user turn above a 2 KiB floor, and keeps
+every replacement recallable through `read_result`. The measurement below is why
+it was never made automatic: the corpus had nothing to trigger it on.
+
 
 The replay harness (`amber-bench shape-replay`) was run over 24 recorded
 sessions (~485k tokens). Per rule, at a 32 KiB window:

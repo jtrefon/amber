@@ -9,6 +9,11 @@ A milestone is the delivery unit. Features, red tests and refactors are commits
 inside its PR. Do not open a PR per feature; the previous batch (one PR for four
 features) is the shape we want.
 
+**Status (2026-10-29): all three delivered.** M1 `c966e787` (#477), M2
+`383b3278` (#482), M3 `47152ec7` (#483); epic #473 and the compaction epic #416
+are closed. The live baseline is in `live-shaping-baseline.md`, and the measured
+gaps that remain are recorded in `compression-pipeline.md` as gaps, not tasks.
+
 ## M1 — Agent-driven shaping
 
 **Problem.** The model knows which evidence stopped mattering; the harness cannot
