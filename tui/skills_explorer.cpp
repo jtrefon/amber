@@ -139,12 +139,7 @@ void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, RowFlags 
         badges += "*";
     if (row.update)
         badges += "+";
-    if (row.audit == agent::AuditVerdict::Pass)
-        badges += "\u2713";
-    else if (row.audit == agent::AuditVerdict::Warn)
-        badges += "!";
-    else if (row.audit == agent::AuditVerdict::Fail)
-        badges += "\u2717";
+    badges += audit_badge(row.audit);
     if (row.unmanaged)
         badges += "?";
 
@@ -340,7 +335,7 @@ void paint_search_line(WINDOW* w, const SkillsBrowseCore& core, const std::strin
     // The right-hand status is a claim about the rows, so it never says live for
     // a page that came from the cache or after a failed request.
     const std::string state =
-        source_state(core.cached(), core.fetched_at_ms(), core.error(), now_ms());
+        source_state(core.answered(), core.cached(), core.fetched_at_ms(), core.error(), now_ms());
     const int state_x = std::max(0, width - static_cast<int>(state.size()) - 1);
     mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, state_x - 2));
     mvwaddnstr(w, 0, state_x, state.c_str(), static_cast<int>(state.size()));
@@ -521,7 +516,7 @@ private:
     void prompt_install(const std::string& id);
     void install_marked(const std::vector<std::string>& ids);
     void on_batch_install(const SkillsEvent& event);
-    std::string batch_summary() const;
+    std::string batch_summary() const { return batch_.summary(); }
     bool cancel_batch();
     bool close_or_cancel();
     void review_pending_update(const agent::SkillDetail& detail);
@@ -539,6 +534,7 @@ private:
     bool ensure_files(const std::string& id);
     DetailInstall install_state(const std::string& name) const;
     void queue_transcript(const std::string& line);
+    void arm_retry(const agent::IndexFailure& error, long long now);
     void on_files(const SkillsEvent& event);
     void remove_current(const SkillRow& row);
     void show_review(const agent::UpdateReview& review);
@@ -565,6 +561,12 @@ private:
     std::string pending_files_;
     std::vector<std::string> transcript_;
     long long error_at_ms_ = 0;
+    // One automatic retry after a 429, armed for the end of the Retry-After
+    // window. It never blocks: tick() fires it when the window opens, and a
+    // second rate limit in the same session is the user's to retry.
+    bool retry_armed_ = false;
+    bool retry_used_ = false;
+    long long retry_at_ms_ = 0;
     std::string query_;
     std::string pending_install_;
     std::string pending_update_;
@@ -575,18 +577,16 @@ private:
     bool shelf_running_ = false;
     std::deque<std::string> shelf_queue_;
     std::vector<SkillRow> shelf_rows_;
+    // Rows a collection supplies directly by id; appended after its queries so
+    // an editorial set works offline.
+    std::vector<SkillRow> shelf_pins_;
     std::vector<ShelfPage> shelf_pages_;
     std::string shelf_reason_;
     SkillTab shelf_tab_ = SkillTab::Top;
     std::set<std::string> previewed_;
-    std::set<std::string> batch_pending_;
-    std::set<std::string> batch_names_;
-    int batch_total_ = 0;
-    int batch_installed_ = 0;
-    int batch_failed_ = 0;
-    bool batch_cancel_ = false;
-    std::vector<std::string> batch_skipped_;
-    std::vector<std::string> batch_failures_;
+    std::set<std::string> batch_pending_; // detail ids still to fetch
+    BatchOutcome batch_;
+    bool batch_active_ = false;
     std::string pending_preview_;
     std::string last_status_;
     bool pending_search_ = false;
@@ -944,6 +944,16 @@ void SkillsExplorer::queue_transcript(const std::string& line) {
     transcript_.push_back(line);
 }
 
+void SkillsExplorer::arm_retry(const agent::IndexFailure& error, long long now) {
+    // A 429 carries its own retry window; arm one attempt for its end so the UI
+    // keeps working while the countdown runs. One per session, not per key.
+    if (error.kind != agent::IndexError::RateLimited || retry_used_ || error.retry_after_s <= 0)
+        return;
+    retry_used_ = true;
+    retry_armed_ = true;
+    retry_at_ms_ = now + error.retry_after_s * 1000LL;
+}
+
 void SkillsExplorer::on_files(const SkillsEvent& event) {
     if (pending_files_ == event.detail_id)
         pending_files_.clear();
@@ -1089,11 +1099,22 @@ void SkillsExplorer::run_collection(const std::string& name) {
             continue;
         shelf_queue_.clear();
         shelf_pages_.clear();
+        shelf_pins_.clear();
         for (const auto& query : collection.queries)
             shelf_queue_.push_back(query);
+        for (const auto& id : collection.ids) {
+            SkillRow row;
+            row.ref.id = id;
+            row.ref.name = agent::skill_slug(id);
+            row.ref.source = id.substr(0, id.rfind('/'));
+            row.description = "editorial pick";
+            shelf_pins_.push_back(std::move(row));
+        }
         shelf_reason_ = "collection: " + collection.name;
         if (shelf_queue_.empty()) {
-            last_status_ = "that collection has ids only; install them by name";
+            // No query to make: the ids are the shelf, and they work offline.
+            core_.set_rows(std::move(shelf_pins_), false, {}, true);
+            last_status_ = shelf_reason_;
             return;
         }
         shelf_running_ = true;
@@ -1148,6 +1169,14 @@ void SkillsExplorer::shelf_done() {
     bool stale = false;
     agent::IndexFailure error;
     std::vector<SkillRow> merged = merge_shelf_rows(shelf_pages_, stale, error);
+    // A collection's explicit ids join its query results, deduped by id.
+    std::set<std::string> seen;
+    for (const auto& row : merged)
+        seen.insert(row.ref.id);
+    for (const auto& pin : shelf_pins_) {
+        if (seen.insert(pin.ref.id).second)
+            merged.push_back(pin);
+    }
     // The Official shelf is "curated owners", so a result whose source owner is
     // not on the list is not official, whatever the query returned.
     if (shelf_tab_ == SkillTab::Official) {
@@ -1294,10 +1323,23 @@ void SkillsExplorer::tick() {
         pending_search_ = false;
         // The installed shelf filters locally; a registry search there would
         // spend a request on rows the shelf never shows.
-        if (query_.size() >= 2 && core_.tab() != SkillTab::Installed)
-            service_->search(query_);
-        else
+        if (query_.size() >= 2 && core_.tab() != SkillTab::Installed) {
+            if (options_.index_disabled) {
+                // No socket: say what configuration would turn it back on.
+                const agent::IndexFailure off{agent::IndexError::Disabled, 0, 0, {}};
+                core_.set_rows({}, false, off);
+                last_status_ = failure_text(off);
+            } else {
+                service_->search(query_);
+            }
+        } else {
             core_.set_rows({});
+        }
+    }
+    if (retry_armed_ && now_ms() >= retry_at_ms_) {
+        retry_armed_ = false;
+        last_status_ = "retrying...";
+        service_->search(query_);
     }
     for (auto& event : service_->drain()) {
         if (event.kind == SkillsEvent::Kind::SearchDone)
@@ -1332,8 +1374,11 @@ void SkillsExplorer::on_search(const SkillsEvent& event) {
         core_.set_rows({}, event.search.error.kind == agent::IndexError::RateLimited,
                        event.search.error);
         last_status_ = failure_text(event.search.error);
+        arm_retry(event.search.error, error_at_ms_);
         return;
     }
+    retry_armed_ = false;
+    retry_used_ = false;
     std::vector<SkillRow> rows;
     rows.reserve(event.search.page->skills.size());
     for (const auto& ref : event.search.page->skills)
@@ -1402,7 +1447,7 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
 }
 
 void SkillsExplorer::on_install(const SkillsEvent& event) {
-    if (batch_total_ > 0) {
+    if (batch_active_) {
         on_batch_install(event);
         return;
     }
@@ -1417,13 +1462,8 @@ void SkillsExplorer::on_install(const SkillsEvent& event) {
 
 void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
     batch_pending_.clear();
-    batch_names_.clear();
-    batch_skipped_.clear();
-    batch_total_ = 0;
-    batch_installed_ = 0;
-    batch_failed_ = 0;
-    batch_cancel_ = false;
-    batch_failures_.clear();
+    batch_ = BatchOutcome{};
+    batch_active_ = false;
     const std::string root = options_.install_global ? options_.global_root : options_.project_root;
     std::vector<BatchCandidate> candidates;
     for (const auto& id : ids) {
@@ -1437,25 +1477,20 @@ void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
         candidates.push_back(std::move(candidate));
     }
     const BatchPlan plan = plan_batch(candidates, options_.review_required);
-    batch_skipped_ = plan.skipped;
+    batch_.skipped = plan.skipped;
     for (const auto& id : plan.install_ids) {
         const auto ref = find_ref(id);
         if (!ref)
             continue;
         batch_pending_.insert(id);
-        batch_names_.insert(agent::skill_slug(id));
-        ++batch_total_;
+        batch_.pending.insert(agent::skill_slug(id));
         service_->detail(*ref);
     }
+    batch_active_ = !plan.install_ids.empty();
     last_status_ =
         plan.install_ids.empty()
             ? batch_summary()
             : "installing " + std::to_string(plan.install_ids.size()) + " marked skills...";
-}
-
-std::string SkillsExplorer::batch_summary() const {
-    return batch_report(batch_installed_, batch_skipped_, batch_failed_, batch_failures_,
-                        batch_cancel_);
 }
 
 bool SkillsExplorer::close_or_cancel() {
@@ -1469,29 +1504,26 @@ bool SkillsExplorer::close_or_cancel() {
 }
 
 bool SkillsExplorer::cancel_batch() {
-    if (batch_total_ <= 0)
+    if (!batch_active_)
         return false;
-    batch_cancel_ = true;
-    batch_pending_.clear(); // queued details no longer install
-    batch_names_.clear();
-    batch_total_ = 0;
+    batch_.cancelled = true;
+    batch_.pending.clear(); // queued details no longer install
+    batch_pending_.clear();
+    batch_active_ = false;
     last_status_ = batch_summary();
     return true;
 }
 
 void SkillsExplorer::on_batch_install(const SkillsEvent& event) {
-    if (batch_names_.count(event.name) == 0)
+    if (batch_.pending.count(event.name) == 0)
         return;
-    batch_names_.erase(event.name);
-    if (event.install.ok) {
-        ++batch_installed_;
-    } else {
-        ++batch_failed_;
-        batch_failures_.emplace_back(event.name + " (" + event.install.error + ")");
-    }
-    if (!batch_names_.empty())
+    if (event.install.ok)
+        batch_.note_installed(event.name);
+    else
+        batch_.note_failed(event.name, event.install.error);
+    if (!batch_.done())
         return;
-    batch_total_ = 0;
+    batch_active_ = false;
     last_status_ = batch_summary();
     refresh_installed();
 }

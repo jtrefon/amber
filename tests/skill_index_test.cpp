@@ -496,3 +496,79 @@ TEST(skill_index_live_loopback_search_parses) {
     ASSERT_EQ(static_cast<int>(r.page->skills.size()), 2);
     ASSERT_EQ(r.page->skills[0].source, std::string("mattpocock/skills"));
 }
+
+TEST(skill_index_cache_survives_a_restart) {
+    CacheGuard guard("restart");
+    agent::SkillIndexOptions opts;
+    long long now = 1000;
+    int calls = 0;
+    opts.now_ms = [&now] { return now; };
+    opts.http = [&calls](const std::string&, const std::string&, long,
+                         const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        ++calls;
+        return ok_body(kSearchBody);
+    };
+
+    ASSERT_TRUE(agent::SkillsShIndex(opts).search("tdd", 20, {}).ok());
+    ASSERT_EQ(calls, 1);
+
+    // A second adapter is what a new process looks like: same cache root, fresh
+    // memory. It must answer from the file without a request.
+    now = 2000;
+    const auto restarted = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    ASSERT_TRUE(restarted.ok());
+    ASSERT_TRUE(restarted.page->cached);
+    ASSERT_EQ(restarted.page->fetched_at_ms, 1000);
+    ASSERT_EQ(calls, 1);
+}
+
+TEST(skill_index_retries_a_5xx_once_and_never_a_4xx) {
+    CacheGuard guard("retry");
+    agent::SkillIndexOptions opts;
+    opts.now_ms = [] { return 1000LL; };
+    opts.retry_delay_ms = 0; // no sleep in the suite; the count is what matters
+    int calls = 0;
+    opts.http = [&calls](const std::string&, const std::string&, long,
+                         const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        ++calls;
+        agent::HttpResponse r;
+        r.status = 503;
+        return r;
+    };
+    const auto failed = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    ASSERT_TRUE(failed.error.kind == agent::IndexError::Http);
+    ASSERT_EQ(calls, 2);
+
+    calls = 0;
+    opts.http = [&calls](const std::string&, const std::string&, long,
+                         const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        ++calls;
+        agent::HttpResponse r;
+        r.status = 404;
+        return r;
+    };
+    const auto missing = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    ASSERT_TRUE(missing.error.kind == agent::IndexError::Http);
+    ASSERT_EQ(missing.error.status, 404L);
+    ASSERT_EQ(calls, 1);
+}
+
+TEST(skill_index_429_carries_retry_after) {
+    CacheGuard guard("retry-after");
+    agent::SkillIndexOptions opts;
+    opts.now_ms = [] { return 1000LL; };
+    opts.retry_delay_ms = 0;
+    int calls = 0;
+    opts.http = [&calls](const std::string&, const std::string&, long,
+                         const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+        ++calls;
+        agent::HttpResponse r;
+        r.status = 429;
+        r.headers["retry-after"] = "7";
+        return r;
+    };
+    const auto res = agent::SkillsShIndex(opts).search("tdd", 20, {});
+    ASSERT_TRUE(res.error.kind == agent::IndexError::RateLimited);
+    ASSERT_EQ(res.error.retry_after_s, 7);
+    ASSERT_EQ(calls, 1); // a 429 is not retried inside the adapter
+}

@@ -133,6 +133,30 @@ struct BatchPlan {
 
 BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required);
 
+// The three outcomes of a batch, accumulated as each install lands. Kept apart
+// from the explorer so "2 installed, 1 skipped, 1 failed" is a property of the
+// accumulator rather than of a paint loop.
+struct BatchOutcome {
+    std::set<std::string> pending;     // ids still to answer
+    std::vector<std::string> skipped;  // "name (reason)", decided before any request
+    std::vector<std::string> failures; // "name (reason)", the request failed
+    int installed = 0;
+    bool cancelled = false;
+
+    void note_installed(const std::string& name);
+    void note_failed(const std::string& name, const std::string& reason);
+    bool done() const noexcept { return pending.empty(); }
+    std::string summary() const;
+};
+
+// "2 installed, 1 skipped, 1 failed: ..." with the cancel suffix. Pure, so the
+// aggregate line is pinned without a terminal.
+std::string batch_summary(const BatchOutcome& outcome);
+
+// The row badge for an audit verdict: a pass is a check, a warn is `!`, a fail
+// is `x`, and "not audited" is nothing at all (never a check mark).
+std::string audit_badge(agent::AuditVerdict verdict);
+
 // One line for a finished (or cancelled) batch. Kept pure so the three
 // outcomes and the cancel suffix are pinned without a terminal.
 std::string batch_report(int installed, const std::vector<std::string>& skipped, int failed,
@@ -198,8 +222,8 @@ const std::vector<SkillKeyDoc>& skill_key_table();
 
 // What the header may claim about where the rows came from. Never "live" for a
 // page that came from the cache, and never "live" after a failed request.
-std::string source_state(bool cached, long long fetched_at_ms, const agent::IndexFailure& error,
-                         long long now_ms);
+std::string source_state(bool answered, bool cached, long long fetched_at_ms,
+                         const agent::IndexFailure& error, long long now_ms);
 
 // "in 12s" while a rate-limit window is open, empty once it has passed.
 std::string retry_countdown(int retry_after_s, long long error_at_ms, long long now_ms);
@@ -264,6 +288,9 @@ public:
     const std::string& status() const noexcept { return status_; }
     bool stale() const noexcept { return stale_; }
     bool cached() const noexcept { return cached_; }
+    // False until a request has answered, so the header cannot claim `live`
+    // before anything succeeded.
+    bool answered() const noexcept { return answered_; }
     long long fetched_at_ms() const noexcept { return fetched_at_ms_; }
     const agent::IndexFailure& error() const noexcept { return error_; }
     int selection() const noexcept { return selection_; }
@@ -360,6 +387,7 @@ private:
     agent::IndexFailure error_;
     bool stale_ = false;
     bool cached_ = false;
+    bool answered_ = false;
     long long fetched_at_ms_ = 0;
     int selection_ = 0;
     int scroll_ = 0;

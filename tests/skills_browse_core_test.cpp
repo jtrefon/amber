@@ -690,28 +690,31 @@ TEST(skills_osc_sequences_are_well_formed_and_conservative) {
     ASSERT_FALSE(tui::supports_osc8("dumb", ""));
 }
 
-TEST(skills_header_never_claims_live_for_a_cached_page) {
+TEST(skills_header_never_claims_live_without_a_successful_request) {
     const agent::IndexFailure none;
-    ASSERT_EQ(tui::source_state(false, 0, none, 1000000), std::string("live"));
-    ASSERT_EQ(tui::source_state(true, 760000, none, 1000000), std::string("cached 4m"));
-    ASSERT_EQ(tui::source_state(true, 988000, none, 1000000), std::string("cached 12s"));
-    ASSERT_EQ(tui::source_state(true, 0, none, 1000000), std::string("cached"));
-    ASSERT_EQ(tui::source_state(true, 0, none, 0), std::string("cached"));
+    ASSERT_EQ(tui::source_state(false, false, 0, none, 1000000), std::string("idle"));
+    ASSERT_EQ(tui::source_state(true, false, 0, none, 1000000), std::string("live"));
+    ASSERT_EQ(tui::source_state(true, true, 760000, none, 1000000), std::string("cached 4m"));
+    ASSERT_EQ(tui::source_state(true, true, 988000, none, 1000000), std::string("cached 12s"));
+    ASSERT_EQ(tui::source_state(true, true, 0, none, 1000000), std::string("cached"));
+    ASSERT_EQ(tui::source_state(true, true, 0, none, 0), std::string("cached"));
 
     agent::IndexFailure offline;
     offline.kind = agent::IndexError::Offline;
-    ASSERT_EQ(tui::source_state(false, 0, offline, 1000000), std::string("offline"));
-    // Rows from the cache stay "cached" even when the live request also failed.
-    ASSERT_EQ(tui::source_state(true, 400000, offline, 1000000), std::string("cached 10m"));
+    ASSERT_EQ(tui::source_state(true, false, 0, offline, 1000000), std::string("offline"));
+    // Rows from the cache say both things: the network is down and how old the
+    // data is. Neither claim is allowed to hide the other.
+    ASSERT_EQ(tui::source_state(true, true, 400000, offline, 1000000),
+              std::string("offline · cached 10m"));
 
     agent::IndexFailure disabled;
     disabled.kind = agent::IndexError::Disabled;
-    ASSERT_EQ(tui::source_state(false, 0, disabled, 1000000), std::string("disabled"));
+    ASSERT_EQ(tui::source_state(true, false, 0, disabled, 1000000), std::string("disabled"));
 
     agent::IndexFailure http;
     http.kind = agent::IndexError::Http;
     http.status = 500;
-    ASSERT_EQ(tui::source_state(false, 0, http, 1000000), std::string("error"));
+    ASSERT_EQ(tui::source_state(true, false, 0, http, 1000000), std::string("error"));
 }
 
 TEST(skills_rate_limit_countdown_ticks_and_expires) {
@@ -779,4 +782,47 @@ TEST(skills_focus_moves_with_h_and_l_and_unwinds) {
     ASSERT_TRUE(core.key(27).kind == tui::SkillIntent::Kind::None);
     ASSERT_TRUE(core.pane() == tui::SkillPane::List);
     ASSERT_TRUE(core.key(27).kind == tui::SkillIntent::Kind::Close);
+}
+
+TEST(skills_batch_of_four_reports_two_one_one) {
+    tui::BatchOutcome outcome;
+    outcome.skipped = {"docs (name already taken in this scope)"};
+    outcome.pending = {"tdd", "notes", "broken"};
+    outcome.note_installed("tdd");
+    outcome.note_installed("notes");
+    ASSERT_FALSE(outcome.done());
+    outcome.note_failed("broken", "digest mismatch");
+    ASSERT_TRUE(outcome.done());
+    ASSERT_EQ(outcome.summary(),
+              std::string("2 installed, 1 skipped, 1 failed: docs (name already taken in this "
+                          "scope), broken (digest mismatch)"));
+
+    tui::BatchOutcome cancelled;
+    cancelled.skipped = {"unread (review required: p reads it)"};
+    cancelled.pending = {"tdd", "notes"};
+    cancelled.cancelled = true;
+    cancelled.pending.clear();
+    ASSERT_EQ(cancelled.summary(),
+              std::string("0 installed, 1 skipped: unread (review required: p reads it) · "
+                          "cancelled, the rest was not started"));
+}
+
+TEST(skills_audit_badges_distinguish_pass_warn_fail_and_absent) {
+    ASSERT_EQ(tui::audit_badge(agent::AuditVerdict::Pass), std::string("\u2713"));
+    ASSERT_EQ(tui::audit_badge(agent::AuditVerdict::Warn), std::string("!"));
+    ASSERT_EQ(tui::audit_badge(agent::AuditVerdict::Fail), std::string("\u2717"));
+    ASSERT_TRUE(tui::audit_badge(agent::AuditVerdict::NotAudited).empty());
+    ASSERT_TRUE(tui::audit_badge(agent::AuditVerdict::Pass) !=
+                tui::audit_badge(agent::AuditVerdict::Warn));
+}
+
+TEST(skills_header_is_idle_until_a_request_answers) {
+    tui::SkillsBrowseCore core;
+    const agent::IndexFailure none;
+    ASSERT_EQ(tui::source_state(core.answered(), core.cached(), core.fetched_at_ms(), none, 1000),
+              std::string("idle"));
+    core.set_rows(sample());
+    ASSERT_TRUE(core.answered());
+    ASSERT_EQ(tui::source_state(core.answered(), core.cached(), core.fetched_at_ms(), none, 1000),
+              std::string("live"));
 }

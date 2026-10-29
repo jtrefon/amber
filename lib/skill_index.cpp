@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <thread>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -139,6 +140,13 @@ int retry_after_seconds(const HttpResponse& r) {
     if (it == r.headers.end())
         return 0;
     return std::atoi(it->second.c_str());
+}
+
+// A 5xx or a timeout is worth one more attempt; a 4xx is a statement about the
+// request and repeating it cannot change the answer.
+bool retryable(const IndexFailure& failure) {
+    return failure.kind == IndexError::Timeout ||
+           (failure.kind == IndexError::Http && failure.status >= 500);
 }
 
 IndexFailure classify(const std::optional<HttpResponse>& r) {
@@ -313,6 +321,12 @@ IndexResult SkillsShIndex::search(const std::string& query, int limit,
         return *fresh;
 
     IndexResult live = fetch(query, capped, now, cancel);
+    if (!live.ok() && retryable(live.error) && opts_.retry_delay_ms >= 0 &&
+        !cancel.is_requested()) {
+        if (opts_.retry_delay_ms > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(opts_.retry_delay_ms));
+        live = fetch(query, capped, now, cancel);
+    }
     if (live.ok())
         return live;
     return fallback_to_cache(cached, capped, std::move(live.error));

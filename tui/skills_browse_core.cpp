@@ -284,12 +284,19 @@ const std::vector<SkillKeyDoc>& skill_key_table() {
     return kKeys;
 }
 
-std::string source_state(bool cached, long long fetched_at_ms, const agent::IndexFailure& error,
-                         long long now_ms) {
+std::string source_state(bool answered, bool cached, long long fetched_at_ms,
+                         const agent::IndexFailure& error, long long now_ms) {
+    if (!answered)
+        return "idle";
+    const std::string age = fetched_at_ms > 0 && now_ms > fetched_at_ms
+                                ? compact_age(now_ms - fetched_at_ms)
+                                : std::string();
+    const bool unreachable = error.kind == agent::IndexError::Offline ||
+                             error.kind == agent::IndexError::Timeout ||
+                             error.kind == agent::IndexError::Cancelled;
     if (cached) {
-        if (fetched_at_ms <= 0 || now_ms <= fetched_at_ms)
-            return "cached";
-        return "cached " + compact_age(now_ms - fetched_at_ms);
+        const std::string data = age.empty() ? "cached" : "cached " + age;
+        return unreachable ? "offline · " + data : data;
     }
     switch (error.kind) {
     case agent::IndexError::None:
@@ -386,6 +393,7 @@ void SkillsBrowseCore::set_rows(std::vector<SkillRow> rows, bool stale, agent::I
     error_ = std::move(error);
     cached_ = cached;
     fetched_at_ms_ = fetched_at_ms;
+    answered_ = true;
     reset_cursor();
 }
 
@@ -660,6 +668,40 @@ BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_
         plan.install_ids.push_back(candidate.id);
     }
     return plan;
+}
+
+void BatchOutcome::note_installed(const std::string& name) {
+    pending.erase(name);
+    ++installed;
+}
+
+void BatchOutcome::note_failed(const std::string& name, const std::string& reason) {
+    pending.erase(name);
+    failures.push_back(name + " (" + reason + ")");
+}
+
+std::string BatchOutcome::summary() const {
+    return batch_summary(*this);
+}
+
+std::string batch_summary(const BatchOutcome& outcome) {
+    return batch_report(outcome.installed, outcome.skipped,
+                        static_cast<int>(outcome.failures.size()), outcome.failures,
+                        outcome.cancelled);
+}
+
+std::string audit_badge(agent::AuditVerdict verdict) {
+    switch (verdict) {
+    case agent::AuditVerdict::Pass:
+        return "\u2713";
+    case agent::AuditVerdict::Warn:
+        return "!";
+    case agent::AuditVerdict::Fail:
+        return "\u2717";
+    case agent::AuditVerdict::NotAudited:
+        break;
+    }
+    return {};
 }
 
 std::string batch_report(int installed, const std::vector<std::string>& skipped, int failed,

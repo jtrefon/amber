@@ -2400,6 +2400,9 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     const std::string installed_dir = fixture().workspace + "/.amber/skills/tdd";
     std::error_code ec;
     fs::remove_all(installed_dir, ec);
+    // A cold cache makes the first search a real request, so the header is
+    // allowed to claim `live`; a warm one would legitimately say `cached`.
+    fs::remove_all(fixture().workspace + "/cache/amber", ec);
 
     tui.send("/skills\r");
     if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
@@ -2416,8 +2419,10 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
     }
 
-    if (!require(tui.wait_for("live", 5000), "the header never claimed a live source", tui))
-        return;
+    // The header's live/cached/idle claim is pinned in the browse-core unit
+    // tests: a pty sees ncurses' diff output, so "idle" -> "live" arrives as
+    // "liv" and a substring assertion would measure the diff algorithm rather
+    // than the header.
 
     tui.send("\r"); // leave the search field
     tui.pump(100);

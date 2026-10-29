@@ -129,6 +129,9 @@ struct SkillIndexOptions {
     std::string token;
     long timeout_s = 15;
     long long cache_ttl_ms = 60LL * 1000;
+    // One backoff retry after a 5xx or a timeout. Zero retries immediately
+    // (what a suite that asserts call counts wants); negative disables it.
+    int retry_delay_ms = 200;
     // Injected so a test can run without curl and without a clock.
     HttpGet http;
     std::function<long long()> now_ms;
