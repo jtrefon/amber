@@ -2,6 +2,7 @@
 #include "tui/tool_display.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <utility>
 
@@ -17,6 +18,8 @@ namespace {
 
 constexpr size_t kCommandCap = 160;
 constexpr size_t kTaskCap = 40;
+constexpr size_t kIntentCap = 60;
+constexpr size_t kStuckSeconds = 60;
 // A tool's own summary gets the same room as a command line.
 constexpr size_t kSummaryCap = 160;
 
@@ -30,6 +33,84 @@ std::string truncate(const std::string& s, size_t cap) {
     if (s.size() <= cap)
         return s;
     return s.substr(0, cap - 1) + "\u2026";
+}
+
+std::string trim_ws(const std::string& in) {
+    std::size_t begin = 0;
+    std::size_t end = in.size();
+    while (begin < end && std::isspace(static_cast<unsigned char>(in[begin])))
+        ++begin;
+    while (end > begin && std::isspace(static_cast<unsigned char>(in[end - 1])))
+        --end;
+    return in.substr(begin, end - begin);
+}
+
+std::string strip_list_marker(std::string line) {
+    while (line.size() >= 2 &&
+           (line[0] == '-' || line[0] == '*' || line[0] == '+' || line[0] == '>') && line[1] == ' ')
+        line.erase(0, 2);
+    std::size_t digits = 0;
+    while (digits < line.size() && std::isdigit(static_cast<unsigned char>(line[digits])))
+        ++digits;
+    if (digits > 0 && digits + 1 < line.size() && line[digits] == '.' && line[digits + 1] == ' ')
+        line.erase(0, digits + 2);
+    return line;
+}
+
+std::string strip_inline_emphasis(const std::string& line) {
+    std::string out;
+    out.reserve(line.size());
+    for (std::size_t i = 0; i < line.size(); ++i) {
+        const char c = line[i];
+        if (c == '`')
+            continue;
+        if ((c == '*' || c == '_') && i + 1 < line.size() && line[i + 1] == c) {
+            ++i;
+            continue;
+        }
+        out += c;
+    }
+    return out;
+}
+
+std::string collapse_whitespace(const std::string& in) {
+    std::string out;
+    out.reserve(in.size());
+    bool pending_space = false;
+    for (char c : in) {
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            pending_space = true;
+            continue;
+        }
+        if (pending_space && !out.empty())
+            out += ' ';
+        pending_space = false;
+        out += c;
+    }
+    return trim_ws(out);
+}
+
+std::string strip_inline_markdown(std::string line) {
+    return collapse_whitespace(strip_inline_emphasis(strip_list_marker(std::move(line))));
+}
+
+std::string strip_intent_lead(std::string line) {
+    static const char* const kLeads[] = {"let me ", "i'll ", "i will ", "i'm going to ",
+                                         "i am going to "};
+    for (const char* lead : kLeads) {
+        const std::string prefix = lead;
+        if (line.size() <= prefix.size())
+            continue;
+        std::string head = line.substr(0, prefix.size());
+        for (char& c : head)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (head != prefix)
+            continue;
+        const std::string rest = trim_ws(line.substr(prefix.size()));
+        if (rest.size() >= 8)
+            return rest;
+    }
+    return line;
 }
 
 std::string arg(const agent::json& args, const char* key) {
@@ -145,11 +226,12 @@ std::string elapsed_label(size_t secs) {
 
 WorkingParts working_parts(const std::string& frame, const std::string& verb, size_t elapsed_secs,
                            const std::string& task, const std::string& intent) {
-    (void)intent;
     WorkingParts parts;
     parts.glyph = frame;
     parts.verb = verb;
     parts.tail = " " + elapsed_label(elapsed_secs);
+    if (!intent.empty())
+        parts.tail += " \u00b7 " + truncate(intent, kIntentCap);
     if (!task.empty())
         parts.tail += " \u00b7 " + truncate(task, kTaskCap);
     return parts;
@@ -161,12 +243,31 @@ std::string working_label(const std::string& frame, const std::string& verb, siz
     return parts.glyph + " " + parts.verb + parts.tail;
 }
 
-std::string intent_from_narration(const std::string&) {
+std::string intent_from_narration(const std::string& text) {
+    std::size_t end = text.size();
+    while (end > 0) {
+        const std::size_t newline = text.rfind('\n', end - 1);
+        const std::size_t start = newline == std::string::npos ? 0 : newline + 1;
+        const std::string raw = trim_ws(text.substr(start, end - start));
+        if (raw.rfind("```", 0) == 0)
+            return {};
+        if (!raw.empty() && raw[0] != '#' && raw.rfind("---", 0) != 0 && raw.rfind("===", 0) != 0 &&
+            raw.rfind('|', 0) != 0) {
+            const std::string line = strip_intent_lead(strip_inline_markdown(raw));
+            if (line.size() >= 3 && line != "..." && line != "\u2026")
+                return truncate(line, kIntentCap);
+        }
+        if (newline == std::string::npos)
+            break;
+        end = newline;
+    }
     return {};
 }
 
-std::string stuck_hint(size_t) {
-    return {};
+std::string stuck_hint(size_t elapsed_secs) {
+    if (elapsed_secs < kStuckSeconds)
+        return {};
+    return "no progress for " + std::to_string(kStuckSeconds) + "s \u2014 Ctrl+C to cancel";
 }
 
 std::string reasoning_badge(const std::string& effort) {
