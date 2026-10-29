@@ -1293,6 +1293,75 @@ TEST(compression_pipeline_forwards_segments_and_ops) {
     (void)ctx.get_all(); // hash chain intact
 }
 
+// Decay is the signal that knowledge was not reconfirmed. A compression that
+// returns no memory/skill ops is still a cycle, so the store must decay.
+TEST(compression_without_ops_still_decays) {
+    agent::test::XdgGuard xdg("compression_decay_no_ops");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    store->set_current_turn(0);
+    agent::Memory old;
+    old.name = "old";
+    old.content = "old fact";
+    old.evidence_count = 4;
+    old.promoted = true;
+    store->upsert(old);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, 3);
+}
+
+// An item the extract step just created was confirmed this cycle. "Absence of
+// reconfirmation" cannot apply to it, so it must leave the cycle at the
+// threshold, not one below it.
+TEST(freshly_confirmed_item_keeps_threshold_evidence) {
+    agent::test::XdgGuard xdg("compression_fresh_confirm");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[{"name":"fresh","content":"a fresh fact",)"
+                     R"("tags":["fresh"],"action":"upsert"}],"skills":[]})");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].evidence_count, ag.memory_store()->memory_promote_threshold());
+}
+
 // KV-reuse guarantee: the compression pipeline makes TWO LLM calls
 // (classify, then extract). For the server's prompt cache to stay warm the
 // extract request must replay the classify request as a prefix — the second
