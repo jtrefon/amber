@@ -1,8 +1,10 @@
 #include "agent/skill_catalog.h"
 #include "tui/skills_browse_core.h"
+#include "tui/skills_detail_view.h"
 #include "tui/keys.h"
 #include "tests/test_util.h"
 
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -594,6 +596,13 @@ TEST(skills_detail_blocks_follow_the_spec_order) {
     ASSERT_EQ(blocks.evidence[2], std::string("Category testing"));
     ASSERT_EQ(blocks.evidence[3], std::string("update available (7f3a1b2c)"));
     ASSERT_EQ(blocks.evidence[4], std::string("SKILL.md 7f3a1b2c9d8e"));
+}
+
+TEST(skills_detail_blocks_state_the_trust_and_cost) {
+    tui::DetailInstall install;
+    install.installed = true;
+    install.scope = "project";
+    const tui::DetailBlocks blocks = tui::detail_blocks(rich_detail(), install, 5000, 0);
     ASSERT_EQ(blocks.audit, std::string("not audited · no shell, network or path signals"));
     ASSERT_EQ(blocks.cost, std::string("1.8k token body (36% of budget) · +1 discovery line"));
 }
@@ -698,7 +707,9 @@ TEST(skills_header_never_claims_live_without_a_successful_request) {
     ASSERT_EQ(tui::source_state(true, true, 988000, none, 1000000), std::string("cached 12s"));
     ASSERT_EQ(tui::source_state(true, true, 0, none, 1000000), std::string("cached"));
     ASSERT_EQ(tui::source_state(true, true, 0, none, 0), std::string("cached"));
+}
 
+TEST(skills_header_says_offline_with_the_age_of_what_it_can_still_show) {
     agent::IndexFailure offline;
     offline.kind = agent::IndexError::Offline;
     ASSERT_EQ(tui::source_state(true, false, 0, offline, 1000000), std::string("offline"));
@@ -736,13 +747,15 @@ TEST(skills_ui_state_round_trips_and_forgives_garbage) {
     ASSERT_TRUE(parsed.sort == tui::SkillSort::Name);
     ASSERT_EQ(parsed.facets.at(tui::FacetGroup::Category).size(), static_cast<size_t>(2));
     ASSERT_TRUE(parsed.facets.at(tui::FacetGroup::Status).count("installed") == 1);
+}
 
+TEST(skills_ui_state_forgives_garbage_and_out_of_range_values) {
     const tui::SkillsUiState defaults = tui::parse_ui_state("not json");
     ASSERT_TRUE(defaults.tab == tui::SkillTab::Top);
     ASSERT_TRUE(defaults.sort == tui::SkillSort::Installs);
     ASSERT_TRUE(defaults.facets.empty());
 
-    const tui::SkillsUiState range = tui::parse_ui_state("{\"tab\": 99, \"sort\": -4}");
+    const tui::SkillsUiState range = tui::parse_ui_state(R"({"tab": 99, "sort": -4})");
     ASSERT_TRUE(range.tab == tui::SkillTab::Top);
     ASSERT_TRUE(range.sort == tui::SkillSort::Installs);
 }
@@ -825,4 +838,35 @@ TEST(skills_header_is_idle_until_a_request_answers) {
     ASSERT_TRUE(core.answered());
     ASSERT_EQ(tui::source_state(core.answered(), core.cached(), core.fetched_at_ms(), none, 1000),
               std::string("live"));
+}
+
+TEST(skills_detail_view_builds_the_body_for_the_selected_file) {
+    agent::SkillDetail detail = rich_detail();
+    detail.body = "# TDD\n\nRed first.\n";
+    detail.assets = {{"SKILL.md", 100, "a"}, {"logo.png", 900, "b"}, {"notes.md", 20, "c"}};
+    std::map<std::string, std::string> files{{"notes.md", "# Notes\n\nsecond file\n"}};
+
+    const tui::DetailView skill_md = tui::build_detail_view(detail, {}, 5000, &files, 0);
+    ASSERT_EQ(skill_md.file, static_cast<size_t>(0));
+    ASSERT_FALSE(skill_md.body.empty()); // rendered from the detail's own body
+    ASSERT_TRUE(skill_md.note.empty());
+
+    const tui::DetailView notes = tui::build_detail_view(detail, {}, 5000, &files, 2);
+    ASSERT_EQ(notes.assets[notes.file].path, std::string("notes.md"));
+    ASSERT_FALSE(notes.body.empty());
+}
+
+TEST(skills_detail_view_never_selects_a_binary_and_says_what_is_loading) {
+    agent::SkillDetail detail = rich_detail();
+    detail.body = "# TDD\n";
+    detail.assets = {{"SKILL.md", 100, "a"}, {"logo.png", 900, "b"}, {"notes.md", 20, "c"}};
+    // A binary is never selected or rendered: the view falls back to the first
+    // previewable file and, with no bytes for it, says it is loading rather
+    // than painting an empty pane.
+    const tui::DetailView binary = tui::build_detail_view(detail, {}, 5000, nullptr, 1);
+    ASSERT_EQ(binary.file, static_cast<size_t>(0));
+    ASSERT_FALSE(binary.body.empty()); // SKILL.md comes from the detail
+    const tui::DetailView pending = tui::build_detail_view(detail, {}, 5000, nullptr, 2);
+    ASSERT_TRUE(pending.body.empty());
+    ASSERT_EQ(pending.note, std::string("loading notes.md..."));
 }
