@@ -54,11 +54,21 @@ complexity, class-size, duplicates, format, clang-tidy):
   Enter/Space toggles, `r` resets, Esc returns; narrow terminals get the same
   state machine in a modal. The column renders groups, counts and `[x]` marks.
 
+- **#408 (model half)**: `AuditVerdict` on the detail, the row badge
+  (`✓`/`!`/`✗`, nothing when unaudited), the sheet's verdict text, and the
+  ledger recording the verdict shown at install time. `batch_report()` is pure
+  and reports installed/skipped/failed separately, with a `cancelled` suffix;
+  `Esc` during a batch cancels after the current skill instead of closing the
+  explorer. Marks are keyed by id and survive filtering and refresh.
+- **#405 (state half)**: every shelf keeps its own cursor and scroll for the
+  session, so 1..7 and back returns to the row you were reading.
+
 Held back for the next commits (do not ship without them):
 
-- #405's For-you / Trending / Official / Collections rows need a multi-query
-  orchestrator on `SkillsService` (one query at a time, merge by id) — the
-  bundled data is in place, the runner is not.
+- #405's For-you / Trending / Official / Collections **rows**: the data, the
+  detector and the per-tab state are in place; the shelf runner (a queue over
+  `SkillsService`, one query at a time, merged by id, with the reason line) is
+  the next commit.
 - #398's evidence/cost/audit blocks, markdown preview and `o`/`y` fallbacks.
 - #397's live/cached/offline header, `Esc` unwinding and persisted tab/sort/
   facets.
