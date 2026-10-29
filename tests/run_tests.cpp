@@ -7062,6 +7062,34 @@ TEST(memory_retriever_with_memories) {
     ASSERT(suffix.find("build system") != std::string::npos);
 }
 
+// The injected block is the stable prefix [system][memory], so it must be a
+// function of the store alone. Selection by the current question reordered it
+// on every turn, which is exactly a prefix change.
+TEST(memory_block_is_a_function_of_the_store) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    store->set_current_turn(1);
+    agent::Memory build;
+    build.name = "build";
+    build.content = "the build system is make";
+    build.tags = {"build"};
+    build.evidence_count = 3;
+    build.promoted = true;
+    store->upsert(build);
+    agent::Memory deploy;
+    deploy.name = "deploy";
+    deploy.content = "deployment uses ansible";
+    deploy.tags = {"deploy"};
+    deploy.evidence_count = 3;
+    deploy.promoted = true;
+    store->upsert(deploy);
+
+    agent::MemoryRetriever retriever(*store);
+    auto build_block = retriever.build_system_prompt_suffix("build");
+    auto deploy_block = retriever.build_system_prompt_suffix("deploy");
+    ASSERT_EQ(build_block, deploy_block);
+}
+
 // ---------------------------------------------------------------------------
 // Integration: compression pipeline + memory end-to-end
 // ---------------------------------------------------------------------------
