@@ -51,6 +51,7 @@ BUILD_DIR = @builddir@
 CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/text_diff.o \
             $(BUILD_DIR)/lib/skill_update_review.o \
+            $(BUILD_DIR)/lib/skill_shelves.o \
             $(BUILD_DIR)/lib/private_file.o \
             $(BUILD_DIR)/lib/llm.o \
             $(BUILD_DIR)/lib/debug_log.o \
@@ -277,6 +278,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/text_diff_test.o \
                $(BUILD_DIR)/tests/skill_update_review_test.o \
+               $(BUILD_DIR)/tests/skill_shelves_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
                $(BUILD_DIR)/tests/mcp_client_test.o \
                $(BUILD_DIR)/tests/mcp_config_test.o \

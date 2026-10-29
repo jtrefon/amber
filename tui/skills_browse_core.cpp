@@ -116,8 +116,113 @@ void SkillsBrowseCore::scroll_detail(int delta) {
 }
 
 bool SkillsBrowseCore::matches(const SkillRow& row) const {
-    return ci_contains(row.ref.name, filter_) || ci_contains(row.ref.source, filter_) ||
-           ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
+    const bool text = ci_contains(row.ref.name, filter_) || ci_contains(row.ref.source, filter_) ||
+                      ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
+    return text && passes_facets(row);
+}
+
+bool SkillsBrowseCore::passes_facets(const SkillRow& row) const {
+    // AND across groups: every selected group must accept the row.
+    return std::all_of(facets_.begin(), facets_.end(), [&row](const auto& entry) {
+        return entry.second.empty() || entry.second.count(facet_value(row, entry.first)) != 0;
+    });
+}
+
+bool SkillsBrowseCore::passes_facets_except(const SkillRow& row, FacetGroup skip) const {
+    return std::all_of(facets_.begin(), facets_.end(), [&row, skip](const auto& entry) {
+        if (entry.first == skip || entry.second.empty())
+            return true;
+        return entry.second.count(facet_value(row, entry.first)) != 0;
+    });
+}
+
+const char* facet_group_name(FacetGroup group) noexcept {
+    switch (group) {
+    case FacetGroup::Status:
+        return "status";
+    case FacetGroup::Trust:
+        return "trust";
+    case FacetGroup::Category:
+        return "category";
+    case FacetGroup::Source:
+        return "source";
+    }
+    return "?";
+}
+
+std::string facet_value(const SkillRow& row, FacetGroup group) {
+    switch (group) {
+    case FacetGroup::Status:
+        if (!row.installed)
+            return "not installed";
+        if (!row.state.empty())
+            return row.state;
+        return "installed";
+    case FacetGroup::Trust:
+        return agent::trust_tier_name(row.tier);
+    case FacetGroup::Category:
+        return row.category.empty() ? "uncategorised" : row.category;
+    case FacetGroup::Source:
+        return row.ref.source.empty() ? "unknown" : row.ref.source;
+    }
+    return {};
+}
+
+void SkillsBrowseCore::toggle_facet(FacetGroup group, const std::string& value) {
+    std::set<std::string>& values = facets_[group];
+    if (values.count(value) != 0)
+        values.erase(value);
+    else
+        values.insert(value);
+    reset_cursor();
+}
+
+void SkillsBrowseCore::clear_facets() {
+    facets_.clear();
+    reset_cursor();
+}
+
+bool SkillsBrowseCore::facet_selected(FacetGroup group, const std::string& value) const {
+    const auto it = facets_.find(group);
+    return it != facets_.end() && it->second.count(value) != 0;
+}
+
+bool SkillsBrowseCore::any_facet() const noexcept {
+    return std::any_of(facets_.begin(), facets_.end(),
+                       [](const auto& entry) { return !entry.second.empty(); });
+}
+
+std::vector<std::pair<std::string, int>> SkillsBrowseCore::facet_counts(FacetGroup group) const {
+    const bool installed_shelf = tab_ == SkillTab::Installed || tab_ == SkillTab::Updates;
+    const auto& source = installed_shelf ? installed_ : rows_;
+    std::map<std::string, int> counts;
+    for (const auto& row : source) {
+        if (tab_ == SkillTab::Updates && !row.update)
+            continue;
+        // The text filter applies; the other facets do too, so counts compose.
+        const bool text =
+            ci_contains(row.ref.name, filter_) || ci_contains(row.ref.source, filter_) ||
+            ci_contains(row.description, filter_) || ci_contains(row.category, filter_);
+        if (!text || !passes_facets_except(row, group))
+            continue;
+        if (facet_value(row, group).empty())
+            continue;
+        ++counts[facet_value(row, group)];
+    }
+    std::vector<std::pair<std::string, int>> out(counts.begin(), counts.end());
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) {
+        if (a.second != b.second)
+            return a.second > b.second;
+        return a.first < b.first;
+    });
+    return out;
+}
+
+std::string SkillsBrowseCore::filter_banner() const {
+    if (!query_live_)
+        return {};
+    return any_facet() ? "filters apply to the loaded results, not the registry"
+                       : "results come from a live query";
 }
 
 BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required) {
@@ -344,6 +449,10 @@ std::optional<SkillIntent> SkillsBrowseCore::global_key(int ch) {
         }
     case 'R':
         return intent(SkillIntent::Kind::Refresh);
+    case 'f':
+        return intent(SkillIntent::Kind::FocusFacets);
+    case 'r':
+        return intent(SkillIntent::Kind::ClearFacets);
     case '?':
         return intent(SkillIntent::Kind::Help);
     default:

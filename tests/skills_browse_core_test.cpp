@@ -348,3 +348,97 @@ TEST(skills_batch_plan_with_review_off_installs_everything_new) {
     ASSERT_EQ(plan.install_ids.size(), static_cast<size_t>(2));
     ASSERT_TRUE(plan.skipped.empty());
 }
+
+namespace {
+
+tui::SkillRow facet_row(const std::string& name, const std::string& category, agent::TrustTier tier,
+                        bool installed, const std::string& state = "enabled",
+                        const std::string& source = "acme/skills") {
+    tui::SkillRow r = row(name, 1);
+    r.ref.source = source;
+    r.category = category;
+    r.tier = tier;
+    r.installed = installed;
+    r.state = installed ? state : std::string();
+    return r;
+}
+
+} // namespace
+
+TEST(skills_facets_are_or_within_a_group_and_across_groups) {
+    tui::SkillsBrowseCore core;
+    core.set_rows({facet_row("a", "testing", agent::TrustTier::Community, false),
+                   facet_row("b", "testing", agent::TrustTier::Official, false),
+                   facet_row("c", "docs", agent::TrustTier::Community, false)});
+
+    core.toggle_facet(tui::FacetGroup::Category, "testing");
+    ASSERT_EQ(core.visible_count(), static_cast<size_t>(2));
+
+    // OR within the group: adding a second category widens the set.
+    core.toggle_facet(tui::FacetGroup::Category, "docs");
+    ASSERT_EQ(core.visible_count(), static_cast<size_t>(3));
+
+    // AND across groups: trust narrows what category allowed.
+    core.toggle_facet(tui::FacetGroup::Trust, "official");
+    ASSERT_EQ(core.visible_count(), static_cast<size_t>(1));
+    ASSERT_EQ(core.visible()[0].ref.name, std::string("b"));
+
+    core.clear_facets();
+    ASSERT_FALSE(core.any_facet());
+    ASSERT_EQ(core.visible_count(), static_cast<size_t>(3));
+}
+
+TEST(skills_facet_counts_ignore_their_own_selection) {
+    tui::SkillsBrowseCore core;
+    core.set_rows({facet_row("a", "testing", agent::TrustTier::Community, false),
+                   facet_row("b", "testing", agent::TrustTier::Official, false),
+                   facet_row("c", "docs", agent::TrustTier::Community, false)});
+    core.toggle_facet(tui::FacetGroup::Category, "testing");
+
+    // The category counts still describe the whole loaded set, so a selected
+    // value keeps a truthful count and the others remain reachable.
+    const auto counts = core.facet_counts(tui::FacetGroup::Category);
+    ASSERT_EQ(counts.size(), static_cast<size_t>(2));
+    ASSERT_EQ(counts[0].first, std::string("testing"));
+    ASSERT_EQ(counts[0].second, 2);
+    ASSERT_EQ(counts[1].first, std::string("docs"));
+    ASSERT_EQ(counts[1].second, 1);
+
+    // Trust counts compose with the category filter.
+    const auto trust = core.facet_counts(tui::FacetGroup::Trust);
+    ASSERT_EQ(trust.size(), static_cast<size_t>(2));
+    ASSERT_EQ(trust[0].first, std::string("community"));
+    ASSERT_EQ(trust[0].second, 1);
+}
+
+TEST(skills_facets_bucket_uncategorised_and_status_visibly) {
+    tui::SkillRow plain = facet_row("plain", "", agent::TrustTier::Unverified, false);
+    tui::SkillRow off = facet_row("off", "testing", agent::TrustTier::Community, true, "disabled");
+    tui::SkillsBrowseCore core;
+    core.set_rows({plain});
+    core.set_installed({off});
+
+    ASSERT_EQ(tui::facet_value(plain, tui::FacetGroup::Category), std::string("uncategorised"));
+    ASSERT_EQ(tui::facet_value(off, tui::FacetGroup::Status), std::string("disabled"));
+    ASSERT_EQ(tui::facet_value(plain, tui::FacetGroup::Status), std::string("not installed"));
+    ASSERT_EQ(tui::facet_value(off, tui::FacetGroup::Trust), std::string("community"));
+}
+
+TEST(skills_filter_banner_names_a_live_query) {
+    tui::SkillsBrowseCore core;
+    ASSERT_TRUE(core.filter_banner().empty());
+    core.set_rows(sample());
+    core.set_query_live(true);
+    ASSERT_TRUE(core.filter_banner().find("live query") != std::string::npos);
+    core.toggle_facet(tui::FacetGroup::Category, "testing");
+    ASSERT_TRUE(core.filter_banner().find("loaded results") != std::string::npos);
+}
+
+TEST(skills_facet_and_clear_keys_are_intents) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    auto i = core.key('f');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::FocusFacets);
+    i = core.key('r');
+    ASSERT_TRUE(i.kind == tui::SkillIntent::Kind::ClearFacets);
+}

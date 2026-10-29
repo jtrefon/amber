@@ -1,0 +1,73 @@
+{
+  "$comment": "Repository facts that justify a For-you search. Detection is a substring test over a root file or the presence of a root directory; no model is involved. Editing this file changes the shelf.",
+  "signals": [
+    {
+      "id": "typescript",
+      "label": "TypeScript",
+      "file": "package.json",
+      "contains": ["\"typescript\"", "\"ts-node\"", "\"@types/node\""],
+      "queries": ["typescript", "types"]
+    },
+    {
+      "id": "react",
+      "label": "React",
+      "file": "package.json",
+      "contains": ["\"react\"", "\"preact\""],
+      "queries": ["react", "frontend", "ui"]
+    },
+    {
+      "id": "node",
+      "label": "Node",
+      "file": "package.json",
+      "contains": ["\"express\"", "\"fastify\"", "\"koa\"", "\"node\""],
+      "queries": ["node", "api"]
+    },
+    {
+      "id": "go",
+      "label": "Go",
+      "file": "go.mod",
+      "contains": [],
+      "queries": ["go", "golang"]
+    },
+    {
+      "id": "rust",
+      "label": "Rust",
+      "file": "Cargo.toml",
+      "contains": [],
+      "queries": ["rust", "cargo"]
+    },
+    {
+      "id": "python",
+      "label": "Python",
+      "file": "pyproject.toml",
+      "contains": [],
+      "queries": ["python"]
+    },
+    {
+      "id": "postgres",
+      "label": "PostgreSQL",
+      "file": "package.json",
+      "contains": ["\"pg\"", "\"postgres\"", "\"prisma\""],
+      "queries": ["postgres", "sql", "database"]
+    },
+    {
+      "id": "docker",
+      "label": "Docker",
+      "file": "Dockerfile",
+      "contains": [],
+      "queries": ["docker", "containers"]
+    },
+    {
+      "id": "tests",
+      "label": "tests",
+      "directory": "tests",
+      "queries": ["testing", "tdd"]
+    },
+    {
+      "id": "docs",
+      "label": "docs",
+      "directory": "docs",
+      "queries": ["documentation", "writing"]
+    }
+  ]
+}

@@ -4,6 +4,7 @@
 #include "agent/remote_text.h"
 #include "agent/skill_index.h"
 
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -28,6 +29,12 @@ enum class SkillSort : unsigned char { Relevance, Installs, Name };
 
 enum class SkillPane : unsigned char { Search, List, Detail };
 
+// Local filters. A facet never reaches the registry: it narrows the rows that
+// are already loaded, and the header says so when a live query is also active.
+enum class FacetGroup : unsigned char { Status, Trust, Category, Source };
+
+const char* facet_group_name(FacetGroup group) noexcept;
+
 // A row as the browser needs it. `ref` is the registry identity; the flags are
 // what the row badges render and what the install sheet reads.
 struct SkillRow {
@@ -42,6 +49,10 @@ struct SkillRow {
     bool audited = false;
     bool official = false;
 };
+
+// The value a row contributes to a group. Always non-empty: a row with no
+// category is the visible `uncategorised` bucket, never a hidden one.
+std::string facet_value(const SkillRow& row, FacetGroup group);
 
 // What a key asks the host to do. The core never performs I/O or network: the
 // TUI translates an intent into a service call, and the service answers with a
@@ -68,6 +79,8 @@ struct SkillIntent {
         Refresh,
         SetTab,
         Sort,
+        FocusFacets,
+        ClearFacets,
         Help,
         Close,
     };
@@ -142,6 +155,18 @@ public:
     int selection() const noexcept { return selection_; }
     int scroll_offset() const noexcept { return scroll_; }
     int detail_scroll() const noexcept { return detail_scroll_; }
+    // Facets: OR within a group, AND across groups.
+    void toggle_facet(FacetGroup group, const std::string& value);
+    void clear_facets();
+    bool facet_selected(FacetGroup group, const std::string& value) const;
+    bool any_facet() const noexcept;
+    // Counts over the rows that pass the text filter but not the facets, so a
+    // count never moves because of its own selection.
+    std::vector<std::pair<std::string, int>> facet_counts(FacetGroup group) const;
+    // Non-empty when a server query limits the set the facets narrow.
+    std::string filter_banner() const;
+    void set_query_live(bool live) noexcept { query_live_ = live; }
+
     bool marked(const std::string& id) const { return marked_.count(id) != 0; }
     const std::set<std::string>& marks() const noexcept { return marked_; }
     std::size_t visible_count() const;
@@ -164,6 +189,10 @@ public:
 
 private:
     bool matches(const SkillRow& row) const;
+    bool passes_facets(const SkillRow& row) const;
+    // Facets count the rows that pass every OTHER group, so a selection keeps a
+    // truthful count and selecting a second value still widens the set.
+    bool passes_facets_except(const SkillRow& row, FacetGroup skip) const;
     void clamp_selection(int visible_rows);
     void move(int delta, int visible_rows);
     void reset_cursor();
@@ -184,6 +213,8 @@ private:
     std::string filter_;
     std::string status_;
     std::set<std::string> marked_;
+    std::map<FacetGroup, std::set<std::string>> facets_;
+    bool query_live_ = false;
     SkillTab tab_ = SkillTab::Top;
     SkillSort sort_ = SkillSort::Installs;
     SkillPane pane_ = SkillPane::List;
