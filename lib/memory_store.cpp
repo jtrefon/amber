@@ -28,13 +28,13 @@ public:
     }
     void upsert(const Memory& m) override {
         std::scoped_lock lk(mtx_);
-        memory_detail::upsert_memory(memories_, m, cfg_, current_turn_);
-        ++version_;
+        if (memory_detail::upsert_memory(memories_, m, cfg_, current_turn_))
+            ++version_;
     }
     void upsert(const Skill& s) override {
         std::scoped_lock lk(mtx_);
-        memory_detail::upsert_skill(skills_, s, cfg_, current_turn_);
-        ++version_;
+        if (memory_detail::upsert_skill(skills_, s, cfg_, current_turn_))
+            ++version_;
     }
     std::vector<Memory> top_memories(size_t k, const std::string& q) const override {
         std::scoped_lock lk(mtx_);
@@ -151,6 +151,8 @@ private:
 };
 
 std::unique_ptr<MemoryStore> make_memory_store(const ExperienceConfig& cfg) {
+    if (!cfg.enabled)
+        return nullptr;
     return std::make_unique<JsonMemoryStore>(cfg);
 }
 

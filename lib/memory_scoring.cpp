@@ -42,7 +42,24 @@ double compute_score(const KnowledgeItem& mem, const std::string& user_msg, int 
     return (mem.evidence_count * evidence_w) + (rel * relevance_w) + (fresh * freshness_w);
 }
 
-void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
+namespace {
+
+// A name identifies a concept. If it already belongs to different content the
+// store keeps the original: neither version is more trustworthy, so an edit in
+// place would be an edit war between compression cycles.
+template <typename T>
+bool name_conflicts(const std::unordered_map<std::string, T>& items, const std::string& name) {
+    if (name.empty())
+        return false;
+    for (const auto& [id, item] : items)
+        if (item.name == name)
+            return true;
+    return false;
+}
+
+} // namespace
+
+bool upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
                    const ExperienceConfig& cfg, int current_turn) {
     std::string key = memory.id.empty() ? hash_content(memory.content) : memory.id;
     auto it = memories.find(key);
@@ -55,17 +72,20 @@ void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memo
         if (!existing.promoted && existing.evidence_count >= cfg.memory_promote_threshold) {
             existing.promoted = true;
         }
-    } else {
-        Memory m = memory;
-        m.id = key;
-        if (m.evidence_count <= 0)
-            m.evidence_count = 1;
-        m.last_confirm_turn = current_turn;
-        memories[key] = m;
+        return true;
     }
+    if (name_conflicts(memories, memory.name))
+        return false;
+    Memory m = memory;
+    m.id = key;
+    if (m.evidence_count <= 0)
+        m.evidence_count = 1;
+    m.last_confirm_turn = current_turn;
+    memories[key] = m;
+    return true;
 }
 
-void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
+bool upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
                   const ExperienceConfig& cfg, int current_turn) {
     std::string key = skill.id.empty() ? hash_content(skill.content) : skill.id;
     auto it = skills.find(key);
@@ -80,14 +100,17 @@ void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& s
         if (!existing.promoted && existing.evidence_count >= cfg.skill_promote_threshold) {
             existing.promoted = true;
         }
-    } else {
-        Skill sk = skill;
-        sk.id = key;
-        if (sk.evidence_count <= 0)
-            sk.evidence_count = 1;
-        sk.last_confirm_turn = current_turn;
-        skills[key] = sk;
+        return true;
     }
+    if (name_conflicts(skills, skill.name))
+        return false;
+    Skill sk = skill;
+    sk.id = key;
+    if (sk.evidence_count <= 0)
+        sk.evidence_count = 1;
+    sk.last_confirm_turn = current_turn;
+    skills[key] = sk;
+    return true;
 }
 
 namespace {
