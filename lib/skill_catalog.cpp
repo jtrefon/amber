@@ -46,7 +46,7 @@ std::string learned_description(const Skill& sk) {
         line.resize(nl);
     constexpr std::size_t kMax = 80;
     if (line.size() > kMax)
-        line = line.substr(0, kMax - 3) + "...";
+        line.replace(kMax - 3, std::string::npos, "...");
     return line;
 }
 

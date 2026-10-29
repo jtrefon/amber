@@ -7150,10 +7150,12 @@ TEST(memory_block_is_a_function_of_the_store) {
     deploy.promoted = true;
     store->upsert(deploy);
 
-    agent::MemoryRetriever retriever(*store);
-    auto build_block = retriever.build_block();
-    auto deploy_block = retriever.build_block();
-    ASSERT_EQ(build_block, deploy_block);
+    // The query is gone from the API, so selection cannot follow the question
+    // any more. Two independent retrievers over one store must still render
+    // the same bytes.
+    agent::MemoryRetriever first(*store, ec);
+    agent::MemoryRetriever second(*store, ec);
+    ASSERT_EQ(first.build_block(), second.build_block());
 }
 
 // The cache is keyed by the store version: a turn-counter change (which moves
