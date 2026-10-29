@@ -1405,6 +1405,55 @@ TEST(learned_skill_is_discoverable_and_readable_after_extraction) {
     ASSERT(described);
 }
 
+// The acceptance proof for the memory/learn pipeline: one compression cycle
+// extracts a memory, the store persists it, and the next request carries it in
+// the [system][memory] block without touching the system prompt.
+TEST(compression_extracts_persists_and_injects_memories) {
+    agent::test::XdgGuard xdg("compression_memory_e2e");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.experience_store_path = xdg.state + "/experience.json";
+    agent::ExperienceConfig ec = agent::load_experience_config(cfg);
+
+    std::shared_ptr<agent::MemoryStore> store = agent::make_memory_store(ec);
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*store, ec);
+
+    auto compressor = agent::make_compressor();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "hi");
+    push_text(*fake,
+              R"({"classification":[{"turns":"0-1","tag":"core"}],"memories":[],"skills":[]})");
+    push_text(*fake, R"({"memories":[{"name":"proj-name","content":"project uses make",)"
+                     R"("tags":["build"],"action":"upsert"}],"skills":[]})");
+    push_text(*fake, "done");
+
+    agent::ToolRegistry reg;
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
+                    std::move(fake));
+    ag.run("hello");
+    auto r = ag.compress_now();
+    ASSERT(r.error.empty());
+
+    auto all = ag.memory_store()->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("project uses make"));
+    ASSERT_EQ(all[0].evidence_count, ag.memory_store()->memory_promote_threshold());
+    ASSERT(all[0].promoted);
+
+    auto reloaded = agent::make_memory_store(ec);
+    ASSERT(reloaded->load(ec.store_path));
+    ASSERT_EQ(reloaded->all_memories().size(), size_t{1});
+    ASSERT_EQ(reloaded->all_memories()[0].content, std::string("project uses make"));
+
+    ag.run("what did you learn?");
+    ASSERT(!raw->requests.empty());
+    const auto& request = raw->requests.back();
+    ASSERT(request.size() >= 2u);
+    ASSERT(request[0].content.find("project uses make") == std::string::npos);
+    ASSERT(request[1].content.find("project uses make") != std::string::npos);
+}
+
 // KV-reuse guarantee: the compression pipeline makes TWO LLM calls
 // (classify, then extract). For the server's prompt cache to stay warm the
 // extract request must replay the classify request as a prefix — the second
