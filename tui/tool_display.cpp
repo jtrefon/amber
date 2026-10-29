@@ -60,15 +60,19 @@ std::string strip_list_marker(std::string line) {
 std::string strip_inline_emphasis(const std::string& line) {
     std::string out;
     out.reserve(line.size());
-    for (std::size_t i = 0; i < line.size(); ++i) {
+    std::size_t i = 0;
+    while (i < line.size()) {
         const char c = line[i];
-        if (c == '`')
-            continue;
-        if ((c == '*' || c == '_') && i + 1 < line.size() && line[i + 1] == c) {
+        if (c == '`') {
             ++i;
             continue;
         }
+        if ((c == '*' || c == '_') && i + 1 < line.size() && line[i + 1] == c) {
+            i += 2;
+            continue;
+        }
         out += c;
+        ++i;
     }
     return out;
 }
