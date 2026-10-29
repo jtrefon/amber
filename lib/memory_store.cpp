@@ -113,11 +113,11 @@ public:
         std::scoped_lock lk(mtx_);
         return memories_.size() + skills_.size();
     }
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the user's own
-    // configured store path (ExperienceConfig) or the XDG state root; not
-    // untrusted request input.
     bool load(const std::string& path) override {
         std::scoped_lock lk(mtx_);
+        // The path is the user's own state root or configured store path, not
+        // untrusted request input.
+        // codeql[cpp/path-injection] lgtm[cpp/path-injection]
         if (!memory_detail::load_store(path, memories_, skills_))
             return false;
         ++version_;
