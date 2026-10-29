@@ -221,6 +221,64 @@ agent::SkillCliBackends fake_backends(std::string& body, std::string& sha) {
 
 } // namespace
 
+TEST(skill_cli_installs_a_whole_repository_and_reports_each_skill) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody one\n";
+    std::string sha = "sha-1";
+    agent::SkillCliBackends backends = fake_backends(body, sha);
+    // Two skills resolve, one does not; the bad one must not abort the batch.
+    backends.list_repo = [](const std::string& source, std::string& error) {
+        error.clear();
+        agent::SkillRef a{source + "/tdd", "tdd", source, 0, false};
+        agent::SkillRef b{source + "/docs", "docs", source, 0, false};
+        agent::SkillRef c{source + "/broken", "broken", source, 0, false};
+        return std::vector<agent::SkillRef>{a, b, c};
+    };
+    backends.detail = [&body, &sha](const agent::SkillRef& ref) {
+        if (ref.name == "broken")
+            return agent::DetailResult{std::nullopt,
+                                       {agent::IndexError::Http, 404, 0, "host does not list it"}};
+        agent::SkillDetail detail;
+        detail.ref = ref;
+        detail.default_branch = "main";
+        detail.hash = sha;
+        detail.body = body;
+        return agent::DetailResult{detail, {}};
+    };
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills", "--yes"}, out, err, backends), 1);
+    ASSERT_TRUE(out.str().find("2 installed, 0 skipped, 1 failed") != std::string::npos);
+    ASSERT_TRUE(out.str().find("broken (host does not list it)") != std::string::npos);
+    ASSERT_TRUE(read_file(sandbox.path + "/.amber/skills/tdd/SKILL.md").find("body one") !=
+                std::string::npos);
+    ASSERT_TRUE(read_file(sandbox.path + "/.amber/skills/docs/SKILL.md").find("body one") !=
+                std::string::npos);
+
+    out.str("");
+    err.str("");
+    // Without --yes the headless review gate skips rather than installing.
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills"}, out, err, backends), 0);
+    ASSERT_TRUE(out.str().find("0 installed, 3 skipped, 0 failed") != std::string::npos);
+}
+
+TEST(skill_cli_repository_with_no_skills_is_an_error) {
+    CliSandbox sandbox;
+    agent::ScopedProjectRoot project(sandbox.path);
+    std::string body = "---\nname: tdd\ndescription: Test-driven.\n---\nbody\n";
+    std::string sha = "sha-1";
+    agent::SkillCliBackends backends = fake_backends(body, sha);
+    backends.list_repo = [](const std::string&, std::string& error) {
+        error = "no SKILL.md in acme/skills";
+        return std::vector<agent::SkillRef>{};
+    };
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"install", "acme/skills", "--yes"}, out, err, backends), 1);
+    ASSERT_TRUE(err.str().find("no SKILL.md") != std::string::npos);
+}
+
 TEST(skill_cli_end_to_end_against_injected_backends) {
     CliSandbox sandbox;
     agent::ScopedProjectRoot project(sandbox.path);

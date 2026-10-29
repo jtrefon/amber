@@ -298,27 +298,39 @@ int confirm_unattended(const SkillCliCommand& cmd, const SkillRef& ref, std::ost
     return 1;
 }
 
-int write_install(const SkillCliCommand& cmd, const Config& cfg, const SkillDetail& detail,
-                  std::ostream& out, std::ostream& err, const SkillCliBackends& backends) {
+// Write one detail's files and record it. Returns "" on success, else the
+// reason, so a bulk install can continue past one bad skill.
+std::string install_detail(const SkillCliCommand& cmd, const Config& cfg, const SkillDetail& detail,
+                           SkillInstallResult& result, const SkillCliBackends& backends) {
     const AssetsResult assets = backends.assets(detail);
-    if (!assets.files) {
-        err << "skills install: " << assets.error.detail << "\n";
-        return 1;
-    }
+    if (!assets.files)
+        return assets.error.detail;
     SkillInstallRequest request;
     request.name = skill_slug(detail.ref.id);
     request.dest_root = scope_root(install_scope(cmd, cfg));
     for (const auto& file : *assets.files)
         request.files.push_back({file.path, file.contents});
-    const SkillInstallResult result = backends.install(request);
-    if (!result.ok) {
-        err << "skills install: " << result.error << "\n";
-        return 1;
-    }
+    result = backends.install(request);
+    if (!result.ok)
+        return result.error;
     SkillLedger ledger = SkillLedger::for_root(request.dest_root);
     ledger.load();
     ledger.upsert(request.name,
                   ledger_entry_for(detail, request.name, request.files, result, true));
+    return {};
+}
+
+int write_install(const SkillCliCommand& cmd, const Config& cfg, const SkillDetail& detail,
+                  std::ostream& out, std::ostream& err, const SkillCliBackends& backends) {
+    SkillInstallResult result;
+    const std::string failure = install_detail(cmd, cfg, detail, result, backends);
+    if (!failure.empty()) {
+        err << "skills install: " << failure << "\n";
+        return 1;
+    }
+    SkillInstallRequest request;
+    request.name = skill_slug(detail.ref.id);
+    request.dest_root = scope_root(install_scope(cmd, cfg));
     if (cmd.json) {
         out << json{{"ok", true},
                     {"name", request.name},
@@ -335,8 +347,82 @@ int write_install(const SkillCliCommand& cmd, const Config& cfg, const SkillDeta
     return 0;
 }
 
+// "owner/repo" (exactly one slash) is a repository, not a skill id: install
+// every skill it holds.
+bool is_repo_target(const std::string& target) {
+    const std::size_t first = target.find('/');
+    return first != std::string::npos && first > 0 && first + 1 < target.size() &&
+           target.find('/', first + 1) == std::string::npos;
+}
+
+struct RepoRun {
+    int installed = 0;
+    int skipped = 0;
+    int failed = 0;
+    std::vector<std::string> reasons;
+};
+
+void install_one_repo_skill(const SkillCliCommand& cmd, const Config& cfg, const SkillRef& ref,
+                            const SkillCliBackends& backends, RepoRun& run) {
+    if (!cmd.yes) {
+        // The headless review gate: a repository is not vetted, so every skill
+        // needs the explicit flag, and nothing is fetched until it arrives.
+        ++run.skipped;
+        run.reasons.push_back(ref.name + " (unreviewed: pass --yes)");
+        return;
+    }
+    const DetailResult detail = backends.detail(ref);
+    if (!detail.detail) {
+        ++run.failed;
+        run.reasons.push_back(ref.name + " (" + detail.error.detail + ")");
+        return;
+    }
+    SkillInstallResult result;
+    const std::string failure = install_detail(cmd, cfg, *detail.detail, result, backends);
+    if (!failure.empty()) {
+        ++run.failed;
+        run.reasons.push_back(ref.name + " (" + failure + ")");
+        return;
+    }
+    ++run.installed;
+}
+
+int install_repo(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out,
+                 std::ostream& err, const SkillCliBackends& backends) {
+    if (!backends.list_repo) {
+        err << "skills install: this build cannot list a repository\n";
+        return 1;
+    }
+    std::string error;
+    const std::vector<SkillRef> refs = backends.list_repo(cmd.target, error);
+    if (refs.empty()) {
+        err << "skills install: " << (error.empty() ? "no skills in " + cmd.target : error) << "\n";
+        return 1;
+    }
+    RepoRun run;
+    for (const auto& ref : refs)
+        install_one_repo_skill(cmd, cfg, ref, backends, run);
+    if (cmd.json) {
+        out << json{{"installed", run.installed},
+                    {"skipped", run.skipped},
+                    {"failed", run.failed},
+                    {"reasons", run.reasons}}
+                   .dump(2)
+            << "\n";
+    } else {
+        out << run.installed << " installed, " << run.skipped << " skipped, " << run.failed
+            << " failed";
+        for (std::size_t i = 0; i < run.reasons.size(); ++i)
+            out << (i == 0 ? ": " : ", ") << run.reasons[i];
+        out << "\n";
+    }
+    return run.failed == 0 ? 0 : 1;
+}
+
 int install_registry(const SkillCliCommand& cmd, const Config& cfg, std::ostream& out,
                      std::ostream& err, const SkillCliBackends& backends) {
+    if (is_repo_target(cmd.target))
+        return install_repo(cmd, cfg, out, err, backends);
     SkillRef ref;
     std::string error;
     if (!split_target(cmd.target, ref, error)) {
@@ -718,6 +804,9 @@ SkillCliBackends default_backends(const Config& cfg) {
     };
     backends.install = [](const SkillInstallRequest& request) {
         return install_skill_files(request);
+    };
+    backends.list_repo = [github](const std::string& source, std::string& error) {
+        return github->list_skills(source, CancellationToken{}, error);
     };
     return backends;
 }

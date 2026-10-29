@@ -38,6 +38,12 @@ public:
                               const CancellationToken& cancel) const override;
     std::vector<SourceStatus> sources() const override;
 
+    // Every skill in one repository (each directory holding a SKILL.md), for
+    // "install this whole repo". Empty plus `error` when the repo has none: a
+    // request for a repository must not quietly install one guessed skill.
+    std::vector<SkillRef> list_skills(const std::string& source, const CancellationToken& cancel,
+                                      std::string& error) const;
+
 private:
     GithubOptions opts_;
     mutable long long last_fetch_ms_ = 0;

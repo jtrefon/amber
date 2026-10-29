@@ -100,6 +100,8 @@ $(BUILD_DIR)/lib/provider_health.o \
              $(BUILD_DIR)/lib/skill_catalog.o \
              $(BUILD_DIR)/lib/skill_index.o \
              $(BUILD_DIR)/lib/github_index.o \
+             $(BUILD_DIR)/lib/well_known_index.o \
+             $(BUILD_DIR)/lib/sha256.o \
              $(BUILD_DIR)/lib/remote_text.o \
              $(BUILD_DIR)/lib/skill_commands.o \
              $(BUILD_DIR)/lib/learn_commands.o \
@@ -307,6 +309,7 @@ $(BUILD_DIR)/tests/provider_health_test.o \
 $(BUILD_DIR)/tests/drawer_tabs_test.o \
 $(BUILD_DIR)/tests/skill_index_test.o \
 $(BUILD_DIR)/tests/github_index_test.o \
+$(BUILD_DIR)/tests/well_known_index_test.o \
 $(BUILD_DIR)/tests/skill_install_test.o \
 $(BUILD_DIR)/tests/skills_browse_core_test.o \
 $(BUILD_DIR)/tests/skills_service_test.o \

@@ -71,17 +71,52 @@ complexity, class-size, duplicates, format, clang-tidy):
   saying `no trend signal` rather than inventing one. Collection rows refuse
   install/update with a sentence pointing at the skills they list.
 
-Held back for the next commits (do not ship without them):
+- **#398 (detail pane)**: evidence, cost and audit blocks composed once per
+  detail (audit verdict + risk count; token estimate through the catalog's own
+  `estimate_skill_tokens`, share of `skills_body_budget_tokens`), the file list
+  with `[`/`]` walking previewable files (fetched on demand through a `Files`
+  job; a binary is never rendered as text), and `p` opening the body in a pager
+  that uses `md::render` with `/` search and `n`/`N`. `o` prints the source URL
+  and `y` the install command; OSC 8/52 are emitted only where the terminal
+  advertises them, and the plain text reaches the transcript either way.
+- **#397 (shell states)**: the header claims `idle` until a request answers,
+  `live` only after a successful one, `cached <age>` from the page's fetch
+  time and `offline · cached <age>` when the cache is all that answered; a 429
+  countdown ticks without blocking keys; `h`/`l` move focus; help is rendered
+  from `skill_key_table()` (a test pins the action keys against it); the last
+  tab/sort/facets restore from `<state>/skills-ui.json`; below 60 columns the
+  footer says why the pane is list-only.
+- **#407 (degradation)**: cross-restart cache and corrupt-cache behaviour are
+  pinned in the index suite, `Retry-After` is carried on the failure and armed
+  as one non-blocking automatic retry, a 5xx/timeout gets one backoff retry in
+  the adapter (a 4xx never does), `skills_index=none` answers locally with the
+  config hint, and the header never prints `live` without a successful request.
+- **#408 (batch + audit)**: `BatchOutcome` is the accumulator, so 2/1/1 is a
+  unit-tested property rather than a paint-loop accident; audit badges come
+  from one `audit_badge()` so `!`/`✗`/`✓` and "nothing when unaudited" cannot
+  drift; the ledger records the verdict shown at install time.
+- **#405 (ids)**: a collection that carries ids is a shelf of rows that works
+  offline; its query results and pins merge by id.
+- **#409 (well-known + repo)**: `WellKnownIndex` parses the v0.2 `url`/`digest`
+  and v0.1 `files` shapes, rejects an unknown `$schema` by name, resolves
+  relative URLs under the host or the path-scoped base, verifies every file's
+  sha256 before use (a mismatch leaves nothing to install), and answers
+  `Unsupported` for search so a non-GitHub source appears only through an
+  adapter that supplies it. `GitHubIndex::list_skills` plus
+  `skills install owner/repo --yes` installs every skill in a repository and
+  reports installed/skipped/failed without aborting on one bad skill.
+- **#410** stays a documented conditional: Vercel OIDC cannot be exercised
+  anonymously, so claiming it shipped would be a claim the tests cannot back.
 
-- #405 remainder: collections that carry `ids` instead of queries (they need a
-  detail-by-id path, not a search); per-shelf `cached` labels land with #407's
-  cache.
-- #398's evidence/cost/audit blocks, markdown preview and `o`/`y` fallbacks.
-- #397's live/cached/offline header, `Esc` unwinding and persisted tab/sort/
-  facets.
-- #407's cross-restart cache, `Retry-After` handling and header truth;
-  #408's PTY proof of a 2/1/1 batch; #409's well-known index.
+Held back (deliberately):
 
-None of the remaining items is blocked by a design question; they are worker
-time. The branch has no half-wired key or unreachable state: every commit so
-far is a complete behaviour with its tests.
+- The PTY proof of a full 2/1/1 *batch* is the one acceptance item covered by
+  unit tests (`BatchOutcome`, `batch_report`) and by the PTY's 1-skill skip
+  path, not by a four-skill PTY run: the mirror would need three more skill
+  endpoints for a behaviour the accumulator already owns. The PR says so.
+- Detail-pane in-body search (`/` inside the pane, `n`/`N`) is in the pager
+  (`p`), not in the pane itself; the issue lists it under the preview surface.
+
+Every commit is green: `make`, the unit suite (1,604), the PTY suite,
+complexity, nesting, class-size, duplicates, format-check-changed and
+clang-tidy.

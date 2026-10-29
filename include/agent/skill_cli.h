@@ -87,6 +87,9 @@ struct SkillCliBackends {
     std::function<IndexResult(const std::string&, int)> search;
     std::function<DetailResult(const SkillRef&)> detail;
     std::function<AssetsResult(const SkillDetail&)> assets;
+    // Every skill in a repository, for a bulk install. Empty plus `error` when
+    // the repository has none.
+    std::function<std::vector<SkillRef>(const std::string&, std::string&)> list_repo;
     std::function<SkillInstallResult(const SkillInstallRequest&)> install;
 };
 
