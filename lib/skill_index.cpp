@@ -164,6 +164,7 @@ std::optional<IndexResult> fresh_cache(const std::optional<CachedPage>& cached, 
     IndexResult parsed = parse_skills_search(cached->body, limit, true);
     if (!parsed.page)
         return std::nullopt;
+    parsed.page->fetched_at_ms = cached->fetched_at_ms;
     return parsed;
 }
 
@@ -175,6 +176,7 @@ IndexResult fallback_to_cache(const std::optional<CachedPage>& cached, int limit
         IndexResult parsed = parse_skills_search(cached->body, limit, true);
         if (parsed.page) {
             parsed.page->stale = true;
+            parsed.page->fetched_at_ms = cached->fetched_at_ms;
             parsed.error = std::move(f);
             return parsed;
         }

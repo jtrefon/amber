@@ -752,6 +752,7 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
     opts.project_root = paths.project;
     opts.global_root = paths.global;
     opts.cache_root = agent::skills_index_cache_dir();
+    opts.ui_state_path = agent::Workspace::state_dir() + "/skills-ui.json";
     // Shelf data. A missing or invalid file is reported once, here, and the
     // shelf simply has nothing to show.
     load_skill_shelves(opts);
@@ -773,6 +774,8 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
             [&name](const agent::ActivatedSkill& skill) { return skill.name == name; });
     };
     opts.budget = skill_budget_text(win().agent->skills());
+    opts.body_budget_tokens =
+        cfg_.skills_body_budget_tokens > 0 ? cfg_.skills_body_budget_tokens : 5000;
     opts.installed = [this, ledger] { return installed_skill_rows(win().agent->skills(), ledger); };
 }
 

@@ -229,7 +229,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o \
               $(BUILD_DIR)/tui/bracket_paste.o \
              $(BUILD_DIR)/tui/tool_display.o \
-             $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_explorer.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o \
+             $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_explorer.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o \
              $(BUILD_DIR)/tui/setting_registry.o \
              $(BUILD_DIR)/tui/help_page.o \
              $(BUILD_DIR)/tui/completion_context.o \

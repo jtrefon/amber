@@ -2355,6 +2355,25 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }
 
+// Below 60 columns the detail pane would eat the list, so the explorer is
+// list-only and says why instead of looking broken.
+TEST(skills_explorer_narrow_terminal_is_list_only_and_says_so) {
+    Tui tui;
+    tui.name = "skills_explorer_narrow_terminal_is_list_only_and_says_so";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 17, 58, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint at 58x17", tui))
+        return;
+    if (!require(tui.wait_for("list-only, 60x18", 5000), "the size hint did not paint", tui))
+        return;
+
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 // One hermetic pass through the whole acquisition loop: search the mirror,
 // load a detail, install at project scope, find it on the installed shelf,
 // notice a second revision, apply it, then remove it. The mirror serves the
@@ -2397,6 +2416,9 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
         return;
     }
 
+    if (!require(tui.wait_for("live", 5000), "the header never claimed a live source", tui))
+        return;
+
     tui.send("\r"); // leave the search field
     tui.pump(100);
     tui.send("\r"); // load the selected detail
@@ -2409,6 +2431,14 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     }
 
     if (!require(tui.wait_for("engineering (1)", 5000), "the category facet did not appear", tui))
+        return;
+    // The pane answers "should I install this?" with the blocks, not just the
+    // body: the audit verdict, the cost of the body, and the file list.
+    if (!require(tui.wait_for("Audit ", 5000), "the audit block did not paint", tui))
+        return;
+    if (!require(tui.wait_for("Cost ", 5000), "the cost block did not paint", tui))
+        return;
+    if (!require(tui.wait_for("SKILL.md", 5000), "the file row did not paint", tui))
         return;
 
     // A batch install refuses the same way the sheet does: an unread community

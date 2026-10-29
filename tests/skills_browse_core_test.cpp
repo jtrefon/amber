@@ -1,7 +1,9 @@
+#include "agent/skill_catalog.h"
 #include "tui/skills_browse_core.h"
 #include "tui/keys.h"
 #include "tests/test_util.h"
 
+#include <set>
 #include <string>
 #include <vector>
 
@@ -428,7 +430,7 @@ TEST(skills_filter_banner_names_a_live_query) {
     tui::SkillsBrowseCore core;
     ASSERT_TRUE(core.filter_banner().empty());
     core.set_rows(sample());
-    core.set_query_live(true);
+    core.set_live_query(true);
     ASSERT_TRUE(core.filter_banner().find("live query") != std::string::npos);
     core.toggle_facet(tui::FacetGroup::Category, "testing");
     ASSERT_TRUE(core.filter_banner().find("loaded results") != std::string::npos);
@@ -554,4 +556,227 @@ TEST(skills_shelf_merge_of_nothing_is_empty_not_an_error) {
     ASSERT_TRUE(merged.empty());
     ASSERT_FALSE(stale);
     ASSERT_TRUE(error.kind == agent::IndexError::None);
+}
+
+namespace {
+
+agent::SkillDetail rich_detail() {
+    agent::SkillDetail detail;
+    detail.ref.id = "mattpocock/skills/tdd";
+    detail.ref.name = "tdd";
+    detail.ref.source = "mattpocock/skills";
+    detail.ref.installs = 1144149;
+    detail.license = "MIT";
+    detail.category = "testing";
+    detail.default_branch = "main";
+    detail.skill_dir = "tdd";
+    detail.hash = "7f3a1b2c9d8e";
+    detail.body = std::string(7200, 'x');
+    detail.assets = {{"SKILL.md", 42000, "a"}, {"notes.pdf", 900, "b"}};
+    return detail;
+}
+
+} // namespace
+
+TEST(skills_detail_blocks_follow_the_spec_order) {
+    tui::DetailInstall install;
+    install.installed = true;
+    install.state = "enabled";
+    install.scope = "project";
+    install.update = true;
+    install.update_hash = "7f3a1b2cdeadbeef";
+    const tui::DetailBlocks blocks = tui::detail_blocks(rich_detail(), install, 5000, 0);
+
+    ASSERT_EQ(blocks.headline, std::string("1.1M installs · MIT"));
+    ASSERT_EQ(blocks.evidence.size(), static_cast<size_t>(5));
+    ASSERT_EQ(blocks.evidence[0], std::string("Installed · project · enabled"));
+    ASSERT_EQ(blocks.evidence[1], std::string("2 files · 41 KB"));
+    ASSERT_EQ(blocks.evidence[2], std::string("Category testing"));
+    ASSERT_EQ(blocks.evidence[3], std::string("update available (7f3a1b2c)"));
+    ASSERT_EQ(blocks.evidence[4], std::string("SKILL.md 7f3a1b2c9d8e"));
+    ASSERT_EQ(blocks.audit, std::string("not audited · no shell, network or path signals"));
+    ASSERT_EQ(blocks.cost, std::string("1.8k token body (36% of budget) · +1 discovery line"));
+}
+
+TEST(skills_detail_blocks_collapse_what_the_source_does_not_supply) {
+    agent::SkillDetail detail;
+    detail.ref.id = "acme/skills/thing";
+    detail.ref.name = "thing";
+    detail.ref.source = "acme/skills";
+    detail.ref.installs = 3;
+    const tui::DetailBlocks blocks = tui::detail_blocks(detail, tui::DetailInstall{}, 0, 0);
+    ASSERT_EQ(blocks.headline, std::string("3 installs"));
+    ASSERT_EQ(blocks.evidence.size(), static_cast<size_t>(1)); // just "Not installed"
+    ASSERT_EQ(blocks.evidence[0], std::string("Not installed"));
+    ASSERT_TRUE(blocks.cost.empty()); // nothing loaded, so no cost claim
+    ASSERT_EQ(blocks.audit, std::string("not audited · no shell, network or path signals"));
+}
+
+TEST(skills_detail_cost_matches_the_catalog_estimator) {
+    agent::SkillDetail detail;
+    detail.ref.id = "acme/skills/thing";
+    detail.body = std::string(4001, 'y'); // 1000 tokens, rounded up by integer division
+    const tui::DetailBlocks blocks = tui::detail_blocks(detail, tui::DetailInstall{}, 2000, 0);
+    const int tokens = agent::estimate_skill_tokens(detail.body);
+    ASSERT_EQ(tokens, 1000);
+    ASSERT_EQ(blocks.cost, "1k token body (50% of budget) · +1 discovery line");
+}
+
+TEST(skills_detail_audit_carries_the_verdict_note_and_risk_count) {
+    agent::SkillDetail detail = rich_detail();
+    detail.audit = agent::AuditVerdict::Warn;
+    detail.audit_note = "Socket: network access";
+    const tui::DetailBlocks blocks = tui::detail_blocks(detail, tui::DetailInstall{}, 5000, 2);
+    ASSERT_EQ(blocks.audit, std::string("warn · Socket: network access · 2 risk signals"));
+}
+
+TEST(skills_source_url_points_at_the_tree_or_the_host) {
+    agent::SkillDetail detail = rich_detail();
+    ASSERT_EQ(tui::source_url(detail),
+              std::string("https://github.com/mattpocock/skills/tree/main/tdd"));
+    detail.skill_dir.clear();
+    ASSERT_EQ(tui::source_url(detail), std::string("https://github.com/mattpocock/skills"));
+    agent::SkillDetail host;
+    host.ref.source = "skills.example.com";
+    ASSERT_EQ(tui::source_url(host), std::string("https://skills.example.com"));
+}
+
+TEST(skills_copy_payload_is_a_command_that_works_elsewhere) {
+    agent::SkillRef ref;
+    ref.id = "mattpocock/skills/tdd";
+    ASSERT_EQ(tui::copy_payload(ref),
+              std::string("amber-cli skills install mattpocock/skills/tdd"));
+}
+
+TEST(skills_file_list_names_sizes_and_refuses_binaries) {
+    const agent::SkillAsset md{"SKILL.md", 42000, "a"};
+    ASSERT_EQ(tui::asset_line(md), std::string("SKILL.md  41 KB"));
+    ASSERT_TRUE(tui::previewable_asset("SKILL.md"));
+    ASSERT_TRUE(tui::previewable_asset("scripts/run.sh"));
+    ASSERT_TRUE(tui::previewable_asset("assets/template.JSON"));
+    ASSERT_FALSE(tui::previewable_asset("logo.png"));
+    ASSERT_FALSE(tui::previewable_asset("bin/tool"));
+    ASSERT_FALSE(tui::previewable_asset("Makefile")); // no extension, not claimed as text
+}
+
+TEST(skills_file_navigation_skips_what_it_cannot_preview) {
+    const std::vector<agent::SkillAsset> assets = {{"SKILL.md", 10, "a"},
+                                                   {"logo.png", 20, "b"},
+                                                   {"notes.txt", 30, "c"},
+                                                   {"blob.bin", 40, "d"}};
+    ASSERT_EQ(tui::step_previewable(assets, 0, 1), static_cast<size_t>(2));
+    ASSERT_EQ(tui::step_previewable(assets, 2, -1), static_cast<size_t>(0));
+    ASSERT_EQ(tui::step_previewable(assets, 2, 1), static_cast<size_t>(2)); // nothing ahead
+    ASSERT_EQ(tui::step_previewable({}, 0, 1), static_cast<size_t>(0));
+}
+
+TEST(skills_base64_matches_rfc4648_vectors) {
+    ASSERT_EQ(tui::base64_encode(""), std::string());
+    ASSERT_EQ(tui::base64_encode("f"), std::string("Zg=="));
+    ASSERT_EQ(tui::base64_encode("fo"), std::string("Zm8="));
+    ASSERT_EQ(tui::base64_encode("foo"), std::string("Zm9v"));
+    ASSERT_EQ(tui::base64_encode("foobar"), std::string("Zm9vYmFy"));
+    ASSERT_EQ(tui::base64_encode(std::string("a\0b", 3)), std::string("YQBi"));
+}
+
+TEST(skills_osc_sequences_are_well_formed_and_conservative) {
+    ASSERT_EQ(tui::osc8_link("https://example.com", "example"),
+              std::string("\033]8;;https://example.com\033\\example\033]8;;\033\\"));
+    ASSERT_EQ(tui::osc52_copy("hi"), std::string("\033]52;c;aGk=\a"));
+    ASSERT_TRUE(tui::osc52_copy(std::string(70000, 'x')).empty()); // refused, not truncated
+    ASSERT_TRUE(tui::supports_osc8("xterm-kitty", ""));
+    ASSERT_TRUE(tui::supports_osc8("", "iTerm.app"));
+    ASSERT_FALSE(tui::supports_osc8("xterm-256color", ""));
+    ASSERT_FALSE(tui::supports_osc8("dumb", ""));
+}
+
+TEST(skills_header_never_claims_live_for_a_cached_page) {
+    const agent::IndexFailure none;
+    ASSERT_EQ(tui::source_state(false, 0, none, 1000000), std::string("live"));
+    ASSERT_EQ(tui::source_state(true, 760000, none, 1000000), std::string("cached 4m"));
+    ASSERT_EQ(tui::source_state(true, 988000, none, 1000000), std::string("cached 12s"));
+    ASSERT_EQ(tui::source_state(true, 0, none, 1000000), std::string("cached"));
+    ASSERT_EQ(tui::source_state(true, 0, none, 0), std::string("cached"));
+
+    agent::IndexFailure offline;
+    offline.kind = agent::IndexError::Offline;
+    ASSERT_EQ(tui::source_state(false, 0, offline, 1000000), std::string("offline"));
+    // Rows from the cache stay "cached" even when the live request also failed.
+    ASSERT_EQ(tui::source_state(true, 400000, offline, 1000000), std::string("cached 10m"));
+
+    agent::IndexFailure disabled;
+    disabled.kind = agent::IndexError::Disabled;
+    ASSERT_EQ(tui::source_state(false, 0, disabled, 1000000), std::string("disabled"));
+
+    agent::IndexFailure http;
+    http.kind = agent::IndexError::Http;
+    http.status = 500;
+    ASSERT_EQ(tui::source_state(false, 0, http, 1000000), std::string("error"));
+}
+
+TEST(skills_rate_limit_countdown_ticks_and_expires) {
+    ASSERT_EQ(tui::retry_countdown(30, 1000000, 1000000), std::string("in 30s"));
+    ASSERT_EQ(tui::retry_countdown(30, 1000000, 1012500), std::string("in 18s"));
+    ASSERT_TRUE(tui::retry_countdown(30, 1000000, 1031000).empty());
+    ASSERT_TRUE(tui::retry_countdown(0, 1000000, 1000000).empty());
+    ASSERT_TRUE(tui::retry_countdown(30, 0, 1000000).empty());
+}
+
+TEST(skills_ui_state_round_trips_and_forgives_garbage) {
+    tui::SkillsUiState state;
+    state.tab = tui::SkillTab::Official;
+    state.sort = tui::SkillSort::Name;
+    state.facets[tui::FacetGroup::Category] = {"testing", "docs"};
+    state.facets[tui::FacetGroup::Status] = {"installed"};
+    const tui::SkillsUiState parsed = tui::parse_ui_state(tui::serialize_ui_state(state));
+    ASSERT_TRUE(parsed.tab == tui::SkillTab::Official);
+    ASSERT_TRUE(parsed.sort == tui::SkillSort::Name);
+    ASSERT_EQ(parsed.facets.at(tui::FacetGroup::Category).size(), static_cast<size_t>(2));
+    ASSERT_TRUE(parsed.facets.at(tui::FacetGroup::Status).count("installed") == 1);
+
+    const tui::SkillsUiState defaults = tui::parse_ui_state("not json");
+    ASSERT_TRUE(defaults.tab == tui::SkillTab::Top);
+    ASSERT_TRUE(defaults.sort == tui::SkillSort::Installs);
+    ASSERT_TRUE(defaults.facets.empty());
+
+    const tui::SkillsUiState range = tui::parse_ui_state("{\"tab\": 99, \"sort\": -4}");
+    ASSERT_TRUE(range.tab == tui::SkillTab::Top);
+    ASSERT_TRUE(range.sort == tui::SkillSort::Installs);
+}
+
+TEST(skills_help_table_documents_every_action_key) {
+    const auto& table = tui::skill_key_table();
+    std::set<std::string> documented;
+    for (const auto& row : table) {
+        ASSERT_TRUE(documented.insert(row.key).second); // no duplicate rows
+        ASSERT_FALSE(std::string(row.what).empty());
+    }
+    for (const char* key : {"i", "u / U", "D",     "x / b", "A",     "d",     "p",    "v", "o",
+                            "y", "[ / ]", "/",     "Enter", "Tab",   "Esc",   "1..7", "s", "f",
+                            "r", "?",     "Space", "a",     "g / G", "h / l", "j / k"}) {
+        ASSERT_TRUE(documented.count(key) == 1);
+    }
+    bool install_equivalent = false;
+    for (const auto& row : table) {
+        if (std::string(row.key) == "i")
+            install_equivalent =
+                std::string(row.equivalent).find("/skills install") != std::string::npos;
+    }
+    ASSERT_TRUE(install_equivalent);
+}
+
+TEST(skills_focus_moves_with_h_and_l_and_unwinds) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    core.set_pane(tui::SkillPane::List);
+    core.key('l');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Detail);
+    core.key('h');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::List);
+    core.key('h');
+    ASSERT_TRUE(core.pane() == tui::SkillPane::Search);
+    // Esc leaves the search field, then the list closes the browser.
+    ASSERT_TRUE(core.key(27).kind == tui::SkillIntent::Kind::None);
+    ASSERT_TRUE(core.pane() == tui::SkillPane::List);
+    ASSERT_TRUE(core.key(27).kind == tui::SkillIntent::Kind::Close);
 }

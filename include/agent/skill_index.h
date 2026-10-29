@@ -26,8 +26,9 @@ struct SkillRef {
 struct SkillPage {
     std::vector<SkillRef> skills;
     int total = 0;
-    bool cached = false; // served from the on-disk cache
-    bool stale = false;  // cache older than the TTL, served because live failed
+    bool cached = false;         // served from the on-disk cache
+    bool stale = false;          // cache older than the TTL, served because live failed
+    long long fetched_at_ms = 0; // when the cached page was fetched; 0 for a live page
 };
 
 enum class IndexError : unsigned char {

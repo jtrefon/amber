@@ -21,6 +21,8 @@ struct SkillsExplorerOptions {
     std::string project_root; // <project>/.amber/skills
     std::string global_root;  // ~/.config/amber/skills
     std::string cache_root;
+    // Where the last shelf, sort and facets are remembered between opens.
+    std::string ui_state_path;
     std::string token;
     // Mirror/self-hosted endpoints; empty keeps the public defaults.
     std::string index_base;
@@ -43,6 +45,7 @@ struct SkillsExplorerOptions {
     bool update_check_disabled = false; // `skills_update_check = never`
     bool audit_required = false;        // `skills_audit_required`
     bool index_disabled = false;        // `skills_index = none`
+    int body_budget_tokens = 5000;      // `skills_body_budget_tokens`, for the cost block
     std::string github_token;           // separate from the index token when configured
     // Shelf data, loaded once by the host so a bad file is reported once, not
     // per repaint.

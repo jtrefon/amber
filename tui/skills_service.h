@@ -30,13 +30,18 @@ struct SkillsBackends {
 };
 
 struct SkillsEvent {
-    enum class Kind : unsigned char { SearchDone, DetailDone, InstallDone };
+    enum class Kind : unsigned char { SearchDone, DetailDone, FilesDone, InstallDone };
 
     Kind kind = Kind::SearchDone;
     std::string query;
     agent::IndexResult search;
     agent::DetailResult detail;
     agent::SkillInstallResult install;
+    // The files of one skill, in answer to a `files()` request. Kept apart from
+    // the detail because a preview of a second file should not re-fetch the
+    // body the detail already carries.
+    agent::AssetsResult files;
+    std::string detail_id;
     std::string name;
     bool ledger_saved = false;
 };
@@ -55,6 +60,9 @@ public:
 
     void search(std::string query, int limit = 30);
     void detail(agent::SkillRef ref);
+    // Every file's bytes for one skill, on demand (a preview of a file other
+    // than SKILL.md).
+    void files(agent::SkillDetail detail);
     void install(agent::SkillDetail detail, std::string name, std::string root, bool replace,
                  bool enabled);
 
@@ -66,7 +74,7 @@ public:
 
 private:
     struct Job {
-        enum class Kind : unsigned char { Search, Detail, Install };
+        enum class Kind : unsigned char { Search, Detail, Files, Install };
 
         Kind kind = Kind::Search;
         std::string text;
@@ -83,6 +91,10 @@ private:
     void post(Job job, bool drop_queued_of_kind);
     void work();
     void run(const Job& job);
+    void run_search(const Job& job);
+    void run_detail(const Job& job);
+    void run_files(const Job& job);
+    void run_install_job(const Job& job);
     void emit(SkillsEvent event);
     agent::SkillInstallResult run_install(const Job& job, bool& ledger_saved);
     agent::LedgerEntry entry_for(const Job& job, const agent::SkillInstallResult& result,

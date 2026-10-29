@@ -341,8 +341,12 @@ void SkillCatalog::apply_override_state(const std::string& name, std::string& st
         state = kBlocked;
 }
 
-int SkillCatalog::estimate_tokens(const std::string& text) noexcept {
+int estimate_skill_tokens(const std::string& text) noexcept {
     return static_cast<int>(text.size() / 4);
+}
+
+int SkillCatalog::estimate_tokens(const std::string& text) noexcept {
+    return estimate_skill_tokens(text);
 }
 
 } // namespace agent

@@ -1,8 +1,11 @@
 #include "tui/skills_explorer.h"
 
 #include "agent/github_index.h"
+#include "agent/private_file.h"
 #include "agent/skill_install.h"
 #include "tui/dialog.h"
+#include "tui/keys.h"
+#include "tui/skills_detail_view.h"
 #include "tui/skills_lifecycle.h"
 #include "tui/skills_service.h"
 #include "tui/skills_sheet_view.h"
@@ -11,6 +14,7 @@
 #include <deque>
 #include <chrono>
 #include <filesystem>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -78,6 +82,17 @@ agent::SkillRef ref_from_id(const std::string& id) {
     if (slash != std::string::npos)
         ref.source = id.substr(0, slash);
     return ref;
+}
+
+long long now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+std::string env_or_empty(const char* name) {
+    const char* value = std::getenv(name);
+    return value ? std::string(value) : std::string();
 }
 
 const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::string& name) {
@@ -156,59 +171,6 @@ void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, RowFlags 
     mvwaddnstr(w, y, x + tail_x, tail.c_str(), static_cast<int>(tail.size()));
     if (flags.selected)
         wattroff(w, A_REVERSE);
-}
-
-struct SkillDetailView {
-    std::string id;
-    std::string name;
-    std::string source;
-    std::string meta;
-    std::string description;
-    std::string category;
-    std::string hash;
-    int files = 0;
-};
-
-SkillDetailView view_of(const agent::SkillDetail& detail) {
-    SkillDetailView view;
-    view.id = detail.ref.id;
-    view.name = detail.ref.name;
-    view.source = detail.ref.source;
-    view.meta = compact_installs(detail.ref.installs) + " installs";
-    if (!detail.license.empty())
-        view.meta += " · " + detail.license;
-    view.description = detail.description;
-    view.category = detail.category;
-    view.hash = detail.hash;
-    view.files = static_cast<int>(detail.assets.size());
-    return view;
-}
-
-void draw_detail(WINDOW* w, int top, int left, int height, int width,
-                 const std::optional<SkillDetailView>& detail) {
-    if (width < 12 || height < 3)
-        return;
-    if (!detail) {
-        mvwaddnstr(w, top, left, "Enter to load details", width);
-        return;
-    }
-    int y = top;
-    mvwaddnstr(w, y++, left, detail->name.c_str(), width);
-    mvwaddnstr(w, y++, left, detail->source.c_str(), width);
-    mvwaddnstr(w, y++, left, detail->meta.c_str(), width);
-    if (!detail->description.empty()) {
-        ++y;
-        mvwaddnstr(w, y++, left, detail->description.c_str(), width);
-    }
-    if (!detail->category.empty()) {
-        const std::string line = "Category  " + detail->category;
-        mvwaddnstr(w, y++, left, line.c_str(), width);
-    }
-    mvwaddnstr(w, y++, left, ("Files     " + std::to_string(detail->files)).c_str(), width);
-    if (!detail->hash.empty())
-        mvwaddnstr(w, y++, left, ("Hash      " + detail->hash.substr(0, 12)).c_str(), width);
-    if (y < top + height)
-        mvwaddnstr(w, y, left, "i installs · Esc back", width);
 }
 
 InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string& name) {
@@ -320,25 +282,38 @@ void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& quer
 }
 
 void paint_detail_pane(WINDOW* w, const SkillsBrowseCore& core,
-                       const std::map<std::string, SkillDetailView>& details,
-                       const ListRect& rect) {
+                       const std::map<std::string, DetailView>& details, const ListRect& rect) {
     if (rect.width < 12)
         return;
-    std::optional<SkillDetailView> view;
-    if (const auto current = core.current()) {
-        const auto it = details.find(current->ref.id);
-        if (it != details.end())
-            view = it->second;
+    const auto current = core.current();
+    if (!current) {
+        mvwaddnstr(w, rect.y, rect.x, "Enter to load details", std::max(0, rect.width - 1));
+        return;
     }
-    draw_detail(w, rect.y, rect.x, rect.height, rect.width, view);
+    const auto it = details.find(current->ref.id);
+    if (it == details.end()) {
+        mvwaddnstr(w, rect.y, rect.x, "Enter to load details", std::max(0, rect.width - 1));
+        return;
+    }
+    draw_detail_pane(w, DetailRect{rect.y, rect.x, rect.height, rect.width}, it->second,
+                     core.detail_scroll());
 }
 
-std::string explorer_footer(const SkillsBrowseCore& core, const std::string& last_status) {
+std::string explorer_footer(const SkillsBrowseCore& core, const std::string& last_status,
+                            long long error_at_ms) {
     std::string footer;
     if (!core.marks().empty())
         footer = std::to_string(core.marks().size()) + " marked · i installs all · Space marks  ";
-    footer +=
-        core.error().kind != agent::IndexError::None ? failure_text(core.error()) : last_status;
+    if (core.error().kind == agent::IndexError::None) {
+        footer += last_status;
+        return footer;
+    }
+    if (core.error().kind == agent::IndexError::RateLimited) {
+        const std::string left = retry_countdown(core.error().retry_after_s, error_at_ms, now_ms());
+        footer += left.empty() ? "rate limited · R retries" : "rate limited, retry " + left;
+        return footer;
+    }
+    footer += failure_text(core.error());
     return footer;
 }
 
@@ -354,22 +329,34 @@ const char* sort_name(SkillSort sort) {
     return "?";
 }
 
+struct ExplorerStatus {
+    std::string line;
+    long long error_at_ms = 0;
+};
+
+void paint_search_line(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
+                       int width) {
+    const std::string field = query.empty() ? "type to search (2+ chars)" : query;
+    // The right-hand status is a claim about the rows, so it never says live for
+    // a page that came from the cache or after a failed request.
+    const std::string state =
+        source_state(core.cached(), core.fetched_at_ms(), core.error(), now_ms());
+    const int state_x = std::max(0, width - static_cast<int>(state.size()) - 1);
+    mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, state_x - 2));
+    mvwaddnstr(w, 0, state_x, state.c_str(), static_cast<int>(state.size()));
+    const std::string sort_label = std::string("sort: ") + sort_name(core.sort());
+    mvwaddnstr(w, 0, std::max(0, state_x - static_cast<int>(sort_label.size()) - 2),
+               sort_label.c_str(), static_cast<int>(sort_label.size()));
+}
+
 void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
-                    const std::string& last_status,
-                    const std::map<std::string, SkillDetailView>& details,
+                    const ExplorerStatus& status, const std::map<std::string, DetailView>& details,
                     const std::string& budget) {
     const int aw = getmaxx(w);
     const int ah = getmaxy(w);
     werase(w);
 
-    const std::string field = query.empty() ? "type to search (2+ chars)" : query;
-    mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, aw - 24));
-    if (core.stale())
-        mvwaddnstr(w, 0, std::max(0, aw - 8), "[cached]", 8);
-    const std::string sort_label = std::string("sort: ") + sort_name(core.sort());
-    mvwaddnstr(w, 0, std::max(0, aw - static_cast<int>(sort_label.size()) - 1), sort_label.c_str(),
-               static_cast<int>(sort_label.size()));
-
+    paint_search_line(w, core, query, aw);
     draw_tabs(w, 1, aw, core.tab());
     if (!budget.empty() && (core.tab() == SkillTab::Installed || core.tab() == SkillTab::Updates))
         mvwaddnstr(w, 1, std::max(0, aw - static_cast<int>(budget.size()) - 1), budget.c_str(),
@@ -388,7 +375,14 @@ void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& 
     if (layout.show_facets)
         draw_facets(w, core, top, height, facet_w - 1);
     paint_rows(w, core, query, ListRect{list_x, top, list_w, height});
-    const std::string footer = explorer_footer(core, last_status);
+    std::string footer = explorer_footer(core, status.line, status.error_at_ms);
+    if (!layout.show_detail) {
+        // Say why the pane is missing instead of letting it look broken.
+        const std::string hint =
+            " · " + std::to_string(aw) + "x" + std::to_string(ah) + " is list-only, 60x18 + detail";
+        if (static_cast<int>(footer.size() + hint.size()) < aw)
+            footer += hint;
+    }
     if (!footer.empty())
         mvwaddnstr(w, top + height, 0, footer.c_str(), std::max(0, aw - 1));
 
@@ -441,7 +435,8 @@ public:
 
     void run() {
         while (true) {
-            paint_explorer(dlg_->content(), core_, query_, last_status_, details_, options_.budget);
+            paint_explorer(dlg_->content(), core_, query_,
+                           ExplorerStatus{last_status_, error_at_ms_}, details_, options_.budget);
             const int ch = wgetch(dlg_->win());
             if (ch == ERR) {
                 tick();
@@ -506,6 +501,8 @@ private:
     bool layout_shows_facets() const;
     bool facet_overlay();
     void apply_initial_state();
+    void restore_ui_state();
+    void save_ui_state() const;
     void apply_tab(SkillTab tab);
     void tick();
     void on_search(const SkillsEvent& event);
@@ -530,8 +527,19 @@ private:
     void review_pending_update(const agent::SkillDetail& detail);
     bool install_batched(const agent::SkillDetail& detail);
     bool apply_lifecycle(const SkillIntent& intent);
+    bool apply_inspect(const SkillIntent& intent, const SkillRow& row);
     bool preview(const SkillRow& row);
+    bool change_file(const SkillRow& row, int step);
+    std::string preview_path(const std::string& id) const;
+    const std::string* preview_bytes(const std::string& id, const std::string& path) const;
+    bool source_url_of(const SkillRow& row);
+    bool copy_current(const SkillRow& row);
     bool audit(const SkillRow& row);
+    void rebuild_detail(const std::string& id);
+    bool ensure_files(const std::string& id);
+    DetailInstall install_state(const std::string& name) const;
+    void queue_transcript(const std::string& line);
+    void on_files(const SkillsEvent& event);
     void remove_current(const SkillRow& row);
     void show_review(const agent::UpdateReview& review);
     void update_all();
@@ -549,8 +557,14 @@ private:
     SkillsBrowseCore core_;
     std::vector<SkillRow> installed_rows_;
     std::set<std::string> installed_names_;
-    std::map<std::string, SkillDetailView> details_;
+    std::map<std::string, DetailView> details_;
     std::map<std::string, agent::SkillDetail> raw_details_;
+    // File bytes, fetched on demand the first time a second file is previewed.
+    std::map<std::string, std::map<std::string, std::string>> file_bytes_;
+    std::map<std::string, std::size_t> file_index_;
+    std::string pending_files_;
+    std::vector<std::string> transcript_;
+    long long error_at_ms_ = 0;
     std::string query_;
     std::string pending_install_;
     std::string pending_update_;
@@ -579,9 +593,35 @@ private:
     Clock::time_point last_input_{};
 };
 
+void SkillsExplorer::restore_ui_state() {
+    if (options_.ui_state_path.empty())
+        return;
+    std::ifstream in(options_.ui_state_path, std::ios::binary);
+    if (!in)
+        return;
+    const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    core_.apply_ui_state(parse_ui_state(text));
+}
+
+void SkillsExplorer::save_ui_state() const {
+    if (options_.ui_state_path.empty())
+        return;
+    const std::filesystem::path path(options_.ui_state_path);
+    std::error_code ec;
+    if (path.has_parent_path())
+        std::filesystem::create_directories(path.parent_path(), ec);
+    agent::write_private_file(options_.ui_state_path, serialize_ui_state(core_.ui_state()));
+}
+
 void SkillsExplorer::apply_initial_state() {
-    core_.set_sort(SkillSort::Relevance);
-    core_.set_tab(options_.initial_tab);
+    restore_ui_state();
+    // An explicit request (`/skills installed`, `/skills search`) wins over the
+    // remembered shelf; everything else keeps what the last session chose.
+    const bool explicit_intent = options_.initial_tab != SkillTab::Top ||
+                                 !options_.initial_query.empty() ||
+                                 !options_.initial_filter.empty() || !options_.install_id.empty();
+    if (explicit_intent)
+        core_.set_tab(options_.initial_tab);
     if (!options_.initial_query.empty()) {
         core_.set_filter(options_.initial_query);
         query_ = options_.initial_query;
@@ -759,10 +799,25 @@ bool SkillsExplorer::apply_lifecycle(const SkillIntent& intent) {
         return apply_override(*row, false);
     case SkillIntent::Kind::Block:
         return apply_override(*row, true);
+    default:
+        return apply_inspect(intent, *row);
+    }
+}
+
+bool SkillsExplorer::apply_inspect(const SkillIntent& intent, const SkillRow& row) {
+    switch (intent.kind) {
     case SkillIntent::Kind::Preview:
-        return preview(*row);
+        return preview(row);
+    case SkillIntent::Kind::FileNext:
+        return change_file(row, 1);
+    case SkillIntent::Kind::FilePrev:
+        return change_file(row, -1);
+    case SkillIntent::Kind::SourceUrl:
+        return source_url_of(row);
+    case SkillIntent::Kind::Copy:
+        return copy_current(row);
     case SkillIntent::Kind::Audit:
-        return audit(*row);
+        return audit(row);
     default:
         last_status_ = "not available yet";
         return true;
@@ -778,10 +833,163 @@ bool SkillsExplorer::preview(const SkillRow& row) {
         last_status_ = "loading body...";
         return true;
     }
+    const std::string path = preview_path(row.ref.id);
+    const std::string* bytes = preview_bytes(row.ref.id, path);
+    if (!bytes && path != "SKILL.md") {
+        pending_preview_ = row.ref.id;
+        ensure_files(row.ref.id);
+        return true;
+    }
     previewed_.insert(row.ref.name);
-    run_body_preview(row.ref.name, raw->second.body);
+    run_body_preview(row.ref.name + "  \u00b7  " + path, bytes ? *bytes : raw->second.body);
     last_status_ = "preview closed";
     return true;
+}
+
+std::string SkillsExplorer::preview_path(const std::string& id) const {
+    const auto raw = raw_details_.find(id);
+    if (raw == raw_details_.end() || raw->second.assets.empty())
+        return "SKILL.md";
+    const auto it = file_index_.find(id);
+    const std::size_t index =
+        it == file_index_.end() ? 0 : std::min(it->second, raw->second.assets.size() - 1);
+    return raw->second.assets[index].path;
+}
+
+const std::string* SkillsExplorer::preview_bytes(const std::string& id,
+                                                 const std::string& path) const {
+    const auto files = file_bytes_.find(id);
+    if (files != file_bytes_.end()) {
+        const auto it = files->second.find(path);
+        if (it != files->second.end())
+            return &it->second;
+    }
+    if (path != "SKILL.md")
+        return nullptr;
+    const auto raw = raw_details_.find(id);
+    return raw == raw_details_.end() ? nullptr : &raw->second.body;
+}
+
+bool SkillsExplorer::change_file(const SkillRow& row, int step) {
+    const auto raw = raw_details_.find(row.ref.id);
+    if (raw == raw_details_.end()) {
+        last_status_ = "load details first (Enter)";
+        return true;
+    }
+    const auto& assets = raw->second.assets;
+    if (assets.empty()) {
+        last_status_ = "this skill lists no files";
+        return true;
+    }
+    const auto it = file_index_.find(row.ref.id);
+    const std::size_t from = it == file_index_.end() ? 0 : std::min(it->second, assets.size() - 1);
+    const std::size_t next = step_previewable(assets, from, step);
+    if (next == from) {
+        last_status_ = "no other text file to preview";
+        return true;
+    }
+    file_index_[row.ref.id] = next;
+    rebuild_detail(row.ref.id);
+    if (!preview_bytes(row.ref.id, assets[next].path))
+        ensure_files(row.ref.id);
+    last_status_ = "file " + assets[next].path;
+    return true;
+}
+
+bool SkillsExplorer::ensure_files(const std::string& id) {
+    if (file_bytes_.count(id) != 0)
+        return true;
+    const auto raw = raw_details_.find(id);
+    if (raw == raw_details_.end())
+        return false;
+    pending_files_ = id;
+    service_->files(raw->second);
+    last_status_ = "loading files...";
+    return false;
+}
+
+bool SkillsExplorer::source_url_of(const SkillRow& row) {
+    const auto raw = raw_details_.find(row.ref.id);
+    if (raw == raw_details_.end()) {
+        last_status_ = "load details first (Enter)";
+        return true;
+    }
+    const std::string url = source_url(raw->second);
+    if (url.empty()) {
+        last_status_ = "this row has no source URL";
+        return true;
+    }
+    // The link escape is best-effort for the terminal's own scrollback; the
+    // plain URL always reaches the transcript.
+    if (supports_osc8(env_or_empty("TERM"), env_or_empty("TERM_PROGRAM")))
+        std::fputs(osc8_link(url, url).c_str(), stderr);
+    queue_transcript("source: " + url);
+    last_status_ = "source: " + url;
+    return true;
+}
+
+bool SkillsExplorer::copy_current(const SkillRow& row) {
+    const std::string payload = copy_payload(row.ref);
+    const std::string sequence = osc52_copy(payload);
+    const bool copied =
+        !sequence.empty() && supports_osc8(env_or_empty("TERM"), env_or_empty("TERM_PROGRAM"));
+    if (copied)
+        std::fputs(sequence.c_str(), stderr);
+    queue_transcript((copied ? "copied: " : "copy: ") + payload);
+    last_status_ = (copied ? "copied: " : "copy: ") + payload;
+    return true;
+}
+
+void SkillsExplorer::queue_transcript(const std::string& line) {
+    transcript_.push_back(line);
+}
+
+void SkillsExplorer::on_files(const SkillsEvent& event) {
+    if (pending_files_ == event.detail_id)
+        pending_files_.clear();
+    if (!event.files.files) {
+        last_status_ = failure_text(event.files.error);
+        return;
+    }
+    auto& cache = file_bytes_[event.detail_id];
+    cache.clear();
+    for (const auto& file : *event.files.files)
+        cache[file.path] = file.contents;
+    rebuild_detail(event.detail_id);
+    if (pending_preview_ == event.detail_id) {
+        pending_preview_.clear();
+        if (const auto row = find_row(event.detail_id))
+            preview(*row);
+        return;
+    }
+    last_status_ = std::to_string(cache.size()) + " files loaded";
+}
+
+DetailInstall SkillsExplorer::install_state(const std::string& name) const {
+    DetailInstall install;
+    const SkillRow* row = installed_row(installed_rows_, name);
+    if (!row)
+        return install;
+    install.installed = true;
+    install.state = row->state;
+    install.update = row->update;
+    std::error_code ec;
+    if (std::filesystem::exists(options_.global_root + "/" + name, ec))
+        install.scope = "global";
+    else if (std::filesystem::exists(options_.project_root + "/" + name, ec))
+        install.scope = "project";
+    return install;
+}
+
+void SkillsExplorer::rebuild_detail(const std::string& id) {
+    const auto raw = raw_details_.find(id);
+    if (raw == raw_details_.end())
+        return;
+    const auto files = file_bytes_.find(id);
+    const std::map<std::string, std::string>* bytes =
+        files == file_bytes_.end() ? nullptr : &files->second;
+    details_[id] = build_detail_view(raw->second, install_state(raw->second.ref.name),
+                                     options_.body_budget_tokens, bytes, file_index_[id]);
 }
 
 bool SkillsExplorer::audit(const SkillRow& row) {
@@ -958,8 +1166,13 @@ void SkillsExplorer::shelf_done() {
             return a.ref.installs > b.ref.installs;
         });
     }
-    core_.set_rows(std::move(merged), stale, error);
-    core_.set_query_live(false);
+    if (error.kind != agent::IndexError::None)
+        error_at_ms_ = now_ms();
+    // A shelf is assembled from several pages; if any came from the cache the
+    // header says so rather than claiming the whole shelf is live.
+    core_.set_rows(std::move(merged), stale, error, stale);
+    core_.set_live_query(false);
+
     last_status_ =
         shelf_reason_.empty() ? std::to_string(core_.visible_count()) + " results" : shelf_reason_;
 }
@@ -1013,40 +1226,66 @@ bool SkillsExplorer::facet_overlay() {
     }
 }
 
-void SkillsExplorer::help() const {
-    Dialog dlg(std::min(18, options_.rows - 2), std::min(64, options_.cols - 4), "Skills keys");
-    dlg.set_footer({{"Esc", "close"}});
-    WINDOW* w = dlg.content();
-    const char* lines[] = {
-        "/          focus the search field",
-        "Enter      leave search / load the selected detail",
-        "i          install sheet (review gate)",
-        "p          preview the body",
-        "v          audit readout (risk signals)",
-        "u          review an update; u again applies",
-        "U          apply every reviewed update",
-        "d          diff installed vs remote",
-        "D          remove the selected skill",
-        "x / b      disable / block",
-        "A          adopt an unmanaged directory",
-        "Space      mark a row; a marks the visible ones",
-        "i          install the marked rows, or open the sheet",
-        "1..7       shelves (Top, Installed, Updates have data)",
-        "s          cycle sort: relevance, installs, name",
-        "Tab        move focus between panes",
-        "?          this help; Esc closes",
-    };
-    int y = 0;
-    for (const char* line : lines) {
-        if (y >= dlg.rows() - 2)
-            break;
-        mvwaddnstr(w, y++, 0, line, dlg.cols() - 2);
+std::string help_line(const SkillKeyDoc& doc) {
+    std::string line = doc.key;
+    line.resize(std::max<std::size_t>(line.size(), 16), ' ');
+    line += doc.what;
+    if (*doc.equivalent != '\0') {
+        line += "  [";
+        line += doc.equivalent;
+        line += "]";
     }
+    return line;
+}
+
+void paint_help(WINDOW* w, const std::vector<SkillKeyDoc>& table, int top, int height, int width) {
+    werase(w);
+    for (int i = 0; i < height; ++i) {
+        const auto index = static_cast<std::size_t>(top) + static_cast<std::size_t>(i);
+        if (index >= table.size())
+            break;
+        mvwaddnstr(w, i, 0, help_line(table[index]).c_str(), width);
+    }
+    wrefresh(w);
+}
+
+int help_top(int ch, int top, int count, int height) {
+    const int last = std::max(0, count - height);
+    switch (ch) {
+    case 'j':
+    case keys::kDown:
+        return std::min(last, top + 1);
+    case 'k':
+    case keys::kUp:
+        return std::max(0, top - 1);
+    case ' ':
+    case keys::kNPage:
+        return std::min(last, top + height);
+    case 'b':
+    case keys::kPPage:
+        return std::max(0, top - height);
+    default:
+        return top;
+    }
+}
+
+void SkillsExplorer::help() const {
+    Dialog dlg(std::min(20, options_.rows - 2), std::min(78, options_.cols - 4), "Skills keys");
+    dlg.set_footer({{"j/k", "scroll"}, {"Esc", "close"}});
+    WINDOW* w = dlg.content();
+    const int width = std::max(10, dlg.cols() - 2);
+    const int height = std::max(1, dlg.rows() - 2);
+    const auto& table = skill_key_table();
+    int top = 0;
     dlg.show();
     while (true) {
+        paint_help(w, table, top, height, width);
         const int ch = wgetch(w);
+        if (ch == ERR)
+            continue;
         if (ch == 27 || ch == 'q' || ch == '?')
             return;
+        top = help_top(ch, top, static_cast<int>(table.size()), height);
     }
 }
 
@@ -1065,6 +1304,8 @@ void SkillsExplorer::tick() {
             on_search(event);
         else if (event.kind == SkillsEvent::Kind::DetailDone)
             on_detail(event);
+        else if (event.kind == SkillsEvent::Kind::FilesDone)
+            on_files(event);
         else if (event.kind == SkillsEvent::Kind::InstallDone)
             on_install(event);
     }
@@ -1087,7 +1328,9 @@ void SkillsExplorer::on_search(const SkillsEvent& event) {
     if (event.query != query_)
         return;
     if (!event.search.page) {
-        core_.set_rows({}, false, event.search.error);
+        error_at_ms_ = now_ms();
+        core_.set_rows({}, event.search.error.kind == agent::IndexError::RateLimited,
+                       event.search.error);
         last_status_ = failure_text(event.search.error);
         return;
     }
@@ -1095,7 +1338,10 @@ void SkillsExplorer::on_search(const SkillsEvent& event) {
     rows.reserve(event.search.page->skills.size());
     for (const auto& ref : event.search.page->skills)
         rows.push_back(decorate(ref));
-    core_.set_rows(std::move(rows), event.search.page->cached);
+    if (event.search.error.kind != agent::IndexError::None)
+        error_at_ms_ = now_ms();
+    core_.set_rows(std::move(rows), event.search.error.kind != agent::IndexError::None,
+                   event.search.error, event.search.page->cached, event.search.page->fetched_at_ms);
     last_status_ = std::to_string(event.search.page->skills.size()) + " results";
 }
 
@@ -1133,8 +1379,8 @@ void SkillsExplorer::on_detail(const SkillsEvent& event) {
         return;
     }
     const agent::SkillDetail& detail = *event.detail.detail;
-    details_[detail.ref.id] = view_of(detail);
     raw_details_[detail.ref.id] = detail;
+    rebuild_detail(detail.ref.id);
     core_.set_row_category(detail.ref.id, detail.category);
     last_status_ = "loaded " + detail.ref.name;
     if (pending_preview_ == detail.ref.id) {
@@ -1215,6 +1461,9 @@ std::string SkillsExplorer::batch_summary() const {
 bool SkillsExplorer::close_or_cancel() {
     if (cancel_batch())
         return true;
+    save_ui_state();
+    for (const auto& line : transcript_)
+        status_(line);
     status_("skills closed");
     return false;
 }
