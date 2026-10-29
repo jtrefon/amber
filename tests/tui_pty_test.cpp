@@ -677,12 +677,57 @@ private:
         }
         bool ok = path == "/v1/models";
         std::string response;
+        std::string content_type = "application/json";
         if (ok) {
             response =
                 R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
         } else if (path == "/v1/chat/completions") {
             ok = true;
             ++chat_calls_;
+            const bool intent_probe = body.find("intent probe") != std::string::npos;
+            const bool streaming = body.find("\"stream\":true") != std::string::npos;
+            if (intent_probe && streaming) {
+                content_type = "text/event-stream";
+                if (chat_calls_ == 1) {
+                    agent::json narrate;
+                    narrate["choices"] = agent::json::array();
+                    agent::json nchoice;
+                    nchoice["delta"]["content"] =
+                        "Let me check the parser.\nI'll run a slow check now.";
+                    nchoice["finish_reason"] = nullptr;
+                    narrate["choices"].push_back(nchoice);
+
+                    agent::json call;
+                    call["index"] = 0;
+                    call["id"] = "call_intent";
+                    call["type"] = "function";
+                    call["function"]["name"] = "bash";
+                    call["function"]["arguments"] = R"({"command":"sleep 2; printf INTENT-DONE"})";
+                    agent::json invoke;
+                    invoke["choices"] = agent::json::array();
+                    agent::json ichoice;
+                    ichoice["delta"]["tool_calls"] = agent::json::array({call});
+                    ichoice["finish_reason"] = "tool_calls";
+                    invoke["choices"].push_back(ichoice);
+                    response = "data: " + narrate.dump() + "\n\ndata: " + invoke.dump() +
+                               "\n\ndata: [DONE]\n\n";
+                } else {
+                    agent::json done;
+                    done["choices"] = agent::json::array();
+                    agent::json dchoice;
+                    dchoice["delta"]["content"] = "INTENT-DONE-ACK";
+                    dchoice["finish_reason"] = "stop";
+                    done["choices"].push_back(dchoice);
+                    response = "data: " + done.dump() + "\n\ndata: [DONE]\n\n";
+                }
+                const std::string http = std::string("HTTP/1.1 200 OK\r\nContent-Type: ") +
+                                         content_type +
+                                         "\r\nContent-Length: " + std::to_string(response.size()) +
+                                         "\r\nConnection: close\r\n\r\n" + response;
+                ssize_t ignored = send(c, http.c_str(), http.size(), 0);
+                (void)ignored;
+                return;
+            }
             const bool report = body.find("background watch") != std::string::npos;
             const bool first = chat_calls_ == 1 && !report;
             std::string message;
@@ -2266,6 +2311,35 @@ TEST(worktree_off_survives_a_restart_and_parks_instead_of_reattaching) {
     agent::registry_remove(state, "w1");
 }
 
+// The working row joins the tool verb to the model's own last sentence. The
+// narration is already streamed; the row must show it before the tool finishes.
+TEST(working_row_shows_the_narrated_intent) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=1\n"));
+    Tui tui;
+    tui.name = "working_row_shows_the_narrated_intent";
+    if (!require(tui.start(fixture().binary, fixture().workspace, "", 60, 200),
+                 "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("/set policy mode yolo\r");
+    if (!require(tui.wait_for(" yolo ", 10000), "yolo mode never took effect", tui))
+        return;
+
+    api.reset_chat();
+    tui.send("intent probe\r");
+    // The middle dot + stripped sentence only exists in the working row; the
+    // chat prose still says "I'll run a slow check now."
+    if (!require(tui.wait_for("· run a slow check now", 15000),
+                 "the working row did not show the narrated intent", tui))
+        return;
+    require(tui.wait_for("INTENT-DONE-ACK", 15000), "the intent turn did not finish", tui);
+}
+
 // W-09/W-10/W-12: a report waited behind an unsent draft, then woke the same
 // window once the draft cleared. The fake model scripts a watch tool call and
 // answers the follow-up report turn, so this is the real plugin, TUI queue,
@@ -2842,6 +2916,7 @@ int main(int argc, char** argv) {
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
     system_commands_do_not_freeze_the_ui();
     input_scroll_keeps_tail_visible();
+    working_row_shows_the_narrated_intent();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();

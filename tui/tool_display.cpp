@@ -144,7 +144,8 @@ std::string elapsed_label(size_t secs) {
 }
 
 WorkingParts working_parts(const std::string& frame, const std::string& verb, size_t elapsed_secs,
-                           const std::string& task) {
+                           const std::string& task, const std::string& intent) {
+    (void)intent;
     WorkingParts parts;
     parts.glyph = frame;
     parts.verb = verb;
@@ -155,9 +156,17 @@ WorkingParts working_parts(const std::string& frame, const std::string& verb, si
 }
 
 std::string working_label(const std::string& frame, const std::string& verb, size_t elapsed_secs,
-                          const std::string& task) {
-    const WorkingParts parts = working_parts(frame, verb, elapsed_secs, task);
+                          const std::string& task, const std::string& intent) {
+    const WorkingParts parts = working_parts(frame, verb, elapsed_secs, task, intent);
     return parts.glyph + " " + parts.verb + parts.tail;
+}
+
+std::string intent_from_narration(const std::string&) {
+    return {};
+}
+
+std::string stuck_hint(size_t) {
+    return {};
 }
 
 std::string reasoning_badge(const std::string& effort) {
