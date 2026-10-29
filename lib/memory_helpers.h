@@ -21,9 +21,11 @@ Memory json_to_memory(const nlohmann::json& j);
 nlohmann::json skill_to_json(const Skill& sk);
 Skill json_to_skill(const nlohmann::json& j);
 
-void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
+// Returns false when the entry was skipped because its name already belongs to
+// content the store will not edit in place.
+bool upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
                    const ExperienceConfig& cfg, int current_turn);
-void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
+bool upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
                   const ExperienceConfig& cfg, int current_turn);
 std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Memory>& memories,
                                         size_t k, const std::string& user_message,
@@ -35,7 +37,8 @@ std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory
 std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& skills,
                                  int current_turn);
 void decay_maps(std::unordered_map<std::string, Memory>& memories,
-                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg);
+                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg,
+                int current_turn);
 bool load_store(const std::string& path, std::unordered_map<std::string, Memory>& memories,
                 std::unordered_map<std::string, Skill>& skills);
 bool save_store(const std::string& path, const std::unordered_map<std::string, Memory>& memories,

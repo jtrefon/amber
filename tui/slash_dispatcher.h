@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <agent/agent.h>
+#include <agent/learn_commands.h>
 #include <agent/model_probe.h>
 #include <agent/plugin.h>
 #include <agent/worktree.h>
@@ -15,10 +16,30 @@
 #include "setting_registry.h"
 
 namespace tui {
+class SlashDispatcher;
 class Tui;
 struct Window;
 
-class SlashDispatcher {
+// /learn's handlers and its panel, split out of SlashDispatcher so the
+// dispatcher stays under the 200-line type cap. One domain, one owner.
+class LearnSurface {
+public:
+    explicit LearnSurface(Tui& tui) : ui_(tui) {}
+    void register_actions(SlashDispatcher& dispatcher);
+    void usage();
+    void summary();
+    void show(const std::string& arg);
+    void forget(const std::string& arg);
+    void pin(const std::string& arg);
+    void panel();
+
+private:
+    bool panel_action(const agent::LearnItem& item, agent::MemoryStore* store);
+
+    Tui& ui_;
+};
+
+class SlashDispatcher : public LearnSurface {
 public:
     explicit SlashDispatcher(Tui& tui);
     const std::vector<palette::Command>& commands();

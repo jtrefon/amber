@@ -42,7 +42,22 @@ double compute_score(const KnowledgeItem& mem, const std::string& user_msg, int 
     return (mem.evidence_count * evidence_w) + (rel * relevance_w) + (fresh * freshness_w);
 }
 
-void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
+namespace {
+
+// A name identifies a concept. If it already belongs to different content the
+// store keeps the original: neither version is more trustworthy, so an edit in
+// place would be an edit war between compression cycles.
+template <typename T>
+bool name_conflicts(const std::unordered_map<std::string, T>& items, const std::string& name) {
+    if (name.empty())
+        return false;
+    return std::any_of(items.begin(), items.end(),
+                       [&name](const auto& entry) { return entry.second.name == name; });
+}
+
+} // namespace
+
+bool upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memory& memory,
                    const ExperienceConfig& cfg, int current_turn) {
     std::string key = memory.id.empty() ? hash_content(memory.content) : memory.id;
     auto it = memories.find(key);
@@ -55,17 +70,20 @@ void upsert_memory(std::unordered_map<std::string, Memory>& memories, const Memo
         if (!existing.promoted && existing.evidence_count >= cfg.memory_promote_threshold) {
             existing.promoted = true;
         }
-    } else {
-        Memory m = memory;
-        m.id = key;
-        if (m.evidence_count <= 0)
-            m.evidence_count = 1;
-        m.last_confirm_turn = current_turn;
-        memories[key] = m;
+        return true;
     }
+    if (name_conflicts(memories, memory.name))
+        return false;
+    Memory m = memory;
+    m.id = key;
+    if (m.evidence_count <= 0)
+        m.evidence_count = 1;
+    m.last_confirm_turn = current_turn;
+    memories[key] = m;
+    return true;
 }
 
-void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
+bool upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& skill,
                   const ExperienceConfig& cfg, int current_turn) {
     std::string key = skill.id.empty() ? hash_content(skill.content) : skill.id;
     auto it = skills.find(key);
@@ -80,15 +98,41 @@ void upsert_skill(std::unordered_map<std::string, Skill>& skills, const Skill& s
         if (!existing.promoted && existing.evidence_count >= cfg.skill_promote_threshold) {
             existing.promoted = true;
         }
-    } else {
-        Skill sk = skill;
-        sk.id = key;
-        if (sk.evidence_count <= 0)
-            sk.evidence_count = 1;
-        sk.last_confirm_turn = current_turn;
-        skills[key] = sk;
+        return true;
     }
+    if (name_conflicts(skills, skill.name))
+        return false;
+    Skill sk = skill;
+    sk.id = key;
+    if (sk.evidence_count <= 0)
+        sk.evidence_count = 1;
+    sk.last_confirm_turn = current_turn;
+    skills[key] = sk;
+    return true;
 }
+
+namespace {
+
+// Ties are broken by name, then id. Without this the block order follows
+// unordered_map iteration, so a rebuild can reorder the [system][memory]
+// prefix even when no knowledge changed.
+bool name_before(const KnowledgeItem& a, const KnowledgeItem& b) {
+    if (a.name != b.name)
+        return a.name < b.name;
+    return a.id < b.id;
+}
+
+// Two-way float comparison (never == / !=) with the stable tie-break. The
+// scores are sums of small rationals, so the exact ordering is meaningful.
+bool higher_score(double a, double b, const KnowledgeItem& a_item, const KnowledgeItem& b_item) {
+    if (a > b)
+        return true;
+    if (b > a)
+        return false;
+    return name_before(a_item, b_item);
+}
+
+} // namespace
 
 std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Memory>& memories,
                                         size_t k, const std::string& user_message,
@@ -103,8 +147,9 @@ std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Me
         copy.score = s;
         scored.emplace_back(s, std::move(copy));
     }
-    std::sort(scored.begin(), scored.end(),
-              [](const auto& a, const auto& b) { return a.first > b.first; });
+    std::sort(scored.begin(), scored.end(), [](const auto& a, const auto& b) {
+        return higher_score(a.first, b.first, a.second, b.second);
+    });
     std::vector<Memory> result;
     for (size_t i = 0; i < std::min(k, scored.size()); ++i)
         result.push_back(std::move(scored[i].second));
@@ -113,20 +158,35 @@ std::vector<Memory> select_top_memories(const std::unordered_map<std::string, Me
 
 std::vector<Skill> select_top_skills(const std::unordered_map<std::string, Skill>& skills, size_t k,
                                      const std::string& user_message) {
-    std::vector<Skill> filtered;
+    std::vector<Skill> matched;
+    std::vector<Skill> fallback;
     for (const auto& [id, sk] : skills) {
         if (!sk.promoted)
             continue;
-        if (sk.trigger_phrase.empty() ||
-            user_message.find(sk.trigger_phrase) != std::string::npos) {
-            filtered.push_back(sk);
+        const bool matches =
+            !sk.trigger_phrase.empty() && user_message.find(sk.trigger_phrase) != std::string::npos;
+        (matches ? matched : fallback).push_back(sk);
+    }
+    const auto by_rank = [](const Skill& a, const Skill& b) {
+        if (a.evidence_count != b.evidence_count)
+            return a.evidence_count > b.evidence_count;
+        return name_before(a, b);
+    };
+    std::sort(matched.begin(), matched.end(), by_rank);
+    std::sort(fallback.begin(), fallback.end(), by_rank);
+
+    // Trigger matches lead; the remaining promoted skills are the documented
+    // fallback (memory-store.md MS-05), capped at k.
+    std::vector<Skill> result;
+    result.reserve(std::min(k, matched.size() + fallback.size()));
+    for (const auto* group : {&matched, &fallback}) {
+        for (const auto& sk : *group) {
+            if (result.size() == k)
+                return result;
+            result.push_back(sk);
         }
     }
-    std::sort(filtered.begin(), filtered.end(),
-              [](const Skill& a, const Skill& b) { return a.evidence_count > b.evidence_count; });
-    if (filtered.size() > k)
-        filtered.resize(k);
-    return filtered;
+    return result;
 }
 
 std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory>& memories,
@@ -136,7 +196,9 @@ std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory
     for (const auto& [id, mem] : memories)
         out.push_back(mem);
     std::sort(out.begin(), out.end(), [&](const Memory& a, const Memory& b) {
-        return compute_score(a, "", current_turn) > compute_score(b, "", current_turn);
+        const double a_score = compute_score(a, "", current_turn);
+        const double b_score = compute_score(b, "", current_turn);
+        return higher_score(a_score, b_score, a, b);
     });
     return out;
 }
@@ -148,35 +210,45 @@ std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& s
     for (const auto& [id, sk] : skills)
         out.push_back(sk);
     std::sort(out.begin(), out.end(), [&](const Skill& a, const Skill& b) {
-        return compute_score(a, "", current_turn) > compute_score(b, "", current_turn);
+        const double a_score = compute_score(a, "", current_turn);
+        const double b_score = compute_score(b, "", current_turn);
+        return higher_score(a_score, b_score, a, b);
     });
     return out;
 }
 
+namespace {
+
+template <typename T>
+void decay_map(std::unordered_map<std::string, T>& items, const ExperienceConfig& cfg,
+               int current_turn) {
+    for (auto it = items.begin(); it != items.end();) {
+        T& item = it->second;
+        if (item.evidence_count <= 0) {
+            it = items.erase(it);
+            continue;
+        }
+        // An item confirmed in this cycle was just reconfirmed. Decay is the
+        // signal that knowledge was NOT reconfirmed, so it cannot apply yet.
+        if (current_turn > 0 && item.last_confirm_turn == current_turn) {
+            ++it;
+            continue;
+        }
+        const int decay = std::max(1, static_cast<int>(item.evidence_count * cfg.decay_rate));
+        item.evidence_count -= decay;
+        if (item.evidence_count <= 0)
+            item.promoted = false;
+        ++it;
+    }
+}
+
+} // namespace
+
 void decay_maps(std::unordered_map<std::string, Memory>& memories,
-                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg) {
-    for (auto it = memories.begin(); it != memories.end();) {
-        if (it->second.evidence_count <= 0) {
-            it = memories.erase(it);
-        } else {
-            int decay = std::max(1, static_cast<int>(it->second.evidence_count * cfg.decay_rate));
-            it->second.evidence_count -= decay;
-            if (it->second.evidence_count <= 0)
-                it->second.promoted = false;
-            ++it;
-        }
-    }
-    for (auto it = skills.begin(); it != skills.end();) {
-        if (it->second.evidence_count <= 0) {
-            it = skills.erase(it);
-        } else {
-            int decay = std::max(1, static_cast<int>(it->second.evidence_count * cfg.decay_rate));
-            it->second.evidence_count -= decay;
-            if (it->second.evidence_count <= 0)
-                it->second.promoted = false;
-            ++it;
-        }
-    }
+                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg,
+                int current_turn) {
+    decay_map(memories, cfg, current_turn);
+    decay_map(skills, cfg, current_turn);
 }
 
 } // namespace memory_detail

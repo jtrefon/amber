@@ -465,7 +465,7 @@ Fix these two links, and 80% of the compression system comes alive.
 
 | # | Change | Status | Files | Risk | Est. |
 |---|--------|--------|-------|------|------|
-| 0.1 | Memory injection → separate message slot (never touch system prompt) | ✅ Resolved | `lib/agent.cpp`, `include/agent/agent.h` | 🔴 Fixes prefix stability. Without this, every turn pays 10-30 min prefill. | 4-6h |
+| 0.1 | Memory injection → separate message slot (never touch system prompt) | ✅ Resolved 2026-07; **validated + versioned 2026-10-29** (#487) | `lib/agent.cpp`, `include/agent/agent.h`, `lib/memory_retriever.cpp` | 🔴 Fixes prefix stability. Without this, every turn pays 10-30 min prefill. | 4-6h |
 | 0.2 | ~~Add `Context::replace()`~~ **Rejected: violates immutable stack.** Compression uses `clear() + push()` instead. Hash-chain integrity (`context.h:43-64`) prevents any future mutation methods. | 🚫 Rejected | `include/agent/context.h` | 🟢 No mutation API — stack architecture enforced at runtime | — |
 | 0.3 | Gate checks cooldown in `should_compress()` | ✅ Resolved | `lib/compressor.cpp` | 🟢 Without this, gate fires every turn | 30m |
 | 0.4 | Clamp `turn_start` in `apply_classification()` | ✅ Resolved | `lib/compressor_apply.cpp` | 🔴 UB fix — out-of-bounds access | 30m |
@@ -501,8 +501,25 @@ Fix these two links, and 80% of the compression system comes alive.
 
 | # | Change | Status | Files | Risk | Est. |
 |---|--------|--------|-------|------|------|
-| 4.1 | Integration test for full compression cycle | ✅ Resolved | `tests/run_tests.cpp` (manual) | 🟢 Test-only | 4-6h |
+| 4.1 | Integration test for full compression cycle | ✅ Validated 2026-10-29 | `tests/agent_loop_test.cpp` (hermetic, real Agent + store) | 🟢 Test-only | 4-6h |
 | 4.2 | Archive segment turn range fix | ✅ Resolved | `lib/compressor_apply.cpp` | 🟢 Bugfix in existing code | 1h |
+
+### Validation (2026-10-29, #487)
+
+The claims above are now pinned by tests rather than by inspection:
+
+| Claim | Test |
+|---|---|
+| The block follows the store, not the question | `memory_block_is_a_function_of_the_store` |
+| A turn-counter change does not reorder the prefix | `memory_block_survives_a_turn_counter_change` |
+| The system prompt at index 0 is never modified | `agent_never_rewrites_the_system_prompt_for_memory` |
+| Caps and token budget come from `ExperienceConfig` | `memory_block_honours_the_configured_cap`, `memory_block_honours_the_token_budget` |
+| Decay runs on a no-ops cycle | `compression_without_ops_still_decays` |
+| A fresh confirmation is not decayed in its own cycle | `freshly_confirmed_item_keeps_threshold_evidence` |
+| Compress → extract → persist → inject | `compression_extracts_persists_and_injects_memories` |
+| A learned skill is usable the cycle it arrives | `learned_skill_is_discoverable_and_readable_after_extraction` |
+| The store owns the no-edit rule and the disabled flag | `store_skips_a_name_conflict`, `experience_disabled_config_makes_no_store` |
+| `/learn` reaches the store from a real terminal | `learn_show_inspect_and_forget_the_project_store` (pty) |
 
 ---
 
@@ -519,4 +536,4 @@ Phase 0 (prefix stability, gates, safety) ────── must come first
     └── Phase 0.2 (Context::replace) — REJECTED. Stack is pure push/pop/clear.
 ```
 
-Phase 0.1 (memory injection fix) is the single highest-impact change. It affects every LLM call, not just compression. Without it, every turn pays 10-30 minutes for the system prompt prefill.
+Phase 0.1 (memory injection fix) is the single highest-impact change. It affects every LLM call, not just compression. Without it, every turn pays 10-30 minutes for the system prompt prefill. As of #487 the block is a separate, versioned slot: the system prompt at index 0 is never rewritten for memory, and `[system][memory]` stays byte-identical until the store changes. Prefill itself is structurally verified, not measured (the configured endpoint reports prompt/completion tokens only).

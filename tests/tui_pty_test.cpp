@@ -327,6 +327,18 @@ bool write_file(const std::string& path, const std::string& body) {
     return static_cast<bool>(f);
 }
 
+// The project experience store, in the same resolved state dir the child uses.
+// One memory is enough to exercise /learn show, inspect, forget and the panel.
+bool write_learn_store() {
+    const std::string path = agent::Workspace::state_dir() + "/experience.json";
+    std::error_code ec;
+    fs::create_directories(fs::path(path).parent_path(), ec);
+    return write_file(path, R"({"version":1,"memories":[{"id":"m1","name":"proj-name",)"
+                            R"("content":"project uses make","tags":["build"],)"
+                            R"("evidence":3,"last_confirm_turn":1,"score":0,)"
+                            R"("promoted":true}],"skills":[]})");
+}
+
 // Seed two providers' catalogues so /set model has a row per provider and the
 // drawer can offer a tab each. Real provider service + real cache format, not a
 // stubbed tree: the keys the tabs derive themselves from are exactly these.
@@ -2600,6 +2612,47 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     require(tui.wait_for("skills closed", 10000), "q did not close the shell", tui);
 }
 
+// /learn was implemented, then deleted in the JSON-tree dispatch rewrite. The
+// backends survived but no command reached them. This drives the restored
+// surface end-to-end: list, inspect, forget.
+TEST(learn_show_inspect_and_forget_the_project_store) {
+    const std::string binary = fixture().binary;
+    ASSERT(write_learn_store());
+    Tui tui;
+    tui.name = "learn_show_inspect_and_forget_the_project_store";
+    ASSERT(tui.start(binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("/learn show\r");
+    if (!require(tui.wait_for("proj-name", 10000), "/learn show did not list the stored memory",
+                 tui))
+        return;
+    tui.send("/learn show m1\r");
+    if (!require(tui.wait_for("content: project uses make", 10000),
+                 "/learn show <id> did not open the detail page", tui))
+        return;
+    tui.send("/learn forget m1\r");
+    require(tui.wait_for("removed m1", 10000), "/learn forget did not report the removal", tui);
+}
+
+TEST(learn_panel_opens_and_returns_to_the_prompt) {
+    const std::string binary = fixture().binary;
+    ASSERT(write_learn_store());
+    Tui tui;
+    tui.name = "learn_panel_opens_and_returns_to_the_prompt";
+    ASSERT(tui.start(binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("/learn panel\r");
+    if (!require(tui.wait_for("Learned items", 10000), "/learn panel did not open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(500);
+    tui.send("/get learn\r");
+    require(tui.wait_for("memories: 1/20", 10000),
+            "the main loop did not resume after closing the panel", tui);
+}
+
 int main(int argc, char** argv) {
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
@@ -2646,6 +2699,8 @@ int main(int argc, char** argv) {
     worktree_off_survives_a_restart_and_parks_instead_of_reattaching();
     work_board_resource_viewer_round_trip();
     project_open_creates_a_scoped_session();
+    learn_show_inspect_and_forget_the_project_store();
+    learn_panel_opens_and_returns_to_the_prompt();
     watch_report_waits_for_a_draft_then_wakes();
     watch_cli_does_not_wake_by_default_and_opts_in();
 

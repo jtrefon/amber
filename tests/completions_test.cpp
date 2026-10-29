@@ -1153,6 +1153,16 @@ TEST(test_get_learn_tree_nodes) {
     ASSERT(!reg.help_for("get.learn").empty());
 }
 
+// /learn is a JSON namespace, not a handler branch: the drawer, completion,
+// help and dispatch all derive from these nodes.
+TEST(test_learn_tree_nodes) {
+    tui::SettingRegistry reg;
+    reg.load_completions_json("completions.json");
+    for (const char* path : {"learn", "learn.show", "learn.forget", "learn.pin", "learn.panel"})
+        ASSERT(!reg.help_for(path).empty());
+    ASSERT(!reg.man_for("learn").empty());
+}
+
 // ── Test: get provider list node ─────────────────────────────────
 
 TEST(test_get_provider_list_node) {

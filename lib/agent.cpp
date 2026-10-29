@@ -414,7 +414,7 @@ void Agent::fork_from(const Agent& src) {
         skills_ = src.skills_;
     if (src.memory_store_) {
         memory_store_ = src.memory_store_;
-        retriever_ = std::make_unique<MemoryRetriever>(*memory_store_);
+        retriever_ = std::make_unique<MemoryRetriever>(*memory_store_, experience_cfg_);
     }
     // Rebuild the client from the copied config so the fork's first request
     // serializes the identical wire prefix (KV-cache reuse); hooks, log,
@@ -451,7 +451,7 @@ bool Agent::maybe_compress(std::vector<Message>& prompt_copy,
     // The live request prefix is captured BEFORE the rebuild: the classify call
     // must replay exactly what the last turn sent (blocks + tool schemas), or the
     // server re-prefills the whole conversation instead of extending its cache.
-    const CompressionRequestPrefix prefix = compression_prefix(prompt_copy, tools);
+    const CompressionRequestPrefix prefix = compression_prefix(tools);
     if (!run_compression(std::function<void()>(), nullptr, &prefix))
         return false;
     // Build prompt_copy from the new compressed context for the current LLM call.
@@ -782,8 +782,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     // tool set from the registry's snapshot.
     CompressionRequestPrefix live_prefix;
     if (!prefix) {
-        const std::vector<Message> history(before.begin(), before.end());
-        live_prefix = compression_prefix(history, resolve_tools());
+        live_prefix = compression_prefix(resolve_tools());
         prefix = &live_prefix;
     }
 
@@ -1090,18 +1089,13 @@ void insert_prompt_blocks(std::vector<Message>& prompt_copy, std::vector<Agent::
     }
 }
 
-// Memories are retrieved for THIS request, so they are built here — after any
-// compression — rather than cached from an earlier point in the turn.
-std::string Agent::retrieve_memory_suffix(const std::vector<Message>& prompt_copy) const {
+// The learned-memory block is the [system][memory] prefix, so it is a
+// function of the store alone. The retriever caches it until the store
+// version moves; selection never follows the current question.
+std::string Agent::retrieve_memory_block() const {
     if (!retriever_)
         return "";
-    std::string user_msg;
-    for (const auto& m : prompt_copy)
-        if (m.role == "user") {
-            user_msg = m.content;
-            break;
-        }
-    return retriever_->build_system_prompt_suffix(user_msg, 500);
+    return retriever_->build_block();
 }
 
 // Discovery metadata is cheap and constant; skill bodies load only when the
@@ -1129,14 +1123,13 @@ void Agent::collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<Pro
                         "[activated skill: " + act.name + "]\n" + act.body});
 }
 
-void Agent::collect_prompt_blocks(const std::vector<Message>& prompt_copy,
-                                  std::vector<PromptBlock>& head,
+void Agent::collect_prompt_blocks(std::vector<PromptBlock>& head,
                                   std::vector<PromptBlock>& tail) const {
     std::size_t seq = 0;
 
-    std::string suffix = retrieve_memory_suffix(prompt_copy);
-    if (!suffix.empty())
-        head.push_back({prompt_priority::kMemory, seq++, std::move(suffix)});
+    std::string memory = retrieve_memory_block();
+    if (!memory.empty())
+        head.push_back({prompt_priority::kMemory, seq++, std::move(memory)});
 
     collect_skill_blocks(head, tail, seq);
 
@@ -1165,7 +1158,7 @@ void Agent::collect_prompt_blocks(const std::vector<Message>& prompt_copy,
 void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
     std::vector<PromptBlock> head;
     std::vector<PromptBlock> tail;
-    collect_prompt_blocks(prompt_copy, head, tail);
+    collect_prompt_blocks(head, tail);
     insert_prompt_blocks(prompt_copy, head, tail);
 }
 
@@ -1188,11 +1181,10 @@ std::vector<Message> block_messages(const std::vector<Agent::PromptBlock>& block
 } // namespace
 
 CompressionRequestPrefix
-Agent::compression_prefix(const std::vector<Message>& history,
-                          const std::vector<std::shared_ptr<Tool>>& tools) const {
+Agent::compression_prefix(const std::vector<std::shared_ptr<Tool>>& tools) const {
     std::vector<PromptBlock> head;
     std::vector<PromptBlock> tail;
-    collect_prompt_blocks(history, head, tail);
+    collect_prompt_blocks(head, tail);
     std::sort(head.begin(), head.end(), block_before);
     std::sort(tail.begin(), tail.end(), block_before);
     CompressionRequestPrefix prefix;
@@ -1488,7 +1480,11 @@ void Agent::decay_and_persist() {
 void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (!memory_store_ || experience_cfg_.store_path.empty())
         return;
-    if (cr.memory_ops.empty() && cr.skill_ops.empty())
+    // A cycle with no ops is still a cycle: decay runs unconditionally, so
+    // knowledge that was not reconfirmed loses weight. An empty store has
+    // nothing to decay, so it is the one case that writes nothing.
+    const bool has_ops = !cr.memory_ops.empty() || !cr.skill_ops.empty();
+    if (!has_ops && memory_store_->store_size() == 0)
         return;
 
     memory_store_->set_current_turn(turn_counter_);
@@ -1503,6 +1499,11 @@ void Agent::apply_compression_result(const CompressionResponse& cr) {
         apply_skill_ops(*memory_store_, cr.skill_ops, experience_cfg_.store_path, &items);
 
     decay_and_persist();
+
+    // A skill learned by this cycle is usable now, not after a restart. The
+    // catalog is shared per project, so every window on it sees the new entry.
+    if (skills_ && memory_store_)
+        skills_->discover(memory_store_->top_skills(experience_cfg_.max_skills, ""));
 
     if (!hooks_.on_status)
         return;

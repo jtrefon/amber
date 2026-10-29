@@ -45,27 +45,29 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 
 | Dimension | Detail |
 |-----------|--------|
-| **Input** | `upsert(Memory)`, `upsert(Skill)`, `top_memories(k, user_msg)`, `top_skills(k, user_msg)`, `decay_all()`, `load(path)`, `save(path)` |
-| **Output** | Persisted JSON file. Retrieval by relevance score. |
-| **Error states** | File not found → empty store. JSON parse failure → empty store. Name conflict on upsert → op skipped silently. |
-| **Store path** | Default `<workspace>/.amber/experience.json` (project-scoped); override `experience_store_path`. Legacy `~/.amber/memories.json` migration-seeded once ([MS-10]). |
+| **Input** | `upsert(Memory)`, `upsert(Skill)`, `top_memories(k, user_msg)`, `top_skills(k, user_msg)`, `decay_all()`, `load(path)`, `save(path)`, `version()` |
+| **Output** | Persisted JSON file. Retrieval by score; the injected block is ordered by evidence/freshness (see invariant 2). |
+| **Error states** | File not found → empty store. JSON parse failure → empty store. Name conflict on upsert → op skipped silently (enforced by the store, not the caller). |
+| **Store path** | Default `$XDG_STATE_HOME/amber/projects/<slug>/experience.json` (per-project **state**, not the project tree); override `experience_store_path`. A pre-move store in `<workspace>/.amber/` and the older `~/.amber/memories.json` are adopted once ([MS-10]). |
 | **Invariants** | See below. |
 
 ### Invariants
 
-1. **No edits, ever.** When the LLM returns a memory or skill that conflicts with an existing one by name but has different content, the upsert is **silently skipped**. The old knowledge is preserved. New knowledge creates a new entry (with a different content hash). Conflict indicates the LLM is describing the same concept differently — we don't know which is correct, so we keep both and let evidence decide.
+1. **No edits, ever.** When the LLM returns a memory or skill that conflicts with an existing one by name but has different content, the upsert is **silently skipped**. The old knowledge is preserved. New knowledge creates a new entry (with a different content hash). Conflict indicates the LLM is describing the same concept differently — we don't know which is correct, so we keep both and let evidence decide. The **store** enforces this, so a caller that bypasses `apply_memory_ops` cannot create a duplicate name.
 
-2. **Scoring determines injection priority.** Items are ranked by `score = evidence_count × 0.5 + relevance × 0.3 + freshness × 0.2`. Only the top-K are injected into the agent's context (`max_memories = 20`, `max_skills = 10`). The store can contain many more items — they sit on disk waiting for their relevance score to rise.
+2. **Scoring determines order, but the injected block is stable.** Items are ranked by `score = evidence_count × 0.5 + relevance × 0.3 + freshness × 0.2`. The learned-memory block injected after the system prompt is ordered by the score at an **empty query** and capped by `max_memories`/`max_prompt_tokens`; it is a function of the store, not of the current question, so the `[system][memory]` prefix does not change between turns. Relevance still ranks callers that pass a message (`top_memories(k, msg)`); a per-turn relevant block would belong in the tail, never the prefix.
 
 3. **Evidence is the durability primitive.** Each reconfirmation of the same content (same content hash on upsert) increments `evidence_count`. Items with high evidence survive more decay cycles. Items with low evidence disappear quickly.
 
-4. **Promotion is controlled by threshold.** Items only appear in retrieval when `promoted = true`. An item is promoted when `evidence_count >= promote_threshold`. No more force-promotion — every item must earn its place through reconfirmations.
+4. **Promotion is controlled by threshold.** Items only appear in retrieval when `promoted = true`. An item is promoted when `evidence_count >= promote_threshold`. A new LLM-confirmed item starts at the threshold and is promoted at once (extraction invariant 4). There is no separate "pinned" flag: a manual pin is a force-promote, and decay still applies.
 
-5. **Trigger phrases gate skill injection.** A skill is only injected when the user message contains its `trigger_phrase` (substring match). If no skill matches, all promoted skills are returned as fallback.
+5. **Trigger phrases order skills; promoted skills are the fallback.** `top_skills(k, msg)` returns trigger matches first, then the remaining promoted skills, capped at `k` (MS-05). With an empty message every promoted skill is a fallback entry, which is how the catalog indexes learned skills. Empty-trigger skills are fallback, not matches.
 
-6. **Decay is proportional.** Each decay cycle reduces `evidence_count` by `max(1, evidence_count × decay_rate)`. Items erode proportionally: high-evidence items decay slowly (they're durable), low-evidence items decay quickly.
+6. **Decay is proportional and runs every cycle.** Each decay cycle reduces `evidence_count` by `max(1, evidence_count × decay_rate)`. Items confirmed at the current turn are skipped: they were just reconfirmed, so "absence of reconfirmation" cannot apply. High-evidence items decay slowly; low-evidence items disappear quickly.
 
 7. **Save is atomic.** Writes to `.tmp`, then `std::rename`.
+
+8. **The prompt block is versioned.** `version()` is a monotonic counter bumped by every knowledge change (upsert that applied, remove, pin that changed, decay, load). `MemoryRetriever` caches the rendered block until it moves, so an unchanged store yields a byte-identical prefix. The counter is in memory; a new process rebuilds the block anyway, and a persisted counter would have no correct consumer.
 
 ---
 
@@ -103,8 +105,8 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 
 - **Given**: Store has 15 skills, 5 with trigger_phrase containing "build"
 - **Input**: `store.top_skills(10, "how do I build the project")`
-- **Expected**: Skills with `trigger_phrase` matching "build" returned first. Remaining promoted skills as fallback. All `promoted = true`.
-- **Regression guard**: `skill_trigger` test.
+- **Expected**: Skills with `trigger_phrase` matching "build" returned first. Remaining promoted skills as fallback (capped at `k`). All `promoted = true`.
+- **Regression guard**: `memory_store_skill_trigger` test.
 
 #### [MS-06] Proportional decay
 
@@ -141,13 +143,13 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 - **Expected**: Authored skill lives in the `skills/` directory and the catalog; it does not appear in `MemoryStore` items or decay. (The two tiers are disjoint.)
 - **On failure**: Authored skill mixed into learned store; decays or gets shadowed wrongly.
 
-#### [MS-10] Project-scoped default + legacy migration
+#### [MS-10] Per-project state default + legacy adoption
 
-- **Given**: No `experience_store_path`; legacy `~/.amber/memories.json` exists; `<workspace>/.amber/experience.json` absent
+- **Given**: No `experience_store_path`; a legacy `~/.amber/memories.json` and/or a pre-move `<workspace>/.amber/experience.json` exists; the state-dir store is absent
 - **Input**: First `Agent` construction in the workspace
-- **Expected**: `load_experience_config` resolves the default store to `<workspace>/.amber/experience.json`; the store is seeded once from the legacy file; the legacy file is left untouched; subsequent runs load the project store.
-- **On failure**: Learned skills disappear after upgrade, or the legacy global store keeps being read (cross-project leak).
-- **Regression guard**: `docs/skills-tracker.md` item for store path + migration.
+- **Expected**: `load_experience_config` resolves the default store to `$XDG_STATE_HOME/amber/projects/<slug>/experience.json`. `Workspace::adopt_legacy_state` copies the project-tree store once (the pre-move layout), and an empty state store is seeded once from `~/.amber/memories.json`; both sources are left untouched; subsequent runs load the state store. `$HOME` is not special-cased.
+- **On failure**: Learned skills disappear after upgrade, or a store from one project leaks into another (state is per project, the project tree is shared).
+- **Regression guard**: `experience_store_project_default`, `experience_store_legacy_seed_once`.
 
 ---
 
@@ -200,10 +202,12 @@ KnowledgeItem                           Memory (is-a KnowledgeItem)
 
 ### Known gaps
 
-1. **`decay_rate` was ignored** — Now fixed with proportional decay (see [MS-06]). The config knob is alive.
-2. **Force-promotion on creation** — Previously new items got evidence=3 promoted=true regardless of threshold. Now they use `promote_threshold`, so low-threshold items require fewer reconfirmations.
-3. **In-memory only until save** — If process crashes between mutation and `save()`, all changes since last save are lost. Acceptable for current scope.
-4. **Trigger phrase is simple substring match** — No regex, no negation, no multi-phrase. Acceptable for current scope.
+1. **`decay_rate` was ignored** — fixed with proportional decay (see [MS-06]). The config knob is alive.
+2. **Force-promotion on creation** — previously new items got `evidence=3, promoted=true` regardless of threshold. They now use `promote_threshold`, and the cycle that confirms them does not decay them (invariant 6).
+3. **In-memory only until save** — if the process crashes between mutation and `save()`, changes since the last save are lost. Acceptable for current scope (the atomic writer prevents corruption, not loss).
+4. **Trigger phrase is a simple substring match** — no regex, no negation, no multi-phrase. It now only orders skills; every promoted skill is the fallback, so a missed trigger costs order, not availability.
+5. **Pin is a force-promote, not immortality** — `promoted` is the single flag, so a manual pin is indistinguishable from automatic promotion and decay still applies. A distinct `pinned` field was considered and deliberately not added (see `learn-ui.md` invariant 3).
+6. **The version counter is not persisted** — it exists to keep the prompt block stable within a process; a new process must rebuild the block anyway, and a persisted counter would invite treating it as a cache key across sessions, which it is not.
 
 ### Revision history
 
