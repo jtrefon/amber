@@ -1480,7 +1480,11 @@ void Agent::decay_and_persist() {
 void Agent::apply_compression_result(const CompressionResponse& cr) {
     if (!memory_store_ || experience_cfg_.store_path.empty())
         return;
-    if (cr.memory_ops.empty() && cr.skill_ops.empty())
+    // A cycle with no ops is still a cycle: decay runs unconditionally, so
+    // knowledge that was not reconfirmed loses weight. An empty store has
+    // nothing to decay, so it is the one case that writes nothing.
+    const bool has_ops = !cr.memory_ops.empty() || !cr.skill_ops.empty();
+    if (!has_ops && memory_store_->store_size() == 0)
         return;
 
     memory_store_->set_current_turn(turn_counter_);

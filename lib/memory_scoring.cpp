@@ -180,30 +180,38 @@ std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& s
     return out;
 }
 
+namespace {
+
+template <typename T>
+void decay_map(std::unordered_map<std::string, T>& items, const ExperienceConfig& cfg,
+               int current_turn) {
+    for (auto it = items.begin(); it != items.end();) {
+        T& item = it->second;
+        if (item.evidence_count <= 0) {
+            it = items.erase(it);
+            continue;
+        }
+        // An item confirmed in this cycle was just reconfirmed. Decay is the
+        // signal that knowledge was NOT reconfirmed, so it cannot apply yet.
+        if (current_turn > 0 && item.last_confirm_turn == current_turn) {
+            ++it;
+            continue;
+        }
+        const int decay = std::max(1, static_cast<int>(item.evidence_count * cfg.decay_rate));
+        item.evidence_count -= decay;
+        if (item.evidence_count <= 0)
+            item.promoted = false;
+        ++it;
+    }
+}
+
+} // namespace
+
 void decay_maps(std::unordered_map<std::string, Memory>& memories,
-                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg) {
-    for (auto it = memories.begin(); it != memories.end();) {
-        if (it->second.evidence_count <= 0) {
-            it = memories.erase(it);
-        } else {
-            int decay = std::max(1, static_cast<int>(it->second.evidence_count * cfg.decay_rate));
-            it->second.evidence_count -= decay;
-            if (it->second.evidence_count <= 0)
-                it->second.promoted = false;
-            ++it;
-        }
-    }
-    for (auto it = skills.begin(); it != skills.end();) {
-        if (it->second.evidence_count <= 0) {
-            it = skills.erase(it);
-        } else {
-            int decay = std::max(1, static_cast<int>(it->second.evidence_count * cfg.decay_rate));
-            it->second.evidence_count -= decay;
-            if (it->second.evidence_count <= 0)
-                it->second.promoted = false;
-            ++it;
-        }
-    }
+                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg,
+                int current_turn) {
+    decay_map(memories, cfg, current_turn);
+    decay_map(skills, cfg, current_turn);
 }
 
 } // namespace memory_detail

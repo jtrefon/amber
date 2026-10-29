@@ -7032,6 +7032,7 @@ TEST(memory_store_decay) {
     mem.evidence_count = 3;
     mem.promoted = true;
     store->upsert(mem);
+    store->set_current_turn(2); // a later cycle: the turn-1 confirmation is old
     store->decay_all();
     auto results = store->top_memories(10, "");
     ASSERT(!results.empty());
@@ -7234,7 +7235,8 @@ TEST(integration_apply_and_retrieve) {
                  suffix.find("./configure") != std::string::npos;
     ASSERT(found);
 
-    // Phase 4: Verify decay — evidence 3 → 2 after one decay call
+    // Phase 4: Verify decay — evidence 3 → 2 after one later cycle
+    store->set_current_turn(2);
     store->decay_all();
     auto after_decay = store->top_memories(10, "build");
     ASSERT(!after_decay.empty());

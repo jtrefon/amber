@@ -102,7 +102,7 @@ public:
     }
     void decay_all() override {
         std::scoped_lock lk(mtx_);
-        memory_detail::decay_maps(memories_, skills_, cfg_);
+        memory_detail::decay_maps(memories_, skills_, cfg_, current_turn_);
         ++version_;
     }
     std::uint64_t version() const override {

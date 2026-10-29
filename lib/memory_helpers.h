@@ -35,7 +35,8 @@ std::vector<Memory> sorted_memories(const std::unordered_map<std::string, Memory
 std::vector<Skill> sorted_skills(const std::unordered_map<std::string, Skill>& skills,
                                  int current_turn);
 void decay_maps(std::unordered_map<std::string, Memory>& memories,
-                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg);
+                std::unordered_map<std::string, Skill>& skills, const ExperienceConfig& cfg,
+                int current_turn);
 bool load_store(const std::string& path, std::unordered_map<std::string, Memory>& memories,
                 std::unordered_map<std::string, Skill>& skills);
 bool save_store(const std::string& path, const std::unordered_map<std::string, Memory>& memories,
