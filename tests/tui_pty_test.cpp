@@ -2355,6 +2355,73 @@ TEST(skills_explorer_opens_switches_tabs_and_closes) {
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }
 
+// The last shelf is remembered per project: reopening lands where you left,
+// and an explicit command still wins over the remembered tab.
+TEST(skills_explorer_restores_the_last_shelf_and_lets_a_command_override_it) {
+    Tui tui;
+    tui.name = "skills_explorer_restores_the_last_shelf_and_lets_a_command_override_it";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    std::error_code ec;
+    fs::remove(fixture().workspace + "/state/amber/skills-ui.json", ec);
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+    tui.send("6"); // Installed
+    if (!require(tui.wait_for("installed skills", 10000), "the installed shelf did not open", tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("installed skills", 10000), "the last shelf was not restored", tui))
+        return;
+    tui.send("q");
+    if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+
+    // An explicit request overrides the remembered shelf.
+    tui.send("/skills search tdd\r");
+    if (!require(tui.wait_for("type to search", 10000), "the prefilled search did not open", tui))
+        return;
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
+// The three breakpoints, at the sizes the issue names: 120x40 gets facets,
+// list and detail; 80x24 gets list and detail with no facet column.
+TEST(skills_explorer_paints_both_wide_breakpoints) {
+    for (const auto& size : {std::pair<int, int>{40, 120}, std::pair<int, int>{24, 80}}) {
+        Tui tui;
+        tui.name = "skills_explorer_paints_both_wide_breakpoints_" + std::to_string(size.second) +
+                   "x" + std::to_string(size.first);
+        ASSERT(tui.start(fixture().binary, fixture().workspace, "", size.first, size.second, {}));
+        if (!require(wait_ready(tui), "the UI never came up", tui))
+            return;
+
+        tui.send("/skills\r");
+        if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+            return;
+        const bool wants_facets = size.second >= 100;
+        if (wants_facets) {
+            if (!require(tui.wait_for("Filters", 5000), "the facet column did not paint", tui))
+                return;
+        } else if (!require(tui.wait_for("Enter to load details", 5000),
+                            "the detail pane did not paint", tui)) {
+            return;
+        }
+        if (!require(tui.wait_for("list-only", 1000) == false, "a wide layout claimed list-only",
+                     tui))
+            return;
+        tui.send("q");
+        if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+            return;
+    }
+}
+
 // Below 60 columns the detail pane would eat the list, so the explorer is
 // list-only and says why instead of looking broken.
 TEST(skills_explorer_narrow_terminal_is_list_only_and_says_so) {

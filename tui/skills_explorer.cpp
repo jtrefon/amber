@@ -576,7 +576,6 @@ private:
     // time) and their pages merge when the last lands.
     bool shelf_running_ = false;
     std::deque<std::string> shelf_queue_;
-    std::vector<SkillRow> shelf_rows_;
     // Rows a collection supplies directly by id; appended after its queries so
     // an editorial set works offline.
     std::vector<SkillRow> shelf_pins_;
