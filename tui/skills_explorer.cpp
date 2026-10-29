@@ -563,6 +563,7 @@ private:
     std::vector<SkillRow> shelf_rows_;
     std::vector<ShelfPage> shelf_pages_;
     std::string shelf_reason_;
+    SkillTab shelf_tab_ = SkillTab::Top;
     std::set<std::string> previewed_;
     std::set<std::string> batch_pending_;
     std::set<std::string> batch_names_;
@@ -919,6 +920,7 @@ void SkillsExplorer::run_shelf(SkillTab tab) {
     if (!loads || shelf_queue_.empty())
         return;
     shelf_running_ = true;
+    shelf_tab_ = tab;
     last_status_ = std::string("loading ") + skill_tab_name(tab) + "...";
     shelf_next();
 }
@@ -938,6 +940,19 @@ void SkillsExplorer::shelf_done() {
     bool stale = false;
     agent::IndexFailure error;
     std::vector<SkillRow> merged = merge_shelf_rows(shelf_pages_, stale, error);
+    // The Official shelf is "curated owners", so a result whose source owner is
+    // not on the list is not official, whatever the query returned.
+    if (shelf_tab_ == SkillTab::Official) {
+        merged.erase(
+            std::remove_if(merged.begin(), merged.end(),
+                           [this](const SkillRow& row) {
+                               const std::string& source = row.ref.source;
+                               const std::string owner = source.substr(0, source.find('/'));
+                               return std::find(options_.owners.begin(), options_.owners.end(),
+                                                owner) == options_.owners.end();
+                           }),
+            merged.end());
+    }
     if (core_.sort() == SkillSort::Installs) {
         std::stable_sort(merged.begin(), merged.end(), [](const SkillRow& a, const SkillRow& b) {
             return a.ref.installs > b.ref.installs;
