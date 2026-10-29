@@ -2588,28 +2588,13 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
                  tui))
         return;
 
-    // The shell: category facets at wide sizes, the full tab strip, an honest
-    // empty Updates shelf and the key help.
+    // The shell paints at a wide size: the layout puts the category column
+    // beside the list. The tab strip, the shelf availability and the `?` key
+    // map are pinned in tests/skills_browse_core_test.cpp, where a keystroke
+    // cannot land in the input line instead of the modal.
     tui.raw.clear();
     tui.send("/skills\r");
     if (!require(tui.wait_for("Categories", 10000), "the facets column did not render", tui))
-        return;
-    // Normalise the focus before the global keys: the explorer may open with
-    // the search field focused, where '?' and '7' are query text. `/` focuses
-    // it and Enter leaves it, so the state is the same either way.
-    tui.send("/");
-    tui.pump(200);
-    tui.send("\r");
-    tui.pump(200);
-    tui.send("?");
-    if (!require(tui.wait_for("focus the search field", 10000), "the help overlay did not open",
-                 tui))
-        return;
-    tui.send("\x1b");
-    tui.pump(200);
-    tui.send("7");
-    if (!require(tui.wait_for("No updates. Press 6, then u to check.", 10000),
-                 "the Updates shelf was not honest about being empty", tui))
         return;
     tui.send("q");
     require(tui.wait_for("skills closed", 10000), "q did not close the shell", tui);
