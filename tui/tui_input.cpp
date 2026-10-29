@@ -725,6 +725,25 @@ void apply_skill_source_options(const agent::Config& cfg, tui::SkillsExplorerOpt
         opts.github_raw_base = raw;
 }
 
+// The bundled shelf tables, resolved through the same data-path rules as every
+// other data file. A missing or invalid table leaves the shelf empty; the
+// loader records the reason and the explorer simply has nothing to show.
+void load_skill_shelves(tui::SkillsExplorerOptions& opts) {
+    std::string error;
+    const std::string signals = agent::resolve_data_path("data/project-signals.json", nullptr);
+    if (!signals.empty())
+        opts.project_signals = agent::load_project_signals(signals, error);
+    const std::string collections =
+        agent::resolve_data_path("data/skill-collections.json", nullptr);
+    if (!collections.empty())
+        opts.collections = agent::load_collections(collections, error);
+    const std::string owners = agent::resolve_data_path("data/skill-owners.json", nullptr);
+    if (owners.empty())
+        return;
+    for (const auto& owner : agent::load_curated_owners(owners, error))
+        opts.owners.push_back(owner.name);
+}
+
 void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
     opts.rows = LINES;
     opts.cols = COLS;
@@ -735,19 +754,7 @@ void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std:
     opts.cache_root = agent::skills_index_cache_dir();
     // Shelf data. A missing or invalid file is reported once, here, and the
     // shelf simply has nothing to show.
-    std::string table_error;
-    const std::string signals_path = agent::resolve_data_path("data/project-signals.json", nullptr);
-    if (!signals_path.empty())
-        opts.project_signals = agent::load_project_signals(signals_path, table_error);
-    const std::string collections_path =
-        agent::resolve_data_path("data/skill-collections.json", nullptr);
-    if (!collections_path.empty())
-        opts.collections = agent::load_collections(collections_path, table_error);
-    const std::string owners_path = agent::resolve_data_path("data/skill-owners.json", nullptr);
-    if (!owners_path.empty()) {
-        for (const auto& owner : agent::load_curated_owners(owners_path, table_error))
-            opts.owners.push_back(owner.name);
-    }
+    load_skill_shelves(opts);
     apply_skill_source_options(cfg_, opts);
     if (arg == "installed")
         opts.initial_tab = tui::SkillTab::Installed;
