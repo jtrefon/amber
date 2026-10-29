@@ -6896,6 +6896,54 @@ TEST(memory_store_upsert_and_retrieve) {
     ASSERT(results[0].content == "project uses make");
 }
 
+// The store, not its callers, owns the no-edit rule: a same-name entry with
+// different content is skipped, and the original survives.
+TEST(store_skips_a_name_conflict) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Memory original;
+    original.name = "build";
+    original.content = "make build";
+    original.evidence_count = 3;
+    original.promoted = true;
+    store->upsert(original);
+
+    agent::Memory conflicting;
+    conflicting.name = "build";
+    conflicting.content = "cmake --build";
+    conflicting.evidence_count = 3;
+    conflicting.promoted = true;
+    store->upsert(conflicting);
+
+    auto all = store->all_memories();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("make build"));
+}
+
+TEST(store_skips_a_skill_name_conflict) {
+    agent::ExperienceConfig ec;
+    auto store = agent::make_memory_store(ec);
+    agent::Skill original;
+    original.name = "run-tests";
+    original.content = "run make test";
+    original.trigger_phrase = "test";
+    original.evidence_count = 5;
+    original.promoted = true;
+    store->upsert(original);
+
+    agent::Skill conflicting;
+    conflicting.name = "run-tests";
+    conflicting.content = "run ctest";
+    conflicting.trigger_phrase = "test";
+    conflicting.evidence_count = 5;
+    conflicting.promoted = true;
+    store->upsert(conflicting);
+
+    auto all = store->all_skills();
+    ASSERT_EQ(all.size(), size_t{1});
+    ASSERT_EQ(all[0].content, std::string("run make test"));
+}
+
 TEST(memory_store_top_k_limits) {
     agent::ExperienceConfig ec;
     auto store = agent::make_memory_store(ec);
@@ -6962,6 +7010,21 @@ TEST(skill_legacy_json_loads_without_dead_fields) {
     ASSERT(skills.size() == 1u);
     ASSERT(skills[0].content == "make deploy");
     ASSERT(skills[0].trigger_phrase == "deploy");
+}
+
+TEST(experience_disabled_makes_no_store) {
+    agent::ExperienceConfig ec;
+    ec.enabled = false;
+    ASSERT(agent::make_memory_store(ec) == nullptr);
+}
+
+TEST(experience_disabled_config_makes_no_store) {
+    agent::Config cfg;
+    cfg.experience_enabled = false;
+    cfg.experience_store_path = "/tmp/amber_disabled_experience.json";
+    auto ec = agent::load_experience_config(cfg);
+    ASSERT_FALSE(ec.enabled);
+    ASSERT(agent::make_memory_store(ec) == nullptr);
 }
 
 TEST(experience_store_project_default) {
