@@ -35,3 +35,36 @@ At the end, with the fixed local endpoint up, one session drives: search →
 detail → preview → install → update review → remove, plus each shelf, each
 facet combination, a forced offline/429, and a batch with a collision. The PR
 body records what was driven by hand and what only by test.
+
+## Progress on `feat/skills-complete`
+
+Landed and pushed (each commit green: `make`, unit suite, PTY suite,
+complexity, class-size, duplicates, format, clang-tidy):
+
+- **`data/`**: `project-signals.json` (repository fact → queries) and
+  `skill-collections.json` (editorial shelves). Both loaders are tolerant: a
+  missing or malformed file is an empty shelf with a reason, never a crash.
+- **`agent::detect_project_signals`**: substring/`is_directory` detection, no
+  model call, reasons and queries in table order, deduplicated.
+- **Facet model** (`tui/skills_browse_core`): four groups (status, trust,
+  category, source), OR within a group, AND across groups, a visible
+  `uncategorised` bucket, and counts that apply every *other* group so a
+  selection keeps a truthful count.
+- **Facet pane**: `f` focuses it, `j`/`k` walk values and wrap between groups,
+  Enter/Space toggles, `r` resets, Esc returns; narrow terminals get the same
+  state machine in a modal. The column renders groups, counts and `[x]` marks.
+
+Held back for the next commits (do not ship without them):
+
+- #405's For-you / Trending / Official / Collections rows need a multi-query
+  orchestrator on `SkillsService` (one query at a time, merge by id) — the
+  bundled data is in place, the runner is not.
+- #398's evidence/cost/audit blocks, markdown preview and `o`/`y` fallbacks.
+- #397's live/cached/offline header, `Esc` unwinding and persisted tab/sort/
+  facets.
+- #407's cross-restart cache and non-blocking 429; #408's 2/1/1 batch, cancel
+  and audit verdicts; #409's well-known index.
+
+None of the remaining items is blocked by a design question; they are worker
+time. The branch has no half-wired key or unreachable state: every commit so
+far is a complete behaviour with its tests.
