@@ -63,17 +63,24 @@ complexity, class-size, duplicates, format, clang-tidy):
 - **#405 (state half)**: every shelf keeps its own cursor and scroll for the
   session, so 1..7 and back returns to the row you were reading.
 
+- **#405 (shelves)**: a shelf runner over `SkillsService` (one query at a time,
+  pages merged by id via `merge_shelf_rows`), `For you` from the repository's
+  own signals with a `Based on: …` reason, `Official` searching the curated
+  owners **and** dropping results whose owner is not on the list, `Collections`
+  listing editorial shelves whose Enter runs their queries, and `Trending`
+  saying `no trend signal` rather than inventing one. Collection rows refuse
+  install/update with a sentence pointing at the skills they list.
+
 Held back for the next commits (do not ship without them):
 
-- #405's For-you / Trending / Official / Collections **rows**: the data, the
-  detector and the per-tab state are in place; the shelf runner (a queue over
-  `SkillsService`, one query at a time, merged by id, with the reason line) is
-  the next commit.
+- #405 remainder: collections that carry `ids` instead of queries (they need a
+  detail-by-id path, not a search); per-shelf `cached` labels land with #407's
+  cache.
 - #398's evidence/cost/audit blocks, markdown preview and `o`/`y` fallbacks.
 - #397's live/cached/offline header, `Esc` unwinding and persisted tab/sort/
   facets.
-- #407's cross-restart cache and non-blocking 429; #408's 2/1/1 batch, cancel
-  and audit verdicts; #409's well-known index.
+- #407's cross-restart cache, `Retry-After` handling and header truth;
+  #408's PTY proof of a 2/1/1 batch; #409's well-known index.
 
 None of the remaining items is blocked by a design question; they are worker
 time. The branch has no half-wired key or unreachable state: every commit so
