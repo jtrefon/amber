@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <agent/agent.h>
+#include <agent/learn_commands.h>
 #include <agent/model_probe.h>
 #include <agent/plugin.h>
 #include <agent/worktree.h>
@@ -175,6 +176,12 @@ public:
     void cmd_set(const std::string& arg);
     void cmd_set_policy_usage();
     void cmd_get(const std::string& arg);
+    void cmd_get_learn();
+    void cmd_learn_usage();
+    void cmd_learn_show(const std::string& arg);
+    void cmd_learn_forget(const std::string& arg);
+    void cmd_learn_pin(const std::string& arg);
+    void cmd_learn_panel();
     void apply_compression_threshold(const std::string& v);
     void apply_compression_min_turns(const std::string& v);
     void apply_compression_target_pct(const std::string& v);
@@ -204,6 +211,8 @@ private:
     void register_set_policy_actions();
     void register_set_feature_actions();
     void register_skills_actions();
+    void register_learn_actions();
+    bool learn_panel_action(const agent::LearnItem& item, agent::MemoryStore* store);
     void register_get_config_actions();
     void register_get_plugin_policy_actions();
     // Seed / key-prompt ladder for /provider <name>; false when the user backs out.

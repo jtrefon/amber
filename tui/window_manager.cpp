@@ -13,6 +13,18 @@
 
 namespace tui {
 
+namespace {
+
+std::unique_ptr<agent::MemoryRetriever>
+make_retriever(const std::shared_ptr<agent::MemoryStore>& store,
+               const agent::ExperienceConfig& cfg) {
+    if (!store)
+        return nullptr;
+    return std::make_unique<agent::MemoryRetriever>(*store, cfg);
+}
+
+} // namespace
+
 WindowManager::WindowManager(agent::Config& cfg, agent::ToolRegistry& reg,
                              agent::PluginRuntime* plugin_runtime)
     : cfg_(cfg), reg_(reg), plugin_runtime_(plugin_runtime) {}
@@ -41,9 +53,7 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
     // Skills and learned memories are per-project data shared across every
     // window on this project (see shared_skills/shared_store).
     auto mem_store = shared_store(exp_cfg);
-    std::unique_ptr<agent::MemoryRetriever> retriever;
-    if (mem_store)
-        retriever = std::make_unique<agent::MemoryRetriever>(*mem_store, exp_cfg);
+    auto retriever = make_retriever(mem_store, exp_cfg);
     // cfg_ is the shared template — its cancel_token flag is shared too.
     // Give this window's agent a fresh flag so cancelling one run can
     // never cancel a sibling's.
