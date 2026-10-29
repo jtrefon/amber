@@ -2582,7 +2582,7 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("N");
     tui.pump(100);
     tui.send("\x1b");
-    tui.pump(200);
+    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
     tui.send("]");
     tui.pump(400);
     tui.send("[");
@@ -2595,15 +2595,15 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(tui.wait_for("Skills keys", 5000), "the help overlay did not open", tui))
         return;
     tui.send("\x1b");
-    tui.pump(200);
-    tui.send("f"); // focus the facet column, then leave it
+    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
+    tui.send("f");  // focus the facet column, then leave it
     tui.pump(300);
     tui.send("j");
     tui.pump(100);
     tui.send("\x1b");
-    tui.pump(200);
-    tui.send("5"); // collections are editorial rows, no request needed
-    if (!require(tui.wait_for("collections", 5000), "the collections shelf did not open", tui))
+    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
+    tui.send("5");  // collections are editorial rows, no request needed
+    if (!require(tui.wait_for("collections", 10000), "the collections shelf did not open", tui))
         return;
     tui.send("3"); // back to Top, which re-runs the query
     if (!require(tui.wait_for("1 results", 10000), "Top did not come back", tui))
