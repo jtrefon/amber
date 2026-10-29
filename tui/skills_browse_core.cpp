@@ -296,6 +296,28 @@ BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_
     return plan;
 }
 
+std::string batch_report(int installed, const std::vector<std::string>& skipped, int failed,
+                         const std::vector<std::string>& failures, bool cancelled) {
+    std::string summary = std::to_string(installed) + " installed";
+    if (!skipped.empty())
+        summary += ", " + std::to_string(skipped.size()) + " skipped";
+    if (failed > 0)
+        summary += ", " + std::to_string(failed) + " failed";
+    std::vector<std::string> details = skipped;
+    details.insert(details.end(), failures.begin(), failures.end());
+    if (!details.empty()) {
+        summary += ": ";
+        for (std::size_t i = 0; i < details.size(); ++i) {
+            if (i > 0)
+                summary += ", ";
+            summary += details[i];
+        }
+    }
+    if (cancelled)
+        summary += " · cancelled, the rest was not started";
+    return summary;
+}
+
 bool skill_tab_available(SkillTab tab) noexcept {
     return tab == SkillTab::Top || tab == SkillTab::Installed || tab == SkillTab::Updates;
 }

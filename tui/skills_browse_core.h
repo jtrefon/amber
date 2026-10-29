@@ -46,7 +46,8 @@ struct SkillRow {
     bool installed = false;
     bool update = false;
     bool unmanaged = false;
-    bool audited = false;
+    bool audited = false; // a passing audit; `audit` is the full verdict
+    agent::AuditVerdict audit = agent::AuditVerdict::NotAudited;
     bool official = false;
 };
 
@@ -111,6 +112,11 @@ struct BatchPlan {
 };
 
 BatchPlan plan_batch(const std::vector<BatchCandidate>& candidates, bool review_required);
+
+// One line for a finished (or cancelled) batch. Kept pure so the three
+// outcomes and the cancel suffix are pinned without a terminal.
+std::string batch_report(int installed, const std::vector<std::string>& skipped, int failed,
+                         const std::vector<std::string>& failures, bool cancelled);
 
 // Pane widths for one terminal size. Pure so the three breakpoints are tested
 // without a terminal.

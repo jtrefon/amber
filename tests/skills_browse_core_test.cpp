@@ -482,3 +482,27 @@ TEST(skills_facet_pane_leaves_on_tab_switch) {
     core.set_tab(tui::SkillTab::Installed);
     ASSERT_TRUE(core.pane() == tui::SkillPane::List);
 }
+
+TEST(skills_batch_report_names_all_three_outcomes) {
+    ASSERT_EQ(tui::batch_report(2, {"taken (name collision)"}, 1, {"broken (network)"}, false),
+              std::string("2 installed, 1 skipped, 1 failed: taken (name collision), "
+                          "broken (network)"));
+    ASSERT_EQ(tui::batch_report(0, {"unread (review required: p reads it)"}, 0, {}, false),
+              std::string("0 installed, 1 skipped: unread (review required: p reads it)"));
+    ASSERT_EQ(tui::batch_report(1, {}, 0, {}, true),
+              std::string("1 installed · cancelled, the rest was not started"));
+}
+
+TEST(skills_marks_survive_a_filter_change) {
+    tui::SkillsBrowseCore core;
+    core.set_rows(sample());
+    core.key(' ');
+    const std::string marked = core.current()->ref.id;
+    ASSERT_TRUE(core.marked(marked));
+    core.set_filter("grill");
+    ASSERT_TRUE(core.marked(marked)); // keyed by id, not by row index
+    core.set_rows(sample());          // a refresh keeps it too
+    ASSERT_TRUE(core.marked(marked));
+    core.clear_marks();
+    ASSERT_TRUE(core.marks().empty());
+}

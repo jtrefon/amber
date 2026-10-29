@@ -262,3 +262,33 @@ TEST(skill_install_adopt_rejects_bad_frontmatter) {
     write(tmp.path + "/mine/SKILL.md", "no frontmatter");
     ASSERT_TRUE(!agent::adopt_skill(tmp.path, "mine").has_value());
 }
+
+TEST(skill_install_records_the_audit_verdict_it_was_given) {
+    TempDir env("audit");
+    agent::SkillDetail detail;
+    detail.ref.id = "acme/skills/tdd";
+    detail.ref.name = "tdd";
+    detail.ref.source = "acme/skills";
+    detail.hash = "sha-1";
+    detail.default_branch = "main";
+    detail.audit = agent::AuditVerdict::Warn;
+    std::vector<agent::SkillPayloadFile> files{
+        {"SKILL.md", "---\nname: tdd\ndescription: d\n---\nbody\n"}};
+    agent::SkillInstallRequest request;
+    request.name = "tdd";
+    request.dest_root = env.path + "/skills";
+    request.files = files;
+    request.replace = false;
+    const agent::SkillInstallResult result = agent::install_skill_files(request);
+    ASSERT_TRUE(result.ok);
+
+    const agent::LedgerEntry entry = agent::ledger_entry_for(detail, "tdd", files, result, true);
+    ASSERT_EQ(entry.audit, std::string("warn"));
+
+    agent::SkillLedger ledger = agent::SkillLedger::for_root(request.dest_root);
+    ledger.upsert("tdd", entry);
+    agent::SkillLedger reloaded = agent::SkillLedger::for_root(request.dest_root);
+    reloaded.load();
+    ASSERT_TRUE(reloaded.find("tdd").has_value());
+    ASSERT_EQ(reloaded.find("tdd")->audit, std::string("warn"));
+}

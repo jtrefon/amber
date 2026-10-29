@@ -56,8 +56,7 @@ void paint_settings(WINDOW* w, const InstallSheet& sheet, int aw) {
 void paint_evidence(WINDOW* w, const InstallSheet& sheet, int aw, int ah) {
     int y = 8;
     mvwaddnstr(w, y++, 0, "Evidence", std::max(0, aw - 1));
-    const char* audit =
-        sheet.evidence().audited ? "audited" : "not audited (no audit source for this registry)";
+    const char* audit = agent::audit_verdict_name(sheet.evidence().audit);
     mvwaddnstr(w, y++, 2, audit, std::max(0, aw - 3));
 
     int shown = 0;

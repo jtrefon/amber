@@ -123,6 +123,12 @@ void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, RowFlags 
         badges += "*";
     if (row.update)
         badges += "+";
+    if (row.audit == agent::AuditVerdict::Pass)
+        badges += "\u2713";
+    else if (row.audit == agent::AuditVerdict::Warn)
+        badges += "!";
+    else if (row.audit == agent::AuditVerdict::Fail)
+        badges += "\u2717";
     if (row.unmanaged)
         badges += "?";
 
@@ -219,7 +225,8 @@ InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string&
     // tier for a GitHub source and nothing is claimed as vetted.
     evidence.tier = agent::trust_tier(false, false, false,
                                       detail.ref.source.find('/') != std::string::npos, false);
-    evidence.audited = false;
+    evidence.audit = detail.audit;
+    evidence.audited = detail.audit == agent::AuditVerdict::Pass;
     return evidence;
 }
 
@@ -507,6 +514,8 @@ private:
     void install_marked(const std::vector<std::string>& ids);
     void on_batch_install(const SkillsEvent& event);
     std::string batch_summary() const;
+    bool cancel_batch();
+    bool close_or_cancel();
     void review_pending_update(const agent::SkillDetail& detail);
     bool install_batched(const agent::SkillDetail& detail);
     bool apply_lifecycle(const SkillIntent& intent);
@@ -541,7 +550,10 @@ private:
     std::set<std::string> batch_names_;
     int batch_total_ = 0;
     int batch_installed_ = 0;
+    int batch_failed_ = 0;
+    bool batch_cancel_ = false;
     std::vector<std::string> batch_skipped_;
+    std::vector<std::string> batch_failures_;
     std::string pending_preview_;
     std::string last_status_;
     bool pending_search_ = false;
@@ -594,8 +606,7 @@ bool SkillsExplorer::apply(const SkillIntent& intent) {
         return true;
 
     case SkillIntent::Kind::Close:
-        status_("skills closed");
-        return false;
+        return close_or_cancel();
     case SkillIntent::Kind::Help:
     case SkillIntent::Kind::FocusFacets:
     case SkillIntent::Kind::ToggleFacet:
@@ -975,6 +986,9 @@ void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
     batch_skipped_.clear();
     batch_total_ = 0;
     batch_installed_ = 0;
+    batch_failed_ = 0;
+    batch_cancel_ = false;
+    batch_failures_.clear();
     const std::string root = options_.install_global ? options_.global_root : options_.project_root;
     std::vector<BatchCandidate> candidates;
     for (const auto& id : ids) {
@@ -1005,26 +1019,38 @@ void SkillsExplorer::install_marked(const std::vector<std::string>& ids) {
 }
 
 std::string SkillsExplorer::batch_summary() const {
-    std::string summary = std::to_string(batch_installed_) + " installed";
-    if (batch_skipped_.empty())
-        return summary;
-    summary += ", " + std::to_string(batch_skipped_.size()) + " skipped: ";
-    for (std::size_t i = 0; i < batch_skipped_.size(); ++i) {
-        if (i > 0)
-            summary += ", ";
-        summary += batch_skipped_[i];
-    }
-    return summary;
+    return batch_report(batch_installed_, batch_skipped_, batch_failed_, batch_failures_,
+                        batch_cancel_);
+}
+
+bool SkillsExplorer::close_or_cancel() {
+    if (cancel_batch())
+        return true;
+    status_("skills closed");
+    return false;
+}
+
+bool SkillsExplorer::cancel_batch() {
+    if (batch_total_ <= 0)
+        return false;
+    batch_cancel_ = true;
+    batch_pending_.clear(); // queued details no longer install
+    batch_names_.clear();
+    batch_total_ = 0;
+    last_status_ = batch_summary();
+    return true;
 }
 
 void SkillsExplorer::on_batch_install(const SkillsEvent& event) {
     if (batch_names_.count(event.name) == 0)
         return;
     batch_names_.erase(event.name);
-    if (event.install.ok)
+    if (event.install.ok) {
         ++batch_installed_;
-    else
-        batch_skipped_.emplace_back(event.name + " (" + event.install.error + ")");
+    } else {
+        ++batch_failed_;
+        batch_failures_.emplace_back(event.name + " (" + event.install.error + ")");
+    }
     if (!batch_names_.empty())
         return;
     batch_total_ = 0;

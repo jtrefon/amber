@@ -19,6 +19,9 @@ struct LedgerEntry {
     std::string local_hash; // FNV of the installed SKILL.md (local-edit check)
     std::string category;
     std::string note;
+    // The audit verdict the install sheet showed, so a later reviewer sees what
+    // was accepted rather than today's answer.
+    std::string audit;
     long long installed_at_ms = 0;
     int files = 0;
     long long bytes = 0;

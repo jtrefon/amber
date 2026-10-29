@@ -74,6 +74,13 @@ struct SkillAsset {
 
 // Everything a detail pane and an installer need, from one repo listing plus
 // one SKILL.md fetch.
+// An audit verdict, when the source supplies one. The anonymous registry does
+// not, so `NotAudited` is a statement about the source, never a check mark.
+enum class AuditVerdict : unsigned char { NotAudited, Pass, Warn, Fail };
+
+const char* audit_verdict_name(AuditVerdict verdict) noexcept;
+AuditVerdict audit_verdict_from(const std::string& text) noexcept;
+
 struct SkillDetail {
     SkillRef ref;
     std::string description;
@@ -87,6 +94,9 @@ struct SkillDetail {
     // remote string.
     std::string body;
     std::vector<SkillAsset> assets;
+    // Optional audit, filled by a source that has one (v1 adapter, a mirror).
+    AuditVerdict audit = AuditVerdict::NotAudited;
+    std::string audit_note;
 };
 
 struct DetailResult {

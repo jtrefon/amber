@@ -28,6 +28,7 @@ LedgerEntry entry_from(const json& j) {
     e.local_hash = text(j, "local_hash");
     e.category = text(j, "category");
     e.note = text(j, "note");
+    e.audit = text(j, "audit");
     e.installed_at_ms = j.value("installed_at_ms", 0LL);
     e.files = j.value("files", 0);
     e.bytes = j.value("bytes", 0LL);
@@ -44,6 +45,7 @@ json entry_json(const LedgerEntry& e) {
             {"local_hash", e.local_hash},
             {"category", e.category},
             {"note", e.note},
+            {"audit", e.audit},
             {"installed_at_ms", e.installed_at_ms},
             {"files", e.files},
             {"bytes", e.bytes},

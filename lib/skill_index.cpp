@@ -196,6 +196,30 @@ IndexFailure classify_http(const std::optional<HttpResponse>& response) {
     return classify(response);
 }
 
+const char* audit_verdict_name(AuditVerdict verdict) noexcept {
+    switch (verdict) {
+    case AuditVerdict::NotAudited:
+        return "not audited";
+    case AuditVerdict::Pass:
+        return "pass";
+    case AuditVerdict::Warn:
+        return "warn";
+    case AuditVerdict::Fail:
+        return "fail";
+    }
+    return "not audited";
+}
+
+AuditVerdict audit_verdict_from(const std::string& text) noexcept {
+    if (text == "pass" || text == "passed")
+        return AuditVerdict::Pass;
+    if (text == "warn" || text == "warning" || text == "warned")
+        return AuditVerdict::Warn;
+    if (text == "fail" || text == "failed")
+        return AuditVerdict::Fail;
+    return AuditVerdict::NotAudited;
+}
+
 DetailResult SkillIndex::detail(const SkillRef&, const CancellationToken&) const {
     return {std::nullopt, failure(IndexError::Unsupported, "detail is not supported")};
 }

@@ -2,6 +2,7 @@
 #define AMBER_TUI_SKILLS_INSTALL_SHEET_H
 
 #include "agent/remote_text.h"
+#include "agent/skill_index.h"
 
 #include <string>
 #include <vector>
@@ -41,6 +42,9 @@ struct InstallEvidence {
     int files = 0;
     long long bytes = 0;
     int tokens = 0;
+    // The verdict the source supplied, if any. `audited` remains the gate bit
+    // (a pass), so a `warn` can be shown without satisfying `audit_required`.
+    agent::AuditVerdict audit = agent::AuditVerdict::NotAudited;
     bool audited = false;
 };
 
