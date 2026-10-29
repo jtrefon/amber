@@ -138,6 +138,24 @@ std::optional<WatchRecord> wait_terminal(WatchService& service, const std::strin
     return std::nullopt;
 }
 
+// The report event is published after the record turns terminal, on the
+// worker. Asserting on it the instant the state flips is a race the test loses
+// under instrumentation (it failed in CI's coverage job, not locally): wait for
+// the event the test is about, with the same bounded patience as wait_terminal.
+bool wait_events(std::mutex& mtx, const std::vector<WatchReportEvent>& events, std::size_t want,
+                 int seconds = 10) {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    while (std::chrono::steady_clock::now() < end) {
+        {
+            std::scoped_lock lk(mtx);
+            if (events.size() >= want)
+                return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
 bool wait_gone(WatchService& service, const std::string& id, int seconds = 10) {
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
     while (std::chrono::steady_clock::now() < end) {
@@ -229,6 +247,7 @@ TEST(watch_process_success_is_deterministic_and_skips_observer) {
         ASSERT_TRUE(report->headline.find("succeeded") != std::string::npos);
         ASSERT_EQ(observer->calls.load(), 0);
     }
+    ASSERT_TRUE(wait_events(event_mtx, events, 1));
     std::scoped_lock lk(event_mtx);
     ASSERT_EQ(events.size(), std::size_t{1});
     ASSERT_EQ(events[0].owner_id, std::string("7"));
@@ -264,6 +283,7 @@ TEST(watch_process_failure_uses_observer_and_publishes_owner) {
     ASSERT_EQ(observer->calls.load(), 1);
     ASSERT_TRUE(!report->artifact_path.empty());
 
+    ASSERT_TRUE(wait_events(event_mtx, events, 1));
     std::scoped_lock lk(event_mtx);
     ASSERT_EQ(events.size(), std::size_t{1});
     ASSERT_EQ(events[0].owner_id, std::string("7"));

@@ -20,6 +20,10 @@ struct RunOptions {
     bool live = false;
     std::string profile; // profiles.json key ("" = none)
     int repeat = 1;
+    // Milliseconds between repeats. A live endpoint that throttles a burst (the
+    // free tiers do) turns a repeat set into "unmeasured" runs otherwise, and a
+    // distribution of failures is not a distribution of the model.
+    int repeat_gap_ms = 0;
     std::string model;        // explicit model override (live)
     double temperature = -1;  // <0 = leave default
     std::string thinking;     // "" = leave default; "on"/"off"/"auto"

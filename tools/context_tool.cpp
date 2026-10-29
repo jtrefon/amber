@@ -49,7 +49,11 @@ public:
                 {"required", {"op"}}};
     }
 
-    bool is_read_only() const noexcept override { return false; }
+    // It changes no workspace file, and every result it replaces is recallable
+    // through read_result, so the READ-mode gate must not deny it: a live run
+    // had the model ask for superseded reads and be told "denied" instead. The
+    // workspace stays exactly as it was; the context is what shrinks.
+    bool is_read_only() const noexcept override { return true; }
 
     ToolResult execute(const agent::json& args) const override {
         const std::string op_name = read_string(args, "op", "");

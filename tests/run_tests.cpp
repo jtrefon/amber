@@ -12,6 +12,7 @@
 #include "agent/stream_decoder.h"
 #include "agent/compressor.h"
 #include "agent/context_shape.h"
+#include "agent/global_config.h"
 #include "agent/dispatch.h"
 #include "agent/experience.h"
 #include "agent/environment.h"
@@ -2925,6 +2926,56 @@ TEST(private_error_journal_is_owner_only) {
     }
     ASSERT_EQ(mode_of(xdg.state + "/errors"), 0700u);
     ASSERT_EQ(mode_of(path), 0600u);
+}
+
+TEST(global_selection_is_what_a_live_run_uses) {
+    // A live run must use the configuration the user actually runs. The provider
+    // selected in the global config decides the endpoint and the key; a cloned
+    // repository's amber.conf is a base layer and cannot redirect that traffic to
+    // a local server. The benchmark used to load the project file directly, so a
+    // run against the configured provider silently dialled 127.0.0.1.
+    XdgGuard xdg("global_selection");
+    std::filesystem::create_directories(agent::global_config_dir() + "/providers");
+    {
+        std::ofstream f(agent::global_config_path());
+        f << "provider=kilocode\nmodel=kilo-auto/free\nmodel_explicit=1\n";
+    }
+    {
+        // What the provider domain reads before any plugin is installed: the
+        // saved provider file owns the endpoint and the key.
+        std::ofstream f(agent::global_config_dir() + "/providers/kilocode.conf");
+        f << "provider=kilocode\napi_base=https://api.kilo.ai/api/gateway\n"
+             "api_key=test-key\ndefault_model=kilo-auto/free\n";
+    }
+    const std::string project = xdg.state + "/project-amber.conf";
+    std::filesystem::create_directories(xdg.state);
+    {
+        std::ofstream f(project);
+        f << "api_base=http://127.0.0.1:8081/v1\n";
+    }
+
+    agent::Config cfg;
+    const agent::GlobalConfig global = agent::apply_global_selection(cfg);
+    ASSERT(global.loaded);
+    ASSERT_EQ(cfg.provider_name, std::string("kilocode"));
+    ASSERT(cfg.api_base.find("kilo.ai") != std::string::npos);
+    ASSERT(cfg.api_base_from_provider);
+
+    // The project layer still applies, but not its endpoint.
+    cfg.load_workspace_defaults(project);
+    ASSERT(cfg.api_base.find("127.0.0.1") == std::string::npos);
+
+    agent::apply_global_model(cfg, global);
+    ASSERT_EQ(cfg.model, std::string("kilo-auto/free"));
+    ASSERT(cfg.model_explicit);
+
+    // No global config: nothing is imposed, so a bare host keeps its own defaults.
+    std::filesystem::remove(agent::global_config_path());
+    agent::Config bare;
+    const agent::GlobalConfig none = agent::apply_global_selection(bare);
+    ASSERT(!none.loaded);
+    ASSERT(!bare.api_base_from_provider);
+    ASSERT_EQ(bare.provider_name, std::string("custom")); // core's default, untouched
 }
 
 TEST(private_migration_narrows_existing_paths_and_is_idempotent) {
@@ -6369,6 +6420,18 @@ TEST(shape_queue_drains_once) {
     ASSERT_EQ(drained.size(), 2u);
     ASSERT(queue.empty());
     ASSERT(queue.drain().empty());
+}
+
+TEST(context_tool_is_read_only) {
+    // The READ-mode gate denies every non-read-only tool. Shaping changes no
+    // workspace file and every replacement is recallable, so denying it there
+    // only takes the model's trim away in the mode most sessions start in --
+    // measured live, where the model asked for superseded reads and got
+    // "denied".
+    agent::ShapeQueue queue;
+    const auto tool = agent::make_context_tool(queue);
+    ASSERT(tool->is_read_only());
+    ASSERT(!tool->requires_approval(agent::json::object()));
 }
 
 TEST(context_tool_queues_a_drop_plan) {
