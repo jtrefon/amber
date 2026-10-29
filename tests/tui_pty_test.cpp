@@ -2566,8 +2566,58 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(installed_on_disk, "the mirror install never reached the disk", tui))
         return;
 
+    // Walk the rest of the surface while the detail is loaded: the pager (with
+    // search), file navigation (which fetches the remaining files), help, the
+    // facet column, focus keys and the source/copy fallbacks.
+    tui.send("p");
+    if (!require(tui.wait_for("Preview:", 10000), "the pager did not open", tui))
+        return;
+    tui.send("/");
+    tui.pump(100);
+    tui.send("body");
+    tui.send("\r");
+    tui.pump(100);
+    tui.send("n");
+    tui.pump(100);
+    tui.send("N");
+    tui.pump(100);
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("]");
+    tui.pump(400);
+    tui.send("[");
+    tui.pump(200);
+    tui.send("o");
+    tui.pump(100);
+    tui.send("y");
+    tui.pump(100);
+    tui.send("?");
+    if (!require(tui.wait_for("Skills keys", 5000), "the help overlay did not open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("f"); // focus the facet column, then leave it
+    tui.pump(300);
+    tui.send("j");
+    tui.pump(100);
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("5"); // collections are editorial rows, no request needed
+    if (!require(tui.wait_for("collections", 5000), "the collections shelf did not open", tui))
+        return;
+    tui.send("3"); // back to Top, which re-runs the query
+    if (!require(tui.wait_for("1 results", 10000), "Top did not come back", tui))
+        return;
+
     tui.send("q");
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
+        return;
+    // o/y printed their payload into the transcript when the modal closed.
+    if (!require(tui.wait_for("source: https://github.com/acme/skills", 5000),
+                 "o did not print the source URL", tui))
+        return;
+    if (!require(tui.wait_for("copy: amber-cli skills install", 5000),
+                 "y did not print the install command", tui))
         return;
 
     // A second revision upstream, and a cold cache so the bundle is refetched.

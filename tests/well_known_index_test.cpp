@@ -194,3 +194,66 @@ TEST(well_known_does_not_rank_and_still_reports_its_source) {
     ASSERT_EQ(sources.size(), static_cast<size_t>(1));
     ASSERT_TRUE(sources[0].enabled);
 }
+
+TEST(well_known_invalid_json_and_missing_skills_are_errors) {
+    std::string error;
+    auto table = agent::parse_well_known_index("not json", "https://host", error);
+    ASSERT_TRUE(table.skills.empty());
+    ASSERT_TRUE(error.find("not a JSON object") != std::string::npos);
+
+    table = agent::parse_well_known_index(R"({"skills": {}})", "https://host", error);
+    ASSERT_TRUE(error.find("no skills array") != std::string::npos);
+}
+
+TEST(well_known_detail_rejects_a_skill_the_host_does_not_list) {
+    Router router;
+    router.routes[kIndexUrl] = reply(200, v02_index());
+    agent::SkillRef ref;
+    ref.id = "skills.example.com/other";
+    ref.name = "other";
+    ref.source = "skills.example.com";
+    const auto detail = agent::WellKnownIndex(options(router)).detail(ref, {});
+    ASSERT_TRUE(!detail.detail);
+    ASSERT_TRUE(detail.error.detail.find("does not list") != std::string::npos);
+}
+
+TEST(well_known_asset_digest_mismatch_fails_the_fetch) {
+    Router router;
+    router.routes[kIndexUrl] = reply(200, v02_index());
+    router.routes[kBodyUrl] = reply(200, kBody);
+    router.routes[kNotesUrl] = reply(200, "tampered\n");
+    agent::SkillRef ref;
+    ref.id = "skills.example.com/tdd";
+    ref.name = "tdd";
+    ref.source = "skills.example.com";
+    const agent::WellKnownIndex index(options(router));
+    const auto detail = index.detail(ref, {});
+    ASSERT_TRUE(detail.ok());
+    const auto assets = index.fetch_assets(*detail.detail, {});
+    ASSERT_TRUE(!assets.ok());
+    ASSERT_TRUE(assets.error.detail.find("notes.md: digest mismatch") != std::string::npos);
+}
+
+TEST(well_known_http_error_is_reported_without_trying_legacy) {
+    Router router;
+    router.routes[kIndexUrl] = reply(500, "");
+    agent::SkillRef ref;
+    ref.id = "skills.example.com/tdd";
+    ref.name = "tdd";
+    ref.source = "skills.example.com";
+    const auto detail = agent::WellKnownIndex(options(router)).detail(ref, {});
+    ASSERT_TRUE(!detail.detail);
+    ASSERT_TRUE(detail.error.detail.find("HTTP 500") != std::string::npos);
+    ASSERT_EQ(router.calls[kLegacyUrl], 0);
+}
+
+TEST(well_known_digest_forms_are_checked_conservatively) {
+    const std::string body = "abc";
+    const std::string hex = agent::sha256_hex(body);
+    ASSERT_TRUE(agent::digest_matches(body, "sha256:" + hex));
+    ASSERT_TRUE(agent::digest_matches(body, hex));
+    ASSERT_TRUE(agent::digest_matches(body, "")); // nothing advertised, nothing to check
+    ASSERT_FALSE(agent::digest_matches(body, "sha256:short"));
+    ASSERT_FALSE(agent::digest_matches(body, "md5:" + hex));
+    ASSERT_FALSE(agent::digest_matches(body, "sha256:" + std::string(64, 'z')));
+}
