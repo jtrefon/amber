@@ -95,8 +95,22 @@ void SkillsBrowseCore::set_pane(SkillPane pane) {
 void SkillsBrowseCore::set_tab(SkillTab tab) {
     if (pane_ == SkillPane::Facets)
         pane_ = SkillPane::List;
+    if (tab == tab_)
+        return;
+    tab_positions_[tab_] = TabPosition{selection_, scroll_};
     tab_ = tab;
-    reset_cursor();
+    const auto saved = tab_positions_.find(tab);
+    selection_ = saved == tab_positions_.end() ? 0 : saved->second.selection;
+    scroll_ = saved == tab_positions_.end() ? 0 : saved->second.scroll;
+    if (saved == tab_positions_.end())
+        reset_cursor();
+}
+
+SkillsBrowseCore::TabPosition SkillsBrowseCore::tab_position(SkillTab tab) const {
+    if (tab == tab_)
+        return TabPosition{selection_, scroll_};
+    const auto it = tab_positions_.find(tab);
+    return it == tab_positions_.end() ? TabPosition{} : it->second;
 }
 
 void SkillsBrowseCore::set_sort(SkillSort sort) {

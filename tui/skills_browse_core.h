@@ -203,6 +203,13 @@ public:
 
     void set_pane(SkillPane pane);
     void set_tab(SkillTab tab);
+    // Each shelf remembers its own cursor and scroll for the session, so
+    // jumping 1..7 and back does not lose the row you were reading.
+    struct TabPosition {
+        int selection = 0;
+        int scroll = 0;
+    };
+    TabPosition tab_position(SkillTab tab) const;
     void set_sort(SkillSort sort);
     void set_filter(std::string filter);
     void clear_marks();
@@ -235,6 +242,7 @@ private:
     std::string filter_;
     std::string status_;
     std::set<std::string> marked_;
+    std::map<SkillTab, TabPosition> tab_positions_;
     std::map<FacetGroup, std::set<std::string>> facets_;
     FacetCursor facet_cursor_;
     void move_facet_cursor(int delta);

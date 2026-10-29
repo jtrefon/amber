@@ -506,3 +506,21 @@ TEST(skills_marks_survive_a_filter_change) {
     core.clear_marks();
     ASSERT_TRUE(core.marks().empty());
 }
+
+TEST(skills_tabs_keep_their_own_position) {
+    tui::SkillsBrowseCore core;
+    core.set_rows({row("a", 1), row("b", 2), row("c", 3)});
+    core.key('j');
+    core.key('j');
+    ASSERT_EQ(core.selection(), 2);
+    const tui::SkillsBrowseCore::TabPosition top = core.tab_position(tui::SkillTab::Top);
+    ASSERT_EQ(top.selection, 2);
+
+    core.set_installed({facet_row("mine", "testing", agent::TrustTier::Community, true)});
+    core.set_tab(tui::SkillTab::Installed);
+    ASSERT_EQ(core.selection(), 0); // a shelf visited for the first time starts at the top
+
+    core.set_tab(tui::SkillTab::Top);
+    ASSERT_EQ(core.selection(), 2); // and the Top shelf is where it was left
+    ASSERT_EQ(core.tab_position(tui::SkillTab::Top).selection, 2);
+}
