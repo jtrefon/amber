@@ -595,6 +595,9 @@ private:
 void SkillsExplorer::restore_ui_state() {
     if (options_.ui_state_path.empty())
         return;
+    // The path is the explorer's own per-project state file, not model or
+    // request input.
+    // codeql[cpp/path-injection]
     std::ifstream in(options_.ui_state_path, std::ios::binary);
     if (!in)
         return;
