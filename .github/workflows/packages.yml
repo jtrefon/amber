@@ -34,6 +34,12 @@ concurrency:
 env:
   DEBIAN_FRONTEND: noninteractive
 
+# Container jobs default to `sh`; the rpm command below builds an argument
+# array, and the rest of the steps read better with bash's `set -euo pipefail`.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
@@ -179,17 +185,16 @@ jobs:
           install -m 644 packaging/rpm/amber-agent.repo "$top/SOURCES/"
           install -m 644 LICENSE "$top/SOURCES/"
 
-          common="-D _topdir $top -D _sourcedir $top/SOURCES
-                  -D use_source_date_epoch_as_buildtime 1
-                  -D clamp_mtime_to_source_date_epoch 1"
-          # shellcheck disable=SC2086
-          rpmbuild -bb $common --define "_rpmdir $top/RPMS" rpm/amber-agent.spec
-          # shellcheck disable=SC2086
-          rpmbuild -bb $common --define "_rpmdir $top/RPMS" rpm/amber-agent-release.spec
-          # shellcheck disable=SC2086
-          rpmbuild -bs $common --define "_srcrpmdir $top/SRPMS" rpm/amber-agent.spec
-          # shellcheck disable=SC2086
-          rpmbuild -bs $common --define "_srcrpmdir $top/SRPMS" rpm/amber-agent-release.spec
+          # An array, not a string: `-D` takes "name body" as one argument, and
+          # splitting a string silently defines a macro with an empty body.
+          common=(-D "_topdir $top"
+                  -D "_sourcedir $top/SOURCES"
+                  -D "use_source_date_epoch_as_buildtime 1"
+                  -D "clamp_mtime_to_source_date_epoch 1")
+          rpmbuild -bb "${common[@]}" --define "_rpmdir $top/RPMS" rpm/amber-agent.spec
+          rpmbuild -bb "${common[@]}" --define "_rpmdir $top/RPMS" rpm/amber-agent-release.spec
+          rpmbuild -bs "${common[@]}" --define "_srcrpmdir $top/SRPMS" rpm/amber-agent.spec
+          rpmbuild -bs "${common[@]}" --define "_srcrpmdir $top/SRPMS" rpm/amber-agent-release.spec
 
           out="$GITHUB_WORKSPACE/dist/rpm"
           mkdir -p "$out"
