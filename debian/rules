@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: Apache-2.0
+
+%:
+	dh $@
+
+# The configure flags ARE the package layout: libexec keeps architecture-
+# dependent plugin binaries out of /usr/share, and the multiarch libdir is where
+# a Debian library belongs. Nothing here overrides what configure computes, so
+# the trees built by the Makefile and by this package cannot disagree.
+override_dh_auto_configure:
+	./configure \
+		--prefix=/usr \
+		--libdir=/usr/lib/$(DEB_HOST_MULTIARCH) \
+		--libexecdir=/usr/lib \
+		--includedir=/usr/include \
+		--datarootdir=/usr/share \
+		--mandir=/usr/share/man
+
+# Tests run in the packaging workflow before this recipe is invoked, so a
+# second run here would only add minutes. `make test` also drives the pty
+# harness, which needs a terminal the buildds do not provide.
+override_dh_auto_test:
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp
+
+	# The release package is the trust anchor and the source definition. Its
+	# files come from the repository, not from the build tree, so they are
+	# placed directly instead of passing through debian/tmp.
+	install -D -m 644 packaging/keys/amber-agent-archive-keyring.gpg \
+		debian/amber-agent-release/usr/share/keyrings/amber-agent-archive-keyring.gpg
+	install -D -m 644 packaging/apt/amber-agent.sources \
+		debian/amber-agent-release/etc/apt/sources.list.d/amber-agent.sources

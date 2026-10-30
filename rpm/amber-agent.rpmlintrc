@@ -1,0 +1,9 @@
+# rpmlint's spell checker reads technical tokens as misspelled English, and its
+# devel-file check cannot tell a benchmark template from an installable header.
+# Every filter names the exact term or path, so a real typo or a stray header in
+# the runtime package still shows up. Everything else is unfiltered.
+addFilter("spelling-error.*'cli'")
+addFilter("spelling-error.*'cflags'")
+addFilter("spelling-error.*'dnf'")
+addFilter("spelling-error.*'gpgcheck'")
+addFilter("devel-file-in-non-devel-package /usr/share/amber-bench")

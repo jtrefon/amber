@@ -1,0 +1,5 @@
+# The website's hero image is a 66 KB pre-rendered pixel-art <pre> block with
+# very long lines, which lintian's minified-file heuristic reports as a build
+# artefact whose source is absent. It is an input to the site, not an output of
+# the C++ build, and the upstream tarball keeps it because the tag is the source.
+amber-agent source: source-is-missing [website/src/data/ascii-hero.html]

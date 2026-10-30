@@ -66,9 +66,7 @@ jobs:
           sudo timeout 1800 apt-get -o DPkg::Lock::Timeout=120 \
             -o Acquire::Retries=3 install -y \
             --no-install-recommends \
-            build-essential libcurl4-openssl-dev libncursesw5-dev \
-            pkg-config ruby ruby-dev rpm
-          sudo gem install --no-document fpm
+            build-essential libcurl4-openssl-dev libncursesw5-dev pkg-config
 
       - name: Sync VERSION to tag
         run: |
@@ -89,9 +87,18 @@ jobs:
         run: |
           rm -rf stage
           make install DESTDIR="$PWD/stage"
-          test -n "$(find stage -path '*/share/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
-          test -n "$(find stage -path '*/share/amber/plugins/cdp/manifest.json' -type f -print -quit)"
-          test -n "$(find stage -path '*/share/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          # Plugin executables belong in libexec; data is architecture-independent.
+          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
+          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/manifest.json' -type f -print -quit)"
+          test -n "$(find stage -path '*/libexec/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          # The data files an installed run reads at startup, all of which were
+          # missing from the tree before the install split.
+          test -f stage/usr/share/amber/keybindings.json
+          test -f stage/usr/share/amber/data/skill-collections.json
+          test -f stage/usr/share/man/man1/amber.1
+          test -f stage/usr/lib/pkgconfig/amber-agent.pc
+          test -f stage/usr/include/amber-agent/agent/agent.h
+          test -n "$(find stage -path '*/share/amber-bench/scenarios/*/*.json' -print -quit)"
 
       - name: Build tarball + checksum
         id: tar
@@ -103,95 +110,27 @@ jobs:
           ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
           echo "tarball=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
-      - name: Build .deb (fpm)
-        id: deb
+      - name: Install smoke (installed tree, empty CWD)
         run: |
-          version="${{ steps.ver.outputs.version }}"
-          # Ubuntu packages the wide form/menu/panel runtime libs INSIDE
-          # libncursesw6 (libformw.so.6, libmenuw.so.6, libpanelw.so.6). The
-          # separate names this used to declare do not exist, so `dpkg -i`
-          # refused the package with unresolved dependencies and the bootstrap
-          # smoke never reached the binary.
-          fpm -s dir -t deb \
-            -n amber \
-            -v "${version}" \
-            --license "Apache-2.0" \
-            --maintainer "Jacek Trefon <hello@trefon.com>" \
-            --url "https://github.com/jtrefon/amber" \
-            --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
-            --depends "libcurl4" \
-            --depends "libncursesw6" \
-            --deb-no-default-config-files \
-            -C stage \
-            -p "dist/amber_${version}_amd64.deb" \
-            usr
-          ( cd dist && sha256sum "amber_${version}_amd64.deb" > "amber_${version}_amd64.deb.sha256" )
-
-      - name: Build .rpm (fpm)
-        id: rpm
-        run: |
-          version="${{ steps.ver.outputs.version }}"
-          # Fedora ships the same wide runtimes (ncursesw, formw, menuw,
-          # panelw) inside ncurses-libs, and its curl runtime is libcurl --
-          # the Debian names were wrong on the RPM side too.
-          fpm -s dir -t rpm \
-            -n amber \
-            -v "${version}" \
-            --license "Apache-2.0" \
-            --maintainer "Jacek Trefon <hello@trefon.com>" \
-            --url "https://github.com/jtrefon/amber" \
-            --description "C++ AI agent harness with a headless CLI and ncurses TUI." \
-            --depends "libcurl" \
-            --depends "ncurses-libs" \
-            -C stage \
-            -p "dist/amber_${version}.x86_64.rpm" \
-            usr
-          ( cd dist && sha256sum "amber_${version}.x86_64.rpm" > "amber_${version}.x86_64.rpm.sha256" )
-
-      - name: Build CDP plugin packages (deb + rpm)
-        id: cdp-pkg
-        run: |
-          version="${{ steps.ver.outputs.version }}"
-          rm -rf stage-cdp
-          mkdir -p stage-cdp/usr/share/amber/plugins/cdp
-          install -m 755 tools/plugins/cdp/cdp-plugin stage-cdp/usr/share/amber/plugins/cdp/
-          install -m 644 tools/plugins/cdp/manifest.json stage-cdp/usr/share/amber/plugins/cdp/
-          fpm -s dir -t deb \
-            -n amber-plugin-cdp \
-            -v "${version}" \
-            --license "Apache-2.0" \
-            --maintainer "Jacek Trefon <hello@trefon.com>" \
-            --url "https://github.com/jtrefon/amber" \
-            --description "CDP browser plugin for amber (Chrome DevTools Protocol)." \
-            --depends "amber" \
-            --deb-no-default-config-files \
-            -C stage-cdp \
-            -p "dist/amber-plugin-cdp_${version}_amd64.deb" \
-            usr
-          fpm -s dir -t rpm \
-            -n amber-plugin-cdp \
-            -v "${version}" \
-            --license "Apache-2.0" \
-            --maintainer "Jacek Trefon <hello@trefon.com>" \
-            --url "https://github.com/jtrefon/amber" \
-            --description "CDP browser plugin for amber (Chrome DevTools Protocol)." \
-            --depends "amber" \
-            -C stage-cdp \
-            -p "dist/amber-plugin-cdp_${version}.x86_64.rpm" \
-            usr
-          ( cd dist && sha256sum amber-plugin-cdp_${version}_amd64.deb amber-plugin-cdp_${version}.x86_64.rpm > amber-plugin-cdp_${version}.sha256 )
-
-      - name: Bootstrap smoke (installed package, empty CWD)
-        run: |
-          # The installed app must find prompts and completions.json from the
-          # system data dir — no project files, no user config.
-          sudo dpkg -i dist/amber_${{ steps.ver.outputs.version }}_amd64.deb
-          # The package must carry the data the agent reads at runtime, not just
-          # the bootstrap files: per-tool docs and the coding library tree.
+          # The .deb and .rpm are built by packages.yml from the same
+          # `make install` tree, so what is verified here is what those
+          # packages contain: install it for real, then run it from nowhere
+          # with no project files and no user config.
+          sudo make install
+          # The runtime must carry the data the agent reads at startup, not
+          # just the bootstrap files: keybindings, shelf tables, per-tool docs
+          # and the coding library tree.
+          test -f /usr/share/amber/keybindings.json
+          test -f /usr/share/amber/completions.json
+          test -f /usr/share/amber/data/skill-collections.json
           test -f /usr/share/amber/prompts/tools/read.md
           test -f /usr/share/amber/prompts/domains/coding/library/tags.md
           test -d /usr/share/amber/prompts/domains/coding/library/cpp-debugging
-          rm -rf /tmp/smoke && mkdir -p /tmp/smoke
+          # Plugin executables are architecture-dependent and live in libexec.
+          test -x /usr/libexec/amber/plugins/cdp/cdp-plugin
+          test -x /usr/libexec/amber/plugins/sysinfo/sysinfo-plugin
+
+          rm -rf /tmp/smoke && mkdir -p /tmp/smoke/home
           cd /tmp/smoke
           set +e
           HOME=/tmp/smoke/home /usr/bin/amber-cli -p "hi" >/tmp/smoke/out.txt 2>&1
@@ -201,7 +140,19 @@ jobs:
             echo "FAIL: packaged app could not find its data files"; cat /tmp/smoke/out.txt; exit 1
           fi
           echo "bootstrap OK (exit $rc — server connection expected to fail)"
-          sudo dpkg -r amber >/dev/null
+
+          # The bench harness resolves its corpus from the install prefix, not
+          # from the working directory it happens to be started in.
+          /usr/bin/amber-bench list >/tmp/smoke/bench.txt
+          test -s /tmp/smoke/bench.txt
+
+          # The dev payload: headers, archives and the pkg-config file a
+          # downstream build consumes.
+          test -f /usr/include/amber-agent/agent/agent.h
+          test -f /usr/include/amber-agent/nlohmann/json.hpp
+          test -f /usr/lib/libagent_core.a
+          test -f /usr/lib/pkgconfig/amber-agent.pc
+          PKG_CONFIG_PATH=/usr/lib/pkgconfig pkg-config --cflags --libs amber-agent
 
       - name: Download macOS tarball (arm64)
         uses: actions/download-artifact@v8
@@ -222,7 +173,7 @@ jobs:
           shopt -s nullglob
           for file in dist/*; do
             case "$file" in
-              *.sha256|*.tar.gz|*.deb|*.rpm|*.sig|*.pem) ;;
+              *.sha256|*.tar.gz|*.sig|*.pem) ;;
               *) continue ;;
             esac
             cosign sign-blob --yes \
@@ -238,14 +189,11 @@ jobs:
           name: ${{ steps.ver.outputs.tag }}
           generate_release_notes: true
           prerelease: ${{ steps.ver.outputs.prerelease }}
-          # One pattern per suffix family, so every file is matched exactly
-          # once: the plugin packages are covered by the .deb/.rpm globs, and
-          # the plugin's combined checksum is a bare .sha256 that only the
-          # broadest checksum glob catches.
+          # Linux packages are not release assets: they are published to the
+          # signed apt and rpm repositories by packages.yml, which is the only
+          # place their signatures and indexes are produced.
           files: |
             dist/*.tar.gz
-            dist/*.deb
-            dist/*.rpm
             dist/*.sig
             dist/*.pem
             dist/*.sha256
@@ -281,7 +229,8 @@ jobs:
         # brew's ncurses is keg-only; point pkg-config at it so the wide
         # ncursesw (required for the TUI's UTF-8 wide-char rendering) is found.
         run: |
-          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ncurses_prefix="$(brew --prefix ncurses)"
+          export PKG_CONFIG_PATH="$ncurses_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
           ./configure --prefix=/usr/local
 
       - name: Build
@@ -294,9 +243,14 @@ jobs:
         run: |
           rm -rf stage
           make install DESTDIR="$PWD/stage"
-          test -n "$(find stage -path '*/share/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
-          test -n "$(find stage -path '*/share/amber/plugins/cdp/manifest.json' -type f -print -quit)"
-          test -n "$(find stage -path '*/share/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          # Plugin executables are architecture-dependent and land in libexec on
+          # every platform; the data tree stays architecture-independent.
+          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
+          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/manifest.json' -type f -print -quit)"
+          test -n "$(find stage -path '*/libexec/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          test -f stage/usr/local/share/amber/keybindings.json
+          test -f stage/usr/local/share/man/man1/amber.1
+          test -n "$(find stage -path '*/share/amber-bench/scenarios/*/*.json' -print -quit)"
 
       - name: Build tarball + checksum
         run: |
