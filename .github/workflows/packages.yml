@@ -218,8 +218,64 @@ jobs:
           path: dist/rpm
           if-no-files-found: error
 
+  sign-rpm:
+    needs: [prepare, build-rpm]
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 15
+    # Same environment as publishing: the rpm signature is worth nothing
+    # without the key, and the key is not reachable without a reviewer.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpms
+          path: dist/rpm
+      - name: Sign the packages
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          dnf install -y gnupg2 rpm-sign
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # rpm expands only its own default gpg command, and that command has
+          # no way to receive a passphrase: overriding the macro does not work
+          # because the positional arguments it references are not expanded for
+          # a user-supplied command. Presetting the agent is what makes the
+          # signature unattended.
+          printf 'allow-preset-passphrase\n' >> "$GNUPGHOME/gpg-agent.conf"
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          grip="$(gpg --batch --with-colons --with-keygrip --list-secret-keys |
+            awk -F: '/^grp:/ { print $10; exit }')"
+          test -n "$grip"
+          hexpass="$(printf '%s' "$GPG_PASSPHRASE" | od -An -tx1 | tr -d ' \n')"
+          gpg-connect-agent --homedir "$GNUPGHOME" \
+            "PRESET_PASSPHRASE $grip -1 $hexpass" /bye
+          for package in dist/rpm/*.rpm; do
+            rpm --addsign \
+              --define "_gpg_name $GPG_KEY_ID" \
+              --define "_gpg_path $GNUPGHOME" \
+              "$package"
+          done
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          rpm --import packaging/keys/amber-agent-archive-keyring.asc
+          for package in dist/rpm/*.rpm; do
+            rpm -K "$package"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpms-signed
+          path: dist/rpm
+          if-no-files-found: error
+
   publish:
-    needs: [prepare, build-deb, build-rpm]
+    needs: [prepare, build-deb, sign-rpm]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # The signing key lives in this environment as an encrypted secret with a
@@ -234,7 +290,7 @@ jobs:
           path: dist/deb
       - uses: actions/download-artifact@v8
         with:
-          name: rpms
+          name: rpms-signed
           path: dist/rpm
       - name: Install repository tooling
         run: |
@@ -250,11 +306,21 @@ jobs:
           chmod 700 "$GNUPGHOME"
           printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+      # Checked out before the tree is assembled: retention keeps the current
+      # release and the two before it, so the previous pool has to be part of
+      # the input rather than something a --delete would sweep away.
+      - name: Check out the package repository
+        if: needs.prepare.outputs.prerelease == 'false'
+        uses: actions/checkout@v7
+        with:
+          repository: jtrefon/amber-packages
+          path: pages
+          ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
       - name: Assemble and sign
         env:
           GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: packaging/build-repo.sh dist/deb dist/rpm repo
+        run: packaging/build-repo.sh dist/deb dist/rpm repo pages
       # Tarred rather than uploaded as a directory: upload-artifact drops
       # dotfiles unless told otherwise, and .nojekyll is a dotfile.
       - name: Package the repository tree for the verify matrix
@@ -266,13 +332,6 @@ jobs:
           name: repo
           path: repo.tar.gz
           if-no-files-found: error
-      - name: Check out the package repository
-        if: needs.prepare.outputs.prerelease == 'false'
-        uses: actions/checkout@v7
-        with:
-          repository: jtrefon/amber-packages
-          path: pages
-          ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
       - name: Publish
         if: needs.prepare.outputs.prerelease == 'false'
         env:

@@ -165,15 +165,23 @@ channel.
    this one goes.
 3. Publishing: `.github/workflows/packages.yml` regenerates
    `apt/dists/stable/{Release,InRelease,Packages,Packages.gz}` and
-   `rpm/fedora/x86_64/repodata/`, signs `InRelease`, `Release.gpg` and
-   `repomd.xml`, signs every RPM, and pushes to `jtrefon/amber-packages` with a
-   `.nojekyll` at the root. Each `.deb` also gets a detached `.asc`: apt only
-   verifies the index, so the per-file signature exists for out-of-band
-   verification of a downloaded artifact.
-4. Retention: the current release plus the previous two stay in the pool;
-   anything older is dropped. At roughly 1.5 MB per package this holds the
-   published site near 30 MB against Pages' 1 GB ceiling, and nothing is lost:
-   any version is rebuildable from its tag.
+   `rpm/fedora/$basearch/repodata/`, signs `InRelease`, `Release.gpg` and
+   `repomd.xml`, and pushes to `jtrefon/amber-packages` with a `.nojekyll` at
+   the root. The rpms themselves are signed in a separate Fedora job, because
+   rpm's gpg plumbing on Ubuntu defines `%__gpg` such that its default signature
+   command cannot run at all; publishing then *checks* every rpm signature and
+   refuses to assemble a tree containing an unsigned one. Each `.deb` also gets
+   a detached `.asc`: apt only verifies the index, so the per-file signature
+   exists for out-of-band verification of a downloaded artifact.
+4. Retention: the current release plus the previous two stay in the pool, kept
+   as a set (a version is read from the package, never from its file name, so a
+   four-package release cannot be half-deleted). The previous pool is carried
+   forward from the checked-out site before the new release is added, which is
+   what gives retention something to keep. Anything older is dropped, and
+   nothing is lost: any version is rebuildable from its tag. Debug and source
+   rpms are not published at all — they are tens of megabytes each, optional by
+   design, and regenerable — so the published tree stays around 12 MB per
+   release against Pages' 1 GB ceiling.
 5. Verification is two-sided. Positive: a container installs from the repository
    with `apt-get update` and `dnf install`. Negative: `apt-get update` against a
    `Packages` index that no longer matches the signed `Release`, against the same

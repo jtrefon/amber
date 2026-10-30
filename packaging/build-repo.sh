@@ -12,13 +12,18 @@
 
 set -eu
 
-deb_in=${1:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir>}
-rpm_in=${2:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir>}
-out=${3:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir>}
+deb_in=${1:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir> [previous-repo]}
+rpm_in=${2:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir> [previous-repo]}
+out=${3:?usage: build-repo.sh <deb-dir> <rpm-dir> <out-dir> [previous-repo]}
+previous=${4:-}
 
 : "${GPG_KEY_ID:?GPG_KEY_ID must name the signing key}"
 SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-$(date +%s)}
 export SOURCE_DATE_EPOCH
+
+# Resolved from the script so paths work no matter which directory the caller
+# started in.
+here="$(cd "$(dirname "$0")" && pwd)"
 
 # This script begins with rm -rf, so an output path that is a filesystem root or
 # the current directory is refused rather than trusted.
@@ -51,6 +56,34 @@ dists="$out/apt/dists/stable"
 rm -rf "$out"
 mkdir -p "$apt_pool" "$rpm_pool" "$dists" "$out/keys"
 
+# A package's version, read from the package itself. A file name is not the
+# place to look: a release is several packages, and they have to be kept or
+# dropped together.
+package_version() {
+    case "$1" in
+        *.deb) dpkg-deb -f "$1" Version 2>/dev/null ;;
+        *.rpm) rpm -qp --qf '%{VERSION}-%{RELEASE}\n' "$1" 2>/dev/null ;;
+        *) printf '\n' ;;
+    esac
+}
+
+# Retention: the current release plus the two before it, as a set. Anything
+# else in the pool goes, which also clears signatures from the version it
+# belonged to.
+prune_pool() {
+    dir=$1
+    keep=$(
+        for f in "$dir"/*; do
+            [ -f "$f" ] || continue
+            package_version "$f"
+        done | grep . | sort -uV | tail -n 3
+    )
+    for f in "$dir"/*; do
+        [ -f "$f" ] || continue
+        printf '%s\n' "$keep" | grep -qxF "$(package_version "$f")" || rm -f "$f"
+    done
+}
+
 # --- packages --------------------------------------------------------------
 
 for deb in "$deb_in"/*.deb; do
@@ -60,22 +93,32 @@ done
 
 for rpmfile in "$rpm_in"/*.rpm; do
     [ -e "$rpmfile" ] || die "no .rpm files in $rpm_in"
+    # Debug and source packages are not published: they are tens of megabytes
+    # each, they are optional by design, and they are regenerable from the
+    # .src.rpm. A repository that carries them would pass Pages' ceiling in a
+    # few releases.
+    case "$(basename "$rpmfile")" in
+        *-debuginfo-* | *-debugsource-* | *.src.rpm) continue ;;
+    esac
     cp "$rpmfile" "$rpm_pool/"
 done
 
-# Retention: the current release plus the two before it. Packages are ~1.5 MB,
-# and a repository that grows without bound eventually runs into the 1 GB Pages
-# ceiling. Nothing is lost: any version is rebuildable from its tag.
-retain=3
-for dir in "$apt_pool" "$rpm_pool"; do
-    files="$(find "$dir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) |
-        sort -V)"
-    count="$(printf '%s\n' "$files" | grep -c . || true)"
-    if [ "$count" -gt "$retain" ]; then
-        printf '%s\n' "$files" | head -n "-$retain" |
-            while read -r old; do rm -f "$old"; done
-    fi
-done
+# Carry the previous releases forward. Packages are ~1.5 MB, and a repository
+# that grows without bound eventually runs into the 1 GB Pages ceiling; this is
+# what gives retention something to keep, instead of every publish starting
+# from a pool that holds only today's build.
+if [ -n "$previous" ] && [ -d "$previous" ]; then
+    log "carrying forward packages from $previous"
+    for old in "$previous"/apt/pool/main/a/amber-agent/*.deb; do
+        [ -e "$old" ] && cp -n "$old" "$apt_pool/"
+    done
+    for old in "$previous"/rpm/fedora/*/*.rpm; do
+        [ -e "$old" ] && cp -n "$old" "$rpm_pool/"
+    done
+fi
+
+prune_pool "$apt_pool"
+prune_pool "$rpm_pool"
 
 # --- apt -------------------------------------------------------------------
 
@@ -112,35 +155,30 @@ mkdir -p "$dists/main/binary-$arch"
         -o APT::FTPArchive::Release::Architectures="$arch" \
         -o APT::FTPArchive::Release::Components="main" \
         -o APT::FTPArchive::Release::Description="amber-agent package repository" \
-        release dists/stable > "$dists/Release"
-)
+        release dists/stable > "$dists/Release.new"
+    )
+    # Written via a temporary file: apt-ftparchive hashes whatever is in the
+    # directory it scans, and a shell redirect creates Release before it runs,
+    # which leaves the file listing itself.
+    mv "$dists/Release.new" "$dists/Release"
 gpg_sign --clearsign --output "$dists/InRelease" "$dists/Release"
 gpg_sign --armor --detach-sign --output "$dists/Release.gpg" "$dists/Release"
 
 # --- rpm -------------------------------------------------------------------
 
-log "signing rpms in $rpm_pool"
+log "checking rpm signatures in $rpm_pool"
 if command -v rpm >/dev/null 2>&1; then
-    passfile="$(mktemp)"
-    trap 'rm -f "$passfile"' EXIT INT TERM
-    if [ -n "${GPG_PASSPHRASE:-}" ]; then
-        printf '%s' "$GPG_PASSPHRASE" > "$passfile"
-    else
-        : > "$passfile"
-    fi
-    chmod 600 "$passfile"
-    # rpm drives gpg itself, and its default command line reads the passphrase
-    # from a pipe rpm does not open. Overriding the command is the only form
-    # that works without a tty.
+    # Signing happens in the Fedora job, where rpm's own gpg plumbing works;
+    # this is the check that it did. An unsigned package in a repository whose
+    # .repo file says gpgcheck=1 is a package nobody can install, and it must
+    # fail here rather than at the user's first upgrade.
+    rpm --import "$here/keys/amber-agent-archive-keyring.asc" 2>/dev/null || true
     for rpmfile in "$rpm_pool"/*.rpm; do
-        rpm --addsign \
-            --define "_gpg_name $GPG_KEY_ID" \
-            --define "_gpg_path $GNUPGHOME" \
-            --define "_gpg_sign_cmd %{__gpg} gpg --batch --no-armor --pinentry-mode loopback --passphrase-file $passfile -u \"%{_gpg_name}\" -sbo %{__signature_filename} %{__plaintext_filename}" \
-            "$rpmfile"
+        rpm -K "$rpmfile" 2>&1 | grep -q 'signatures OK' ||
+            die "$(basename "$rpmfile") is not signed"
     done
 else
-    die "rpm is not installed: cannot sign the rpms"
+    die "rpm is not installed: cannot check the rpm signatures"
 fi
 
 log "generating rpm metadata"
@@ -150,9 +188,6 @@ gpg_sign --armor --detach-sign \
 
 # --- site ------------------------------------------------------------------
 
-# Resolved from the script so the tree is assembled correctly no matter which
-# directory the caller started in.
-here="$(cd "$(dirname "$0")" && pwd)"
 cp "$here/keys/amber-agent-archive-keyring.asc" "$out/keys/"
 cp "$here/keys/fingerprint.txt" "$out/keys/"
 cp "$here/install.sh" "$out/install.sh"

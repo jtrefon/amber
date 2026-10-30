@@ -14,10 +14,10 @@ BuildRequires:  pkgconfig
 
 # The pre-repository packages were built with fpm and called `amber`. The
 # version floor keeps a distro's own unrelated `amber` (if one ever appears)
-# out of the way: only the fpm builds are below it.
-Obsoletes:      amber < 0.9
-Conflicts:      amber < 0.9
-Provides:       amber = %{version}-%{release}
+# out of the way: only the fpm builds are below it, and this package's own
+# version is not, so it never obsoletes itself.
+Obsoletes:      amber < 0.8.0
+Conflicts:      amber < 0.8.0
 
 %description
 amber runs an agent loop against any OpenAI-compatible endpoint: the model
@@ -67,9 +67,15 @@ resolves from the install prefix rather than the working directory.
 %install
 %make_install
 # The Makefile installs its own copies of the licence and README into
-# share/doc; rpm owns that directory through %license and %doc, and two owners
-# for one file is a conflict on upgrade.
+# share/doc; rpm owns that directory through the licence and documentation
+# macros, and two owners for one file is a conflict on upgrade.
 rm -rf %{buildroot}%{_datadir}/doc/%{name}
+# find-debuginfo does not look inside a static archive, so a -g build leaves
+# the debug sections in the library: 444 MB of libagent_core.a against 24 MB
+# once they are gone. dh_strip does this for the Debian package, and both
+# packages have to carry the same thing.
+%{__strip} --strip-debug %{buildroot}%{_libdir}/libagent_core.a \
+                          %{buildroot}%{_libdir}/libagent_tools.a
 
 %files
 %license LICENSE NOTICE THIRD_PARTY_LICENSES

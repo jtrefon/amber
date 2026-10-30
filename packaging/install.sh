@@ -95,9 +95,22 @@ need_gpg() {
     fi
 }
 
+need_downloader() {
+    if have curl || have wget; then
+        return 0
+    fi
+    log "installing curl (needed to download the archive key)"
+    if [ "$manager" = "apt" ]; then
+        apt-get update -qq && apt-get install -y --no-install-recommends curl
+    else
+        "$manager" install -y curl
+    fi
+}
+
 # Download the armored key and refuse to continue unless its primary
 # fingerprint is the one pinned above.
 fetch_verified_key() {
+    need_downloader
     need_gpg
     tmp="$(mktemp)"
     fetch "$BASE_URL/keys/amber-agent-archive-keyring.asc" "$tmp" ||
@@ -138,13 +151,14 @@ Suites: stable
 Components: main
 Signed-By: $APT_KEYRING
 EOF
-    # Refresh only this list, so an unrelated broken repository cannot stop the
-    # install. The next ordinary "apt-get update" picks the file up as usual.
-    apt-get update \
-        -o Dir::Etc::sourcelist="$APT_SOURCES" \
-        -o Dir::Etc::sourceparts="-" \
-        -o APT::Get::List-Cleanup="0"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y amber-agent
+    # A full refresh, not one restricted to this source: the package has
+    # dependencies that live in the distribution's own repositories. A third
+    # party source that happens to be broken must not stop the install, so a
+    # failed refresh warns and the install runs against the lists that exist.
+    apt-get update || log "warning: some repositories failed to refresh; continuing"
+    # The bench harness is part of the product on every other platform, so it
+    # is installed with the runtime rather than left as a discovery for later.
+    DEBIAN_FRONTEND=noninteractive apt-get install -y amber-agent amber-agent-bench
 else
     if [ "$dry_run" -eq 1 ]; then
         log "would write $RPM_KEY and $RPM_REPO, then install amber-agent"
@@ -162,7 +176,7 @@ repo_gpgcheck=1
 gpgkey=file://$RPM_KEY
 skip_if_unavailable=False
 EOF
-    "$manager" --disablerepo='*' --enablerepo=amber-agent -y install amber-agent
+    "$manager" -y install amber-agent amber-agent-bench
 fi
 
 log "installed: $(amber-cli --version 2>/dev/null || echo 'amber-agent')"
