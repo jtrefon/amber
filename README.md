@@ -35,7 +35,8 @@ Install (Linux):
   The key fingerprint is
   C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B and can be checked with
   `gpg --show-keys --with-fingerprint <key url>` before trusting anything.
-  `packaging/install.sh --uninstall` removes the repository definition again.
+  Read the script before running it; to remove the repository again, rerun it
+  with `-s -- --uninstall` after the pipe.
 
 Install (macOS):
 
