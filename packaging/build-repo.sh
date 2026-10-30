@@ -25,6 +25,15 @@ export SOURCE_DATE_EPOCH
 # started in.
 here="$(cd "$(dirname "$0")" && pwd)"
 
+# Everything below is written relative to the tree root, and the apt index is
+# generated from inside it: an absolute output path means those two views cannot
+# disagree. The rehearsal passed an absolute path and CI passed a relative one,
+# which is exactly how the double-prefixed path got through.
+case "$out" in
+    /*) ;;
+    *) out="$PWD/$out" ;;
+esac
+
 # This script begins with rm -rf, so an output path that is a filesystem root or
 # the current directory is refused rather than trusted.
 case "$out" in
