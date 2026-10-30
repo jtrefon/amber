@@ -95,9 +95,11 @@ expectations, and three runtime data files are missing from it.
    `version.h` by `configure`) first, then `<exe>/../{libexec,lib,share}` and the
    absolute equivalents, so a relocatable install and an install from before the
    move both keep their plugins.
-5. `amber-bench` resolves its data root from `AMBER_BENCH_DATA`, then the
-   compiled `agent::kBenchDataDir`, then `<exe>/../share/amber-bench`, then
-   `./bench`, so a source checkout and an installed package both work.
+5. `amber-bench` resolves its data root from the compiled
+   `agent::kBenchDataDir`, then `<exe>/../share/amber-bench`, then `./bench`, so
+   a source checkout and an installed package both work. There is no environment
+   override: the path reaches the compiler command the harness builds, and the
+   three cases above are all of them.
 6. `debian/` (`3.0 (quilt)`) and `rpm/amber-agent.spec` (plus a second, noarch
    spec for the trust anchor) replace `fpm`. Both build from
    one `git archive` of the tag, so `.dsc` and `.src.rpm` are regenerable from

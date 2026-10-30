@@ -11,9 +11,9 @@ a deterministic fake model, so they are safe in CI; live runs target any
 OpenAI-compatible endpoint.
 .PP
 Scenarios are JSON files at \fI<data>/scenarios/<suite>/<name>.json\fR.
-\fI<data>\fR is \fB$AMBER_BENCH_DATA\fR when set, otherwise the install-time
-data directory, otherwise \fI./bench\fR, so both an installed package and a
-source checkout work.
+\fI<data>\fR is the install-time data directory, then
+\fI<prefix>/share/amber-bench\fR beside the executable, then \fI./bench\fR, so
+both an installed package and a source checkout work.
 .SH COMMANDS
 .TP
 .B list
@@ -95,10 +95,6 @@ The installed scenario corpus, one directory per suite.
 .I /usr/share/amber-bench/profiles.json
 Named model profiles used by \fB\-\-profile\fR.
 .SH ENVIRONMENT
-.TP
-.B AMBER_BENCH_DATA
-Data root holding \fIscenarios/\fR and \fIprofiles.json\fR. Overrides the
-installed location.
 .TP
 .B AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL
 Endpoint settings for \fB\-\-live\fR runs.

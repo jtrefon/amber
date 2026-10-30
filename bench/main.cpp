@@ -64,26 +64,13 @@ void print_usage(const char* prog) {
 }
 
 // Where the scenario corpus and the profiles live. An installed package puts
-// them beside the data tree; a source checkout has ./bench. The environment
-// override comes first so a benchmark run can point at a corpus it fetched.
-//
-// The override is accepted only as an absolute path with no control characters:
-// a relative one would mean a different corpus depending on where the harness
-// was started, and this path reaches a compiler invocation.
+// them beside the data tree; a source checkout has ./bench. There is no
+// environment override: this path reaches the compiler command the harness
+// builds, and the install directory, the executable's own prefix and the
+// checkout cover every case.
 fs::path bench_root() {
-    const char* env = std::getenv("AMBER_BENCH_DATA");
-    std::string override_dir;
-    if (env && *env) {
-        const std::string candidate = env;
-        if (candidate.front() == '/' && candidate.find_first_of("\n\r\t") == std::string::npos) {
-            override_dir = candidate;
-        } else {
-            std::cerr << "warning: ignoring AMBER_BENCH_DATA=" << candidate
-                      << " (an absolute path with no control characters is required)\n";
-        }
-    }
     return bench::resolve_bench_root(
-        override_dir, agent::kBenchDataDir, agent::exe_path(), fs::current_path().string(),
+        agent::kBenchDataDir, agent::exe_path(), fs::current_path().string(),
         [](const std::string& path) { return fs::is_directory(path); });
 }
 
@@ -92,7 +79,7 @@ std::vector<bench::Scenario> discover_scenarios(const std::string& suite, const 
     const fs::path root = bench_root() / "scenarios";
     if (!fs::is_directory(root)) {
         std::cerr << "error: no scenarios directory at " << root.string()
-                  << " (set AMBER_BENCH_DATA to the directory holding scenarios/)\n";
+                  << " (run from the checkout, or reinstall the bench package)\n";
         return out;
     }
     std::vector<fs::path> files;
