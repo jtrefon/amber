@@ -107,26 +107,32 @@ jobs:
             printf '%s\n' "$VERSION" > "$1/version.txt"
           }
 
+          # The checkout is the tag, and a container job without git gets a
+          # REST archive with no .git, so the tree is copied rather than
+          # exported: same bytes, no git needed.
+          copy_tree() {
+            mkdir -p "$1"
+            tar -C "$GITHUB_WORKSPACE" --exclude-vcs --exclude='./dist' -cf - . |
+              tar -C "$1" -xf -
+          }
+
           # The orig tarball is the upstream tree without debian/. Building the
-          # source package from a second, pristine extraction keeps object files
-          # out of the .dsc, where dpkg-source would reject them as
-          # unrepresentable changes to the upstream source.
-          mkdir -p "/build/orig/amber-agent-${VERSION}"
-          git archive --format=tar HEAD | tar -x -C "/build/orig/amber-agent-${VERSION}"
+          # source package from a second, pristine copy keeps object files out of
+          # the .dsc, where dpkg-source would reject them as unrepresentable
+          # changes to the upstream source.
+          copy_tree "/build/orig/amber-agent-${VERSION}"
           rm -rf "/build/orig/amber-agent-${VERSION}/debian"
           mkdir -p /build/src
           tar -C /build/orig -czf "/build/src/amber-agent_${VERSION}.orig.tar.gz" \
             "amber-agent-${VERSION}"
 
           src="/build/src/amber-agent-${VERSION}"
-          mkdir -p "$src"
-          git archive --format=tar HEAD | tar -x -C "$src"
+          copy_tree "$src"
           stamp "$src"
           ( cd "$src" && dpkg-buildpackage -us -uc -sa )
 
           bin="/build/bin/amber-agent-${VERSION}"
-          mkdir -p "$bin"
-          git archive --format=tar HEAD | tar -x -C "$bin"
+          copy_tree "$bin"
           stamp "$bin"
           ( cd "$bin" && dpkg-buildpackage -us -uc -b )
 
@@ -172,9 +178,11 @@ jobs:
           export SOURCE_DATE_EPOCH="$EPOCH"
           top=/tmp/rpmbuild
           mkdir -p "$top/SOURCES" "$top/RPMS" "$top/SRPMS"
-          git archive --format=tar.gz \
-            --prefix="amber-agent-${VERSION}/" \
-            -o "$top/SOURCES/amber-agent-${VERSION}.tar.gz" HEAD
+          # The checkout is the tag; a container job without git gets a REST
+          # archive with no .git, so the tarball is built from the tree.
+          tar -C "$GITHUB_WORKSPACE" --exclude-vcs --exclude='./dist' \
+            --transform "s|^\\./|amber-agent-${VERSION}/|" \
+            -czf "$top/SOURCES/amber-agent-${VERSION}.tar.gz" .
           # The version is the tag's, not the file's: a spec left behind by a
           # bump would otherwise publish a package whose version disagrees with
           # the release it came from.
