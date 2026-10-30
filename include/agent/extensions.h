@@ -128,8 +128,15 @@ struct UsageTotals {
     long prompt_tokens = 0;
     long completion_tokens = 0;
     bool measured = false;
+    // Prompt-cache counters. `cache_read_tokens` growing alongside prompt
+    // tokens is the evidence the provider reused the prefix; `measured_cache`
+    // says the protocol reported the counters at all. Kept after `measured` so
+    // the existing `{prompt, completion, measured}` aggregates stay valid.
+    long cache_read_tokens = 0;
+    long cache_write_tokens = 0;
+    bool measured_cache = false;
 
-    void add(long prompt, long completion) noexcept {
+    void add(long prompt, long completion, long cache_read = -1, long cache_write = -1) noexcept {
         if (prompt >= 0) {
             prompt_tokens += prompt;
             measured = true;
@@ -137,6 +144,14 @@ struct UsageTotals {
         if (completion >= 0) {
             completion_tokens += completion;
             measured = true;
+        }
+        if (cache_read >= 0) {
+            cache_read_tokens += cache_read;
+            measured_cache = true;
+        }
+        if (cache_write >= 0) {
+            cache_write_tokens += cache_write;
+            measured_cache = true;
         }
     }
 };

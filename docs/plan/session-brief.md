@@ -58,17 +58,18 @@ it works for every model regardless of training. This inverts the P1 lesson:
 bet on the harness maintaining state at the moment it already has the full
 context in hand, not on the model maintaining state unprompted.
 
-### 2.2 Re-injected via a dedicated message slot, never into the system prompt
+### 2.2 Re-injected as a tail block on the user channel, never into the system prompt
 
 The brief is injected into `prompt_copy` (the local copy of the context built
-in `chat_once`) as a separate system message slot, after the system prompt —
-exactly like memories (`lib/agent.cpp:244-263`) and skills
-(`lib/agent.cpp:290-308`).
+in `chat_once`) as a **tail block**, after the conversation and on the user
+channel with `Message::harness` set. It shares that slot with activated skill
+bodies and plugin tail blocks.
 
 **Rationale:** this is the existing pattern for host-owned state that must
-reach the model without touching the live context. The system prompt in the
-live context (pushed once at `lib/agent.cpp:202`) is never modified. The live
-context's hash chain is never touched by brief injection.
+reach the model without touching the live context. The live context — and its
+hash chain — is never modified, and because every dialect hoists `role=system`
+into the leading block, a volatile block must not be a system message: it would
+rewrite the cached prefix on every change.
 
 ### 2.3 Seeded on first compression
 
@@ -261,6 +262,16 @@ extension, not a prefix change. The classify → extract KV sharing is preserved
 because the replay structure is unchanged; the brief is additional content
 *within* the extract request, not a new message before it.
 
+**Corrected (2026-10-30).** The original claim here — that the brief is injected
+last, so a brief change "invalidates KV only for `[conversation]`, which
+re-prefills every turn regardless" — was wrong twice. The conversation is
+append-only and *was* the thing being cached, and the dialects hoisted every
+`role=system` message into the leading block, so a brief change rewrote the
+first token of the request. The brief now rides the user channel
+(`Message::harness`), which keeps it after the conversation on the wire; the
+invariant and the tests that pin it are in
+`docs/spec/llm-client/prompt-caching.md`.
+
 For per-turn re-injection: the brief is injected last in the injected stack
 (§4.4), so a brief change invalidates KV only for `[conversation]`, which
 re-prefills every turn regardless. The stable memories / skills prefix keeps
@@ -284,12 +295,12 @@ pure.
 (filesystem-backed) follows `MemoryStore`'s pattern: save on the agent thread
 after compression, load at construction. No mutex — single ownership.
 
-### 5.5 System prompt never changes
+### 5.5 The system prompt never changes
 
-The brief is injected as a separate system message slot in `prompt_copy`,
-after the system prompt — exactly like memories (agent.cpp:252-261) and skills
-(agent.cpp:290-308). The system prompt in the live context (pushed once at
-agent.cpp:202) is never modified.
+The brief is a tail block in `prompt_copy`, after the conversation and on the
+user channel — never a system message. The system prompt in the live context
+(pushed once at agent.cpp:202) is never modified, and the stable system block on
+the wire is unchanged by a brief refresh.
 
 ## 6. Solutions for each identified issue
 

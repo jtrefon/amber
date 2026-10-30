@@ -18,6 +18,11 @@ GlobalConfig apply_global_selection(Config& cfg) {
         cfg.context_size = global.cfg.context_size;
         cfg.context_explicit = true;
     }
+    // Provider-scoped runtime knobs the provider file does not carry. They are
+    // global because they describe the account and the model, so both hosts must
+    // see them; the default is not copied, so a future default can move.
+    if (global.cfg.prompt_cache_ttl != "5m")
+        cfg.prompt_cache_ttl = global.cfg.prompt_cache_ttl;
     // The provider domain owns the endpoint and the key: a provider's last-used
     // model comes with the selection, which is why the global model is applied
     // as a separate, later step.

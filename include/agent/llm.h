@@ -26,9 +26,11 @@ struct Message {
     json tool_calls;          // assistant messages may carry calls
     // True for a notice the harness itself authored ([harness] prefix): a
     // retry summary, a repair report, a budget note. It rides the user channel
-    // because the OpenAI dialect hoists every system message to the head of the
-    // request, which would lose a notice's place in the conversation. The flag
-    // is what keeps the text from being mistaken for the model's own close.
+    // because every dialect hoists system messages into the leading block: a
+    // notice must keep its place in the conversation, and the same rule keeps a
+    // volatile prompt block (the session brief, an activated skill body, a
+    // plugin tail block) out of the cached prefix. The flag is what keeps the
+    // text from being mistaken for the model's own close.
     bool harness = false;
     // When the harness authored this notice because a request failed, the raw
     // failure it reports (transport error, HTTP status). Empty for ordinary
@@ -336,7 +338,13 @@ struct Stats {
     double tps = -1;             // completion tokens / generation time
     long prompt_tokens = -1;     // usage.prompt_tokens (context used)
     long completion_tokens = -1; // usage.completion_tokens
-    bool valid = false;          // true once a request populated it
+    // Prompt-cache counters (-1 when the provider did not report them).
+    // `cache_read_tokens` is the part of the prompt served from cache; a
+    // stable prefix should make it grow with the conversation instead of
+    // sitting at 0.
+    long cache_read_tokens = -1;
+    long cache_write_tokens = -1;
+    bool valid = false; // true once a request populated it
 };
 
 // Port: a chat backend over an OpenAI-compatible endpoint. The library does

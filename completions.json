@@ -353,6 +353,11 @@
        "action": "core.config.get.provider.wallet",
        "help": "Show the wallet (balance and quota windows) state for the active provider.",
        "man": "Reports whether the wallet readout is on, and what the active provider reports about the account behind the key: a prepaid balance, its quota or subscription windows (label, percent used, remaining, entitlement, reset time), or both. A provider that offers no wallet, or whose state could not be read, reports that instead of a number. The status bar shows the balance when there is one and otherwise the window closest to reset; this command shows the whole picture. Toggle the readout with '/set provider wallet on|off'."
+      },
+      "cache": {
+       "action": "core.config.get.provider.cache",
+       "help": "Show the prompt-cache lifetime the provider is asked for.",
+       "man": "Reports the requested prompt-cache lifetime: 5m (the protocol default), 1h (the extended lifetime, written at a higher price and surviving a slow human-paced turn) or off. It applies to protocols that take explicit cache breakpoints (Anthropic Messages); providers that cache automatically ignore it. Use '/usage show' to see how much of each prompt the provider actually served from cache."
       }
      }
     },
@@ -887,6 +892,11 @@
        "action": "core.config.set.provider.wallet",
        "help": "Turn the wallet readout on the status bar on or off.",
        "man": "Shows or hides the active provider's wallet on the status bar: '/set provider wallet on|off' (or 'toggle'). The setting is global - the wallet always follows whichever provider is active - and is persisted. The readout refreshes when a turn ends, not on a timer."
+      },
+      "cache": {
+       "action": "core.config.set.provider.cache",
+       "help": "Set the prompt-cache lifetime: 5m, 1h or off.",
+       "man": "Sets the lifetime amber asks the provider for when it marks a cacheable prefix: '/set provider cache 5m|1h|off'. 5m is the protocol default; 1h is the extended lifetime, written at a higher price and worth it when a human paces the turns; off disables breakpoints entirely and makes every request a full-price prefill. The setting is global, persisted, and applies to protocols that take explicit cache breakpoints (Anthropic Messages)."
       }
      }
     },

@@ -137,6 +137,9 @@ private:
         it = usage.find("candidatesTokenCount");
         if (it != usage.end() && it->is_number())
             completion_tokens_ = it->get<long>();
+        it = usage.find("cachedContentTokenCount");
+        if (it != usage.end() && it->is_number())
+            cache_read_tokens_ = it->get<long>();
     }
 
     void emit_parts(const json& parts) {
@@ -307,6 +310,8 @@ public:
             usage.prompt = u["promptTokenCount"].get<long>();
         if (u.contains("candidatesTokenCount") && u["candidatesTokenCount"].is_number())
             usage.completion = u["candidatesTokenCount"].get<long>();
+        if (u.contains("cachedContentTokenCount") && u["cachedContentTokenCount"].is_number())
+            usage.cache_read = u["cachedContentTokenCount"].get<long>();
         return usage;
     }
 

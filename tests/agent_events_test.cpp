@@ -300,7 +300,7 @@ TEST(agent_sends_contributed_prompt_blocks) {
 
     bool saw_block = false;
     for (const auto& m : raw->requests[0])
-        if (m.role == "system" && m.content == "PLUGIN FACTS")
+        if (m.content == "PLUGIN FACTS")
             saw_block = true;
     ASSERT(saw_block);
 
@@ -333,16 +333,21 @@ TEST(agent_prompt_blocks_are_stable_across_turns) {
     // Rendered once per model round trip — what matters is that the same
     // inputs render identically, so the server's prefix cache survives the turn.
     ASSERT_EQ(renders, 2);
-    std::string first_prefix, second_prefix;
-    for (const auto& m : raw->requests[0])
-        if (m.role == "system")
-            first_prefix += m.content + "\n";
-    for (const auto& m : raw->requests[1])
-        if (m.role == "system")
-            second_prefix += m.content + "\n";
+    const auto stable_of = [](const std::vector<agent::Message>& req) {
+        std::string system, block;
+        for (const auto& m : req) {
+            if (m.role == "system")
+                system += m.content + "\n";
+            if (m.content.find("STABLE BLOCK") != std::string::npos)
+                block = m.content;
+        }
+        return system + '|' + block;
+    };
+    const std::string first_prefix = stable_of(raw->requests[0]);
+    const std::string second_prefix = stable_of(raw->requests[1]);
     ASSERT(first_prefix.find("STABLE BLOCK") != std::string::npos);
     ASSERT(second_prefix.find("STABLE BLOCK") != std::string::npos);
-    ASSERT(first_prefix == second_prefix);
+    ASSERT_EQ(first_prefix, second_prefix);
 }
 
 TEST(agent_without_bus_runs_unchanged) {

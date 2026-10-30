@@ -262,6 +262,8 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
         stats->latency_ms = out.ttfb * 1000.0;
         stats->prompt_tokens = decoder.prompt_tokens();
         stats->completion_tokens = decoder.completion_tokens();
+        stats->cache_read_tokens = decoder.cache_read_tokens();
+        stats->cache_write_tokens = decoder.cache_write_tokens();
         apply_tps(*stats, out.ttfb, out.total);
     }
 }
@@ -276,6 +278,8 @@ void fill_buffered_stats(Stats& stats, const Dialect& dialect, const std::string
     const TokenUsage usage = dialect.parse_usage(response);
     stats.prompt_tokens = usage.prompt;
     stats.completion_tokens = usage.completion;
+    stats.cache_read_tokens = usage.cache_read;
+    stats.cache_write_tokens = usage.cache_write;
     apply_tps(stats, ttfb, total);
 }
 

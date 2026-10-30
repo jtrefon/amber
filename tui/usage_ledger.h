@@ -22,7 +22,10 @@ struct UsageLedger {
         for (const auto* part : parts) {
             out.prompt_tokens += part->prompt_tokens;
             out.completion_tokens += part->completion_tokens;
+            out.cache_read_tokens += part->cache_read_tokens;
+            out.cache_write_tokens += part->cache_write_tokens;
             out.measured = out.measured || part->measured;
+            out.measured_cache = out.measured_cache || part->measured_cache;
         }
         return out;
     }
@@ -49,7 +52,8 @@ inline void apply_usage(UsageLedger& ledger, const agent::UsageSample& sample) {
         sink = &ledger.watch;
         break;
     }
-    sink->add(sample.prompt_tokens, sample.completion_tokens);
+    sink->add(sample.prompt_tokens, sample.completion_tokens, sample.cache_read_tokens,
+              sample.cache_write_tokens);
 }
 
 } // namespace tui

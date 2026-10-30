@@ -18,6 +18,8 @@
 
 #include "agent.h"
 #include "agent/agent_helpers.h"
+#include "agent/dialect.h"
+#include "agent/dialect_anthropic.h"
 #include "agent/rate_governor.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
@@ -3411,6 +3413,16 @@ public:
     }
 };
 
+// A gate that lets the first user turn through untouched, then fires: the
+// classify call then has a real previous request to replay, which is the whole
+// reason the replay exists.
+class CompressAfterFirstTurnGate : public agent::CompressionGate {
+public:
+    bool should_compress(const agent::Context&, const agent::Config& cfg) const override {
+        return cfg.user_turn_counter >= 2;
+    }
+};
+
 // A gate that never fires: the control case. A fix for the compressing turn
 // must not cost anything on the ordinary one.
 class NeverCompressGate : public agent::CompressionGate {
@@ -3549,6 +3561,72 @@ TEST(agent_compression_replays_the_injected_prefix_and_tools) {
     ASSERT(req[1].content.find("the build system is make") != std::string::npos);
     ASSERT_EQ(req[2].content, std::string("how do I build this?"));
     ASSERT_EQ(raw->tool_counts[idx], size_t{1});
+}
+
+TEST(agent_compression_classify_replays_the_live_wire_prefix) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.compression_threshold = 0.7;
+    cfg.compression_threshold_explicit = true;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<PrefixProbeTool>());
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_tool_call(*fake, "prefix_probe", {{"q", "one"}});
+    push_text(*fake, "done");
+    push_text(*fake, R"({"summary":"work state","classification":[{"turns":"0-0","tag":"core"}]})");
+    push_text(*fake, R"({"memories":[],"skills":[]})");
+    push_text(*fake, "done");
+
+    auto gate = std::make_unique<CompressAfterFirstTurnGate>();
+    auto compressor = agent::make_compressor();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
+                    std::move(retriever), std::move(fake));
+
+    ag.run("how do I build this?");
+    ag.run("and now compress it");
+
+    // The last live request before the gate fired, and the classify request it
+    // must replay (the extract call carries the same instruction, so take the
+    // first match).
+    std::size_t classify = raw->requests.size();
+    for (std::size_t i = 0; i < raw->requests.size() && classify == raw->requests.size(); ++i)
+        for (const auto& m : raw->requests[i])
+            if (m.content.find("WORK-STATE SUMMARY") != std::string::npos) {
+                classify = i;
+                break;
+            }
+    ASSERT(classify >= 1u);
+    ASSERT(classify < raw->requests.size());
+
+    const auto live = agent::make_anthropic_dialect();
+    // The breakpoint is metadata, not tokens: it moves to the newest turn on
+    // every request by design, so it is stripped before comparing the bytes the
+    // provider actually hashes.
+    const auto tokens_only = [](agent::json body) {
+        for (auto& m : body["messages"])
+            if (m["content"].is_array())
+                for (auto& b : m["content"])
+                    if (b.is_object())
+                        b.erase("cache_control");
+        for (auto& b : body["system"])
+            if (b.is_object())
+                b.erase("cache_control");
+        return body;
+    };
+    const agent::json sent =
+        tokens_only(live->build_chat_body(cfg, raw->requests[classify - 1], {}, false));
+    const agent::json replay =
+        tokens_only(live->build_chat_body(cfg, raw->requests[classify], {}, false));
+    // Every message of the live request is a byte-exact leading run of the
+    // replay: the classify call extends the cache instead of re-prefilling it.
+    ASSERT_EQ(sent["system"].dump(), replay["system"].dump());
+    ASSERT(raw->requests[classify].size() > raw->requests[classify - 1].size());
+    for (std::size_t i = 0; i < sent["messages"].size(); ++i)
+        ASSERT_EQ(sent["messages"][i].dump(), replay["messages"][i].dump());
 }
 
 TEST(agent_injects_in_memory_blocks_without_compression) {
@@ -3961,6 +4039,58 @@ TEST(agent_orders_injected_blocks_as_documented) {
 
     // The tail block really is after the conversation, not mixed into it.
     ASSERT(req[req.size() - 2].content.find("session-brief") != std::string::npos);
+}
+
+TEST(agent_placed_injected_blocks_after_the_system_prompt_keeps_the_prefix) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "tail", 400, [] { return std::string("PLUGIN TAIL"); });
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
+                    std::move(fake));
+    ag.set_prompt_registry(prompts);
+    agent::SessionBrief first;
+    first.intent = "first intent";
+    ag.session_brief_store()->merge(first);
+    ag.run("one");
+
+    agent::SessionBrief second;
+    second.intent = "a completely different intent";
+    second.next = "and a next step";
+    ag.session_brief_store()->merge(second);
+    ag.run("two");
+
+    ASSERT(raw->requests.size() >= 2u);
+    auto d = agent::make_anthropic_dialect();
+    const auto a = d->build_chat_body(cfg, raw->requests[0], {}, false);
+    const auto b = d->build_chat_body(cfg, raw->requests[1], {}, false);
+
+    // The cache contract, measured where it is enforced: on the wire. The
+    // leading system block is the whole stable prefix and it carries the
+    // breakpoint; a session-brief refresh between the turns must not change a
+    // single byte of it.
+    ASSERT(a["system"].is_array());
+    ASSERT_EQ(a["system"].size(), 1u);
+    ASSERT(a["system"][0].contains("cache_control"));
+    ASSERT_EQ(a["system"][0].dump(), b["system"][0].dump());
+
+    // The volatile block rides the conversation channel, after the turns it
+    // annotates, instead of being hoisted into the prefix.
+    ASSERT_EQ(a["messages"].back()["role"].get<std::string>(), "user");
+    const std::string tail_a = a["messages"].back()["content"].back()["text"].get<std::string>();
+    const std::string tail_b = b["messages"].back()["content"].back()["text"].get<std::string>();
+    ASSERT_EQ(tail_a, std::string("PLUGIN TAIL"));
+    ASSERT_EQ(tail_b, std::string("PLUGIN TAIL"));
 }
 
 TEST(agent_places_injected_blocks_after_the_system_prompt) {

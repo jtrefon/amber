@@ -263,6 +263,75 @@ json text_block(const std::string& text) {
     return json{{"type", "text"}, {"text", text}};
 }
 
+// A prompt cache is a prefix cache, and the Messages API only caches what is
+// explicitly marked: without a breakpoint every request is a full-price
+// prefill even when the prefix is byte-identical. "off" is the user's escape
+// hatch; "1h" is the extended lifetime (higher write price, survives a slow
+// human-paced turn).
+bool prompt_caching(const Config& cfg) {
+    return cfg.prompt_cache_ttl != "off";
+}
+
+void mark_cacheable(json& block, const Config& cfg) {
+    block["cache_control"] = {{"type", "ephemeral"}};
+    if (cfg.prompt_cache_ttl == "1h")
+        block["cache_control"]["ttl"] = "1h";
+}
+
+// The moving breakpoint: everything up to and including the newest user turn
+// (a prompt, or the tool results answering the last call) is reused by the next
+// request. Only own-built user blocks are eligible -- a replayed assistant turn
+// can carry signed thinking blocks, which must stay byte-identical.
+void mark_last_turn_cacheable(json& messages, const Config& cfg) {
+    if (!prompt_caching(cfg) || !messages.is_array() || messages.empty())
+        return;
+    json& last = messages.back();
+    if (last.value("role", std::string()) != kRoleUser)
+        return;
+    if (!last.contains("content") || !last["content"].is_array() || last["content"].empty())
+        return;
+    json& block = last["content"].back();
+    if (!block.is_object())
+        return;
+    const std::string type = str_field(block, "type");
+    if (type != "text" && type != "tool_result")
+        return;
+    mark_cacheable(block, cfg);
+}
+
+// The top-level system field when caching is on: one block per system message,
+// the FIRST (the stable prompt) carrying the breakpoint and the injected blocks
+// after it. A change in an injected block then leaves the cached prefix alone.
+json cached_system_blocks(const std::vector<Message>& messages, const Config& cfg) {
+    json blocks = json::array();
+    bool marked = false;
+    for (const auto& m : messages) {
+        if (m.role != "system" || m.content.empty())
+            continue;
+        json block = text_block(m.content);
+        if (!marked) {
+            mark_cacheable(block, cfg);
+            marked = true;
+        }
+        blocks.push_back(std::move(block));
+    }
+    return blocks;
+}
+
+// The top-level system field when caching is off: the protocol's plain string
+// form, every system message joined in order.
+std::string merged_system(const std::vector<Message>& messages) {
+    std::string system;
+    for (const auto& m : messages) {
+        if (m.role != "system")
+            continue;
+        if (!system.empty())
+            system += "\n\n";
+        system += m.content;
+    }
+    return system;
+}
+
 // Anthropic assistant content blocks -> the internal Message. Text blocks join
 // into content; tool_use blocks become the internal tool_calls shape so
 // dispatch and history stay protocol-agnostic.
@@ -321,6 +390,8 @@ protected:
         if (type == "message_start") {
             const json& usage = evt.value("message", json::object()).value("usage", json::object());
             read_usage(usage, "input_tokens", &prompt_tokens_);
+            read_usage(usage, "cache_read_input_tokens", &cache_read_tokens_);
+            read_usage(usage, "cache_creation_input_tokens", &cache_write_tokens_);
             return;
         }
         if (type == "message_delta") {
@@ -607,19 +678,18 @@ public:
                      {"stream", stream},
                      {"messages", json::array()}};
 
-        // The protocol takes ONE top-level system string: merge every system
-        // message (prompt, environment card, memory/skill/brief blocks) in
-        // order, exactly like the OpenAI dialect merges them into one block.
-        std::string system;
-        for (const auto& m : messages) {
-            if (m.role != "system")
-                continue;
-            if (!system.empty())
-                system += "\n\n";
-            system += m.content;
-        }
-        if (!system.empty())
+        // The protocol takes ONE top-level system field: it is an array of
+        // blocks when prompt caching is on, so the breakpoint can sit between
+        // the stable prompt and the injected blocks that change between turns.
+        // (A change on the wrong side of the breakpoint re-prefills the whole
+        // conversation behind it.)
+        if (prompt_caching(cfg)) {
+            json blocks = cached_system_blocks(messages, cfg);
+            if (!blocks.empty())
+                body["system"] = std::move(blocks);
+        } else if (const std::string system = merged_system(messages); !system.empty()) {
             body["system"] = system;
+        }
 
         // The model's documented reasoning contract: adaptive + effort on
         // 5.x/4.6+, a budget on 4.5 and older, and no block where the listing
@@ -627,6 +697,7 @@ public:
         append_thinking(body, cfg, max_tokens);
 
         append_messages(body["messages"], messages);
+        mark_last_turn_cacheable(body["messages"], cfg);
         if (tools_advertised(cfg))
             append_tools_json(body, tools);
         return body;
@@ -700,6 +771,11 @@ public:
             usage.prompt = u["input_tokens"].get<long>();
         if (u.contains("output_tokens") && u["output_tokens"].is_number())
             usage.completion = u["output_tokens"].get<long>();
+        if (u.contains("cache_read_input_tokens") && u["cache_read_input_tokens"].is_number())
+            usage.cache_read = u["cache_read_input_tokens"].get<long>();
+        if (u.contains("cache_creation_input_tokens") &&
+            u["cache_creation_input_tokens"].is_number())
+            usage.cache_write = u["cache_creation_input_tokens"].get<long>();
         return usage;
     }
 
