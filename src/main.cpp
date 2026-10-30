@@ -676,10 +676,16 @@ int run_skills_surface(int argc, char** argv) {
     return agent::run_skill_cli(args, std::cout, std::cerr);
 }
 
-int main(int argc, char** argv) try {
+// Surfaces that own the whole invocation, each parsing argv itself. They answer
+// before any config is loaded, and -1 means this is an ordinary agent run.
+int run_subcommands(int argc, char** argv) {
     if (const int rc = run_update_surface(argc, argv); rc >= 0)
         return rc;
-    if (const int rc = run_skills_surface(argc, argv); rc >= 0)
+    return run_skills_surface(argc, argv);
+}
+
+int main(int argc, char** argv) try {
+    if (const int rc = run_subcommands(argc, argv); rc >= 0)
         return rc;
 
     agent::Config cfg;
