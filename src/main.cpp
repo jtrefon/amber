@@ -14,6 +14,7 @@
 
 #include <agent/mcp_commands.h>
 #include <agent/skill_cli.h>
+#include "update.h"
 #include <cctype>
 #include <chrono>
 #include <cstring>
@@ -39,6 +40,8 @@ void print_usage(const char* prog) {
               << "                     run one follow-up turn with their reports\n"
               << "  skills <verb>      Find, install, update and remove skills (run\n"
               << "                     'amber-cli skills' for the verb list; --json supported)\n"
+              << "  update             Upgrade the installed package with the system package\n"
+              << "                     manager, or with --print, show the command\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
@@ -674,6 +677,8 @@ int run_skills_surface(int argc, char** argv) {
 }
 
 int main(int argc, char** argv) try {
+    if (const int rc = run_update_surface(argc, argv); rc >= 0)
+        return rc;
     if (const int rc = run_skills_surface(argc, argv); rc >= 0)
         return rc;
 
