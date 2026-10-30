@@ -3216,16 +3216,16 @@ TEST(shape_replay_parses_a_recorded_session) {
 // the test, not of wherever the test happens to run.
 
 TEST(bench_root_environment_override_wins) {
-    const std::string got = bench::resolve_bench_root(
-        "/custom/corpus", "/usr/share/amber-bench", "/usr/bin/amber-bench", "/work",
-        [](const std::string&) { return true; });
+    const std::string got = bench::resolve_bench_root("/custom/corpus", "/usr/share/amber-bench",
+                                                      "/usr/bin/amber-bench", "/work",
+                                                      [](const std::string&) { return true; });
     ASSERT_EQ(got, std::string("/custom/corpus"));
 }
 
 TEST(bench_root_prefers_the_compiled_install_directory) {
     const auto only_installed = [](const std::string& p) { return p == "/usr/share/amber-bench"; };
-    ASSERT_EQ(bench::resolve_bench_root("", "/usr/share/amber-bench", "/usr/bin/amber-bench", "/work",
-                                        only_installed),
+    ASSERT_EQ(bench::resolve_bench_root("", "/usr/share/amber-bench", "/usr/bin/amber-bench",
+                                        "/work", only_installed),
               std::string("/usr/share/amber-bench"));
 }
 

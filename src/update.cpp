@@ -23,8 +23,8 @@ int run_step(const std::vector<std::string>& words) {
 
     const pid_t pid = fork();
     if (pid < 0) {
-        std::cerr << "amber update: cannot start " << words.front() << ": "
-                  << std::strerror(errno) << "\n";
+        std::cerr << "amber update: cannot start " << words.front() << ": " << std::strerror(errno)
+                  << "\n";
         return 1;
     }
     if (pid == 0) {
@@ -34,8 +34,8 @@ int run_step(const std::vector<std::string>& words) {
     int status = 0;
     while (waitpid(pid, &status, 0) < 0) {
         if (errno != EINTR) {
-            std::cerr << "amber update: lost " << words.front() << ": "
-                      << std::strerror(errno) << "\n";
+            std::cerr << "amber update: lost " << words.front() << ": " << std::strerror(errno)
+                      << "\n";
             return 1;
         }
     }

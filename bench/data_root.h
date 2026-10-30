@@ -15,10 +15,8 @@ namespace bench {
 //
 // The predicate answers "is this a directory". Injecting it keeps the ordering
 // testable without a filesystem.
-std::string resolve_bench_root(const std::string& env_override,
-                               const std::string& compiled_dir,
-                               const std::string& exe_path,
-                               const std::string& cwd,
+std::string resolve_bench_root(const std::string& env_override, const std::string& compiled_dir,
+                               const std::string& exe_path, const std::string& cwd,
                                const std::function<bool(const std::string&)>& is_dir);
 
 } // namespace bench

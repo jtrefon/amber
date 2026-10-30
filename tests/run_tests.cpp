@@ -10926,8 +10926,9 @@ TEST(workspace_config_cannot_choose_diagnostic_output_paths) {
 // that differs from the executed steps is a trap.
 TEST(update_plan_apt_refreshes_then_upgrades) {
     const UpdatePlan plan = update_plan_for(PackageManager::Apt);
-    ASSERT_EQ(plan.command,
-              std::string("sudo apt-get update && sudo apt-get install --only-upgrade amber-agent"));
+    ASSERT_EQ(
+        plan.command,
+        std::string("sudo apt-get update && sudo apt-get install --only-upgrade amber-agent"));
     ASSERT_EQ(plan.steps.size(), 2u);
     ASSERT_EQ(plan.steps[0].size(), 3u);
     ASSERT_EQ(plan.steps[0][1], std::string("apt-get"));
