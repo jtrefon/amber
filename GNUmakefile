@@ -5,7 +5,7 @@
 # ./configure. Goals reach it through the catch-all rule below, so a target
 # added to Makefile.in is reachable without being listed here as well.
 #
-# This is free software released under the GPL-3.0-or-later.
+# This is free software released under the Apache License 2.0.
 
 .DEFAULT_GOAL := all
 
