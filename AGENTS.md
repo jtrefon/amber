@@ -266,6 +266,12 @@ each one and confirming it goes red. Everything in the table above is checked at
   `./configure` and gitignored, so an edit made there is silently lost on the next
   configure. That happened once: the fix shipped in a PR description while never
   reaching the repository.
+- **`lint-changed` had the same hole, one layer down.** Its selector
+  (`tools/affected_tus.py`) diffed only `BASE...HEAD`, so on a dirty tree it
+  printed `nothing affected, skipping` and linted no translation unit — a green
+  gate on a working tree full of edits, caught on 2026-10-30 with a
+  prompt-cache change uncommitted. It now unions the merge-base, the index, the
+  working tree and untracked files, and its `--selftest` pins all four diffs.
 - **Secret scanning** is the `gitleaks` action, a gating job in the `always`
   dimension. Nothing else here looked for a committed credential:
   `obfuscation-guard` reads tracked files for a payload signature, and CodeQL's
@@ -625,6 +631,34 @@ rogue `replace` method, direct deque access) breaks a link and crashes with
   replays the classify request), not from mutating the live context. The
   rebuild (`clear()` + `push()`) happens only on success, in `run_compression`.
 - Full design: `docs/spec/context/context-ownership-and-parallel-compression.md`.
+
+### Prompt caching is a wire contract, not a Context property
+
+The provider cache is a **token-prefix** cache. `Context` immutability is
+necessary but not sufficient: a dialect can produce a different first token from
+an unchanged live context without touching it — that is how the memory-injection
+bug came back after it had been fixed in the context layer.
+
+- The request is built in three tiers, and the order is the cache: **stable
+  prefix** (system prompt + tool schemas) → **conversation** (append-only) →
+  **volatile injections** (brief, activated skills, plugin tail blocks,
+  compression archive).
+- Anything that changes between turns must not be `role=system`. Every dialect
+  hoists system messages into the leading block, so a volatile system block
+  rewrites the prefix and re-prefills the whole conversation behind it. The
+  session brief, activated skill bodies and plugin tail blocks ride the user
+  channel with `Message::harness` set.
+- Anthropic caching is opt-in: the Messages dialect sends `cache_control`
+  breakpoints (stable system block + newest turn). `Config::prompt_cache_ttl`
+  (`/set provider cache 5m|1h|off`) selects the lifetime. OpenAI-compatible and
+  Gemini endpoints cache automatically and need no directive.
+- **Measure it.** Every dialect maps the provider's cache counters into
+  `TokenUsage`/`Stats`; `/usage` shows them. `0 read` on a long session is a
+  regression, and a change that adds a per-turn system block must come with a
+  test asserting the cached prefix is unchanged
+  (`tests/agent_loop_test.cpp`, `agent_placed_injected_blocks_after_the_system_prompt_keeps_the_prefix`).
+- Full contract and the list of deliberate prefix resets:
+  `docs/spec/llm-client/prompt-caching.md`.
 
 ## Runtime / config
 
@@ -1037,7 +1071,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 321 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 4525 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 4542 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

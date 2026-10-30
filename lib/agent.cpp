@@ -292,8 +292,13 @@ std::string Agent::render_system_prompt() const {
                                  cfg_.system_prompt_path);
     // Environment card: OS, user, resources, available tools — collected
     // once at session start, so the agent can act in its environment without
-    // probing. Session-fixed, so the KV prefix stays stable.
-    append_optional_section(system, render_environment_card(probe_environment()));
+    // probing. Session-fixed by construction: re-probing every turn would both
+    // shell out per request and rewrite the cached prefix when the answer moved.
+    if (!environment_probed_) {
+        environment_card_ = render_environment_card(probe_environment());
+        environment_probed_ = true;
+    }
+    append_optional_section(system, environment_card_);
 
     if (!cfg_.tools_prompt_path.empty()) {
         std::string tools = load_prompt(cfg_.tools_prompt_path);
@@ -529,7 +534,13 @@ void Agent::record_stats(const Stats& stats) {
     if (hooks_.on_stats)
         hooks_.on_stats(stats);
     if (hooks_.on_usage)
-        hooks_.on_usage({UsageSource::Main, stats.prompt_tokens, stats.completion_tokens, {}, {}});
+        hooks_.on_usage({UsageSource::Main,
+                         stats.prompt_tokens,
+                         stats.completion_tokens,
+                         stats.cache_read_tokens,
+                         stats.cache_write_tokens,
+                         {},
+                         {}});
     if (stats.prompt_tokens > 0)
         cfg_.prompt_tokens_used = stats.prompt_tokens;
 }
@@ -1061,7 +1072,12 @@ bool block_before(const Agent::PromptBlock& a, const Agent::PromptBlock& b) {
 }
 
 // Head blocks go immediately after the system prompt, so they read as
-// instructions for this request; tail blocks follow the conversation.
+// instructions for this request; tail blocks follow the conversation. The tail
+// rides the user channel (with the harness flag) rather than the system one:
+// every dialect hoists system messages into the leading block, and a cacheable
+// prefix cannot contain content that changes between turns. On the wire the
+// tail therefore stays after everything it annotates — a change costs only the
+// block itself.
 void insert_prompt_blocks(std::vector<Message>& prompt_copy, std::vector<Agent::PromptBlock>& head,
                           std::vector<Agent::PromptBlock>& tail) {
     std::sort(head.begin(), head.end(), block_before);
@@ -1083,7 +1099,8 @@ void insert_prompt_blocks(std::vector<Message>& prompt_copy, std::vector<Agent::
     }
     for (auto& block : tail) {
         Message msg;
-        msg.role = "system";
+        msg.role = "user";
+        msg.harness = true;
         msg.content = std::move(block.text);
         prompt_copy.push_back(std::move(msg));
     }
@@ -1164,14 +1181,19 @@ void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
 
 namespace {
 
-// A rendered block as the system message the request carries. Order is the
-// caller's (the block list is sorted before conversion).
-std::vector<Message> block_messages(const std::vector<Agent::PromptBlock>& blocks) {
+// How a prompt block is carried on the wire. Head blocks are system messages
+// beside the prompt; tail blocks ride the user channel with the harness flag,
+// after the conversation, so their churn cannot rewrite the cached prefix. The
+// compression replay uses the same mapping, or its request would not share the
+// live prefix it exists to reuse. Order is the caller's (sorted before
+// conversion).
+std::vector<Message> block_messages(const std::vector<Agent::PromptBlock>& blocks, bool tail) {
     std::vector<Message> out;
     out.reserve(blocks.size());
     for (const auto& block : blocks) {
         Message m;
-        m.role = "system";
+        m.role = tail ? "user" : "system";
+        m.harness = tail;
         m.content = block.text;
         out.push_back(std::move(m));
     }
@@ -1188,8 +1210,8 @@ Agent::compression_prefix(const std::vector<std::shared_ptr<Tool>>& tools) const
     std::sort(head.begin(), head.end(), block_before);
     std::sort(tail.begin(), tail.end(), block_before);
     CompressionRequestPrefix prefix;
-    prefix.head_blocks = block_messages(head);
-    prefix.tail_blocks = block_messages(tail);
+    prefix.head_blocks = block_messages(head, /*tail=*/false);
+    prefix.tail_blocks = block_messages(tail, /*tail=*/true);
     prefix.tools = tools;
     return prefix;
 }

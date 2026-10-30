@@ -26,10 +26,16 @@
 namespace agent {
 
 // Token counts reported by a wire response, -1 when the protocol did not
-// report them.
+// report them. `cache_read`/`cache_write` are the prompt-cache counters: the
+// tokens served from cache (billed at the cache-read rate) and the tokens
+// written to it (billed at the cache-write rate). They are the only evidence
+// that a request reused anything, so every dialect that reports them fills
+// them in.
 struct TokenUsage {
     long prompt = -1;
     long completion = -1;
+    long cache_read = -1;
+    long cache_write = -1;
 };
 
 class Dialect {

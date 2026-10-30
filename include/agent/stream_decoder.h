@@ -39,6 +39,8 @@ public:
 
     long prompt_tokens() const noexcept { return prompt_tokens_; }
     long completion_tokens() const noexcept { return completion_tokens_; }
+    long cache_read_tokens() const noexcept { return cache_read_tokens_; }
+    long cache_write_tokens() const noexcept { return cache_write_tokens_; }
 
     // The bounded raw byte accumulation (error diagnostics).
     const std::string& raw_body() const noexcept { return raw_body_; }
@@ -61,6 +63,8 @@ protected:
     std::string debug_path_;
     long prompt_tokens_ = -1; // from the final usage event
     long completion_tokens_ = -1;
+    long cache_read_tokens_ = -1;  // prompt-cache read counter, -1 when absent
+    long cache_write_tokens_ = -1; // prompt-cache write counter, -1 when absent
 
 private:
     std::string buffer_;    // partial SSE line carried across writes

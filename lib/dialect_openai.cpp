@@ -284,6 +284,16 @@ long read_usage_token(const json& usage, const char* key) {
     return (it != usage.end() && it->is_number()) ? it->get<long>() : -1;
 }
 
+// OpenAI-compatible endpoints report the cache hit under
+// usage.prompt_tokens_details.cached_tokens (the prompt_tokens count already
+// includes those tokens). Absent means the provider does not report it.
+long read_cached_tokens(const json& usage) {
+    auto it = usage.find("prompt_tokens_details");
+    if (it == usage.end() || !it->is_object())
+        return -1;
+    return read_usage_token(*it, "cached_tokens");
+}
+
 void append_strings(const json& j, const char* key, std::vector<std::string>& out) {
     if (!j.contains(key) || !j[key].is_array())
         return;
@@ -397,6 +407,7 @@ protected:
             prompt_tokens_ = u["prompt_tokens"].get<long>();
         if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
             completion_tokens_ = u["completion_tokens"].get<long>();
+        cache_read_tokens_ = read_cached_tokens(u);
     }
 
     void decode_payload(const std::string& data) override {
@@ -577,6 +588,7 @@ public:
             const json& u = resp["usage"];
             usage.prompt = read_usage_token(u, "prompt_tokens");
             usage.completion = read_usage_token(u, "completion_tokens");
+            usage.cache_read = read_cached_tokens(u);
         }
         return usage;
     }
@@ -592,14 +604,19 @@ public:
     }
 
 private:
-    // Merge ALL system messages into ONE block, regardless of where they appear
-    // in the list. The compressed-context archive is a role=system message that
+    // Merge the system messages into ONE block, wherever they appear in the
+    // list. The compressed-context archive is a role=system message that
     // legitimately sits AFTER the conversation turns (apply_classification
     // appends it, then prepends the real system prompt); strict GGUF chat
     // templates (e.g. Qwen 3.6 dense) reject any system message that is not at
     // the start with HTTP 500 ("System message must be at the beginning").
-    // Token-level KV prefix caching is unaffected — the common prefix tokens are
-    // identical with or without the merge.
+    //
+    // This merge is a cache decision, not just a compatibility one: everything
+    // it folds becomes the leading block, so a change to any of it invalidates
+    // the whole conversation behind it. That is why injected blocks that change
+    // between turns (the session brief, activated skill bodies, plugin tail
+    // blocks) ride the user channel instead of being role=system — see
+    // Agent::insert_prompt_blocks and docs/spec/llm-client/prompt-caching.md.
     static std::string merge_system_content(const std::vector<Message>& messages) {
         std::string merged;
         for (const auto& m : messages) {

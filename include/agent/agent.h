@@ -69,7 +69,9 @@ struct UsageSample {
     UsageSource source = UsageSource::Main;
     long prompt_tokens = -1;
     long completion_tokens = -1;
-    std::string task_id; // sub-agent samples only
+    long cache_read_tokens = -1;  // prompt tokens served from the provider cache
+    long cache_write_tokens = -1; // prompt tokens written to the provider cache
+    std::string task_id;          // sub-agent samples only
     std::string owner_id;
 };
 
@@ -363,6 +365,12 @@ private:
     // (see worktree_session_note). Computed when the root is set, never per
     // turn: rendering the system prompt must not shell out.
     std::string workspace_note_;
+    // The environment card is probed ONCE per agent, on first render: it shells
+    // out (sudo -n, command -v) and it carries the date, so re-probing per turn
+    // is both a cost and a prefix-stability hazard. Session-fixed by design;
+    // changing the environment mid-session is a deliberate prefix reset.
+    mutable bool environment_probed_ = false;
+    mutable std::string environment_card_;
     // Publish the display-relevant config for other threads. Copy-on-write:
     // `cfg_` stays the worker's private working copy, readers get an immutable
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.

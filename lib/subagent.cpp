@@ -233,6 +233,8 @@ void SubAgentExecutor::record_usage(const std::string& task_id, const Stats& sta
     sample.source = UsageSource::Subagent;
     sample.prompt_tokens = stats.prompt_tokens;
     sample.completion_tokens = stats.completion_tokens;
+    sample.cache_read_tokens = stats.cache_read_tokens;
+    sample.cache_write_tokens = stats.cache_write_tokens;
     sample.task_id = task_id;
     {
         std::scoped_lock lk(tasks_mutex_);

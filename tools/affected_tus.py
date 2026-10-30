@@ -97,20 +97,32 @@ def make_deps_reader(cxx, cxxflags):
     return deps_of
 
 
+def diff_commands(base):
+    """Every diff a *local* run must union: committed vs base, staged, unstaged,
+    and untracked. Using only the first is how `lint-changed` once reported
+    "nothing affected" on a working tree full of edits — a gate that measures
+    nothing reports green."""
+    return [
+        ["git", "diff", "--name-only", f"{base}...HEAD"],
+        ["git", "diff", "--name-only", "--cached"],
+        ["git", "diff", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ]
+
+
 def git_changed(base):
-    """Repo-relative changed paths vs `base`, or None when git cannot tell."""
-    try:
-        proc = subprocess.run(
-            ["git", "diff", "--name-only", f"{base}...HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    return [normalise(p) for p in proc.stdout.splitlines() if p.strip()]
+    """Repo-relative changed paths vs `base` plus the working tree, or None
+    when git cannot tell."""
+    paths = []
+    for cmd in diff_commands(base):
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if proc.returncode != 0:
+            return None
+        paths.extend(normalise(p) for p in proc.stdout.splitlines() if p.strip())
+    return sorted(set(paths))
 
 
 def repo_root():
@@ -162,6 +174,15 @@ def selftest():
     # A multi-line dependency list is parsed, target excluded.
     deps_parsed = parse_deps("lib/a.o: lib/a.cpp include/agent/x.h \\\n  tui/y.h\n")
     assert deps_parsed == {"lib/a.cpp", "include/agent/x.h", "tui/y.h"}, deps_parsed
+
+    # The local selection sees uncommitted work, not just committed work:
+    # staged, unstaged and untracked all count, or the gate measures nothing
+    # while a developer is editing.
+    cmds = diff_commands("origin/main")
+    assert "origin/main...HEAD" in cmds[0], cmds
+    assert "--cached" in cmds[1], cmds
+    assert "--cached" not in cmds[2], cmds
+    assert "--others" in cmds[3], cmds
 
     print("affected_tus: selftest ok")
     return 0

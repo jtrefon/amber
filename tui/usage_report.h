@@ -14,8 +14,14 @@ namespace tui {
 namespace detail {
 
 inline std::string count_label(const agent::UsageTotals& usage) {
-    return "up " + agent::compact::count(usage.prompt_tokens) + " down " +
-           agent::compact::count(usage.completion_tokens);
+    std::string out = "up " + agent::compact::count(usage.prompt_tokens) + " down " +
+                      agent::compact::count(usage.completion_tokens);
+    // A provider that reports cache counters is telling us how much of the
+    // prompt it reused. "0 read" on a long session is the regression signal.
+    if (usage.measured_cache)
+        out += " · cache " + agent::compact::count(usage.cache_read_tokens) + " read / " +
+               agent::compact::count(usage.cache_write_tokens) + " write";
+    return out;
 }
 
 } // namespace detail

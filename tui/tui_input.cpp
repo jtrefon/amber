@@ -494,6 +494,8 @@ void SlashDispatcher::cmd_get_config_paths() {
 void SlashDispatcher::cmd_get_provider() {
     tui_.append_line(P_STATUS,
                      "provider: " + tui_.cfg_.provider_name + " (" + tui_.cfg_.api_base + ")");
+    tui_.append_line(P_STATUS, "prompt cache: " + tui_.cfg_.prompt_cache_ttl +
+                                   "  (/set provider cache 5m|1h|off)");
 }
 
 void SlashDispatcher::cmd_get_policy(const std::string& arg) {
@@ -1712,6 +1714,21 @@ void SlashDispatcher::register_provider_wallet_actions() {
                     [this](const std::string&) { cmd_get_wallet(); });
     register_action("core.config.set.provider.wallet",
                     [this](const std::string& a) { cmd_set_wallet(a); });
+    register_action("core.config.get.provider.cache",
+                    [this](const std::string&) { cmd_get_provider(); });
+    // The lifetime amber asks the provider for. Anthropic caches only what is
+    // marked, so this is the difference between ~10% and 100% of the input price
+    // on every later request; the 5m default expires between human-paced turns,
+    // which is why 1h exists.
+    register_action("core.config.set.provider.cache", [this](const std::string& a) {
+        if (a != "5m" && a != "1h" && a != "off") {
+            tui_.append_line(P_STATUS, "usage: /set provider cache 5m|1h|off (got: " + a + ")");
+            return;
+        }
+        tui_.cfg_.prompt_cache_ttl = a;
+        tui_.cfg_.save_global(agent::global_config_path());
+        tui_.append_line(P_STATUS, "provider cache " + a);
+    });
     register_action("core.config.get.provider", [this](const std::string&) { cmd_get_provider(); });
     register_action("core.config.get.provider.list",
                     [this](const std::string&) { cmd_provider_list(); });

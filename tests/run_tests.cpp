@@ -8,6 +8,8 @@
 #include "agent/artifacts.h"
 #include "agent/search_backend.h"
 #include "agent/dialect.h"
+#include "agent/dialect_anthropic.h"
+#include "agent/dialect_gemini.h"
 #include "agent/dialect_openai.h"
 #include "agent/stream_decoder.h"
 #include "agent/compressor.h"
@@ -909,9 +911,9 @@ TEST(request_builder_merges_consecutive_system_messages) {
     // Strict GGUF chat templates (e.g. Qwen 3.6 dense) raise HTTP 500 when the
     // request carries more than one system message ("System message must be at
     // the beginning"). The memory/skills blocks are injected as a second
-    // role=system message, so the wire format must merge consecutive system
-    // messages into one. Token-level KV prefix caching is unaffected: the
-    // common prefix tokens stay identical either way.
+    // role=system message, so the wire format must merge system messages into
+    // one leading block. The merge is why injected blocks that change between
+    // turns must NOT be role=system: they would rewrite the cached prefix.
     agent::Config c;
     std::vector<agent::Message> msgs;
     agent::Message s1;
@@ -2352,6 +2354,160 @@ TEST(openai_request_omits_temperature_only_for_adaptive_claude) {
     ASSERT(body.contains("temperature"));
 }
 
+// ---------------------------------------------------------------------------
+// Provider prompt caching
+// ---------------------------------------------------------------------------
+//
+// Anthropic caches only what it is asked to cache: without a `cache_control`
+// breakpoint the Messages API re-prefills the whole request at full price. A
+// request with a stable prefix and no breakpoint is therefore expensive every
+// single turn, which is exactly what amber sent.
+
+TEST(anthropic_request_marks_the_stable_prefix_cacheable) {
+    auto d = agent::make_anthropic_dialect();
+    agent::Config cfg;
+    cfg.model = "claude-opus-5-5";
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "BASE PROMPT";
+    msgs.push_back(sys);
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+
+    auto body = d->build_chat_body(cfg, msgs, {}, true);
+    ASSERT(body["system"].is_array());
+    const auto& blocks = body["system"];
+    ASSERT_EQ(blocks.size(), 1u);
+    ASSERT_EQ(blocks[0]["text"].get<std::string>(), "BASE PROMPT");
+    ASSERT(blocks[0].contains("cache_control"));
+    ASSERT_EQ(blocks[0]["cache_control"]["type"].get<std::string>(), "ephemeral");
+    // The 5-minute default is the protocol default: no ttl field.
+    ASSERT(!blocks[0]["cache_control"].contains("ttl"));
+
+    // The moving breakpoint covers everything up to the newest turn, so the
+    // next request reads the whole conversation instead of re-prefilling it.
+    const auto& last = body["messages"].back();
+    ASSERT(last["content"].is_array());
+    ASSERT(last["content"].back().contains("cache_control"));
+}
+
+TEST(anthropic_cache_ttl_follows_the_setting) {
+    auto d = agent::make_anthropic_dialect();
+    agent::Config cfg;
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "BASE";
+    msgs.push_back(sys);
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+
+    cfg.prompt_cache_ttl = "1h";
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["system"][0]["cache_control"]["ttl"].get<std::string>(), "1h");
+    ASSERT_EQ(body["messages"].back()["content"].back()["cache_control"]["ttl"].get<std::string>(),
+              "1h");
+
+    // Off is a plain string: the request is byte-identical to the pre-caching
+    // shape, with no breakpoint anywhere.
+    cfg.prompt_cache_ttl = "off";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(body["system"].is_string());
+    ASSERT_EQ(body["system"].get<std::string>(), "BASE");
+    ASSERT(!body["messages"].back()["content"].back().contains("cache_control"));
+
+    // An unknown value is not guessed into a TTL: the default applies.
+    cfg.prompt_cache_ttl = "forever";
+    body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(body["system"][0]["cache_control"]["type"].get<std::string>(), "ephemeral");
+    ASSERT(!body["system"][0]["cache_control"].contains("ttl"));
+}
+
+// The breakpoint has to sit on the stable block, before anything that changes
+// between turns: otherwise a memory update or a session-brief refresh rewrites
+// the cached prefix and the whole conversation behind it.
+TEST(anthropic_injected_blocks_sit_after_the_breakpoint) {
+    auto d = agent::make_anthropic_dialect();
+    agent::Config cfg;
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "BASE PROMPT";
+    msgs.push_back(sys);
+    agent::Message memory;
+    memory.role = "system";
+    memory.content = "=== Learned memories ===";
+    msgs.push_back(memory);
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+
+    auto body = d->build_chat_body(cfg, msgs, {}, false);
+    const auto& blocks = body["system"];
+    ASSERT_EQ(blocks.size(), 2u);
+    ASSERT(blocks[0].contains("cache_control"));
+    ASSERT_EQ(blocks[0]["text"].get<std::string>(), "BASE PROMPT");
+    ASSERT(!blocks[1].contains("cache_control"));
+    ASSERT_EQ(blocks[1]["text"].get<std::string>(), "=== Learned memories ===");
+}
+
+// Cache counters are the only evidence a request reused anything. amber used
+// to drop them, so a total cache regression was invisible from inside.
+TEST(anthropic_usage_reads_cache_counters) {
+    auto d = agent::make_anthropic_dialect();
+    const std::string body = R"({"usage":{"input_tokens":1200,"output_tokens":30,)"
+                             R"("cache_read_input_tokens":900,)"
+                             R"("cache_creation_input_tokens":300}})";
+    const agent::TokenUsage usage = d->parse_usage(body);
+    ASSERT_EQ(usage.prompt, 1200L);
+    ASSERT_EQ(usage.completion, 30L);
+    ASSERT_EQ(usage.cache_read, 900L);
+    ASSERT_EQ(usage.cache_write, 300L);
+}
+
+TEST(openai_usage_reads_cached_tokens) {
+    auto d = agent::make_dialect("openai");
+    const std::string body = R"({"usage":{"prompt_tokens":2000,"completion_tokens":10,)"
+                             R"("prompt_tokens_details":{"cached_tokens":1536}}})";
+    const agent::TokenUsage usage = d->parse_usage(body);
+    ASSERT_EQ(usage.prompt, 2000L);
+    ASSERT_EQ(usage.cache_read, 1536L);
+    ASSERT_EQ(usage.cache_write, -1L);
+}
+
+TEST(gemini_usage_reads_cached_tokens) {
+    auto d = agent::make_gemini_dialect();
+    const std::string body = R"({"usageMetadata":{"promptTokenCount":1000,)"
+                             R"("candidatesTokenCount":5,"cachedContentTokenCount":800}})";
+    const agent::TokenUsage usage = d->parse_usage(body);
+    ASSERT_EQ(usage.prompt, 1000L);
+    ASSERT_EQ(usage.cache_read, 800L);
+}
+
+TEST(prompt_cache_ttl_roundtrips_in_the_global_config) {
+    agent::Config cfg;
+    cfg.prompt_cache_ttl = "1h";
+    const std::string path = "/tmp/amber_cache_ttl_test.conf";
+    ASSERT(cfg.save_global(path));
+    agent::Config loaded;
+    loaded.load(path);
+    ASSERT_EQ(loaded.prompt_cache_ttl, std::string("1h"));
+
+    // An unusable value is a warning, not a silent TTL: the default survives.
+    std::ofstream(path) << "prompt_cache_ttl=forever\n";
+    agent::Config bad;
+    bad.load(path);
+    ASSERT_EQ(bad.prompt_cache_ttl, std::string("5m"));
+    ASSERT(!bad.warnings.empty());
+    std::remove(path.c_str());
+}
+
 TEST(probe_parse_model_list_ollama_shape) {
     // Ollama-ish {"models":[{name, n_ctx}]} fallback shape, two entries.
     std::string body = R"({"models":[{"name":"llama-3.2-3b","n_ctx":8192},)"
@@ -2939,6 +3095,9 @@ TEST(global_selection_is_what_a_live_run_uses) {
     {
         std::ofstream f(agent::global_config_path());
         f << "provider=kilocode\nmodel=kilo-auto/free\nmodel_explicit=1\n";
+        // A provider-scoped runtime knob: persisted globally and restored into
+        // the live config, not just read by the UI that set it.
+        f << "prompt_cache_ttl=1h\n";
     }
     {
         // What the provider domain reads before any plugin is installed: the
@@ -2960,6 +3119,7 @@ TEST(global_selection_is_what_a_live_run_uses) {
     ASSERT_EQ(cfg.provider_name, std::string("kilocode"));
     ASSERT(cfg.api_base.find("kilo.ai") != std::string::npos);
     ASSERT(cfg.api_base_from_provider);
+    ASSERT_EQ(cfg.prompt_cache_ttl, std::string("1h"));
 
     // The project layer still applies, but not its endpoint.
     cfg.load_workspace_defaults(project);
@@ -2976,6 +3136,7 @@ TEST(global_selection_is_what_a_live_run_uses) {
     ASSERT(!none.loaded);
     ASSERT(!bare.api_base_from_provider);
     ASSERT_EQ(bare.provider_name, std::string("custom")); // core's default, untouched
+    ASSERT_EQ(bare.prompt_cache_ttl, std::string("5m"));  // the protocol default
 }
 
 TEST(private_migration_narrows_existing_paths_and_is_idempotent) {
