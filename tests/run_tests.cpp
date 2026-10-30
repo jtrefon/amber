@@ -10955,3 +10955,30 @@ TEST(update_plan_unknown_offers_no_command) {
     ASSERT_TRUE(plan.command.empty());
     ASSERT_TRUE(plan.steps.empty());
 }
+
+TEST(update_surface_ignores_an_ordinary_run) {
+    char prog[] = "amber-cli";
+    char flag[] = "--prompt";
+    char* argv[] = {prog, flag, nullptr};
+    ASSERT_EQ(run_update_surface(2, argv), -1);
+}
+
+TEST(update_surface_rejects_an_unknown_flag) {
+    char prog[] = "amber-cli";
+    char verb[] = "update";
+    char flag[] = "--nope";
+    char* argv[] = {prog, verb, flag, nullptr};
+    ASSERT_EQ(run_update_surface(3, argv), 2);
+}
+
+// --print is the form a script uses, and it must never fork: the return code is
+// 0 when a package manager exists and 1 when none does, but the print itself
+// cannot be the failure.
+TEST(update_surface_print_does_not_execute) {
+    char prog[] = "amber-cli";
+    char verb[] = "update";
+    char flag[] = "--print";
+    char* argv[] = {prog, verb, flag, nullptr};
+    const int rc = run_update_surface(3, argv);
+    ASSERT_TRUE(rc == 0 || rc == 1);
+}
