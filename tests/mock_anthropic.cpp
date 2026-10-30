@@ -240,8 +240,11 @@ MockRequest parse_head(const std::string& head) {
 void MockAnthropic::handle(int conn) {
     std::string raw;
     char buf[8192];
-    std::size_t head_end = std::string::npos;
-    while ((head_end = raw.find("\r\n\r\n")) == std::string::npos) {
+    std::size_t head_end;
+    for (;;) {
+        head_end = raw.find("\r\n\r\n");
+        if (head_end != std::string::npos)
+            break;
         const ssize_t n = recv(conn, buf, sizeof(buf), 0);
         if (n <= 0)
             return;

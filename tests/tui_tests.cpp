@@ -3098,6 +3098,11 @@ TEST(prompt_cache_note_reads_as_working_once_a_read_lands) {
     ASSERT(note.find("minimum") == std::string::npos);
 }
 
+TEST(prompt_cache_note_distinguishes_written_from_read) {
+    const std::string note = tui::prompt_cache_note("claude-sonnet-4-5", "5m", 12000, 0, 9000);
+    ASSERT(note.find("written, not read back yet") != std::string::npos);
+}
+
 TEST(prompt_cache_note_says_when_the_provider_reports_nothing) {
     // A non-Claude model has no documented minimum, so the note must not invent
     // one: it says what was observed instead.
