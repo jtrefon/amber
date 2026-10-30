@@ -99,6 +99,7 @@ struct PendingToolLine {
     std::string name;
     std::string fingerprint;
     std::string tail;
+    std::string intent;
     int frame = 0;
 };
 

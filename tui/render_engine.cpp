@@ -285,9 +285,14 @@ void RenderEngine::draw_working_indicator(int row) {
     const auto now = std::chrono::steady_clock::now();
     const size_t secs = static_cast<size_t>(
         std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
+    const auto& win = tui_.win();
     const tool_display::WorkingParts parts =
         tool_display::working_parts(text::glyph::spinner_round(anim_phase_), activity_verb(), secs,
-                                    tui_.win().running_tool_desc);
+                                    win.running_tool_desc, win.running_intent);
+    std::string tail = parts.tail;
+    const std::string stuck = tool_display::stuck_hint(secs);
+    if (!stuck.empty())
+        tail += " \u00b7 " + stuck;
     // The glyph steps and the verb carries the sweep: the left side has a coarse
     // motion and a fine one at the same time. Wide strings are painted by
     // display column, so a multibyte glyph is never split (mvaddnstr counts
@@ -296,7 +301,7 @@ void RenderEngine::draw_working_indicator(int row) {
     int x = 0;
     put_wsegment(row, w, x, to_wide(parts.glyph + " "), P_STATUS);
     draw_shine(row, w, x, to_wide(parts.verb), P_STATUS, {0, agent::bar::ShineStyle::Gradient});
-    put_wsegment(row, w, x, to_wide(parts.tail), P_STATUS);
+    put_wsegment(row, w, x, to_wide(tail), P_STATUS);
 }
 
 // The scroll indicator used to live here as a " P:0%" tail appended after the

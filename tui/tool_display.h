@@ -47,14 +47,23 @@ struct WorkingParts {
     std::string tail;
 };
 WorkingParts working_parts(const std::string& frame, const std::string& verb, size_t elapsed_secs,
-                           const std::string& task = {});
+                           const std::string& task = {}, const std::string& intent = {});
 
 // The full working indicator: "<frame> <verb> <elapsed>", plus an optional
-// running-task description appended as " · <task>" (truncated to 40 cols).
+// running-task description appended as " · <intent> · <task>" (truncated).
 // `verb` is a short activity word ("working", "thinking", "compressing",
 // "searching", ...) chosen by the caller from the agent's current state.
 std::string working_label(const std::string& frame, const std::string& verb, size_t elapsed_secs,
-                          const std::string& task = {});
+                          const std::string& task = {}, const std::string& intent = {});
+
+// The assistant's last meaningful sentence before a tool call, stripped of
+// markdown and a leading "Let me / I'll / I'm going to", capped for the
+// working row. Empty when the narration has nothing usable.
+std::string intent_from_narration(const std::string& text);
+
+// The stuck hint for the working row at `elapsed_secs`; empty before the
+// threshold. Pure so the 60s boundary is testable without waiting.
+std::string stuck_hint(size_t elapsed_secs);
 
 // Reasoning-strength badge text: "(<effort>)", composed inside the model
 // bracket ([model(high)]). Always shown, including the off state.

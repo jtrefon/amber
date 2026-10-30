@@ -93,7 +93,8 @@ struct Window {
     long live_ctx_offset = 0; // running token count during streaming
     std::string running_tool; // in-flight tool name (working verb)
     std::string running_tool_desc;
-    bool compressing = false; // context compression in flight
+    std::string running_intent; // the model's last sentence before the call
+    bool compressing = false;   // context compression in flight
 };
 
 } // namespace tui

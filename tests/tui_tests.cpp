@@ -1115,6 +1115,40 @@ TEST(tool_display_working_label_task_omitted_when_empty) {
     ASSERT(w.find("·") == std::string::npos);
 }
 
+// The live intent is the assistant's own last sentence, made row-sized.
+TEST(tool_display_intent_takes_the_last_sentence_and_drops_the_lead) {
+    const std::string text = "Let me check the parser.\nI'll run the tests now.\n";
+    ASSERT_EQ(tui::tool_display::intent_from_narration(text), "run the tests now.");
+}
+
+TEST(tool_display_intent_strips_markdown_and_caps) {
+    const std::string text = "- **checking** `src/parser.cpp` " + std::string(80, 'x');
+    const std::string intent = tui::tool_display::intent_from_narration(text);
+    ASSERT(!intent.empty());
+    ASSERT(intent.find("**") == std::string::npos);
+    ASSERT(intent.find('`') == std::string::npos);
+    ASSERT(tui::text::display_cols(intent) <= 60);
+}
+
+TEST(tool_display_intent_ignores_code_fences) {
+    ASSERT(tui::tool_display::intent_from_narration("```\nint x = 1;\n```\n").empty());
+    ASSERT(tui::tool_display::intent_from_narration("   \n\n").empty());
+}
+
+TEST(tool_display_stuck_hint_starts_at_sixty_seconds) {
+    ASSERT(tui::tool_display::stuck_hint(59).empty());
+    const std::string hint = tui::tool_display::stuck_hint(60);
+    ASSERT(hint.find("no progress for 60s") != std::string::npos);
+    ASSERT(hint.find("Ctrl+C") != std::string::npos);
+}
+
+TEST(tool_display_working_label_with_intent) {
+    const std::string w =
+        tui::tool_display::working_label("◐", "hacking", 12, "make test", "checking the parser");
+    ASSERT(w.find("hacking") != std::string::npos);
+    ASSERT(w.find("12s · checking the parser · make test") != std::string::npos);
+}
+
 TEST(tool_display_activity_verb_waiting_state_with_tool_uses_tool_verb) {
     // Reported bug: a tool executing under RunState::Waiting read "waiting".
     std::string v = verb(false, agent::RunState::Waiting, "read");

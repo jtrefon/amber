@@ -251,8 +251,10 @@ void EventRouter::handle_state_change(Window* w, const AgentEvent& ev) {
     if (!w)
         return;
     w->state = ev.state;
-    if (ev.state == agent::RunState::Idle || ev.state == agent::RunState::Error)
+    if (ev.state == agent::RunState::Idle || ev.state == agent::RunState::Error) {
         w->running_tool.clear();
+        w->running_intent.clear();
+    }
 }
 
 void EventRouter::handle_status(Window* w, const AgentEvent& ev) {
@@ -441,6 +443,9 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
         return;
     w->running_tool = ev.tool_name;
     w->running_tool_desc = tool_display::describe_tool_call(ev.tool_name, ev.tool_args, tui_.reg_);
+    // The narration before the call is the model's own explanation of why the
+    // tool is running. Capture it before flush_stream() consumes the buffer.
+    w->running_intent = tool_display::intent_from_narration(w->stream_buf);
     tui_.render_engine_->mark_working();
     tui_.flush_stream(*w);
     // One "open" line per advertised call, animated together: round
@@ -451,6 +456,7 @@ void EventRouter::on_tool_call(Window* w, const AgentEvent& ev) {
     pt.fingerprint = ev.tool_args.dump();
     pt.frame = 0;
     pt.tail = " " + tool_display::describe_tool_call(ev.tool_name, ev.tool_args, tui_.reg_);
+    pt.intent = w->running_intent;
     const char* frame = text::glyph::spinner_round(0);
     pt.window_id = ev.window_id;
     pt.index = tui_.append_line_to(*w, P_STATUS, std::string(frame) + pt.tail);
@@ -486,10 +492,12 @@ void EventRouter::on_tool_result(Window* w, const AgentEvent& ev) {
     // verb and task text stay live until the whole batch finishes.
     w->running_tool.clear();
     w->running_tool_desc.clear();
+    w->running_intent.clear();
     for (const auto& pt : pending_tools_) {
         if (pt.window_id == ev.window_id && !pt.name.empty()) {
             w->running_tool = pt.name;
             w->running_tool_desc = pt.tail.size() > 1 ? pt.tail.substr(1) : "";
+            w->running_intent = pt.intent;
             break;
         }
     }
@@ -519,6 +527,7 @@ void EventRouter::on_done(Window* w, const AgentEvent&) {
     if (w->state != agent::RunState::Error)
         w->state = agent::RunState::Idle;
     w->running_tool.clear();
+    w->running_intent.clear();
     tui_.flush_stream(*w);
     w->dirty = true;
     tui_.autosave(*w);
