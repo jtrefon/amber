@@ -14,6 +14,7 @@
 
 #include <agent/mcp_commands.h>
 #include <agent/skill_cli.h>
+#include "update.h"
 #include <cctype>
 #include <chrono>
 #include <cstring>
@@ -39,6 +40,8 @@ void print_usage(const char* prog) {
               << "                     run one follow-up turn with their reports\n"
               << "  skills <verb>      Find, install, update and remove skills (run\n"
               << "                     'amber-cli skills' for the verb list; --json supported)\n"
+              << "  update             Upgrade the installed package with the system package\n"
+              << "                     manager, or with --print, show the command\n"
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
@@ -673,8 +676,16 @@ int run_skills_surface(int argc, char** argv) {
     return agent::run_skill_cli(args, std::cout, std::cerr);
 }
 
+// Surfaces that own the whole invocation, each parsing argv itself. They answer
+// before any config is loaded, and -1 means this is an ordinary agent run.
+int run_subcommands(int argc, char** argv) {
+    if (const int rc = run_update_surface(argc, argv); rc >= 0)
+        return rc;
+    return run_skills_surface(argc, argv);
+}
+
 int main(int argc, char** argv) try {
-    if (const int rc = run_skills_surface(argc, argv); rc >= 0)
+    if (const int rc = run_subcommands(argc, argv); rc >= 0)
         return rc;
 
     agent::Config cfg;

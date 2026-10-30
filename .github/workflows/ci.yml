@@ -532,6 +532,7 @@ jobs:
             --exclude '.*fuzz/.*' \
             --exclude '.*src/main\.cpp' --exclude '.*src/smoketest\.cpp' \
             --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
+            --exclude '.*src/update\.cpp' \
             --xml-pretty -o coverage.xml
 
           # Top-level percentages only, for the inline run summary. Its per-file
@@ -586,9 +587,15 @@ jobs:
           # fuzz/ is here because the harnesses are test drivers, like tests/: they are
           # built by a separate libFuzzer invocation with sanitizers, which is a stronger
           # check of that code than a line-coverage percentage would be.
+          # src/update.cpp joins them: its job is to exec the system package
+          # manager, which a unit test cannot do without running apt. What is
+          # testable (the plan, the argv handling) is in run_tests, and the
+          # execution is proven by the install-verify matrix in packages.yml on
+          # two distributions -- stronger evidence than a line percentage.
           python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE" \
             --absent-ok '.*src/main\.cpp' --absent-ok '.*src/smoketest\.cpp' \
             --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp' \
+            --absent-ok '.*src/update\.cpp' \
             --absent-ok '.*fuzz/.*'
           rc=$?
           set -e

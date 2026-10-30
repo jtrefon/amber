@@ -3,6 +3,7 @@
 #include <charconv>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -12,9 +13,11 @@
 #include <vector>
 
 #include "agent.h"
+#include "agent/data_path.h"
 #include "agent/version.h"
 #include "agent/workspace.h"
 #include "bench/probe.h"
+#include "bench/data_root.h"
 #include "bench/report.h"
 #include "bench/runner.h"
 #include "bench/scenario.h"
@@ -60,12 +63,23 @@ void print_usage(const char* prog) {
         << "  -h, --help       show this help\n";
 }
 
+// Where the scenario corpus and the profiles live. An installed package puts
+// them beside the data tree; a source checkout has ./bench. There is no
+// environment override: this path reaches the compiler command the harness
+// builds, and the install directory, the executable's own prefix and the
+// checkout cover every case.
+fs::path bench_root() {
+    return bench::resolve_bench_root(
+        agent::kBenchDataDir, agent::exe_path(), fs::current_path().string(),
+        [](const std::string& path) { return fs::is_directory(path); });
+}
+
 std::vector<bench::Scenario> discover_scenarios(const std::string& suite, const std::string& name) {
     std::vector<bench::Scenario> out;
-    const fs::path root = fs::current_path() / "bench" / "scenarios";
+    const fs::path root = bench_root() / "scenarios";
     if (!fs::is_directory(root)) {
-        std::cerr << "error: no bench/scenarios directory in " << fs::current_path().string()
-                  << "\n";
+        std::cerr << "error: no scenarios directory at " << root.string()
+                  << " (run from the checkout, or reinstall the bench package)\n";
         return out;
     }
     std::vector<fs::path> files;
@@ -121,16 +135,17 @@ bool take_int(const agent::json& obj, const char* key, int& out) {
 void apply_profile(bench::RunOptions& opts, const std::string& profile) {
     if (profile.empty())
         return;
-    std::ifstream f("bench/profiles.json");
+    const fs::path path = bench_root() / "profiles.json";
+    std::ifstream f(path);
     if (!f) {
-        std::cerr << "error: bench/profiles.json not found\n";
+        std::cerr << "error: " << path.string() << " not found\n";
         return;
     }
     agent::json j;
     try {
         j = agent::json::parse(f);
     } catch (...) {
-        std::cerr << "error: bench/profiles.json is not valid JSON\n";
+        std::cerr << "error: " << path.string() << " is not valid JSON\n";
         return;
     }
     if (!j.contains(profile) || !j[profile].is_object()) {
@@ -448,7 +463,7 @@ int cmd_validate(const std::string& name) {
         std::cerr << "error: scenario has no template: " << name << "\n";
         return 1;
     }
-    const fs::path tpl = fs::current_path() / "bench" / "scenarios" / s.template_dir;
+    const fs::path tpl = bench_root() / "scenarios" / s.template_dir;
     std::string err;
     bench::TemplateResult r =
         bench::run_template(tpl.string(), (tpl / "reference").string(), "g++", err);

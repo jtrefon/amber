@@ -2,6 +2,7 @@
 #include "agent/plugin.h"
 
 #include "agent/data_path.h"
+#include "agent/version.h"
 #include "agent/workspace.h"
 #include "agent/archive_util.h"
 
@@ -230,12 +231,26 @@ std::vector<std::string> PluginManager::default_plugin_roots() {
     const std::string ws = Workspace::project_root();
     if (!ws.empty())
         roots.emplace_back(ws + "/.amber/plugins");
-    // Relocatable installs: <prefix>/share/amber/plugins, resolved through the
-    // running executable so Homebrew Cellars and custom prefixes work.
+    // The install-time plugin directory. A packaged build puts plugin binaries
+    // in libexec (they are architecture-dependent), and this is the only root
+    // that knows where the packager decided that was.
+    if (agent::kPluginDir[0])
+        roots.emplace_back(agent::kPluginDir);
+    // Relocatable installs resolve their siblings through the running
+    // executable: Homebrew Cellars and custom prefixes. libexec and lib are the
+    // current homes; share is the pre-split layout and stays as a fallback so
+    // an upgrade does not lose plugins that were installed beside the old tree.
     const std::string bin = exe_dir();
-    if (!bin.empty())
+    if (!bin.empty()) {
+        roots.emplace_back(bin + "/../libexec/amber/plugins");
+        roots.emplace_back(bin + "/../lib/amber/plugins");
         roots.emplace_back(bin + "/../share/amber/plugins");
+    }
+    roots.emplace_back("/usr/local/libexec/amber/plugins");
+    roots.emplace_back("/usr/local/lib/amber/plugins");
     roots.emplace_back("/usr/local/share/amber/plugins");
+    roots.emplace_back("/usr/libexec/amber/plugins");
+    roots.emplace_back("/usr/lib/amber/plugins");
     roots.emplace_back("/usr/share/amber/plugins");
     return roots;
 }

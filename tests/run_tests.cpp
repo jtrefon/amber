@@ -38,6 +38,7 @@
 #include "agent/run_scope.h"
 #include "agent/plugin.h"
 #include "agent/turn.h"
+#include "../src/update.h"
 #include "tests/fake_llm.h"
 #include "tests/test_util.h"
 
@@ -11075,4 +11076,70 @@ TEST(workspace_config_cannot_choose_diagnostic_output_paths) {
     ASSERT_TRUE(bare.log_path.empty());
     ASSERT_TRUE(bare.debug_log.empty());
     std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// amber-cli update
+// ---------------------------------------------------------------------------
+
+// The upgrade is handed to the system package manager. What the user is shown
+// and what runs after they confirm must be the same plan: a printed command
+// that differs from the executed steps is a trap.
+TEST(update_plan_apt_refreshes_then_upgrades) {
+    const UpdatePlan plan = update_plan_for(PackageManager::Apt);
+    ASSERT_EQ(
+        plan.command,
+        std::string("sudo apt-get update && sudo apt-get install --only-upgrade amber-agent"));
+    ASSERT_EQ(plan.steps.size(), 2u);
+    ASSERT_EQ(plan.steps[0].size(), 3u);
+    ASSERT_EQ(plan.steps[0][1], std::string("apt-get"));
+    ASSERT_EQ(plan.steps[0][2], std::string("update"));
+    ASSERT_EQ(plan.steps[1].back(), std::string("amber-agent"));
+}
+
+TEST(update_plan_dnf_is_a_single_step) {
+    const UpdatePlan plan = update_plan_for(PackageManager::Dnf);
+    ASSERT_EQ(plan.command, std::string("sudo dnf upgrade amber-agent"));
+    ASSERT_EQ(plan.steps.size(), 1u);
+    ASSERT_EQ(plan.steps[0].back(), std::string("amber-agent"));
+}
+
+// Homebrew owns its prefix, so the plan is a command with nothing to execute.
+TEST(update_plan_brew_is_never_executed) {
+    const UpdatePlan plan = update_plan_for(PackageManager::Brew);
+    ASSERT_EQ(plan.command, std::string("brew upgrade amber"));
+    ASSERT_TRUE(plan.steps.empty());
+}
+
+TEST(update_plan_unknown_offers_no_command) {
+    const UpdatePlan plan = update_plan_for(PackageManager::Unknown);
+    ASSERT_TRUE(plan.command.empty());
+    ASSERT_TRUE(plan.steps.empty());
+}
+
+TEST(update_surface_ignores_an_ordinary_run) {
+    char prog[] = "amber-cli";
+    char flag[] = "--prompt";
+    char* argv[] = {prog, flag, nullptr};
+    ASSERT_EQ(run_update_surface(2, argv), -1);
+}
+
+TEST(update_surface_rejects_an_unknown_flag) {
+    char prog[] = "amber-cli";
+    char verb[] = "update";
+    char flag[] = "--nope";
+    char* argv[] = {prog, verb, flag, nullptr};
+    ASSERT_EQ(run_update_surface(3, argv), 2);
+}
+
+// --print is the form a script uses, and it must never fork: the return code is
+// 0 when a package manager exists and 1 when none does, but the print itself
+// cannot be the failure.
+TEST(update_surface_print_does_not_execute) {
+    char prog[] = "amber-cli";
+    char verb[] = "update";
+    char flag[] = "--print";
+    char* argv[] = {prog, verb, flag, nullptr};
+    const int rc = run_update_surface(3, argv);
+    ASSERT_TRUE(rc == 0 || rc == 1);
 }

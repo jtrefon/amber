@@ -3,6 +3,7 @@
 #include "agent/todo.h"
 #include "agent/tools.h"
 #include "bench/fake.h"
+#include "bench/data_root.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
 #include "bench/probe.h"
@@ -3205,4 +3206,34 @@ TEST(shape_replay_parses_a_recorded_session) {
     ASSERT(report.find("session") != std::string::npos);
     ASSERT(report.find("supersede") != std::string::npos);
     ASSERT(report.find("before") != std::string::npos);
+}
+
+// ── Bench data root ──
+//
+// An installed amber-bench must find its corpus from the install prefix, a
+// relocatable install from beside the executable, and a source checkout from
+// ./bench. The resolver takes the filesystem as a predicate so the ordering is
+// a fact of the test, not of wherever the test happens to run.
+
+TEST(bench_root_prefers_the_compiled_install_directory) {
+    const auto only_installed = [](const std::string& p) { return p == "/usr/share/amber-bench"; };
+    ASSERT_EQ(bench::resolve_bench_root("/usr/share/amber-bench", "/usr/bin/amber-bench", "/work",
+                                        only_installed),
+              std::string("/usr/share/amber-bench"));
+}
+
+TEST(bench_root_falls_back_to_the_directory_beside_the_executable) {
+    const auto only_beside = [](const std::string& p) {
+        return p == "/opt/amber/share/amber-bench";
+    };
+    ASSERT_EQ(bench::resolve_bench_root("/usr/share/amber-bench", "/opt/amber/bin/amber-bench",
+                                        "/work", only_beside),
+              std::string("/opt/amber/share/amber-bench"));
+}
+
+TEST(bench_root_last_resort_is_the_checkout) {
+    const auto nothing = [](const std::string&) { return false; };
+    ASSERT_EQ(bench::resolve_bench_root("/usr/share/amber-bench", "/usr/bin/amber-bench", "/work",
+                                        nothing),
+              std::string("/work/bench"));
 }

@@ -1,0 +1,100 @@
+.TH AMBER 1 "October 2026" "amber" "User Commands"
+.SH NAME
+amber \- ncurses client for the amber AI agent harness
+.SH SYNOPSIS
+.B amber
+[\fIoptions\fR]
+.SH DESCRIPTION
+.B amber
+is the full-screen client for the amber harness. It runs an agent loop against
+an OpenAI-compatible endpoint: the model reads and writes files, searches the
+project and runs commands through approval-gated tools while the session,
+context and tool output are rendered in place.
+.PP
+Commands are typed at the prompt. A leading \fB/\fR opens a command path such as
+\fB/set model\fR or \fB/get plugin\fR; the command tree, its help and its
+completions all come from \fIcompletions.json\fR, so the surface shown on screen
+is the surface that exists. Press \fB?\fR at any depth for the man page of that
+node.
+.PP
+The harness reads \fIamber.conf\fR from the working directory, then the global
+configuration, then the flags below. Model and context size are auto-detected
+from the endpoint when the configuration leaves them unset.
+.SH OPTIONS
+.TP
+.B \-\-config \fIfile\fR
+Read \fIKEY=VALUE\fR configuration from \fIfile\fR.
+.TP
+.B \-\-api\-base \fIurl\fR
+OpenAI-compatible base URL, for example \fBhttp://localhost:8081/v1\fR.
+.TP
+.B \-\-api\-key \fIkey\fR
+API key for the endpoint.
+.TP
+.B \-\-model \fIname\fR
+Model name to request.
+.TP
+.B \-\-system \fIfile\fR
+Markdown file holding the system prompt.
+.TP
+.B \-\-tools \fIfile\fR
+Markdown file advertising the tool set.
+.TP
+.B \-\-no\-stream
+Disable server-sent-event streaming.
+.TP
+.B \-\-no\-plugins
+Start without the bundled plugins.
+.TP
+.B \-v, \-\-version
+Print the version and exit.
+.TP
+.B \-h, \-\-help
+Print usage and exit.
+.SH COMMANDS
+Commands are namespaced paths from \fIcompletions.json\fR. \fB/get\fR reads state
+(for example \fB/get config paths\fR), \fB/set\fR changes it, and \fB/help\fR
+lists what the current node accepts. Package upgrades are performed by the
+system package manager; see \fBamber-cli\fR(1) for \fBamber update\fR.
+.SH FILES
+.TP
+.I ./amber.conf
+Project configuration: \fBapi_base\fR, \fBmodel\fR, \fBsystem_prompt\fR,
+\fBtools_prompt\fR.
+.TP
+.I /usr/share/amber/completions.json
+The command tree: namespaces, help, man pages, aliases and actions.
+.TP
+.I /usr/share/amber/keybindings.json
+Key bindings. A missing file falls back to the compiled defaults.
+.TP
+.I /usr/share/amber/prompts/
+System, tool, watch and domain prompts, including the coding library.
+.TP
+.I /usr/share/amber/data/
+Skill shelf tables used by the skills surface.
+.PP
+Per-project state (sessions, settings, logs, experience, policy) lives under
+\fB$XDG_STATE_HOME/amber/projects/\fI<slug>\fR\fR, not next to the binary.
+.SH ENVIRONMENT
+.TP
+.B AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL
+Defaults for the matching flags.
+.TP
+.B AMBER_WORKSPACE
+Workspace root the read and write tools are confined to. Defaults to the
+working directory.
+.TP
+.B AMBER_STREAM
+Set to \fB0\fR to disable streaming.
+.TP
+.B XDG_CONFIG_HOME, XDG_STATE_HOME, XDG_CACHE_HOME
+Relocate configuration, per-project state and caches.
+.SH SECURITY
+The bash tool is approval-gated: a command runs only after the dialog is
+accepted, and it is denied when no approval surface exists. Read and write are
+confined to the workspace root. Run the agent as an unprivileged user, in a
+container or a dedicated directory, against a model you trust.
+.SH SEE ALSO
+.BR amber-cli (1),
+.BR amber-bench (1)

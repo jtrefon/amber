@@ -22,6 +22,13 @@ inline constexpr const char* kRepo = "https://github.com/jtrefon/amber";
 // Author credit, surfaced tastefully in the welcome mural.
 inline constexpr const char* kAuthor = "trefon.com";
 
+// Install-time paths, stamped by ./configure. Empty in a source checkout built
+// without one, which is why every consumer treats "" as "not installed here"
+// and keeps its relocatable fallbacks.
+inline constexpr const char* kDataDir = "@DATADIR@";
+inline constexpr const char* kPluginDir = "@PLUGIN_DIR@";
+inline constexpr const char* kBenchDataDir = "@BENCH_DATA_DIR@";
+
 } // namespace agent
 
 #endif // AGENT_VERSION_H

@@ -1,0 +1,11 @@
+[amber-agent]
+name=amber-agent
+baseurl=https://jtrefon.github.io/amber-packages/rpm/fedora/$basearch/
+enabled=1
+# Both checks are on: the repository metadata is signed, and so is every
+# package. A repository that only checks one of the two can be replayed with
+# older, still-valid metadata.
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-amber-agent
+skip_if_unavailable=False

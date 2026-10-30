@@ -1,0 +1,119 @@
+.TH AMBER-CLI 1 "October 2026" "amber" "User Commands"
+.SH NAME
+amber-cli \- headless client for the amber AI agent harness
+.SH SYNOPSIS
+.B amber-cli
+[\fIoptions\fR] [\fIprompt\fR]
+.br
+.B amber-cli
+.B update
+[\fB\-\-print\fR]
+.br
+.B amber-cli
+.B skills
+\fIverb\fR [\fIoptions\fR]
+.SH DESCRIPTION
+.B amber-cli
+runs one agent turn without a terminal interface. The prompt is taken from
+\fB\-\-prompt\fR, from the first positional argument, or from standard input;
+the reply is written to standard output. Tool calls, approvals and the loop
+behave exactly as in \fBamber\fR(1), so a scripted run and an interactive run
+see the same harness.
+.SH OPTIONS
+.TP
+.B \-\-api\-base \fIurl\fR
+OpenAI-compatible base URL (environment \fBAMBER_API_BASE\fR).
+.TP
+.B \-\-api\-key \fIkey\fR
+API key (environment \fBAMBER_API_KEY\fR).
+.TP
+.B \-\-model \fIname\fR
+Model name (environment \fBAMBER_MODEL\fR).
+.TP
+.B \-\-system \fIfile\fR
+Markdown file holding the system prompt.
+.TP
+.B \-\-tools \fIfile\fR
+Markdown file advertising the tool set.
+.TP
+.B \-\-config \fIfile\fR
+Read \fIKEY=VALUE\fR configuration from \fIfile\fR.
+.TP
+.B \-\-prompt \fItext\fR
+The user prompt. Without it, the prompt is read from standard input.
+.TP
+.B \-\-no\-stream
+Disable server-sent-event streaming.
+.TP
+.B \-\-no\-plugins
+Run without the bundled plugins.
+.TP
+.B \-\-yes
+Auto-approve gated tools for this session.
+.TP
+.B \-\-yolo
+Run every tool with no approval gate.
+.TP
+.B \-\-watch\-wake
+After the turn, join running watches for up to 30 seconds and run one
+follow-up turn with their reports.
+.TP
+.B \-\-mcp\-list
+List the configured MCP prompt servers and exit.
+.TP
+.B \-\-version
+Print the version and exit.
+.TP
+.B \-h, \-\-help
+Print usage and exit.
+.SH THE UPDATE SUBCOMMAND
+.B amber-cli update
+never installs anything by itself. It detects the package manager for the
+running system and either prints the exact command or, on an interactive
+terminal after an explicit confirmation, runs it. It passes no
+\fB\-\-yes\fR, runs no background check, and never writes outside the paths the
+package manager owns.
+.TP
+.B \-\-print
+Print the command that would run and exit 0, without asking. This is the form
+to use from a script.
+.PP
+On Debian and Ubuntu the command is \fBapt-get update && apt-get install
+\-\-only-upgrade\fR; on Fedora it is \fBdnf upgrade\fR. On macOS the command is
+\fBbrew upgrade amber\fR, printed rather than run, because Homebrew owns that
+prefix. Without a terminal and without \fB\-\-print\fR the command is printed and
+the exit status is 2: nothing was performed.
+.SH THE SKILLS SUBCOMMAND
+.B amber-cli skills
+finds, installs, updates and removes skills. Run \fBamber-cli skills\fR with no
+verb for the verb list; \fB\-\-json\fR is accepted for machine-readable output.
+.SH FILES
+.TP
+.I ./amber.conf
+Project configuration.
+.TP
+.I /usr/share/amber/completions.json
+The command tree.
+.TP
+.I /usr/share/amber/prompts/
+System, tool, watch and domain prompts.
+.SH ENVIRONMENT
+.TP
+.B AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL
+Defaults for the matching flags.
+.TP
+.B AMBER_WORKSPACE
+Workspace root the read and write tools are confined to.
+.TP
+.B AMBER_STREAM
+Set to \fB0\fR to disable streaming.
+.SH EXIT STATUS
+0 on success, 1 on a failed run, 2 when \fBupdate\fR declined to act because no
+terminal was available.
+.SH SECURITY
+Without \fB\-\-yes\fR or \fB\-\-yolo\fR, a gated tool is denied when standard
+input is not a terminal, so an unattended run fails closed rather than
+executing commands nobody approved.
+.SH SEE ALSO
+.BR amber (1),
+.BR amber-bench (1)

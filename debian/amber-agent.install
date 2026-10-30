@@ -1,0 +1,10 @@
+usr/bin/amber
+usr/bin/amber-cli
+usr/lib/amber/plugins
+usr/share/amber
+usr/share/man/man1/amber.1
+usr/share/man/man1/amber-cli.1
+usr/share/doc/amber-agent/LICENSE
+usr/share/doc/amber-agent/NOTICE
+usr/share/doc/amber-agent/THIRD_PARTY_LICENSES
+usr/share/doc/amber-agent/README.md
