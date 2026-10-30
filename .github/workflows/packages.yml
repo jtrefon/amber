@@ -138,9 +138,16 @@ jobs:
 
           out="$GITHUB_WORKSPACE/dist/deb"
           mkdir -p "$out"
-          cp /build/src/*.deb /build/bin/*.deb "$out/"
-          cp /build/src/*.dsc /build/src/*.tar.* /build/src/*.changes /build/src/*.buildinfo \
-             /build/bin/*.changes /build/bin/*.buildinfo "$out/"
+          # One cp per directory: both builds write the same file names, and a
+          # single cp with both globs refuses to overwrite the copy it has just
+          # made ("will not overwrite just-created").
+          cp /build/src/*.deb "$out/"
+          cp /build/bin/*.deb "$out/"
+          # The source run is a full build, so its .changes describes the debs
+          # as well; the binary-only run's .changes has the same name and would
+          # only be a second copy of less.
+          cp /build/src/*.dsc /build/src/*.tar.* /build/src/*.changes \
+             /build/src/*.buildinfo "$out/"
           ls -l "$out"
       - name: Lint the packages
         run: |
