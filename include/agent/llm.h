@@ -204,6 +204,13 @@ struct ClaudeFamily {
     bool always_on;             // cannot be disabled
     const char* const* efforts; // nullptr-terminated; nullptr = no effort control
     const char* default_effort;
+    // The provider's documented minimum cacheable prefix, in tokens. A shorter
+    // prompt is accepted and cached *not at all* -- no error, both counters 0 --
+    // which is indistinguishable from a client that sent no breakpoint. Kept
+    // beside the family because it is a per-model vendor constant, and a stale
+    // value only ever produces a wrong diagnostic sentence, never a wrong
+    // request.
+    int min_cacheable;
 };
 
 inline constexpr const char* kClaudeEffortsAll[] = {"low",   "medium", "high",
@@ -214,39 +221,43 @@ inline constexpr const char* kClaudeEffortsLowMediumHigh[] = {"low", "medium", "
 inline constexpr ClaudeFamily kClaudeFamilies[] = {
     // 5.x: 1M input, 128K output, adaptive thinking. The Opus/Fable/Haiku
     // flagships are always-on; the Sonnet pair can still be disabled.
-    {"claude-fable-5-1", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high"},
-    {"claude-fable-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high"},
-    {"claude-opus-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium"},
-    {"claude-opus-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high"},
-    {"claude-sonnet-5-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high"},
-    {"claude-sonnet-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high"},
-    {"claude-haiku-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium"},
+    {"claude-fable-5-1", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+    {"claude-fable-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+    {"claude-opus-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium", 512},
+    {"claude-opus-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+    {"claude-sonnet-5-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high",
+     512},
+    {"claude-sonnet-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 1024},
+    {"claude-haiku-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium",
+     512},
     // 4.8/4.7: 1M, adaptive, xhigh available.
-    {"claude-opus-4-8", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high"},
-    {"claude-opus-4-7", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high"},
+    {"claude-opus-4-8", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 1024},
+    {"claude-opus-4-7", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 2048},
     // 4.6: 1M, adaptive, max available but not xhigh.
-    {"claude-opus-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high"},
-    {"claude-sonnet-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high"},
+    {"claude-opus-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high",
+     4096},
+    {"claude-sonnet-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high",
+     1024},
     // 4.5: 200K, legacy thinking budget. Opus 4.5 additionally has effort
     // control; Sonnet/Haiku 4.5 do not.
     {"claude-opus-4-5", 200000, 64000, true, false, true, false, kClaudeEffortsLowMediumHigh,
-     "high"},
-    {"claude-sonnet-4-5", 200000, 64000, true, false, true, false, nullptr, ""},
-    {"claude-haiku-4-5", 200000, 64000, true, false, true, false, nullptr, ""},
+     "high", 4096},
+    {"claude-sonnet-4-5", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+    {"claude-haiku-4-5", 200000, 64000, true, false, true, false, nullptr, "", 4096},
     // 4.1/4.0: 200K, legacy thinking budget.
-    {"claude-opus-4-1", 200000, 32000, true, false, true, false, nullptr, ""},
-    {"claude-sonnet-4", 200000, 64000, true, false, true, false, nullptr, ""},
-    {"claude-opus-4", 200000, 32000, true, false, true, false, nullptr, ""},
-    {"claude-haiku-4", 200000, 64000, true, false, true, false, nullptr, ""},
+    {"claude-opus-4-1", 200000, 32000, true, false, true, false, nullptr, "", 1024},
+    {"claude-sonnet-4", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+    {"claude-opus-4", 200000, 32000, true, false, true, false, nullptr, "", 1024},
+    {"claude-haiku-4", 200000, 64000, true, false, true, false, nullptr, "", 1024},
     // 3.x.
-    {"claude-3-7", 200000, 64000, true, false, true, false, nullptr, ""},
-    {"claude-3-5", 200000, 8192, false, false, false, false, nullptr, ""},
-    {"claude-3-opus", 200000, 4096, false, false, false, false, nullptr, ""},
-    {"claude-3-sonnet", 200000, 4096, false, false, false, false, nullptr, ""},
-    {"claude-3-haiku", 200000, 4096, false, false, false, false, nullptr, ""},
-    {"claude-2.1", 200000, 4096, false, false, false, false, nullptr, ""},
-    {"claude-2", 100000, 4096, false, false, false, false, nullptr, ""},
-    {"claude-instant", 100000, 4096, false, false, false, false, nullptr, ""},
+    {"claude-3-7", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+    {"claude-3-5", 200000, 8192, false, false, false, false, nullptr, "", 1024},
+    {"claude-3-opus", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+    {"claude-3-sonnet", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+    {"claude-3-haiku", 200000, 4096, false, false, false, false, nullptr, "", 2048},
+    {"claude-2.1", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+    {"claude-2", 100000, 4096, false, false, false, false, nullptr, "", 1024},
+    {"claude-instant", 100000, 4096, false, false, false, false, nullptr, "", 1024},
 };
 
 // The vendor prefix some gateways put in front of the model id
@@ -265,6 +276,16 @@ inline const ClaudeFamily* claude_family_for(const std::string& id) {
         best_len = prefix.size();
     }
     return best;
+}
+
+// The provider's minimum cacheable prefix for `id`, or 0 when the model is not
+// a documented Claude family. A request below it is cached not at all: the API
+// accepts the breakpoint, returns no error, and reports 0/0 -- the state a
+// provider dashboard shows as "unknown", and the one thing a client cannot
+// otherwise tell apart from having sent no breakpoint.
+inline int min_cacheable_tokens(const std::string& id) {
+    const ClaudeFamily* family = claude_family_for(id);
+    return family ? family->min_cacheable : 0;
 }
 
 inline void apply_claude_family(ModelInfo& m) {

@@ -272,10 +272,18 @@ bool prompt_caching(const Config& cfg) {
     return cfg.prompt_cache_ttl != "off";
 }
 
-void mark_cacheable(json& block, const Config& cfg) {
-    block["cache_control"] = {{"type", "ephemeral"}};
+// One breakpoint value, shared by the block markers and the top-level field so
+// a mixed request can never carry two different lifetimes (the API rejects
+// that with a 400).
+json cache_control(const Config& cfg) {
+    json control = {{"type", "ephemeral"}};
     if (cfg.prompt_cache_ttl == "1h")
-        block["cache_control"]["ttl"] = "1h";
+        control["ttl"] = "1h";
+    return control;
+}
+
+void mark_cacheable(json& block, const Config& cfg) {
+    block["cache_control"] = cache_control(cfg);
 }
 
 // The moving breakpoint: everything up to and including the newest user turn
@@ -392,6 +400,11 @@ protected:
             read_usage(usage, "input_tokens", &prompt_tokens_);
             read_usage(usage, "cache_read_input_tokens", &cache_read_tokens_);
             read_usage(usage, "cache_creation_input_tokens", &cache_write_tokens_);
+            // Same split as the buffered path: the prompt is read + write +
+            // the uncached tail, never the tail alone.
+            if (prompt_tokens_ >= 0)
+                prompt_tokens_ +=
+                    std::max(0L, cache_read_tokens_) + std::max(0L, cache_write_tokens_);
             return;
         }
         if (type == "message_delta") {
@@ -687,6 +700,12 @@ public:
             json blocks = cached_system_blocks(messages, cfg);
             if (!blocks.empty())
                 body["system"] = std::move(blocks);
+            // Automatic caching, alongside the explicit breakpoints above. The
+            // API documents this combination as the recommended shape (explicit
+            // for the stable prompt, automatic for the growing conversation),
+            // and it is the field a gateway dashboard looks for when deciding
+            // whether a request asked to be cached at all. "off" removes it.
+            body["cache_control"] = cache_control(cfg);
         } else if (const std::string system = merged_system(messages); !system.empty()) {
             body["system"] = system;
         }
@@ -776,6 +795,13 @@ public:
         if (u.contains("cache_creation_input_tokens") &&
             u["cache_creation_input_tokens"].is_number())
             usage.cache_write = u["cache_creation_input_tokens"].get<long>();
+        // `input_tokens` counts only what sits after the last breakpoint, so on
+        // a cached request it is a fraction of the prompt. The context a turn
+        // consumed is the whole split, and reporting the fraction would make
+        // the gauge and the compression gate believe a 100k conversation is
+        // nearly empty -- a silent failure that only appears once caching works.
+        if (usage.prompt >= 0)
+            usage.prompt += std::max(0L, usage.cache_read) + std::max(0L, usage.cache_write);
         return usage;
     }
 
