@@ -1,5 +1,6 @@
 
 #include "tui.h"
+#include "cache_note.h"
 #include "usage_report.h"
 
 #include <agent/compact.h>
@@ -494,8 +495,19 @@ void SlashDispatcher::cmd_get_config_paths() {
 void SlashDispatcher::cmd_get_provider() {
     tui_.append_line(P_STATUS,
                      "provider: " + tui_.cfg_.provider_name + " (" + tui_.cfg_.api_base + ")");
-    tui_.append_line(P_STATUS, "prompt cache: " + tui_.cfg_.prompt_cache_ttl +
-                                   "  (/set provider cache 5m|1h|off)");
+    // The wire protocol is not visible anywhere else, and a provider that
+    // resolves to the wrong one looks like "caching is broken": the openai
+    // dialect sends no breakpoint at all.
+    const std::string flavor = tui_.cfg_.flavor.empty() ? "openai" : tui_.cfg_.flavor;
+    tui_.append_line(P_STATUS, "flavor: " + flavor + "  (prompt cache " +
+                                   tui_.cfg_.prompt_cache_ttl + ", /set provider cache 5m|1h|off)");
+    long prefix = -1;
+    if (auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr)
+        prefix = acfg->prompt_tokens_used;
+    const auto& main = tui_.win().ledger.main;
+    tui_.append_line(P_STATUS,
+                     tui::prompt_cache_note(tui_.cfg_.model, tui_.cfg_.prompt_cache_ttl, prefix,
+                                            main.cache_read_tokens, main.cache_write_tokens));
 }
 
 void SlashDispatcher::cmd_get_policy(const std::string& arg) {

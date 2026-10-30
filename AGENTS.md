@@ -657,6 +657,19 @@ bug came back after it had been fixed in the context layer.
   regression, and a change that adds a per-turn system block must come with a
   test asserting the cached prefix is unchanged
   (`tests/agent_loop_test.cpp`, `agent_placed_injected_blocks_after_the_system_prompt_keeps_the_prefix`).
+- **`input_tokens` is not the prompt size.** Anthropic's three usage numbers are
+  disjoint: `total = cache_read + cache_creation + input`, and `input` is only
+  what sits after the last breakpoint. The context gauge, the compression gate
+  and the governor all read `Stats::prompt_tokens`, so the dialect must sum the
+  split (buffered and streamed) — reporting `input` alone is correct only while
+  caching is broken, and it showed "4 tokens used" on a cached conversation.
+  OpenAI's `prompt_tokens` already includes `cached_tokens`; Gemini's likewise.
+- **A prefix under the model's minimum is cached not at all** — no error, `0`
+  read / `0` write, identical to having sent no breakpoint. The minimums live in
+  `ClaudeFamily::min_cacheable`, and `/get provider` reports the last measured
+  prefix against the model's, plus the resolved **flavor** (the only place the
+  wire protocol is visible: an OpenAI-flavored provider sends no breakpoints at
+  all, whatever its endpoint speaks).
 - Full contract and the list of deliberate prefix resets:
   `docs/spec/llm-client/prompt-caching.md`.
 
@@ -1071,7 +1084,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 321 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 125 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 4542 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 4554 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

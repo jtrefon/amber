@@ -11,6 +11,7 @@
 #include "tui/window_manager.h"
 #include <csignal>
 #include "tui/action_registry.h"
+#include "tui/cache_note.h"
 #include "tui/session_usage.h"
 #include "tui/usage_report.h"
 #include "tui/work_auto_attach.h"
@@ -3078,4 +3079,41 @@ TEST(reasoning_block_starts_a_new_episode_after_each_fold) {
     ASSERT_TRUE(block.active());
     ASSERT_EQ(block.fold(), "[thought for 2 words]");
     ASSERT_TRUE(block.buffer.empty());
+}
+
+// The cache readout has to name the one silent failure: a prefix under the
+// model's minimum is cached not at all, with no error and both counters 0.
+// "Not working" is otherwise indistinguishable from a client that never sent a
+// breakpoint, and the only evidence lives in the provider's dashboard.
+TEST(prompt_cache_note_names_the_minimum_when_nothing_is_cached) {
+    const std::string note = tui::prompt_cache_note("claude-opus-4-6", "1h", 3400, 0, 0);
+    ASSERT(note.find("3400 tokens") != std::string::npos);
+    ASSERT(note.find("4096") != std::string::npos);
+    ASSERT(note.find("nothing is cached") != std::string::npos);
+}
+
+TEST(prompt_cache_note_reads_as_working_once_a_read_lands) {
+    const std::string note = tui::prompt_cache_note("claude-sonnet-4-5", "5m", 12000, 9000, 0);
+    ASSERT(note.find("reading from cache") != std::string::npos);
+    ASSERT(note.find("minimum") == std::string::npos);
+}
+
+TEST(prompt_cache_note_says_when_the_provider_reports_nothing) {
+    // A non-Claude model has no documented minimum, so the note must not invent
+    // one: it says what was observed instead.
+    const std::string note = tui::prompt_cache_note("gpt-4o-mini", "5m", 12000, 0, 0);
+    ASSERT(note.find("no cache at all") != std::string::npos);
+}
+
+TEST(prompt_cache_note_admits_it_has_not_measured_yet) {
+    const std::string note = tui::prompt_cache_note("claude-opus-4-6", "5m", -1, 0, 0);
+    ASSERT(note.find("not measured yet") != std::string::npos);
+}
+
+TEST(claude_min_cacheable_follows_the_family) {
+    ASSERT_EQ(agent::min_cacheable_tokens("claude-opus-4-6"), 4096);
+    ASSERT_EQ(agent::min_cacheable_tokens("claude-haiku-4-5"), 4096);
+    ASSERT_EQ(agent::min_cacheable_tokens("claude-sonnet-4-5"), 1024);
+    ASSERT_EQ(agent::min_cacheable_tokens("anthropic/claude-opus-5-5"), 512);
+    ASSERT_EQ(agent::min_cacheable_tokens("gpt-4o-mini"), 0);
 }
