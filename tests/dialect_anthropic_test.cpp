@@ -115,8 +115,15 @@ TEST(anthropic_request_body_translates_internal_messages) {
     ASSERT_EQ(body["model"], "claude-sonnet-4-5");
     ASSERT_EQ(body["max_tokens"], 2048);
     ASSERT_TRUE(body["stream"].get<bool>());
-    // Both system messages merge into ONE top-level string.
-    ASSERT_EQ(body["system"], "You are amber.\n\nEnvironment: darwin.");
+    // The protocol's top-level system field is a block array once caching is
+    // on: the stable prompt carries the breakpoint, the injected block follows
+    // it so a change there cannot invalidate the cached prefix.
+    ASSERT(body["system"].is_array());
+    ASSERT_EQ(body["system"].size(), 2u);
+    ASSERT_EQ(body["system"][0]["text"], "You are amber.");
+    ASSERT_EQ(body["system"][0]["cache_control"]["type"], "ephemeral");
+    ASSERT_EQ(body["system"][1]["text"], "Environment: darwin.");
+    ASSERT(!body["system"][1].contains("cache_control"));
 
     const agent::json& out = body["messages"];
     ASSERT_EQ(out.size(), 3u);

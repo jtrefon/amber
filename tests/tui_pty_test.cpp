@@ -166,18 +166,25 @@ struct Tui {
         return true;
     }
 
-    // Read whatever the app has produced. Returns true if any bytes arrived.
+    // Read whatever the app produces for the whole window, then return. The
+    // window is wall-clock, not "until the first idle slice": callers use this
+    // as a delay (a key gap, a settle before the next assertion), and a pump
+    // that returns the moment the app pauses turns every `pump(1200) // longer
+    // than ESCDELAY` into a ~50 ms gap, which is how a lone ESC ends up folded
+    // into the following key on a slow runner. It also makes `wait_for`'s cap
+    // a real budget: its loop advances by kPumpMs per iteration, so an
+    // iteration must cost kPumpMs.
     bool pump(int ms) {
         bool got = false;
-        int waited = 0;
-        while (waited < ms) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        do {
             fd_set rfds;
             FD_ZERO(&rfds);
             FD_SET(master, &rfds);
             timeval tv{0, static_cast<suseconds_t>(kPumpMs) * 1000};
             int ready = select(master + 1, &rfds, nullptr, nullptr, &tv);
             if (ready <= 0)
-                break;
+                continue;
             char buf[8192];
             ssize_t n = read(master, buf, sizeof(buf));
             if (n > 0) {
@@ -186,8 +193,7 @@ struct Tui {
             } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
                 break;
             }
-            waited += kPumpMs;
-        }
+        } while (std::chrono::steady_clock::now() < deadline);
         return got;
     }
 
@@ -264,9 +270,8 @@ struct Tui {
         if (master >= 0 && pid > 0) {
             // Esc first: a test may end inside a modal (e.g. the session
             // browser), which reads its own window and would swallow Ctrl+C.
-            // The pty child runs with a short ESCDELAY so a lone Esc lands, but
-            // the gap must outlast it — pump() returns as soon as input drains,
-            // so hold the pause explicitly.
+            // The pty child runs with a short ESCDELAY so a lone Esc lands; the
+            // explicit pause keeps the gap well past it.
             write_raw("\x1b");
             for (int i = 0; i < 8; ++i) { // ~0.8 s, draining throughout
                 pump(kPumpMs);
@@ -2628,8 +2633,7 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     for (const char* key : {"j", "k", " ", "b", "g", "G"})
         tui.send(key);
     tui.pump(200);
-    tui.send("\x1b");
-    tui.pump(300);
+    tui.send("q"); // close the body preview (the pager takes q as well as ESC)
     tui.send("\r");
     bool installed_on_disk = false;
     for (int i = 0; i < 200 && !installed_on_disk; ++i) {
@@ -2655,8 +2659,14 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.pump(100);
     tui.send("N");
     tui.pump(100);
-    tui.send("\x1b");
-    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
+    // Close the pager with `q`, not ESC: the dialogs take either, and ESC is the
+    // one key whose *timing* can lose the following key. ncurses folds ESC plus
+    // the next byte into a meta key when both are already queued (a slow or
+    // instrumented build reads them together, whatever the pump did), so a walk
+    // that depends on ESC settling is a walk that flakes under coverage.
+    tui.send("q");
+    tui.pump(300);
+    // Shelf switching and the source/copy fallbacks.
     tui.send("]");
     tui.pump(400);
     tui.send("[");
@@ -2668,21 +2678,27 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     tui.send("?");
     if (!require(tui.wait_for("Skills keys", 5000), "the help overlay did not open", tui))
         return;
-    tui.send("\x1b");
-    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
-    tui.send("f");  // focus the facet column, then leave it
+    tui.send("q"); // close the help overlay (it accepts q, ?, or ESC)
     tui.pump(300);
-    tui.send("j");
-    tui.pump(100);
-    tui.send("\x1b");
-    tui.pump(1200); // longer than ncurses ESCDELAY, so ESC is not folded into the next key
-    tui.send("5");  // collections are editorial rows, no request needed
-    if (!require(tui.wait_for("collections", 10000), "the collections shelf did not open", tui))
+    tui.send("5"); // collections are editorial rows, no request needed
+    // Assert on the shelf body, not its status word: ncurses emits only the
+    // changed cells, so a one-word status change arrives as a fragment
+    // ("llections"), while the body repaints a whole region and arrives whole.
+    if (!require(tui.wait_for("no source yet", 10000), "the collections shelf did not open", tui))
         return;
     tui.send("3"); // back to Top, which re-runs the query
     if (!require(tui.wait_for("1 results", 10000), "Top did not come back", tui))
         return;
 
+    // The facet focus keys, then `q` to close: `q` closes from the facet pane
+    // and from the list alike, so the walk never has to infer which pane a key
+    // left behind. A pty sees ncurses' diff output, so "did the column take
+    // focus" is not observable from the captured bytes (only the changed cells
+    // arrive); the facet logic itself is pinned in skills_browse_core_test.cpp.
+    tui.send("f");
+    tui.pump(300);
+    tui.send("j");
+    tui.pump(100);
     tui.send("q");
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui))
         return;
@@ -2786,8 +2802,7 @@ TEST(skills_explorer_installs_updates_and_removes_a_mirrored_skill) {
     if (!require(tui.wait_for("review required", 20000), "/skills install did not open the sheet",
                  tui))
         return;
-    tui.send("\x1b");
-    tui.pump(300);
+    tui.send("q"); // cancel the install sheet (q and ESC both cancel)
     tui.send("q");
     if (!require(tui.wait_for("skills closed", 10000), "q did not close the install flow", tui))
         return;

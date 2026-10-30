@@ -43,8 +43,13 @@ void CompressionReporter::on_llm_request_sent() {
 
 void CompressionReporter::on_llm_usage(const Stats& stats) {
     if (hooks_.on_usage)
-        hooks_.on_usage(
-            {UsageSource::Compression, stats.prompt_tokens, stats.completion_tokens, {}, {}});
+        hooks_.on_usage({UsageSource::Compression,
+                         stats.prompt_tokens,
+                         stats.completion_tokens,
+                         stats.cache_read_tokens,
+                         stats.cache_write_tokens,
+                         {},
+                         {}});
 }
 
 void CompressionReporter::on_llm_reply_received(long sec) {

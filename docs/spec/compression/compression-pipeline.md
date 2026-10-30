@@ -279,9 +279,12 @@ reduced nothing left the size unchanged.
    only ever apply to the history that asked for it. A queue per window would
    save the refusal notice, not change what is applied; a plan raised inside a
    sub-agent is refused for the same reason, and the refusal is reported.
-3. **Per-provider prompt caching is not modelled.** The prefix replay is a
-   token-prefix guarantee; Anthropic `cache_control` and provider-specific
-   cache APIs are out of scope.
+3. **Provider prompt caching is modelled only where it is explicit.** Anthropic's
+   Messages API takes `cache_control` breakpoints and amber sets them (stable
+   system block + moving breakpoint on the newest turn, TTL from
+   `/set provider cache`). OpenAI-compatible endpoints and Gemini cache
+   automatically; amber does not create Gemini `cachedContent` resources. See
+   `docs/spec/llm-client/prompt-caching.md`.
 4. **The classifier's index grounding is a heuristic.** The manifest gives it
    numbers; a mis-tagged range is still possible. The tail and default-core
    rules make the failure safe, not accurate.

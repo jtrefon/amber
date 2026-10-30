@@ -87,11 +87,15 @@ dialect.
 
 - **Given**: A provider with `flavor == "anthropic"`
 - **Input**: A conversation with system messages, tool calls, and tool results
-- **Expected**: One merged top-level `system` string; `text`/`tool_use`
-  (parsed `input`)/`tool_result` blocks; `input_schema` tools; streamed named
-  events decoded to the internal `StreamChunk`; `input_tokens`/`output_tokens`
-  mapped to `TokenUsage`.
-- **Regression guard**: `tests/dialect_anthropic_test.cpp` (18 tests, no network).
+- **Expected**: One top-level `system` field (a block array with a
+  `cache_control` breakpoint on the stable block when prompt caching is on, a
+  merged string when it is off); `text`/`tool_use` (parsed `input`)/`tool_result`
+  blocks; `input_schema` tools; streamed named events decoded to the internal
+  `StreamChunk`; `input_tokens`/`output_tokens` plus the cache read/write
+  counters mapped to `TokenUsage`.
+- **Regression guard**: `tests/dialect_anthropic_test.cpp` (no network) and the
+  cache pins in `tests/run_tests.cpp` (see
+  `docs/spec/llm-client/prompt-caching.md`).
 
 #### [DL-05] Auth header construction
 

@@ -119,6 +119,12 @@ void apply_sampling_keys(Config& c, const std::string& key, const std::string& v
         c.reasoning_effort = val;
     else if (key == "show_reasoning")
         c.show_reasoning = parse_bool(val);
+    else if (key == "prompt_cache_ttl") {
+        if (val == "5m" || val == "1h" || val == "off")
+            c.prompt_cache_ttl = val;
+        else
+            warnings.push_back("prompt_cache_ttl: expected 5m|1h|off, got '" + val + "'");
+    }
 }
 
 void apply_agent_keys(Config& c, const std::string& key, const std::string& val,
@@ -413,6 +419,10 @@ bool Config::save_global(const std::string& path) const {
     if (context_explicit)
         f << "context_size=" << context_size << "\n";
     f << "wallet=" << (wallet_enabled ? 1 : 0) << "\n";
+    // Only a non-default lifetime is written: the default must not round-trip
+    // into the file and freeze a value a future release wants to change.
+    if (prompt_cache_ttl != "5m")
+        f << "prompt_cache_ttl=" << prompt_cache_ttl << "\n";
     return write_private_file(path, f.str());
 }
 

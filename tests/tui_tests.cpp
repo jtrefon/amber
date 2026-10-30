@@ -1785,16 +1785,21 @@ TEST(usage_ledger_round_trips_session_meta) {
 
 TEST(usage_ledger_apply_tags_each_source) {
     tui::UsageLedger ledger;
-    tui::apply_usage(ledger, {agent::UsageSource::Main, 10, 1, {}, {}});
-    tui::apply_usage(ledger, {agent::UsageSource::Subagent, 20, 2, "task-1", "owner"});
-    tui::apply_usage(ledger, {agent::UsageSource::Compression, 30, 3, {}, {}});
-    tui::apply_usage(ledger, {agent::UsageSource::Watch, 40, 4, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Main, 10, 1, 8, 0, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Subagent, 20, 2, -1, -1, "task-1", "owner"});
+    tui::apply_usage(ledger, {agent::UsageSource::Compression, 30, 3, 25, 5, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Watch, 40, 4, -1, -1, {}, {}});
     ASSERT_EQ(ledger.main.prompt_tokens, 10L);
     ASSERT_EQ(ledger.subagents.prompt_tokens, 20L);
     ASSERT_EQ(ledger.compression.prompt_tokens, 30L);
     ASSERT_EQ(ledger.watch.prompt_tokens, 40L);
     ASSERT_EQ(ledger.tree().prompt_tokens, 100L);
     ASSERT_EQ(ledger.tree().completion_tokens, 10L);
+    // The cache counters accumulate with the same attribution as the tokens
+    // they explain; a source the protocol did not report stays out of it.
+    ASSERT_EQ(ledger.tree().cache_read_tokens, 33L);
+    ASSERT_EQ(ledger.tree().cache_write_tokens, 5L);
+    ASSERT(ledger.tree().measured_cache);
 }
 
 TEST(usage_report_lists_measured_sources_tasks_and_windows) {

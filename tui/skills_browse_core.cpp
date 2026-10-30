@@ -315,7 +315,7 @@ std::string source_state(bool answered, bool cached, long long fetched_at_ms,
 std::string retry_countdown(int retry_after_s, long long error_at_ms, long long now_ms) {
     if (retry_after_s <= 0 || error_at_ms <= 0 || now_ms < error_at_ms)
         return {};
-    const long long remaining = retry_after_s * 1000LL - (now_ms - error_at_ms);
+    const long long remaining = (retry_after_s * 1000LL) - (now_ms - error_at_ms);
     if (remaining <= 0)
         return {};
     return "in " + std::to_string((remaining + 999) / 1000) + "s";

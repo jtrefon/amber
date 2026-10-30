@@ -153,6 +153,14 @@ struct Config {
     // the character-based estimate when >= 0. -1 means "not yet known".
     long prompt_tokens_used = -1;
 
+    // Provider prompt-cache lifetime for protocols that take explicit cache
+    // breakpoints (Anthropic Messages). "5m" is the protocol default, "1h" is
+    // the extended lifetime (a higher cache-write price), "off" disables
+    // breakpoints entirely. Dialects that cache automatically ignore it.
+    // Persisted globally with the provider selection: it is a property of the
+    // account and the model, not of the project.
+    std::string prompt_cache_ttl = "5m";
+
     // Detection toggles (BitchX-style /set detection namespace).
     //   loop:      tool-loop and text-loop detectors; when off the model runs
     //              until max_tool_iterations or a natural stop. Default off.
