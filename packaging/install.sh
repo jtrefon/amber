@@ -13,7 +13,7 @@
 set -eu
 
 BASE_URL="${AMBER_REPO_BASE_URL:-https://jtrefon.github.io/amber-packages}"
-KEY_FPR="C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B"
+ARCHIVE_FINGERPRINT="C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B"
 APT_KEYRING="/usr/share/keyrings/amber-agent-archive-keyring.gpg"
 APT_SOURCES="/etc/apt/sources.list.d/amber-agent.sources"
 RPM_KEY="/etc/pki/rpm-gpg/RPM-GPG-KEY-amber-agent"
@@ -118,10 +118,10 @@ fetch_verified_key() {
     actual="$(gpg --show-keys --with-colons "$tmp" 2>/dev/null |
         awk -F: '/^fpr:/ { print $10; exit }')"
     [ -n "$actual" ] || die "the downloaded file is not an OpenPGP key"
-    if [ "$actual" != "$KEY_FPR" ]; then
-        die "key fingerprint mismatch: expected $KEY_FPR, got $actual"
+    if [ "$actual" != "$ARCHIVE_FINGERPRINT" ]; then
+        die "key fingerprint mismatch: expected $ARCHIVE_FINGERPRINT, got $actual"
     fi
-    log "key fingerprint verified: $KEY_FPR"
+    log "key fingerprint verified: $ARCHIVE_FINGERPRINT"
 }
 
 if [ "$action" = "uninstall" ]; then

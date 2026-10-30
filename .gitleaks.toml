@@ -48,3 +48,18 @@ paths = [
 # Line-based allowlists (regexes matched against the secret itself) are deliberately NOT
 # used. `paths` is enough, and a line allowlist shifts as the file changes -- an
 # allowlist that silently stops matching is worse than none, because it looks deliberate.
+
+[allowlist]
+description = """
+One value, not a pattern: the archive signing key's fingerprint,
+C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B, is a public identifier. It is published
+on the repository landing page, pinned in packaging/install.sh so a substituted
+key is refused, and printed by `gpg --show-keys` for anyone who wants to check
+it. The generic-api-key rule fires on it because the variable it is assigned to
+used to contain the word "key"; the value is the opposite of a secret, and
+suppressing it here keeps it out of every future doc that quotes it.
+"""
+
+regexes = [
+  '''^C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B$''',
+]
