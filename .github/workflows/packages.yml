@@ -382,3 +382,36 @@ jobs:
           mkdir -p repo
           tar -xzf repo.tar.gz -C repo
           sh packaging/verify-install.sh "$GITHUB_WORKSPACE/repo" "$VERSION"
+
+  live-check:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: The published URL serves a signed repository
+        run: |
+          set -euo pipefail
+          base=https://jtrefon.github.io/amber-packages
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          # The key is fetched over the same host the users will use, so this is
+          # also the proof that the key URL in install.sh resolves.
+          curl -fsSL "$base/keys/amber-agent-archive-keyring.asc" | gpg --batch --import
+          # Pages builds asynchronously after the push, so the index is polled
+          # rather than assumed present. Ten tries at 20s covers a slow build
+          # without turning a real failure into a long wait.
+          fetched=0
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsSL "$base/apt/dists/stable/InRelease" -o /tmp/InRelease; then
+              fetched=1
+              break
+            fi
+            sleep 20
+          done
+          test "$fetched" = 1 || { echo "error: $base never served InRelease"; exit 1; }
+          gpg --verify /tmp/InRelease
+          curl -fsSL "$base/install.sh" | grep -q "$(cat packaging/keys/fingerprint.txt)"
+          curl -fsSL "$base/rpm/fedora/x86_64/repodata/repomd.xml.asc" >/dev/null
+          echo "published repository verified at $base"
