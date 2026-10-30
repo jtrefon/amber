@@ -87,12 +87,18 @@ jobs:
         run: |
           rm -rf stage
           make install DESTDIR="$PWD/stage"
-          # Plugin executables belong in libexec; data is architecture-independent.
-          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
-          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/manifest.json' -type f -print -quit)"
-          test -n "$(find stage -path '*/libexec/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          # Plugin executables belong in libexec; share/ is where a tree built
+          # before the install split put them, and a re-run of such a tag has to
+          # still be able to publish. Data is architecture-independent.
+          test -n "$(find stage \( -path '*/libexec/amber/plugins/cdp/cdp-plugin' \
+                                -o -path '*/share/amber/plugins/cdp/cdp-plugin' \) \
+                       -type f -print -quit)"
+          test -n "$(find stage -path '*/amber/plugins/cdp/manifest.json' -type f -print -quit)"
+          test -n "$(find stage -path '*/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
           # The data files an installed run reads at startup, all of which were
-          # missing from the tree before the install split.
+          # missing from the tree before the install split. A tag older than
+          # that split fails here by design: re-run it from its own branch, or
+          # cut a new tag, rather than weakening what a release must contain.
           test -f stage/usr/share/amber/keybindings.json
           test -f stage/usr/share/amber/data/skill-collections.json
           test -f stage/usr/share/man/man1/amber.1
@@ -244,10 +250,13 @@ jobs:
           rm -rf stage
           make install DESTDIR="$PWD/stage"
           # Plugin executables are architecture-dependent and land in libexec on
-          # every platform; the data tree stays architecture-independent.
-          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/cdp-plugin' -type f -print -quit)"
-          test -n "$(find stage -path '*/libexec/amber/plugins/cdp/manifest.json' -type f -print -quit)"
-          test -n "$(find stage -path '*/libexec/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
+          # every platform; share/ is the pre-split location, kept so an older
+          # tag can still be re-run. The data tree stays architecture-independent.
+          test -n "$(find stage \( -path '*/libexec/amber/plugins/cdp/cdp-plugin' \
+                                -o -path '*/share/amber/plugins/cdp/cdp-plugin' \) \
+                       -type f -print -quit)"
+          test -n "$(find stage -path '*/amber/plugins/cdp/manifest.json' -type f -print -quit)"
+          test -n "$(find stage -path '*/amber/plugins/sysinfo/sysinfo-plugin' -type f -print -quit)"
           test -f stage/usr/local/share/amber/keybindings.json
           test -f stage/usr/local/share/man/man1/amber.1
           test -n "$(find stage -path '*/share/amber-bench/scenarios/*/*.json' -print -quit)"
