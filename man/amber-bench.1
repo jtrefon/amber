@@ -1,0 +1,107 @@
+.TH AMBER-BENCH 1 "October 2026" "amber" "User Commands"
+.SH NAME
+amber-bench \- benchmark and KPI harness for amber
+.SH SYNOPSIS
+.B amber-bench
+\fIcommand\fR [\fIoptions\fR]
+.SH DESCRIPTION
+.B amber-bench
+runs scenario suites against the harness and scores the result. Hermetic runs use
+a deterministic fake model, so they are safe in CI; live runs target any
+OpenAI-compatible endpoint.
+.PP
+Scenarios are JSON files at \fI<data>/scenarios/<suite>/<name>.json\fR.
+\fI<data>\fR is \fB$AMBER_BENCH_DATA\fR when set, otherwise the install-time
+data directory, otherwise \fI./bench\fR, so both an installed package and a
+source checkout work.
+.SH COMMANDS
+.TP
+.B list
+List the available scenarios.
+.TP
+.B run
+Run scenarios. Hermetic by default; \fB\-\-live\fR uses a real endpoint.
+.TP
+.B validate\-template \fIscenario\fR
+Prove that a coding template's hidden tests pass.
+.TP
+.B report \fIresults.json\fR...
+Re-render stored JSON reports. Two or more files render a model comparison.
+.TP
+.B delta \fIa.json\fR \fIb.json\fR
+Report win, lose and stagnate per scenario.
+.TP
+.B scorecard \fIresults.json\fR
+Full diagnostic: dimensions, per-suite breakdown, failed-scenario diagnosis.
+.TP
+.B calibrate \fIresults.json\fR...
+Reference-anchored calibration: headroom, anchor deviation, suggested
+difficulties.
+.TP
+.B reap\-state
+Remove old scenario state. A dry run unless \fB\-\-apply\fR is given.
+.TP
+.B shape\-replay \fIlog.jsonl\fR...
+Replay recorded sessions through a context shaper and report tokens saved and
+how often a dropped span is referenced later.
+.SH OPTIONS
+.TP
+.B \-\-suite \fIname\fR
+Restrict to one suite.
+.TP
+.B \-\-scenario \fIname\fR
+Run a single scenario.
+.TP
+.B \-\-live
+Use the real model instead of the hermetic fake.
+.TP
+.B \-\-profile \fIname\fR
+Model profile from \fIprofiles.json\fR.
+.TP
+.B \-\-model \fIname\fR
+Model override for a live run.
+.TP
+.B \-\-temperature \fIt\fR
+Temperature override for a live run.
+.TP
+.B \-\-repeat \fIn\fR
+Run each scenario \fIn\fR times.
+.TP
+.B \-\-repeat\-gap\-ms \fIms\fR
+Pause between repeats, for endpoints that throttle.
+.TP
+.B \-\-cat \fIname\fR
+Category filter: \fBmodel\fR, \fBharness\fR or \fBboth\fR (default).
+.TP
+.B \-\-out \fIfile\fR
+Write the JSON report to \fIfile\fR.
+.TP
+.B \-\-format \fIfmt\fR
+Report format: \fBtext\fR (default), \fBmarkdown\fR or \fBjson\fR.
+.TP
+.B \-\-older\-than\-days \fIn\fR
+Age floor for \fBreap\-state\fR (default 7, minimum 1).
+.TP
+.B \-\-apply
+Make \fBreap\-state\fR actually remove state.
+.TP
+.B \-h, \-\-help
+Print usage and exit.
+.SH FILES
+.TP
+.I /usr/share/amber-bench/scenarios/
+The installed scenario corpus, one directory per suite.
+.TP
+.I /usr/share/amber-bench/profiles.json
+Named model profiles used by \fB\-\-profile\fR.
+.SH ENVIRONMENT
+.TP
+.B AMBER_BENCH_DATA
+Data root holding \fIscenarios/\fR and \fIprofiles.json\fR. Overrides the
+installed location.
+.TP
+.B AMBER_API_BASE, AMBER_API_KEY, AMBER_MODEL
+Endpoint settings for \fB\-\-live\fR runs.
+.SH SEE ALSO
+.BR amber (1),
+.BR amber-cli (1)
