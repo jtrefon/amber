@@ -47,6 +47,8 @@ tests/fixtures/mcp_ignore_sigterm
 # Release packaging output
 stage/
 dist/
+# Local package build scratch (docker podman-style test trees)
+.pkgtest/
 
 # Local runtime config, telemetry, and debug logs
 amber.conf

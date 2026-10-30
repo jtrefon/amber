@@ -1,0 +1,5 @@
+Types: deb
+URIs: https://jtrefon.github.io/amber-packages/apt
+Suites: stable
+Components: main
+Signed-By: /usr/share/keyrings/amber-agent-archive-keyring.gpg

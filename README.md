@@ -19,6 +19,24 @@ every integration into the runtime. Use the interactive terminal UI, run the
 headless CLI in automation, or embed the native runtime in another C++
 project.
 
+Install (Linux):
+
+  Ubuntu (including WSL2) and Fedora install from the signed package
+  repositories:
+
+    curl -fsSL https://jtrefon.github.io/amber-packages/install.sh | sudo sh
+
+  That verifies the archive signing key fingerprint, adds the apt or dnf
+  repository and installs `amber-agent`, which brings the `amber` (TUI),
+  `amber-cli` and `amber-bench` binaries, the plugins and the data tree they
+  read at startup. Updates then arrive with `apt upgrade` / `dnf upgrade`;
+  `amber-cli update` runs the right one for the system it is on.
+
+  The key fingerprint is
+  C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B and can be checked with
+  `gpg --show-keys --with-fingerprint <key url>` before trusting anything.
+  `packaging/install.sh --uninstall` removes the repository definition again.
+
 Install (macOS):
 
   One-line installer (also installs Homebrew if you don't have it):
@@ -38,8 +56,6 @@ Install (macOS):
   Note: an unrelated project named `amber` (a Crystal web framework) is in
   homebrew-core, so always use the full name above, never bare
   `brew install amber`.
-
-  Linux users build from source, see "Building" below.
 
 Build requirements:
   - A C++17 compiler (g++ or clang++)

@@ -77,7 +77,7 @@ expectations, and three runtime data files are missing from it.
    `--with-system-pkgconfigdir`-free pkg-config generation, and honours
    `LDFLAGS`. `--help` documents each.
 2. `Makefile.in` `install` is decomposed into `install-runtime`, `install-dev`,
-   `install-bench` and `install-data`. `install` remains their union so the
+   `install-bench` and `install-man`. `install` remains their union so the
    macOS staging tree and the Homebrew formula keep working unchanged.
 3. Install layout becomes:
 
@@ -87,39 +87,43 @@ expectations, and three runtime data files are missing from it.
    | `/usr/share/amber/{prompts,completions.json,keybindings.json,data}` | `amber-agent` |
    | `/usr/lib/amber/plugins` (Debian) / `/usr/libexec/amber/plugins` (Fedora) | `amber-agent` |
    | `/usr/share/doc/amber-agent/{LICENSE,NOTICE,THIRD_PARTY_LICENSES}` | `amber-agent` |
-   | `/usr/lib/amber-agent/*.a`, `/usr/include/amber-agent/{agent,nlohmann}`, `amber-agent.pc` | `amber-agent-dev` / `-devel` |
+   | `/usr/lib/<multiarch>/{libagent_core.a,libagent_tools.a,pkgconfig/amber-agent.pc}`, `/usr/include/amber-agent/{agent,nlohmann}` | `amber-agent-dev` / `-devel` |
    | `/usr/bin/amber-bench`, `/usr/share/amber-bench/{scenarios,profiles.json}` | `amber-agent-bench` |
+   | `/usr/share/man/man1/*.1` | their own binary's package |
 
-4. Plugin discovery searches the compiled `AMBER_PLUGIN_DIR` first and keeps
-   `<exe>/../share/amber/plugins` and `/usr/share/amber/plugins` as fallbacks,
-   so existing installs keep working through the move.
-5. `amber-bench` resolves its data root from the compiled `AMBER_BENCH_DATA_DIR`
-   and falls back to `./bench`, so a source checkout and an installed package
-   both work.
-6. `debian/` (native, `3.0 (quilt)`) and `rpm/amber.spec` replace `fpm`. Both
-   build from one deterministic `git archive` tarball
-   (`SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)`, sorted entries, no owner
-   metadata), so `.dsc` and `.src.rpm` are regenerable from the tag.
-7. `packaging/arch/PKGBUILD` is refreshed from `pkgver=0.3.1` and consumes the
-   same tarball.
-8. A `packaging` CI job builds the `.deb` set, the RPM set, the `.dsc` and the
-   `.src.rpm`; `lintian` and `rpmlint` gate them.
-9. An `install-verify` job installs the produced packages in `noble`,
-   `resolute`, `stonking`, `fedora:44` and `fedora:45` containers, then runs
-   `amber --version`, `amber-bench list`, and compiles one translation unit
-   against the `-dev` package using `pkg-config --cflags`.
+4. Plugin discovery searches the compiled `agent::kPluginDir` (stamped into
+   `version.h` by `configure`) first, then `<exe>/../{libexec,lib,share}` and the
+   absolute equivalents, so a relocatable install and an install from before the
+   move both keep their plugins.
+5. `amber-bench` resolves its data root from `AMBER_BENCH_DATA`, then the
+   compiled `agent::kBenchDataDir`, then `<exe>/../share/amber-bench`, then
+   `./bench`, so a source checkout and an installed package both work.
+6. `debian/` (`3.0 (quilt)`) and `rpm/amber-agent.spec` (plus a second, noarch
+   spec for the trust anchor) replace `fpm`. Both build from
+   one `git archive` of the tag, so `.dsc` and `.src.rpm` are regenerable from
+   the tag and nothing depends on an untracked working tree.
+7. `packaging/arch/PKGBUILD` is refreshed from `pkgver=0.3.1` and builds from the
+   tag; Arch is community packaging, not part of the signed channels.
+8. `.github/workflows/packages.yml` builds the `.deb` set, the RPM set, the
+   `.dsc` and the `.src.rpm`; `lintian` and `rpmlint` gate them (errors fail,
+   warnings are reported).
+9. An `install-verify` job installs the produced packages in `ubuntu:24.04`,
+   `ubuntu:26.04`, `ubuntu:26.10`, `fedora:44` and `fedora:45` containers, then
+   runs `amber --version`, `amber-cli update --print` and `amber-bench list`
+   from an empty directory.
 
 Step 9 is what makes the single-`stable`-suite decision safe: one build, five
 proofs. If a release fails verification on one distro, the answer is to split
 that distro's suite, not to weaken the check.
 
-**Out of scope.** No repository, no signing, no `amber update`. No arm64. No
-Debian, openSUSE, Arch AUR or Flatpak. No change to how the binaries behave.
+**Out of scope.** No Debian, openSUSE, Arch AUR or Flatpak. No arm64. No change
+to how the binaries behave.
 
-**Done when.** A tag produces `.deb`, `.rpm`, `.dsc` and `.src.rpm` as release
-assets; every package installs and runs on all five target distros; `lintian`
-and `rpmlint` are clean; `amber-bench list` finds scenarios from an installed
-package outside the source tree.
+**Done when.** A tag produces `.deb`, `.rpm`, `.dsc` and `.src.rpm`; every
+package installs and runs on all five target distros; `lintian` and `rpmlint`
+report no errors; `amber-bench list` finds scenarios from an installed package
+outside the source tree. The packages are published (M2) rather than attached
+to the release, which is why step 8 and M2 land together.
 
 ## M2 — signed channels
 
@@ -161,27 +165,38 @@ channel.
    this one goes.
 3. Publishing: `.github/workflows/packages.yml` regenerates
    `apt/dists/stable/{Release,InRelease,Packages,Packages.gz}` and
-   `rpm/fedora/x86_64/repodata/`, signs `InRelease` and `repomd.xml`, signs every
-   RPM, and pushes to `jtrefon/amber-packages` with a `.nojekyll` at the root.
+   `rpm/fedora/x86_64/repodata/`, signs `InRelease`, `Release.gpg` and
+   `repomd.xml`, signs every RPM, and pushes to `jtrefon/amber-packages` with a
+   `.nojekyll` at the root. Each `.deb` also gets a detached `.asc`: apt only
+   verifies the index, so the per-file signature exists for out-of-band
+   verification of a downloaded artifact.
 4. Retention: the current release plus the previous two stay in the pool;
-   anything older is archived to GitHub Releases. At roughly 1.5 MB per package
-   this holds the published site near 30 MB against Pages' 1 GB ceiling.
+   anything older is dropped. At roughly 1.5 MB per package this holds the
+   published site near 30 MB against Pages' 1 GB ceiling, and nothing is lost:
+   any version is rebuildable from its tag.
 5. Verification is two-sided. Positive: a container installs from the repository
-   with `apt-get update` and `dnf install`. Negative: the same install against a
-   tampered `InRelease` and against a removed `Signed-By` **must fail**. The
-   negative test is the point — a signature nobody checks is decoration.
-6. `amber update` reads `/etc/os-release`, and either prints the exact command or,
-   on an interactive TTY with an explicit confirmation, runs
-   `apt-get update && apt-get install --only-upgrade amber-agent` / `dnf upgrade`.
-   It never passes `--yes`, never runs unattended, and on Homebrew it only points
-   at `brew upgrade`. Non-interactive callers get the command and a non-zero exit.
+   with `apt-get update` and `dnf install`. Negative: `apt-get update` against a
+   `Packages` index that no longer matches the signed `Release`, against the same
+   repository with `Signed-By` removed, and `dnf makecache` against a tampered
+   `repomd.xml` **must all fail**. The negative test is the point — a signature
+   nobody checks is decoration.
+6. `amber update` probes for `apt-get`, `dnf`/`dnf5` and `brew`, and either
+   prints the exact command or, on an interactive TTY with an explicit
+   confirmation, runs `apt-get update && apt-get install --only-upgrade
+   amber-agent` / `dnf upgrade amber-agent`. It never passes `--yes`, never runs
+   unattended, and on Homebrew it only prints `brew upgrade amber` because amber
+   does not write into the Cellar. Non-interactive callers get the command and a
+   non-zero exit.
 7. Migration from `fpm`: the `.deb` carries `Conflicts: amber (>= 0.1.0)` and
-   `Replaces: amber (>= 0.1.0)`; the RPM carries `Obsoletes: amber < 0.9`. The
-   version floor is what keeps this safe — Debian's `amber` is `0.0~git…`, below
-   the floor, and no Ubuntu series ships `amber` at all, so only the old `fpm`
-   packages match.
-8. Documentation: an install page with the three commands, the fingerprint, and
-   an explicit statement that the repository is `stable` rather than per-codename.
+   `Replaces: amber (>= 0.1.0)`; the RPM carries `Obsoletes: amber < 0.9` and
+   `Conflicts: amber < 0.9`. The version floor is what keeps this safe —
+   Debian's `amber` is `0.0~git…`, below the floor, and no Ubuntu series ships
+   `amber` at all, so only the old `fpm` packages match.
+8. Documentation and bootstrap: `packaging/install.sh` verifies the pinned
+   fingerprint, writes the deb822 `.sources` (or the `.repo`) and installs the
+   package; the repository root serves that script, the public key and a landing
+   page with the fingerprint and the manual commands. The README points Linux
+   users at it and says explicitly that the suite is `stable`, not per-codename.
 
 **Out of scope.** No in-app background updater, no update manifest, no delta
 patches (split packages already cut the update size), no auto-merge into distro
@@ -198,15 +213,19 @@ the old `fpm` package upgrades in one `apt install`.
 | The Pages hostname is permanent in every user's `sources.list` | If it must ever move, publish one final `amber-agent-release` from the **old** URL that rewrites the source file; `amber update` can also repair it. This is why the release package, not the docs, owns the source file. |
 | Signing key loss | Two offline copies of the private key; the public key is also in git, so a re-key ships as a new keyring package signed by the old repository while it still exists. |
 | A future Ubuntu drops `libncursesw6` | `install-verify` fails on that distro and the suite splits per-codename then. Building per-codename now would pay that cost for every release to hedge a risk one CI job already detects. |
-| Fedora 45 is not released yet (GA 3 Nov 2026) | It joins the verification matrix at GA, not before. Fedora 43 leaves the matrix at its 2026-12-09 EOL. |
+| Fedora 45 GA is 3 Nov 2026, days after this branch opens | `fedora:45` is already in the verification matrix because the image exists. If it fails before GA, the answer is to wait for GA rather than to drop the distro quietly. Fedora 43 leaves the matrix at its 2026-12-09 EOL. |
 | `amber-bench` scenarios drift from `bench/profiles.json` | The bench package pins both; the scenario tests already read them from the tree. |
 
 ## Found while planning, fix inside M1
 
 - `homebrew/amber.rb` pins `0.7.0` while `version.txt` is `0.8.0`. A release that
-  ships a stale formula is a release with two versions.
-- `docdir` is `$(datarootdir)/doc/amber`; Debian expects
-  `/usr/share/doc/amber-agent`. Same content, different owner.
+  ships a stale formula is a release with two versions. Its version and sha256
+  have to move with the tag (the checksum only exists once the tarball does), but
+  its install method already handles the new `libexec/amber` and
+  `share/amber-bench` layout, so the bump is one edit.
+- `docdir` was `$(datarootdir)/doc/amber` where Debian expects
+  `/usr/share/doc/amber-agent`; fixed, the directory is now named after the
+  package.
 
 ## Non-goals
 
