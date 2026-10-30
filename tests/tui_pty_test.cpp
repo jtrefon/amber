@@ -1422,6 +1422,15 @@ TEST(get_provider_list_settles_each_row_from_a_live_probe) {
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
+    // The bare readout names the wire protocol and the cache state: the two
+    // things "caching is broken" is otherwise indistinguishable between.
+    tui.send("/get provider\r");
+    if (!require(tui.wait_for("flavor:", 10000), "/get provider did not name the protocol", tui))
+        return;
+    if (!require(tui.wait_for("prompt cache:", 5000), "/get provider did not report the cache",
+                 tui))
+        return;
+
     tui.send("/get provider list\r");
     // The fixture's two configured providers point at a closed port: the probe
     // gets no answer, and the row must say that rather than claim [ ].

@@ -58,11 +58,12 @@ Rules:
 
 | Protocol | Mechanism | What amber sends |
 |----------|-----------|------------------|
-| Anthropic Messages | explicit `cache_control` breakpoints (caching is opt-in) | `system` as a **block array**: the first block carries `{"type":"ephemeral"}`, injected system blocks follow it uncached; a second breakpoint is placed on the last user turn (a prompt or tool results) so the next request reads the conversation |
+| Anthropic Messages | explicit `cache_control` breakpoints (caching is opt-in) | `system` as a **block array**: the first block carries `{"type":"ephemeral"}`, injected system blocks follow it uncached; a second breakpoint is placed on the last user turn (a prompt or tool results) so the next request reads the conversation; **plus** a top-level `cache_control` (the documented "automatic caching" form, which moves the breakpoint forward on its own and is the field a gateway dashboard looks for) |
 | OpenAI-compatible | automatic prefix caching | nothing; the stable prefix and append-only conversation do the work |
 | Gemini | implicit caching | nothing (amber does not create `cachedContent` resources) |
 
-Breakpoint budget: Anthropic allows 4; amber uses 2.
+Breakpoint budget: Anthropic allows 4; amber uses 2 explicit plus the automatic
+one, which the API counts as a third. `off` sends none of them.
 
 ### TTL
 
@@ -92,6 +93,41 @@ not report it"; `0` means it reported and the request was **not** cached, which
 is the regression signal. A long session reading `0` on most requests is a bug,
 not a cheap session.
 
+#### The split, and why `input_tokens` is not the prompt size
+
+Anthropic reports three disjoint numbers, and only their sum is the prompt:
+
+```
+total_input_tokens = cache_read_input_tokens + cache_creation_input_tokens + input_tokens
+```
+
+`input_tokens` is the part **after the last breakpoint** — the newest turn.
+Taking it as the prompt size is correct exactly as long as caching never works,
+and catastrophically wrong the moment it does: a cached 40k conversation
+reports `input_tokens: 4`, and the context gauge, the compression gate and the
+provider governor all read that as "4 tokens used". That is the regression this
+rule exists to prevent, and it is why the Anthropic dialect sums the three
+before filling `TokenUsage::prompt` (buffered and streamed). OpenAI is the
+opposite: `prompt_tokens` already includes `cached_tokens`, so it is reported
+as-is; Gemini's `promptTokenCount` likewise.
+
+#### Minimum cacheable prefix
+
+A prefix shorter than the model's minimum is cached **not at all**: the API
+accepts the breakpoint, returns no error, and reports `0` read / `0` write —
+indistinguishable from a client that sent no breakpoint. The per-model minimum
+is in `ClaudeFamily::min_cacheable` (512 / 1024 / 2048 / 4096 by family) and
+`/get provider` reports the last measured prefix against it:
+
+```
+prompt cache: 1h · last prefix 3400 tokens · below the 4096-token minimum for
+claude-opus-4-6: nothing is cached
+```
+
+`/get provider` also prints the **flavor**. It is the one place the wire
+protocol is visible, and it is what separates "the cache is broken" from "this
+provider is speaking the OpenAI protocol, which sends no breakpoints at all".
+
 ### Invariants (pinned by tests)
 
 1. `anthropic_request_marks_the_stable_prefix_cacheable` — the first system block
@@ -104,9 +140,19 @@ not a cheap session.
    brief refresh between two turns does not change a byte of the cached block,
    and the volatile block is a user message after the conversation.
 5. `anthropic_usage_reads_cache_counters`, `openai_usage_reads_cached_tokens`,
-   `gemini_usage_reads_cached_tokens` — the counters reach `TokenUsage`.
+   `gemini_usage_reads_cached_tokens` — the counters reach `TokenUsage`, and the
+   Anthropic prompt is the sum of the split (`anthropic_stream_prompt_tokens_include_the_cached_prefix`
+   pins the streamed half).
 6. `prompt_cache_ttl_roundtrips_in_the_global_config` — the setting persists and
    an unusable value warns instead of silently becoming a TTL.
+7. `anthropic_wire_reuses_the_prefix_across_turns`,
+   `anthropic_stream_reuses_the_prefix_across_turns`,
+   `anthropic_tail_change_keeps_the_stable_prefix_cached` — driven through the
+   real `HttpLLMClient` against `tests/mock_anthropic.cpp`, which applies the
+   provider's rules (breakpoints, tools→system→messages order, per-model
+   minimum). A green run means a real account would have hit.
+8. `prompt_cache_note_*` — the readout names the minimum when nothing is
+   cached, and admits it has not measured yet rather than inventing a number.
 
 ### Known prefix resets (deliberate, one-time)
 
