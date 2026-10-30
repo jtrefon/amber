@@ -178,14 +178,25 @@ gpg_sign --armor --detach-sign --output "$dists/Release.gpg" "$dists/Release"
 log "checking rpm signatures in $rpm_pool"
 if command -v rpm >/dev/null 2>&1; then
     # Signing happens in the Fedora job, where rpm's own gpg plumbing works;
-    # this is the check that it did. An unsigned package in a repository whose
-    # .repo file says gpgcheck=1 is a package nobody can install, and it must
-    # fail here rather than at the user's first upgrade.
-    rpm --import "$here/keys/amber-agent-archive-keyring.asc" 2>/dev/null || true
+    # this is the check that it did. A package nobody can verify must fail here
+    # rather than at the user's first upgrade.
+    #
+    # The check runs against a trust database of its own: importing into, and
+    # then reading from, whatever database rpm resolves by default is how a
+    # signed package got reported as unsigned on the first publish run, and the
+    # output is printed so the next failure says why instead of leaving it to
+    # be guessed.
+    rpm_db="$(mktemp -d)"
+    rpm --dbpath "$rpm_db" --import "$here/keys/amber-agent-archive-keyring.asc" ||
+        die "cannot import the archive key into $rpm_db"
     for rpmfile in "$rpm_pool"/*.rpm; do
-        rpm -K "$rpmfile" 2>&1 | grep -q 'signatures OK' ||
-            die "$(basename "$rpmfile") is not signed"
+        signature="$(rpm --dbpath "$rpm_db" -K "$rpmfile" 2>&1)" ||
+            die "$(basename "$rpmfile") is not signed: $signature"
+        printf '%s\n' "$signature" | grep -q 'signatures OK' ||
+            die "$(basename "$rpmfile") is not signed: $signature"
     done
+    log "  $(ls "$rpm_pool"/*.rpm | wc -l) package(s) verified"
+    rm -rf "$rpm_db"
 else
     die "rpm is not installed: cannot check the rpm signatures"
 fi
