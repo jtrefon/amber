@@ -341,7 +341,9 @@ jobs:
       - name: Package the repository tree for the verify matrix
         run: |
           tar -czf repo.tar.gz -C repo .
-          tar -tzf repo.tar.gz | head -20
+          # No `| head` here: the pipeline runs under `set -o pipefail`, and
+          # head closing the pipe makes tar exit non-zero on a write error.
+          echo "repository tree: $(find repo -type f | wc -l) files, $(du -sh repo | cut -f1)"
       - uses: actions/upload-artifact@v7
         with:
           name: repo
