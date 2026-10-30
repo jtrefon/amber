@@ -413,22 +413,29 @@ jobs:
           base=https://jtrefon.github.io/amber-packages
           GNUPGHOME="$(mktemp -d)"
           export GNUPGHOME
-          # The key is fetched over the same host the users will use, so this is
-          # also the proof that the key URL in install.sh resolves.
-          curl -fsSL "$base/keys/amber-agent-archive-keyring.asc" | gpg --batch --import
-          # Pages builds asynchronously after the push, so the index is polled
-          # rather than assumed present. Ten tries at 20s covers a slow build
-          # without turning a real failure into a long wait.
-          fetched=0
-          for _ in 1 2 3 4 5 6 7 8 9 10; do
-            if curl -fsSL "$base/apt/dists/stable/InRelease" -o /tmp/InRelease; then
-              fetched=1
-              break
-            fi
-            sleep 20
-          done
-          test "$fetched" = 1 || { echo "error: $base never served InRelease"; exit 1; }
+
+          # Pages builds asynchronously after the push and the CDN edge can lag
+          # the build, so every fetch is retried rather than only the index: on
+          # the first real publish this job failed 7 seconds after the site
+          # reported "built", on the very first URL it asked for.
+          fetch() {
+            local url="$1" out="$2"
+            for _ in $(seq 1 15); do
+              if curl -fsSL "$url" -o "$out"; then
+                return 0
+              fi
+              sleep 20
+            done
+            echo "error: $url never became available"
+            return 1
+          }
+
+          key=/tmp/amber-key.asc
+          fetch "$base/keys/amber-agent-archive-keyring.asc" "$key"
+          gpg --batch --import "$key"
+          fetch "$base/apt/dists/stable/InRelease" /tmp/InRelease
           gpg --verify /tmp/InRelease
-          curl -fsSL "$base/install.sh" | grep -q "$(cat packaging/keys/fingerprint.txt)"
-          curl -fsSL "$base/rpm/fedora/x86_64/repodata/repomd.xml.asc" >/dev/null
+          fetch "$base/install.sh" /tmp/install.sh
+          grep -q "$(cat packaging/keys/fingerprint.txt)" /tmp/install.sh
+          fetch "$base/rpm/fedora/x86_64/repodata/repomd.xml.asc" /tmp/repomd.xml.asc
           echo "published repository verified at $base"
