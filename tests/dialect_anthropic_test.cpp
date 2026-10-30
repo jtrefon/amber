@@ -488,6 +488,30 @@ TEST(anthropic_stream_decodes_named_events) {
     ASSERT_EQ(args["pattern"], "ncurses");
 }
 
+// The streamed usage split has the same contract as the buffered one: the
+// provider reports input_tokens as what sits AFTER the last breakpoint, so a
+// cache hit makes it tiny. The context gauge reads this number, and taking it
+// at face value showed "4 tokens used" on a conversation of thousands.
+TEST(anthropic_stream_prompt_tokens_include_the_cached_prefix) {
+    auto d = anthropic();
+    agent::Message out;
+    auto decoder = d->make_decoder(out, [](const agent::StreamChunk&) {}, "");
+
+    const std::string sse =
+        "event: message_start\n"
+        "data: "
+        "{\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":4,"
+        "\"cache_read_input_tokens\":8000,\"cache_creation_input_tokens\":12}}}\n\n"
+        "event: message_stop\n"
+        "data: {\"type\":\"message_stop\"}\n\n";
+    decoder->on_write(sse.c_str(), sse.size(), 1);
+    decoder->finalize();
+
+    ASSERT_EQ(decoder->prompt_tokens(), 8016L);
+    ASSERT_EQ(decoder->cache_read_tokens(), 8000L);
+    ASSERT_EQ(decoder->cache_write_tokens(), 12L);
+}
+
 // A tool_use block whose name never arrived (truncated stream) must not
 // survive: dispatch would deny an unknown tool and poison history.
 TEST(anthropic_stream_drops_nameless_tool_blocks) {

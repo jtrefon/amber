@@ -270,6 +270,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
             $(BUILD_DIR)/third_party/md4c/md4c.o
 TEST_OBJ  = $(BUILD_DIR)/src/smoketest.o
 UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
+               $(BUILD_DIR)/tests/anthropic_cache_test.o \
+               $(BUILD_DIR)/tests/mock_anthropic.o \
                $(BUILD_DIR)/tests/worktree_test.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
                $(BUILD_DIR)/tests/dialect_gemini_test.o \

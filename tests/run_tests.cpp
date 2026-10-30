@@ -2384,6 +2384,10 @@ TEST(anthropic_request_marks_the_stable_prefix_cacheable) {
     ASSERT_EQ(blocks[0]["text"].get<std::string>(), "BASE PROMPT");
     ASSERT(blocks[0].contains("cache_control"));
     ASSERT_EQ(blocks[0]["cache_control"]["type"].get<std::string>(), "ephemeral");
+    // The automatic form rides alongside, so a gateway that looks for the
+    // top-level field recognises the request as asking for a cache.
+    ASSERT(body.contains("cache_control"));
+    ASSERT_EQ(body["cache_control"]["type"].get<std::string>(), "ephemeral");
     // The 5-minute default is the protocol default: no ttl field.
     ASSERT(!blocks[0]["cache_control"].contains("ttl"));
 
@@ -2410,6 +2414,7 @@ TEST(anthropic_cache_ttl_follows_the_setting) {
     cfg.prompt_cache_ttl = "1h";
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["system"][0]["cache_control"]["ttl"].get<std::string>(), "1h");
+    ASSERT_EQ(body["cache_control"]["ttl"].get<std::string>(), "1h");
     ASSERT_EQ(body["messages"].back()["content"].back()["cache_control"]["ttl"].get<std::string>(),
               "1h");
 
@@ -2420,6 +2425,7 @@ TEST(anthropic_cache_ttl_follows_the_setting) {
     ASSERT(body["system"].is_string());
     ASSERT_EQ(body["system"].get<std::string>(), "BASE");
     ASSERT(!body["messages"].back()["content"].back().contains("cache_control"));
+    ASSERT(!body.contains("cache_control"));
 
     // An unknown value is not guessed into a TTL: the default applies.
     cfg.prompt_cache_ttl = "forever";
@@ -2465,7 +2471,10 @@ TEST(anthropic_usage_reads_cache_counters) {
                              R"("cache_read_input_tokens":900,)"
                              R"("cache_creation_input_tokens":300}})";
     const agent::TokenUsage usage = d->parse_usage(body);
-    ASSERT_EQ(usage.prompt, 1200L);
+    // `input_tokens` is the uncached tail only: the prompt a turn consumed is
+    // read + write + input, and reporting 1200 here is what made the context
+    // gauge collapse the moment a cache hit happened.
+    ASSERT_EQ(usage.prompt, 2400L);
     ASSERT_EQ(usage.completion, 30L);
     ASSERT_EQ(usage.cache_read, 900L);
     ASSERT_EQ(usage.cache_write, 300L);
