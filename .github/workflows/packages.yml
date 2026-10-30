@@ -1,0 +1,432 @@
+name: Packages
+
+# Builds the native Linux packages and publishes them to the signed apt and dnf
+# repositories served from jtrefon/amber-packages.
+#
+# This workflow tests the packages; .github/workflows/ci.yml tests the code.
+# The install-verify matrix is what makes a package real: it installs from the
+# repository into every supported distribution and then proves that a tampered
+# index is refused.
+#
+# A tag containing a hyphen (v0.9.0-rc.1) is built, and its packages are
+# verified, but nothing is published: a pre-release has no business in a
+# channel that `apt upgrade` follows.
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to package, e.g. v0.8.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+# Container jobs default to `sh`; the rpm command below builds an argument
+# array, and the rest of the steps read better with bash's `set -euo pipefail`.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      epoch: ${{ steps.v.outputs.epoch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Resolve version from the tag
+        id: v
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "error: '$tag' is not a release tag"; exit 1 ;;
+          esac
+          version="${tag#v}"
+          # A package whose version disagrees with the tag is a package nobody
+          # can reason about later, so disagreeing is a build failure.
+          test "$(cat version.txt)" = "$version" ||
+            { echo "error: version.txt says $(cat version.txt), the tag says $version"; exit 1; }
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "epoch=$(git log -1 --format=%ct)"
+            case "$tag" in
+              *-*) echo "prerelease=true" ;;
+              *)   echo "prerelease=false" ;;
+            esac
+          } >> "$GITHUB_OUTPUT"
+
+  build-deb:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential debhelper devscripts dpkg-dev fakeroot \
+            libcurl4-openssl-dev libncurses-dev pkgconf \
+            ca-certificates git lintian
+      - name: Build source and binary packages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EPOCH: ${{ needs.prepare.outputs.epoch }}
+        run: |
+          set -eu
+          stamp() {
+            {
+              printf 'amber-agent (%s-1) stable; urgency=medium\n\n' "$VERSION"
+              printf '  * Upstream release %s.\n\n' "$VERSION"
+              printf ' -- Jacek Trefon <hello@trefon.com>  %s\n' \
+                "$(date -R -u -d "@$EPOCH")"
+            } > "$1/debian/changelog"
+            printf '%s\n' "$VERSION" > "$1/version.txt"
+          }
+
+          # The checkout is the tag, and a container job without git gets a
+          # REST archive with no .git, so the tree is copied rather than
+          # exported: same bytes, no git needed.
+          copy_tree() {
+            mkdir -p "$1"
+            tar -C "$GITHUB_WORKSPACE" --exclude-vcs --exclude='./dist' -cf - . |
+              tar -C "$1" -xf -
+          }
+
+          # The orig tarball is the upstream tree without debian/. Building the
+          # source package from a second, pristine copy keeps object files out of
+          # the .dsc, where dpkg-source would reject them as unrepresentable
+          # changes to the upstream source.
+          copy_tree "/build/orig/amber-agent-${VERSION}"
+          rm -rf "/build/orig/amber-agent-${VERSION}/debian"
+          mkdir -p /build/src
+          tar -C /build/orig -czf "/build/src/amber-agent_${VERSION}.orig.tar.gz" \
+            "amber-agent-${VERSION}"
+
+          src="/build/src/amber-agent-${VERSION}"
+          copy_tree "$src"
+          stamp "$src"
+          ( cd "$src" && dpkg-buildpackage -us -uc -sa )
+
+          bin="/build/bin/amber-agent-${VERSION}"
+          copy_tree "$bin"
+          stamp "$bin"
+          ( cd "$bin" && dpkg-buildpackage -us -uc -b )
+
+          out="$GITHUB_WORKSPACE/dist/deb"
+          mkdir -p "$out"
+          # One cp per directory: both builds write the same file names, and a
+          # single cp with both globs refuses to overwrite the copy it has just
+          # made ("will not overwrite just-created").
+          cp /build/src/*.deb "$out/"
+          cp /build/bin/*.deb "$out/"
+          # The source run is a full build, so its .changes describes the debs
+          # as well; the binary-only run's .changes has the same name and would
+          # only be a second copy of less.
+          cp /build/src/*.dsc /build/src/*.tar.* /build/src/*.changes \
+             /build/src/*.buildinfo "$out/"
+          ls -l "$out"
+      - name: Lint the packages
+        run: |
+          # Errors only: lintian's warnings move between releases, and a gate
+          # that fails on a new warning gets switched off rather than fixed. An
+          # error is a package that is wrong.
+          lintian --fail-on error dist/deb/*.deb dist/deb/*.dsc
+      - uses: actions/upload-artifact@v7
+        with:
+          name: debs
+          path: dist/deb
+          if-no-files-found: error
+
+  build-rpm:
+    needs: prepare
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - name: Install build dependencies from the spec
+        run: |
+          dnf install -y dnf-plugins-core git tar gzip rpmlint redhat-rpm-config
+          # Reading BuildRequires out of the spec, rather than repeating them
+          # here, is what keeps the two from drifting.
+          dnf builddep -y rpm/amber-agent.spec
+      - name: Build source and binary packages
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EPOCH: ${{ needs.prepare.outputs.epoch }}
+        run: |
+          set -eu
+          export SOURCE_DATE_EPOCH="$EPOCH"
+          top=/tmp/rpmbuild
+          mkdir -p "$top/SOURCES" "$top/RPMS" "$top/SRPMS"
+          # The checkout is the tag; a container job without git gets a REST
+          # archive with no .git, so the tarball is built from the tree.
+          tar -C "$GITHUB_WORKSPACE" --exclude-vcs --exclude='./dist' \
+            --transform "s|^\\./|amber-agent-${VERSION}/|" \
+            -czf "$top/SOURCES/amber-agent-${VERSION}.tar.gz" .
+          # The version is the tag's, not the file's: a spec left behind by a
+          # bump would otherwise publish a package whose version disagrees with
+          # the release it came from.
+          sed -i "s|^Version:.*|Version:        ${VERSION}|" \
+            rpm/amber-agent.spec rpm/amber-agent-release.spec
+          # The noarch release package builds from the committed trust anchor.
+          install -m 644 packaging/keys/amber-agent-archive-keyring.asc "$top/SOURCES/"
+          install -m 644 packaging/rpm/amber-agent.repo "$top/SOURCES/"
+          install -m 644 LICENSE "$top/SOURCES/"
+
+          # An array, not a string: `-D` takes "name body" as one argument, and
+          # splitting a string silently defines a macro with an empty body.
+          common=(-D "_topdir $top"
+                  -D "_sourcedir $top/SOURCES"
+                  -D "use_source_date_epoch_as_buildtime 1"
+                  -D "clamp_mtime_to_source_date_epoch 1")
+          rpmbuild -bb "${common[@]}" --define "_rpmdir $top/RPMS" rpm/amber-agent.spec
+          rpmbuild -bb "${common[@]}" --define "_rpmdir $top/RPMS" rpm/amber-agent-release.spec
+          rpmbuild -bs "${common[@]}" --define "_srcrpmdir $top/SRPMS" rpm/amber-agent.spec
+          rpmbuild -bs "${common[@]}" --define "_srcrpmdir $top/SRPMS" rpm/amber-agent-release.spec
+
+          out="$GITHUB_WORKSPACE/dist/rpm"
+          mkdir -p "$out"
+          find "$top/RPMS" "$top/SRPMS" -name '*.rpm' -exec cp {} "$out/" \;
+          ls -l "$out"
+      - name: Lint the packages
+        run: |
+          # Only errors fail: rpmlint's warnings move between Fedora releases,
+          # and a gate that fails on a new warning gets switched off rather than
+          # fixed. rpm/amber-agent.rpmlintrc filters exact technical tokens, not
+          # whole checks.
+          rpmlint -r rpm/amber-agent.rpmlintrc dist/rpm/*.rpm > /tmp/rpmlint.log 2>&1 || true
+          cat /tmp/rpmlint.log
+          if grep -q ': E: ' /tmp/rpmlint.log; then
+            echo "error: rpmlint reported errors"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpms
+          path: dist/rpm
+          if-no-files-found: error
+
+  sign-rpm:
+    needs: [prepare, build-rpm]
+    runs-on: ubuntu-latest
+    container: fedora:44
+    timeout-minutes: 15
+    # Same environment as publishing: the rpm signature is worth nothing
+    # without the key, and the key is not reachable without a reviewer.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpms
+          path: dist/rpm
+      - name: Sign the packages
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
+        run: |
+          set -euo pipefail
+          dnf install -y gnupg2 rpm-sign
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          # rpm expands only its own default gpg command, and that command has
+          # no way to receive a passphrase: overriding the macro does not work
+          # because the positional arguments it references are not expanded for
+          # a user-supplied command. Presetting the agent is what makes the
+          # signature unattended.
+          printf 'allow-preset-passphrase\n' >> "$GNUPGHOME/gpg-agent.conf"
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          grip="$(gpg --batch --with-colons --with-keygrip --list-secret-keys |
+            awk -F: '/^grp:/ { print $10; exit }')"
+          test -n "$grip"
+          hexpass="$(printf '%s' "$GPG_PASSPHRASE" | od -An -tx1 | tr -d ' \n')"
+          gpg-connect-agent --homedir "$GNUPGHOME" \
+            "PRESET_PASSPHRASE $grip -1 $hexpass" /bye
+          for package in dist/rpm/*.rpm; do
+            rpm --addsign \
+              --define "_gpg_name $GPG_KEY_ID" \
+              --define "_gpg_path $GNUPGHOME" \
+              "$package"
+          done
+          gpgconf --kill gpg-agent 2>/dev/null || true
+          rpm --import packaging/keys/amber-agent-archive-keyring.asc
+          for package in dist/rpm/*.rpm; do
+            rpm -K "$package"
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpms-signed
+          path: dist/rpm
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, build-deb, sign-rpm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The signing key lives in this environment as an encrypted secret with a
+    # required reviewer, so nothing is signed or published without a human
+    # decision.
+    environment: release
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: debs
+          path: dist/deb
+      - uses: actions/download-artifact@v8
+        with:
+          name: rpms-signed
+          path: dist/rpm
+      - name: Install repository tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            apt-utils createrepo-c rpm gnupg rsync
+      - name: Import the signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+      # Checked out before the tree is assembled: retention keeps the current
+      # release and the two before it, so the previous pool has to be part of
+      # the input rather than something a --delete would sweep away.
+      - name: Check out the package repository
+        if: needs.prepare.outputs.prerelease == 'false'
+        uses: actions/checkout@v7
+        with:
+          repository: jtrefon/amber-packages
+          path: pages
+          ssh-key: ${{ secrets.PACKAGES_DEPLOY_KEY }}
+      - name: Assemble and sign
+        env:
+          GPG_KEY_ID: ${{ vars.GPG_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: packaging/build-repo.sh dist/deb dist/rpm repo pages
+      # Tarred rather than uploaded as a directory: upload-artifact drops
+      # dotfiles unless told otherwise, and .nojekyll is a dotfile.
+      - name: Package the repository tree for the verify matrix
+        run: |
+          tar -czf repo.tar.gz -C repo .
+          tar -tzf repo.tar.gz | head -20
+      - uses: actions/upload-artifact@v7
+        with:
+          name: repo
+          path: repo.tar.gz
+          if-no-files-found: error
+      - name: Publish
+        if: needs.prepare.outputs.prerelease == 'false'
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -eu
+          rsync -a --delete repo/apt/ pages/apt/
+          rsync -a --delete repo/rpm/ pages/rpm/
+          rsync -a repo/keys/ pages/keys/
+          install -m 755 repo/install.sh pages/install.sh
+          install -m 644 repo/index.html pages/index.html
+          : > pages/.nojekyll
+          cd pages
+          git config user.name "amber release"
+          git config user.email "hello@trefon.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to publish"
+            exit 0
+          fi
+          git commit -m "amber-agent ${VERSION}"
+          git push origin HEAD:main
+
+  verify:
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - ubuntu:24.04
+          - ubuntu:26.04
+          - ubuntu:26.10
+          - fedora:44
+          - fedora:45
+    container:
+      image: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: repo
+      - name: Verify install and signature enforcement
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p repo
+          tar -xzf repo.tar.gz -C repo
+          sh packaging/verify-install.sh "$GITHUB_WORKSPACE/repo" "$VERSION"
+
+  live-check:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: The published URL serves a signed repository
+        run: |
+          set -euo pipefail
+          base=https://jtrefon.github.io/amber-packages
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          # The key is fetched over the same host the users will use, so this is
+          # also the proof that the key URL in install.sh resolves.
+          curl -fsSL "$base/keys/amber-agent-archive-keyring.asc" | gpg --batch --import
+          # Pages builds asynchronously after the push, so the index is polled
+          # rather than assumed present. Ten tries at 20s covers a slow build
+          # without turning a real failure into a long wait.
+          fetched=0
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsSL "$base/apt/dists/stable/InRelease" -o /tmp/InRelease; then
+              fetched=1
+              break
+            fi
+            sleep 20
+          done
+          test "$fetched" = 1 || { echo "error: $base never served InRelease"; exit 1; }
+          gpg --verify /tmp/InRelease
+          curl -fsSL "$base/install.sh" | grep -q "$(cat packaging/keys/fingerprint.txt)"
+          curl -fsSL "$base/rpm/fedora/x86_64/repodata/repomd.xml.asc" >/dev/null
+          echo "published repository verified at $base"

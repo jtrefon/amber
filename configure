@@ -1,7 +1,7 @@
 #!/bin/sh
 # configure - minimal autotools-style configuration script for amber
 # Generates Makefile from Makefile.in.
-# This is free software released under the GPL-3.0-or-later.
+# This is free software released under the Apache License 2.0.
 
 set -e
 
@@ -11,8 +11,10 @@ builddir=$(pwd)
 prefix="/usr/local"
 bindir=""
 libdir=""
+libexecdir=""
 includedir=""
 datarootdir=""
+mandir=""
 with_curl_cflags=""
 with_curl_libs=""
 
@@ -24,9 +26,15 @@ Options:
   --prefix=DIR        installation prefix (default: /usr/local)
   --bindir=DIR        user executables (default: PREFIX/bin)
   --libdir=DIR        object code libraries (default: PREFIX/lib)
+  --libexecdir=DIR    helper binaries (default: PREFIX/libexec)
   --includedir=DIR    C header files (default: PREFIX/include)
   --datarootdir=DIR   read-only arch-independent data (default: PREFIX/share)
+  --mandir=DIR        man pages (default: DATAROOTDIR/man)
   --help              show this help
+
+Environment:
+  LDFLAGS             passed to every link (packagers inject hardening here)
+  SOURCE_DATE_EPOCH   reproducible-build timestamp for the date stamp
 
 The script auto-detects the C++ compiler, libcurl, and pkg-config.
 EOF
@@ -37,8 +45,21 @@ for arg in "$@"; do
         --prefix=*)   prefix="${arg#*=}" ;;
         --bindir=*)   bindir="${arg#*=}" ;;
         --libdir=*)   libdir="${arg#*=}" ;;
+        --libexecdir=*) libexecdir="${arg#*=}" ;;
         --includedir=*) includedir="${arg#*=}" ;;
         --datarootdir=*) datarootdir="${arg#*=}" ;;
+        # %configure passes both, with datadir as the package-independent root;
+        # the per-package directory is appended below, so they mean the same
+        # thing here.
+        --datadir=*)  datarootdir="${arg#*=}" ;;
+        --mandir=*)   mandir="${arg#*=}" ;;
+        # rpm's %configure expands to the full autoconf flag set. The ones we
+        # do not act on are accepted rather than rejected: a packager's build
+        # recipe is not the place to discover that this script has an opinion
+        # about --sbindir. Anything outside this list is still an error, so a
+        # typo cannot be swallowed.
+        --build=*|--host=*|--target=*|--exec-prefix=*|--sbindir=*|--sysconfdir=*|--sharedstatedir=*|--localstatedir=*|--runstatedir=*|--infodir=*|--program-prefix=*|--program-suffix=*|--program-transform-name=*) ;;
+        --disable-dependency-tracking|--enable-dependency-tracking|--disable-silent-rules|--enable-silent-rules|--disable-static|--enable-static|--disable-shared|--enable-shared) ;;
         --help|-h)    usage; exit 0 ;;
         *) echo "configure: unknown option: $arg" >&2; usage >&2; exit 1 ;;
     esac
@@ -46,8 +67,18 @@ done
 
 [ -z "$bindir" ]     && bindir="$prefix/bin"
 [ -z "$libdir" ]     && libdir="$prefix/lib"
+[ -z "$libexecdir" ] && libexecdir="$prefix/libexec"
 [ -z "$includedir" ] && includedir="$prefix/include"
 [ -z "$datarootdir" ] && datarootdir="$prefix/share"
+[ -z "$mandir" ]     && mandir="$datarootdir/man"
+
+# Where the installed tree keeps its own files. Debian passes --libexecdir=/usr/lib
+# so plugin binaries land in /usr/lib/amber/plugins; Fedora's default libexecdir
+# puts them in /usr/libexec/amber/plugins. Both are FHS-correct for their distro,
+# which is why this is a configure input rather than a constant.
+datadir="$datarootdir/amber"
+plugin_dir="$libexecdir/amber/plugins"
+bench_datadir="$datarootdir/amber-bench"
 
 echo "checking for C++ compiler..."
 if command -v g++ >/dev/null 2>&1; then
@@ -73,7 +104,16 @@ if [ "${CXX:-c++}" = "${CXX:-c++}" ] && echo "${CXX:-c++}" | grep -qE 'clang'; t
     amber_warn_extra="-Winfinite-recursion"
 fi
 CXXFLAGS=${CXXFLAGS:-"-O2 -Wall -Wextra $amber_warn_extra -std=c++17"}
+# A packager supplies its own optimisation and hardening flags, and those never
+# include the language level. Append it rather than replacing what was given.
+case " $CXXFLAGS " in
+    *" -std="*) ;;
+    *) CXXFLAGS="$CXXFLAGS -std=c++17" ;;
+esac
 CPPFLAGS=${CPPFLAGS:-""}
+# Linker flags belong to the packager, never to us: a distro passes its hardening
+# set here and expects every link to honour it.
+LDFLAGS=${LDFLAGS:-""}
 
 echo "checking for C compiler..."
 if command -v gcc >/dev/null 2>&1; then
@@ -160,8 +200,23 @@ else
     echo "  warning: no version.txt file; defaulting to $VERSION"
 fi
 BUILD_DATE=$(date -u +%Y-%m-%d)
+# Reproducible builds: a packager stamps the source date instead of "now", so two
+# builds of the same tag produce the same header. GNU date takes -d, BSD takes -r.
+if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+    if BUILD_DATE=$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null); then
+        :
+    elif BUILD_DATE=$(date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null); then
+        :
+    else
+        echo "  warning: SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH is not a usable timestamp" >&2
+        BUILD_DATE=$(date -u +%Y-%m-%d)
+    fi
+fi
 sed -e "s|@VERSION@|$VERSION|g" \
     -e "s|@BUILD_DATE@|$BUILD_DATE|g" \
+    -e "s|@DATADIR@|$datadir|g" \
+    -e "s|@PLUGIN_DIR@|$plugin_dir|g" \
+    -e "s|@BENCH_DATA_DIR@|$bench_datadir|g" \
     "$srcdir/include/agent/version.h.in" > "$srcdir/include/agent/version.h"
 echo "  amber $VERSION (built $BUILD_DATE)"
 
@@ -173,13 +228,17 @@ sed -e "s|@srcdir@|$srcdir|g" \
     -e "s|@prefix@|$prefix|g" \
     -e "s|@bindir@|$bindir|g" \
     -e "s|@libdir@|$libdir|g" \
+    -e "s|@libexecdir@|$libexecdir|g" \
     -e "s|@includedir@|$includedir|g" \
     -e "s|@datarootdir@|$datarootdir|g" \
+    -e "s|@mandir@|$mandir|g" \
+    -e "s|@VERSION@|$VERSION|g" \
     -e "s|@CXX@|$CXX|g" \
     -e "s|@CC@|$CC|g" \
     -e "s|@CXXFLAGS@|$CXXFLAGS|g" \
     -e "s|@CFLAGS@|$CFLAGS|g" \
     -e "s|@CPPFLAGS@|$CPPFLAGS $PROJECT_CPPFLAGS|g" \
+    -e "s|@LDFLAGS@|$LDFLAGS|g" \
     -e "s|@CURL_CFLAGS@|$CURL_CFLAGS|g" \
     -e "s|@CURL_LIBS@|$CURL_LIBS|g" \
     -e "s|@NCURSES_LIBS@|$NCURSES_LIBS|g" \

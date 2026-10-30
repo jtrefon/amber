@@ -1,0 +1,16 @@
+# rpmlint's spell checker reads technical tokens as misspelled English, and its
+# devel-file check cannot tell a benchmark template from an installable header.
+# Every filter names the exact term or path, so a real typo or a stray header in
+# the runtime package still shows up. rpmlint errors on a filter nothing matches,
+# which is what keeps this list honest: drop a word from a description and its
+# filter has to go with it.
+addFilter("spelling-error.*'cli'")
+addFilter("spelling-error.*'cflags'")
+addFilter("devel-file-in-non-devel-package /usr/share/amber-bench")
+# The static archives are stripped deliberately: with the distribution's -g
+# flags they are 444 MB of DWARF against 24 MB stripped, and rpm has no way to
+# move archive debug info into a -debuginfo package. The repository this feeds
+# is published from GitHub Pages, so the choice is this error or a package
+# nobody can distribute. Filtered per file so an unstripped library still shows.
+addFilter("static-library-without-debuginfo /usr/lib64/libagent_core.a")
+addFilter("static-library-without-debuginfo /usr/lib64/libagent_tools.a")

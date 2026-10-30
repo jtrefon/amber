@@ -40,9 +40,23 @@ endif
 prefix    = @prefix@
 bindir    = @bindir@
 libdir    = @libdir@
+libexecdir = @libexecdir@
 includedir = @includedir@
 datarootdir = @datarootdir@
-docdir    = $(datarootdir)/doc/amber
+mandir    = @mandir@
+docdir    = $(datarootdir)/doc/amber-agent
+
+# Install layout. The three dirs the installed runtime resolves at startup are
+# stamped into include/agent/version.h by ./configure, so the binary and the
+# Makefile cannot disagree about where its data lives.
+datadir       = $(datarootdir)/amber
+plugin_dir    = $(libexecdir)/amber/plugins
+bench_datadir = $(datarootdir)/amber-bench
+pkgconfigdir  = $(libdir)/pkgconfig
+pkg_includedir = $(includedir)/amber-agent
+
+VERSION   = @VERSION@
+LDFLAGS   = @LDFLAGS@
 
 COMPLEXITY_PYTHON ?= python3
 SRC_DIR   = @srcdir@
@@ -205,7 +219,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/search/semantic_index.o
 
 
-CLI_OBJ   = $(BUILD_DIR)/src/main.o
+CLI_OBJ   = $(BUILD_DIR)/src/main.o $(BUILD_DIR)/src/update.o
 BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/oracle.o \
              $(BUILD_DIR)/bench/recorder.o \
@@ -217,7 +231,8 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/runner.o \
              $(BUILD_DIR)/bench/state_reaper.o \
              $(BUILD_DIR)/bench/shape_replay.o \
-             $(BUILD_DIR)/bench/probe.o
+             $(BUILD_DIR)/bench/probe.o \
+             $(BUILD_DIR)/bench/data_root.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
 TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/tui.o \
@@ -848,13 +863,13 @@ $(SYSINFO_PLUGIN): tools/plugins/sysinfo/main.cpp
 	$(CXX) $(CXXFLAGS) $(CPPFLAGS) $(DEPFLAGS) -I$(SRC_DIR)/include -o $@ tools/plugins/sysinfo/main.cpp
 
 $(CDP_PLUGIN): $(CDP_MAIN_OBJ) $(CDP_WS_OBJ) $(CDP_URL_OBJ)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(CDP_MAIN_OBJ) $(CDP_WS_OBJ) $(CDP_URL_OBJ)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CDP_MAIN_OBJ) $(CDP_WS_OBJ) $(CDP_URL_OBJ)
 
 $(BUILD_DIR)/ws_test: $(WS_TEST_OBJ) $(CDP_WS_OBJ)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(WS_TEST_OBJ) $(CDP_WS_OBJ)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(WS_TEST_OBJ) $(CDP_WS_OBJ)
 
 $(BUILD_DIR)/url_test: $(URL_TEST_OBJ) $(CDP_URL_OBJ)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(URL_TEST_OBJ) $(CDP_URL_OBJ)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(URL_TEST_OBJ) $(CDP_URL_OBJ)
 
 check: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
@@ -887,32 +902,32 @@ class-size-update:
 
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(UNITTEST_OBJ) $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
 
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
 
 $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
 
 # Drives the real TUI in a pty. The fixture is written with SessionStore, so the
 # test links the core library the same way plugin_test does.
 $(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(PTY_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PTY_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
 
 $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/help_page.o $(BUILD_DIR)/tui/completion_context.o $(CURL_LIBS)
 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(PLUGIN_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 bench: $(BUILD_DIR)/$(BENCH_BIN)
 
@@ -925,10 +940,10 @@ bench-reap-apply: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) reap-state --apply
 
 $(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 $(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 
@@ -941,14 +956,14 @@ $(BUILD_DIR)/$(TOOLS_LIB): $(TOOLS_OBJS)
 cli: $(BUILD_DIR)/$(CLI_BIN)
 
 $(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(CLI_OBJ) \
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CLI_OBJ) \
 	    $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) \
 	    $(CURL_LIBS)
 
 tui: $(BUILD_DIR)/$(TUI_BIN)
 
 $(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) -o $@ $(TUI_OBJS) \
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TUI_OBJS) \
 	    $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) \
 	    $(CURL_LIBS) $(NCURSES_LIBS)
 
@@ -1031,19 +1046,15 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(SYSINFO_PLUGIN).d
 -include $(BUILD_DIR)/ws_test.d
 
-datadir    = $(datarootdir)/amber
+# The install is split by package: a runtime, a development payload and a bench
+# harness. `install` stays their union so the macOS staging tree (and the
+# Homebrew formula that consumes it) is unchanged by the split.
+install: install-runtime install-dev install-bench install-man
 
-install: all
+install-runtime: all
 	install -d $(DESTDIR)$(bindir)
 	install -m 755 $(BUILD_DIR)/$(CLI_BIN) $(DESTDIR)$(bindir)/
 	install -m 755 $(BUILD_DIR)/$(TUI_BIN) $(DESTDIR)$(bindir)/
-	install -m 755 $(BUILD_DIR)/$(BENCH_BIN) $(DESTDIR)$(bindir)/
-	install -d $(DESTDIR)$(libdir)
-	install -m 644 $(BUILD_DIR)/$(CORE_LIB) $(DESTDIR)$(libdir)/
-	install -m 644 $(BUILD_DIR)/$(TOOLS_LIB) $(DESTDIR)$(libdir)/
-	install -d $(DESTDIR)$(includedir)/agent
-	install -d $(DESTDIR)$(includedir)/nlohmann
-	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(includedir)/agent/
 	install -d $(DESTDIR)$(datadir)/prompts
 	install -m 644 prompts/*.md $(DESTDIR)$(datadir)/prompts/
 	install -d $(DESTDIR)$(datadir)/prompts/tools
@@ -1058,27 +1069,73 @@ install: all
 	install -d $(DESTDIR)$(datadir)/prompts/domains/coding/library
 	cp -R prompts/domains/coding/library/. $(DESTDIR)$(datadir)/prompts/domains/coding/library/
 	install -m 644 completions.json $(DESTDIR)$(datadir)/
-	install -d $(DESTDIR)$(datadir)/plugins/sysinfo
-	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(datadir)/plugins/sysinfo/
-	install -m 644 tools/plugins/sysinfo/manifest.json $(DESTDIR)$(datadir)/plugins/sysinfo/
-	install -d $(DESTDIR)$(datadir)/plugins/cdp
-	install -m 755 $(CDP_PLUGIN) $(DESTDIR)$(datadir)/plugins/cdp/
-	install -m 644 tools/plugins/cdp/manifest.json $(DESTDIR)$(datadir)/plugins/cdp/
-	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(includedir)/nlohmann/
+	# keybindings.json and the skill shelf tables are read by the TUI at startup;
+	# an install without them silently loses user bindings and the skills surface.
+	install -m 644 keybindings.json $(DESTDIR)$(datadir)/
+	install -d $(DESTDIR)$(datadir)/data
+	install -m 644 data/*.json $(DESTDIR)$(datadir)/data/
+	# Plugin executables are architecture-dependent and belong in libexec, not in
+	# the architecture-independent data directory.
+	install -d $(DESTDIR)$(plugin_dir)/sysinfo
+	install -m 755 $(SYSINFO_PLUGIN) $(DESTDIR)$(plugin_dir)/sysinfo/
+	install -m 644 tools/plugins/sysinfo/manifest.json $(DESTDIR)$(plugin_dir)/sysinfo/
+	install -d $(DESTDIR)$(plugin_dir)/cdp
+	install -m 755 $(CDP_PLUGIN) $(DESTDIR)$(plugin_dir)/cdp/
+	install -m 644 tools/plugins/cdp/manifest.json $(DESTDIR)$(plugin_dir)/cdp/
 	install -d $(DESTDIR)$(docdir)
 	install -m 644 $(SRC_DIR)/LICENSE $(DESTDIR)$(docdir)/
 	install -m 644 $(SRC_DIR)/NOTICE $(DESTDIR)$(docdir)/
 	install -m 644 $(SRC_DIR)/THIRD_PARTY_LICENSES $(DESTDIR)$(docdir)/
 	install -m 644 $(SRC_DIR)/README.md $(DESTDIR)$(docdir)/
 
+install-dev: all
+	install -d $(DESTDIR)$(libdir)
+	install -m 644 $(BUILD_DIR)/$(CORE_LIB) $(DESTDIR)$(libdir)/
+	install -m 644 $(BUILD_DIR)/$(TOOLS_LIB) $(DESTDIR)$(libdir)/
+	# Headers live under amber-agent/, never directly in include/: `agent` and
+	# `nlohmann` are generic names and collide with any other installed project.
+	install -d $(DESTDIR)$(pkg_includedir)/agent
+	install -d $(DESTDIR)$(pkg_includedir)/nlohmann
+	install -m 644 $(SRC_DIR)/include/agent/*.h $(DESTDIR)$(pkg_includedir)/agent/
+	install -m 644 $(SRC_DIR)/include/nlohmann/json.hpp $(DESTDIR)$(pkg_includedir)/nlohmann/
+	install -d $(DESTDIR)$(pkgconfigdir)
+	# @PC_VERSION@ and @PC_CURL_LIBS@ rather than @VERSION@/@CURL_LIBS@:
+	# configure has already expanded those two by the time make reads this
+	# recipe, so the literal placeholder would never match the template.
+	sed -e 's|@PREFIX@|$(prefix)|g' \
+	    -e 's|@LIBDIR@|$(libdir)|g' \
+	    -e 's|@INCLUDEDIR@|$(pkg_includedir)|g' \
+	    -e 's|@PC_VERSION@|$(VERSION)|g' \
+	    -e 's|@PC_CURL_LIBS@|$(CURL_LIBS)|g' \
+	    $(SRC_DIR)/packaging/amber-agent.pc.in > $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
+	chmod 644 $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
+
+install-bench: all
+	install -d $(DESTDIR)$(bindir)
+	install -m 755 $(BUILD_DIR)/$(BENCH_BIN) $(DESTDIR)$(bindir)/
+	install -d $(DESTDIR)$(bench_datadir)/scenarios
+	cp -R bench/scenarios/. $(DESTDIR)$(bench_datadir)/scenarios/
+	install -m 644 bench/profiles.json $(DESTDIR)$(bench_datadir)/
+
+install-man:
+	install -d $(DESTDIR)$(mandir)/man1
+	install -m 644 $(SRC_DIR)/man/*.1 $(DESTDIR)$(mandir)/man1/
+
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/$(CLI_BIN)
 	rm -f $(DESTDIR)$(bindir)/$(TUI_BIN)
 	rm -f $(DESTDIR)$(bindir)/$(BENCH_BIN)
+	rm -rf $(DESTDIR)$(bench_datadir)
 	rm -f $(DESTDIR)$(libdir)/$(CORE_LIB)
 	rm -f $(DESTDIR)$(libdir)/$(TOOLS_LIB)
-	rm -rf $(DESTDIR)$(includedir)/agent
+	rm -f $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
+	rm -rf $(DESTDIR)$(pkg_includedir)
+	rm -rf $(DESTDIR)$(plugin_dir)
+	rm -rf $(DESTDIR)$(datadir)
 	rm -rf $(DESTDIR)$(docdir)
+	rm -f $(DESTDIR)$(mandir)/man1/amber.1
+	rm -f $(DESTDIR)$(mandir)/man1/amber-cli.1
+	rm -f $(DESTDIR)$(mandir)/man1/amber-bench.1
 
 clean:
 	rm -f $(BUILD_DIR)/lib/*.o $(BUILD_DIR)/lib/*.d

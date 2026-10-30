@@ -1,0 +1,64 @@
+Source: amber-agent
+Section: utils
+Priority: optional
+Maintainer: Jacek Trefon <hello@trefon.com>
+Build-Depends: debhelper-compat (= 13),
+               libcurl4-openssl-dev,
+               libncurses-dev,
+               pkgconf
+Standards-Version: 4.6.2
+Homepage: https://github.com/jtrefon/amber
+Rules-Requires-Root: no
+Vcs-Git: https://github.com/jtrefon/amber.git
+Vcs-Browser: https://github.com/jtrefon/amber
+
+Package: amber-agent
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+# The pre-repository packages were built with fpm and installed the same
+# binaries from a package called `amber`. A version-scoped conflict replaces
+# those and leaves Debian's unrelated `amber` (a different program, /usr/bin/amberc
+# only) installable.
+Conflicts: amber (>= 0.1.0)
+Replaces: amber (>= 0.1.0)
+Description: AI agent harness with a terminal interface and a headless CLI
+ amber runs an agent loop against any OpenAI-compatible endpoint: the model
+ reads and writes files, searches the project and runs approval-gated commands
+ while the session, context and tool output are rendered in place.
+ .
+ This package carries the runtime: the full-screen client (amber), the headless
+ client (amber-cli), the bundled plugins and the data tree they read at startup.
+
+Package: amber-agent-dev
+Section: libdevel
+Architecture: any
+Depends: amber-agent (= ${binary:Version}), ${misc:Depends}
+Description: development files for the amber agent harness
+ Headers, static libraries and the pkg-config file needed to build a tool, a
+ plugin or an embedding application against the amber core.
+ .
+ Build with: pkg-config --cflags --libs amber-agent
+
+Package: amber-agent-bench
+Section: devel
+Architecture: any
+Depends: amber-agent (= ${binary:Version}), ${shlibs:Depends}, ${misc:Depends}
+Description: benchmark and KPI harness for the amber agent
+ amber-bench runs scenario suites against the harness and scores the result.
+ Hermetic runs use a deterministic fake model, so they are safe in CI; live runs
+ target any OpenAI-compatible endpoint.
+ .
+ The package ships the scenario corpus and the model profiles, which the harness
+ resolves from the install prefix rather than the working directory.
+
+Package: amber-agent-release
+Section: admin
+Architecture: all
+Depends: ${misc:Depends}
+Description: signed package repository configuration for amber-agent
+ Installs the archive signing key at
+ /usr/share/keyrings/amber-agent-archive-keyring.gpg and the deb822 source
+ definition with a Signed-By that points at it.
+ .
+ Installing this package and running "apt-get update" is equivalent to what the
+ published install script does, without fetching a script first.

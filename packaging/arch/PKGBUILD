@@ -1,32 +1,31 @@
 # Maintainer: Jacek Trefon
-# Builds amber from the v0.3.1 release tag. When bumping for a new release:
-#   1. set pkgver to the new tag (without the leading v)
-#   2. update the source URL to refs/tags/v${pkgver}
-#   3. replace sha256sums with: curl -sL https://github.com/jtrefon/amber/archive/refs/tags/v${pkgver}.tar.gz | sha256sum
-pkgname=amber
-pkgver=0.3.1
+# Builds amber from the release tag. This recipe is community packaging, not
+# part of the signed apt/rpm channels, and it builds from the tag rather than a
+# release tarball so there is no checksum to forget when the version moves.
+pkgname=amber-agent
+pkgver=0.8.0
 pkgrel=1
-pkgdesc="C++17 AI agent harness for Linux: BitchX-style TUI, headless CLI, portable agent library"
+pkgdesc="C++17 AI agent harness: ncurses client, headless CLI, plugin runtime and benchmark harness"
 arch=('x86_64')
 url="https://github.com/jtrefon/amber"
 license=('Apache-2.0')
 depends=('curl' 'ncurses')
-makedepends=('base-devel')
-source=("amber-${pkgver}.tar.gz::https://github.com/jtrefon/amber/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('5db45086335fabd9c2864ccc99f1f3db6a8dee3d5275a6eb30ae89022a66c374')
+makedepends=('base-devel' 'git')
+source=("git+https://github.com/jtrefon/amber.git#tag=v${pkgver}")
+sha256sums=('SKIP')
 
 build() {
-  cd "amber-${pkgver}"
-  ./configure --prefix=/usr
+  cd amber
+  ./configure --prefix=/usr --libexecdir=/usr/lib --mandir=/usr/share/man
   make
 }
 
 check() {
-  cd "amber-${pkgver}"
+  cd amber
   make test
 }
 
 package() {
-  cd "amber-${pkgver}"
+  cd amber
   make install DESTDIR="${pkgdir}"
 }

@@ -1,0 +1,5 @@
+# Adding a third-party apt source is the entire purpose of this package. The
+# lintian tag exists so a package in Debian's own archive cannot add one behind
+# the archive's back; this package is published from the repository it
+# describes, and every user installs it deliberately.
+amber-agent-release: package-installs-apt-sources

@@ -33,8 +33,16 @@ class Amber < Formula
     (include/"agent").install Dir["include/agent/*.h"]
     (include/"nlohmann").install "include/nlohmann/json.hpp"
 
-    # Data files (prompts, completions, plugins).
+    # Data files (prompts, completions, keybindings, shelf tables).
     share.install "share/amber"
+
+    # Plugin executables moved out of share/ into libexec/ with the 0.8.0
+    # install split, because they are architecture-dependent; the bench corpus
+    # moved beside the data tree. Both are guarded so this formula still
+    # installs a tarball built before that split.
+    libexec.install "libexec/amber" if Dir.exist?("libexec/amber")
+    share.install "share/amber-bench" if Dir.exist?("share/amber-bench")
+    man1.install Dir["share/man/man1/*.1"] unless Dir["share/man/man1/*.1"].empty?
   end
 
   test do

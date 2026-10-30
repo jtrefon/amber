@@ -1,6 +1,8 @@
 
 #include "agent/data_path.h"
 
+#include "agent/version.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -121,7 +123,10 @@ std::vector<std::string> data_file_candidates(const std::string& path, const cha
         add_if_unique(out, home + "/.local/share/amber", path);
         add_if_unique(out, home + "/.config/amber", path);
     }
-    // 5. System data dirs.
+    // 5. System data dirs. The compiled-in one is where a package put the tree;
+    //    the two literals keep relocatable and hand-built installs working.
+    if (agent::kDataDir[0])
+        add_if_unique(out, agent::kDataDir, path);
     add_if_unique(out, "/usr/local/share/amber", path);
     add_if_unique(out, "/usr/share/amber", path);
     return out;
