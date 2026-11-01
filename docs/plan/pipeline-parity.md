@@ -1,8 +1,7 @@
 # Pipeline parity: make the gates the standard, and the standard the gates
 
-Status: phase 0 and phase 1 implemented on `feat/pipeline-parity` (draft PR
-#504); phases 2–3 proposed. Owner: engineering. Scope: CI, gate tooling,
-`AGENTS.md`. Started: 2026-11-01.
+Status: phases 0–3 implemented on `feat/pipeline-parity` (draft PR #504).
+Owner: engineering. Scope: CI, gate tooling, `AGENTS.md`. Started: 2026-11-01.
 
 ## Problem
 
@@ -194,6 +193,9 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
 | PP-15 | layering, detach, SPDX, prompt, TDD, benchmark rules ungated | high | 3 |
 | PP-16 | stale counts in `AGENTS.md` | low | 0 |
 
+All PP-01 … PP-16 are implemented on this branch except the benchmark half of
+PP-15, which is deliberately manual (see Phase 3).
+
 ## Phases and acceptance criteria
 
 ### Phase 0 (implemented)
@@ -216,20 +218,33 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
 - Gate report enumerates every runnable gate or says "not measured here".
 - Deploy jobs depend on the gates that certify their inputs.
 
-### Phase 2
+### Phase 2 (implemented)
 
-- `make coverage BASE=<ref>` (instrumented rebuild + gcovr + patch gate).
-- Container target with the exact CI pins, so clang-tidy 18 and cppcheck 2.22
-  are reachable everywhere.
-- Split `check` into fast static gates and slow build hygiene; move
-  `library-check` to a content job so a prompt edit fails in minutes.
+- `make coverage BASE=<ref>` (instrumented rebuild + gcovr + patch gate), and
+  `tools/coverage_report.sh` is shared with the CI coverage job, so the filters
+  and both floors cannot drift.
+- `make verify-container` / `make verify-quick-container` run the pinned image
+  in `tools/parity/Dockerfile` (clang-tidy 18, cppcheck 2.22, lizard, gcovr,
+  clang-format), so a host that cannot install an analyzer still has a way to
+  reproduce CI.
+- `check` split into `static-gates` (fast, no build), `content-gates`
+  (prompt-library run blocks) and `build-hygiene` (smoketest + invariants +
+  header self-containment). `make check` still runs the union locally.
 
-### Phase 3
+### Phase 3 (implemented)
 
-- The missing standards gates, each with a fail-closed test and a suppression
-  mechanism where a cliff is not appropriate.
-- Commit/TDD lint advisory for two weeks, then gating for new PRs.
-- Prompt benchmark delta on `prompts/` changes.
+- Layering and first-line boilerplate are part of `make hygiene` (cliffs at
+  zero); `std::thread::detach()` is a ratchet over the five existing sites.
+- `make prompt-lint` enforces the sentence-initial form on agent-facing prompts.
+- `make test-presence` (CI `test-presence`) requires a production change to
+  touch `tests/` or carry `tests-allow: <reason>`.
+- `make commit-lint` (CI `commit-hygiene`, `continue-on-error`) reports
+  scoped-subject violations and the missing `(red)` signal, advisory until the
+  convention is adopted.
+- Prompt benchmark: **deliberately manual.** CI's hermetic bench uses a fake
+  LLM, which cannot measure prompt behavior, and CI has no live model. A green
+  hermetic run would not be evidence about a prompt, so the rule stays a
+  review/manual requirement rather than a gate that looks like one.
 
 ## Non-goals
 
@@ -247,7 +262,8 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
   includes clang-tidy and header self-containment; it is a pre-push command,
   not a per-save hook. `verify` is the pre-review command.
 - **A newer analyzer produces findings CI will not.** That is why doctor treats
-  a major mismatch as a blocker and why Phase 2 adds the container. Do not
+  a major mismatch as a blocker and why `make verify-container` carries the
+  pinned image. Do not
   "fix" findings from an unpinned analyzer without checking which tool CI uses.
 - **A manifest becomes a fourth list unless it is consumed.** Every consumer in
   Phase 1 must import it; a manifest that only documents is the same drift with

@@ -25,9 +25,12 @@ driven by an OpenAI-compatible LLM API.
   deadline for the whole quit path is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000).
   `make check` is the **static gate umbrella**, not the whole pipeline: it runs
   `smoketest`, the `tests/build_hygiene.sh` invariants, the CI job inventory
-  check (`ci-manifest`), class-size, nesting, debt, hygiene and header
-  self-containment, the obfuscation guard, the gate tools' own tests,
-  `library-check`, and a gate report that also runs complexity and duplicates. It does not build the tree or run the tests. Use
+  check (`ci-manifest`), class-size, nesting, debt, detach, prompt-lint,
+  hygiene and header self-containment, the obfuscation guard, the gate tools'
+  own tests, `library-check`, and a gate report that also runs complexity and
+  duplicates. CI runs the same work as three jobs (`static-gates`,
+  `content-gates`, `build-hygiene`), so a class-size or nesting finding returns
+  in minutes instead of queueing behind the header compile. It does not build the tree or run the tests. Use
   `make verify-quick` for the local mirror of the gating static jobs and
   `make verify` for the build/test/analyzer half; `make doctor` reports which
   analyzers cannot reproduce CI on this machine. It also runs
@@ -37,13 +40,12 @@ driven by an OpenAI-compatible LLM API.
   reads file contents, which is how an obfuscated dropper sat in `website/`
   for months with a green build. The CI job has no `if:` — it runs on every
   PR, including docs- and website-only ones.
-- **Measuring coverage (there is no `make coverage`):** rebuild instrumented,
-  `CXXFLAGS="-O0 -g --coverage" make`, then
-  `gcovr --root . --xml-pretty -o coverage.xml` (the recipe the `coverage` job
-  in `.github/workflows/ci.yml` runs). `tools/coverage_gate.py --report
-  <path> --diff-base <ref>` reads that report and **fails closed** without it,
-  so a coverage question asked without this build can only ever be answered
-  "not measured" — say that, rather than re-checking the gate's own tests.
+- **Measuring coverage:** `make coverage BASE=origin/main` performs the
+  instrumented rebuild, runs the tests and then calls
+  `tools/coverage_report.sh` — the same recipe as CI. That recipe is the 80%
+  project floor, the TUI floor and the patch gate; a local run cannot measure a
+  different scope than the CI job. It is destructive (the normal objects are
+  replaced); restore with `./configure && make clean && make`.
 - **`w/` and `.wt/*` are separate git worktrees inside this tree**, not the
   project. They carry their own `run_tests`, `tools/`, and stale test results
   (e.g. `w/`'s `1105 passed, 9 failed`). The repo root is the only source of
@@ -99,7 +101,8 @@ driven by an OpenAI-compatible LLM API.
   unreadable at five levels of nesting while a 40-line straight-line function is
   fine. Both `nesting` and `complexity` share `_lizard_version_check`.
 - `make gate-report` runs the static gates in `GATES_RUN` (complexity, nesting,
-  class-size, debt, hygiene, obfuscation, duplicates) and writes
+  class-size, debt, hygiene, detach, prompt-lint, obfuscation, duplicates) and
+  writes
   `artifacts/GATE_REPORT.md` plus `artifacts/gate-report.json` — one table with
   those verdicts, so "what did the static gates say?" is one file instead of
   six job logs. Every gating job in `tools/gates_manifest.py` appears in that
@@ -125,7 +128,10 @@ driven by an OpenAI-compatible LLM API.
   mirror is invisible: `tests/build_hygiene.sh` **P15** pins the command list so
   the mirror cannot silently shrink. When an analyzer cannot be installed at
   CI's pin, run the gate in the parity container rather than trusting a local
-  result from a different major version.
+  result from a different major version. When clang-tidy 18 or cppcheck 2.22
+  cannot be installed on the host, `make verify-container` runs the full mirror
+  in the pinned image (`tools/parity/Dockerfile`); `make verify-quick-container`
+  is the fast half. `make coverage BASE=<ref>` is the local coverage gate.
 - `make ci-manifest` compares `.github/workflows/ci.yml` with
   `tools/gates_manifest.py`: every job must be in the inventory, every gating
   job must be in `ci-gate.needs`, and every gating job must name a local command
@@ -138,10 +144,13 @@ driven by an OpenAI-compatible LLM API.
   fails the check. It is part of `make check` and `make verify-quick`, so a
   library content edit is gated even when no C++ changed.
 - `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
-  in a header, no raw `new`/`delete` in owned source, and every header compiles on
-  its own. All three measured clean first (0 / 1 acknowledged / 0 failing headers;
-  the self-containment check prints how many it compiled),
-  so there are no baselines — only zero to stay at. A finding is suppressed by
+  in a header, no raw `new`/`delete` in owned source, `lib/` and
+  `include/agent/` do not `#include` from `tui/`, `src/` or `tools/`, and a
+  source file's first line is functional (no SPDX/copyright boilerplate). Every
+  header also compiles on its own. All of these measured clean first (0 / 1
+  acknowledged / 0 layering / 0 boilerplate / 0 failing headers; the
+  self-containment check prints how many it compiled), so there are no baselines
+  — only zero to stay at. A finding is suppressed by
   acknowledging it inline (`// hygiene-allow: private ctor`), matched **on that
   line**: a marker in a paragraph above would otherwise suppress whatever statement
   happened to follow. `--report` counts suppressions.
@@ -150,6 +159,16 @@ driven by an OpenAI-compatible LLM API.
   (it reported 9 broken `tui/` headers once, purely because `NCURSES_CFLAGS` was
   empty locally). `bench/scenarios/` is excluded: that is code the benchmark *agent*
   writes and an oracle scores.
+- `make detach` is a **ratchet** (`tools/detach_gate.py`): the five existing
+  `std::thread::detach()` sites are recorded in `tests/detach_baseline.json`.
+  A new site fails; a reduction can be recorded with `make detach-update`. A
+  detached thread outlives its captures and cannot be joined at shutdown.
+- `make prompt-lint` enforces the prompting philosophy: the agent-facing prompts
+  (`prompts/*.md`, `prompts/tools/`, `prompts/watch/`) must not open a sentence
+  with `never`, `don't`, `do not` or `must`. `prompts/domains/coding/library/`
+  is reference knowledge and is not scoped. The rule is sentence-initial on
+  purpose: "what you do not know, you mark as such" is descriptive and passes;
+  "Do not guess." is a prohibition and fails.
 - `make debt` is a **cliff** (`tools/debt_gate.py`): no TODO/FIXME/HACK/XXX in
   owned C++ source. The tree is already at zero, so it is the cheapest debt
   ratchet there is — nothing to burn down, just stay at zero. A marker is
@@ -260,9 +279,10 @@ suites (no dependency install, so it runs in the `check` job via `make check`)
 for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
 `lint_baseline.py`, `nesting_gate.py`, `debt_gate.py`, `coverage_gate.py`,
 `hygiene_gate.py`, `library_check.py`, `gate_report.py`,
-`duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py` and
-`ci_manifest_check.py` — plus the shared `cpp_source.py` lexer. When you
-change a gate, change its tests in the same commit.
+`duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py`,
+`ci_manifest_check.py`, `detach_gate.py`, `prompt_lint.py`,
+`test_presence_gate.py` and `commit_lint.py` — plus the shared `cpp_source.py`
+lexer. When you change a gate, change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
 degraded measurement, not just on a missing tool:
@@ -416,8 +436,8 @@ Known and deliberate, so nobody re-derives them:
   not. `make doctor` reports a different major as a blocker, because a clean
   local `lint-changed` on another major is not evidence about a finding. Matching
   the runner needs an LLVM 18 toolchain (`brew install llvm@18` and
-  `CLANG_TIDY=/opt/homebrew/opt/llvm@18/bin/clang-tidy`) or the parity container
-  planned in `docs/plan/pipeline-parity.md`.
+  `CLANG_TIDY=/opt/homebrew/opt/llvm@18/bin/clang-tidy`) or
+  `make verify-container` (`tools/parity/Dockerfile`).
 - **Branching needs no separate axis**: CCN is the standard measure of decision
   points, and a branch count would be the same number twice.
 - **`dependabot`: `http-cache-semantics` is open with no patched version.** The
@@ -543,7 +563,12 @@ deferred, see the developer guide's availability table).
   `clang-format -i <files>` on touched code. No comments that restate code.
 - New source files need no copyright/SPDX header, keep the first line functional.
 - Commits: imperative mood, scoped prefixes (e.g. `tui: fix drawer scroll`).
-  Tests for behavior changes go in `tests/run_tests.cpp`.
+  `make commit-lint BASE=origin/main` is advisory (CI `commit-hygiene`,
+  continue-on-error) until the convention is adopted; it also warns when
+  production changed without a `(red)` commit.
+- Tests for behaviour changes go in the suite under `tests/` (the per-area
+  `*_test.cpp`); `make test-presence` enforces that a production change touches
+  the suite or carries `tests-allow: <reason>`.
 
 ## Security model (treat LLM output as untrusted)
 
@@ -1017,10 +1042,15 @@ Every PR reviewer MUST verify:
 Prompts are **descriptive, not prohibitive**: describe the role, personality,
 environment and tooling, and empower the agent to work, never force or
 forbid behavior ("never", "don't", "must", "do not" are banned from
-`prompts/`). Conventions (like the closing `done` marker) are described as
+`prompts/`). `make prompt-lint` enforces the sentence-initial form;
+`prompts/domains/coding/library/` is reference knowledge and is not scoped.
+Conventions (like the closing `done` marker) are described as
 the natural shape of finished work, not commands. A prompt change is a
 behavior change: prove it with a before/after benchmark run (see
-`BENCHMARK.md` "Prompt v2" section for the template).
+`BENCHMARK.md` "Prompt v2" section for the template). That proof is manual on
+purpose: CI's hermetic bench uses a fake LLM, which cannot measure prompt
+behavior, and there is no live model in CI — a green hermetic run would not be
+evidence about a prompt.
 
 ## Coding standards
 
@@ -1071,6 +1101,10 @@ behavior change: prove it with a before/after benchmark run (see
 - **Coverage threshold**: new code paths must have ≥80% line coverage. The
   coverage job's patch gate (`tools/coverage_gate.py`) enforces it; `make test`
   alone cannot answer it, because the measurement needs an instrumented build.
+- **Test presence is gated**: `make test-presence` (the CI `test-presence` job)
+  fails a change that touches production code without touching `tests/`. A
+  `tests-allow: <reason>` in the PR body or a commit message waives it. The gate
+  cannot prove the test was written first — the commit list still has to.
 - **Hermetic tests**: mock the LLM by testing the pure seams
   (`Dialect::parse_models_response` / `parse_completion` / `context_overflow_hint`,
   `merge_server_info`) directly; do not hit a live server in the unit suite.

@@ -32,7 +32,9 @@ make                 # builds libagent_core.a, libagent_tools.a, amber, amber-cl
 make test            # runs the unit test suite
 make doctor          # names analyzer versions that cannot reproduce CI
 make verify-quick    # every static gate CI runs (pre-push)
-make verify          # verify-quick + build, tests and cppcheck (pre-review)
+make verify          # verify-quick + build, tests, full lint and cppcheck
+make coverage        # instrumented rebuild + the coverage gates (destructive)
+make verify-container # the full mirror in the pinned analyzer image
 ```
 
 The bootstrap `GNUmakefile` will run `./configure` for you if you just run

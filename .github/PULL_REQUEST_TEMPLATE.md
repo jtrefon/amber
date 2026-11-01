@@ -23,6 +23,7 @@ Closes #
 ## Red → Green sequence
 
 - [ ] Each task in this feature has a red (failing) commit before its green fix
+- [ ] A production change touches `tests/`, or this PR carries `tests-allow: <reason>`
 - [ ] Or explain why not: ________________________________
 
 ## Checklist
