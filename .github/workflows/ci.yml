@@ -702,7 +702,15 @@ jobs:
   # latest main is always shippable. Artifacts are stored for 7 days.
   # ---------------------------------------------------------------------------
   cd:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    # `ci-gate` is an `always()` job. A plain `if` on a job that needs it is
+    # evaluated with the skipped PR-only jobs behind it and quietly skips the
+    # delivery job on main (measured: run 41352135767 after #504). `always()`
+    # plus an explicit result check keeps delivery gated without that
+    # interaction.
+    if: >
+      always() &&
+      needs.ci-gate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [changes, ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -771,7 +779,12 @@ jobs:
   # self-contained tarball (binaries + data) for the Homebrew tap.
   # ---------------------------------------------------------------------------
   cd-macos:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    # Same interaction as `cd`: `ci-gate` is an `always()` job, so the
+    # delivery job needs `always()` plus an explicit result check.
+    if: >
+      always() &&
+      needs.ci-gate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [changes, ci-gate]
     runs-on: macos-latest
     timeout-minutes: 90

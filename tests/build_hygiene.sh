@@ -19,6 +19,7 @@
 #   P15 the local verify targets still cover every gating static gate.
 #   P16 coverage is one recipe: make coverage and CI both call the script.
 #   P17 the parity image pins the analyzers CI pins and is wired to a target.
+#   P18 a delivery job that needs the always() aggregator must use always().
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -461,6 +462,27 @@ if make -n verify-container 2>/dev/null | grep -q 'docker run'; then
 else
     warn "P17: verify-container is not wired to docker run"
 fi
+
+# P18
+# `ci-gate` is an `always()` job. A delivery job that needs it with a plain
+# `if:` is skipped on main, because the skip/always interaction is evaluated
+# through the aggregator (measured: run 41352135767 after #504). The job must
+# use `always()` plus an explicit needs result check, so this extracts each
+# delivery job block and requires the `always()` term.
+for job in cd cd-macos; do
+    block=$(awk -v start="  $job:" '
+        $0 == start { inside = 1; next }
+        inside && /^  [A-Za-z0-9_-]+:/ { inside = 0 }
+        inside { print }
+    ' .github/workflows/ci.yml)
+    if echo "$block" | grep -q 'ci-gate'; then
+        if echo "$block" | grep -q 'always()'; then
+            ok "P18: $job guards its ci-gate dependency with always()"
+        else
+            warn "P18: $job needs ci-gate without always(); it is skipped on main"
+        fi
+    fi
+done
 
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
