@@ -1,12 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 Jacek Trefon (www.trefon.com)
-//
+#ifndef AGENT_VERSION_H
+#define AGENT_VERSION_H
+
 // GENERATED FILE - do not edit. Produced by ./configure from
 // include/agent/version.h.in. The version string is sourced from the top-level
 // VERSION file; the build date is stamped at configure time.
-
-#ifndef AGENT_VERSION_H
-#define AGENT_VERSION_H
 
 namespace agent {
 

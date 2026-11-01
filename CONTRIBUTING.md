@@ -30,11 +30,18 @@ sudo apt-get install -y build-essential libcurl4-openssl-dev \
 ./configure          # detects compiler, libcurl, ncursesw
 make                 # builds libagent_core.a, libagent_tools.a, amber, amber-cli
 make test            # runs the unit test suite
+make doctor          # names analyzer versions that cannot reproduce CI
+make verify-quick    # every static gate CI runs (pre-push)
+make verify          # verify-quick + build, tests, full lint and cppcheck
+make coverage        # instrumented rebuild + the coverage gates (destructive)
+make verify-container # the full mirror in the pinned analyzer image
 ```
 
 The bootstrap `GNUmakefile` will run `./configure` for you if you just run
 `make`. Both binaries and `make test` must succeed before a change is merged;
-CI runs the same steps on `g++` and `clang++`.
+CI runs the same steps on `g++` and `clang++`. `make verify-quick` is the
+command that catches the size, hygiene, format, lint, complexity and
+documentation gates before a push; `make verify` is the full local mirror.
 
 ## Coding style
 
@@ -78,7 +85,7 @@ complete, compiled, tested template lives in
 2. Make focused commits with clear messages (imperative mood, e.g.
    "tui: fix drawer scroll").
 3. Add or update tests in `tests/run_tests.cpp` for behavior changes.
-4. Ensure `make && make test` pass locally.
+4. Ensure `make && make test` and `make verify-quick` pass locally.
 5. Open a pull request describing the change and how you verified it.
 
 ### Landing: auto-merge and the merge train

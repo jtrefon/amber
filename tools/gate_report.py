@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Run every gate, collect the verdicts, emit one Markdown and one JSON summary.
+"""Run the static gates, then declare the gating jobs the report did not measure.
 
 The gates already print their verdicts, but into a dozen separate job logs. The
 question a reviewer actually asks is "what did all the gates say?", and answering
-it should not mean opening six runs and grepping. This runs them, records each
-verdict, and writes:
+it should not mean opening six runs and grepping. This runs the static gates,
+records each verdict, and writes:
 
   artifacts/GATE_REPORT.md    the table a human reads
   artifacts/gate-report.json   the same, machine-readable
+
+A gating job that is simply absent from the table reads as "nothing to report".
+Every gating job in `tools/gates_manifest.py` is therefore either measured here
+or listed with `skipped` and the command/reason that says where it is measured
+instead, so the gap is visible rather than implied.
 
 CI uploads both as a build artefact — GitHub's equivalent of an ADO build
 artefact. They are attached to the run, listed on the run page, and downloadable
@@ -30,9 +35,19 @@ import os
 import subprocess
 import sys
 
+import gates_manifest
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PASS, FAIL, ERROR, SKIP = "pass", "fail", "error", "skipped"
+
+# The gating CI jobs that this report actually measures. `static-gates` covers
+# the static gate group (class-size, nesting, debt, hygiene, obfuscation, gate
+# tool tests, ci-manifest); complexity and duplicates are their own jobs *and*
+# their own commands, and obfuscation-guard runs the same `make obfuscation`
+# command as the report's `obfuscation` entry. Every other gating job is listed
+# as skipped with its local command or the reason it is CI-only.
+MEASURED_JOBS = {"static-gates", "complexity", "duplicates", "obfuscation-guard"}
 
 # Every gate that can run without a build. Kept explicit rather than discovered,
 # so adding a gate is a visible edit and a missing entry is a review question.
@@ -41,6 +56,8 @@ COMMANDS = {
     "nesting": ["make", "nesting"],
     "class-size": ["python3", "tools/class_size_gate.py", "--check"],
     "debt": ["make", "debt"],
+    "detach": ["make", "detach"],
+    "prompt-lint": ["make", "prompt-lint"],
     "hygiene": ["python3", "tools/hygiene_gate.py", "--check"],
     "obfuscation": ["python3", "tools/obfuscation_guard.py"],
     "duplicates": ["make", "duplicates"],
@@ -72,6 +89,22 @@ def command_for(name):
     if name not in COMMANDS:
         raise KeyError(f"unknown gate: {name}")
     return list(COMMANDS[name])
+
+
+def not_measured_rows():
+    """Rows for gating jobs this report does not run, with where they run instead.
+
+    A missing row is indistinguishable from "passed" to a reader who counts the
+    table. Every gating job is therefore present: measured here, or skipped with
+    its local command or the reason it is CI-only.
+    """
+    rows = []
+    for job, spec in sorted(gates_manifest.JOBS.items()):
+        if not spec["gating"] or job in MEASURED_JOBS:
+            continue
+        summary = spec.get("local") or spec.get("local_reason") or "not measured here"
+        rows.append({"gate": job, "verdict": SKIP, "summary": summary, "details": ""})
+    return rows
 
 
 def summarise(text):
@@ -106,13 +139,16 @@ def to_markdown(results, detail=True):
     the one thing they came for. It stays in the file and the job log."""
     verdicts = {r["verdict"] for r in results}
     overall = "FAIL" if FAIL in verdicts or ERROR in verdicts else "PASS"
+    counts = (f"{sum(1 for r in results if r['verdict'] == PASS)} pass, "
+              f"{sum(1 for r in results if r['verdict'] == FAIL)} fail, "
+              f"{sum(1 for r in results if r['verdict'] == ERROR)} error")
+    skipped = sum(1 for r in results if r["verdict"] == SKIP)
+    if skipped:
+        counts += f", {skipped} not measured"
     lines = [
         "# Gate report",
         "",
-        f"**Overall: {overall}** "
-        f"({sum(1 for r in results if r['verdict'] == PASS)} pass, "
-        f"{sum(1 for r in results if r['verdict'] == FAIL)} fail, "
-        f"{sum(1 for r in results if r['verdict'] == ERROR)} error)",
+        f"**Overall: {overall}** ({counts})",
         "",
         "| gate | verdict | summary |",
         "|---|---|---|",
@@ -168,6 +204,7 @@ def main():
     for name in names:
         print(f"gate-report: running {name}...", file=sys.stderr)
         results.append(run(name, command_for(name)))
+    results += not_measured_rows()
     write_outputs(results, args.out)
     append_to_summary(args.summary, results)
     for r in results:

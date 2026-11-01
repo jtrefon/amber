@@ -364,7 +364,11 @@ BENCH_BIN = amber-bench
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui bench bench-reap bench-reap-apply check test lint lint-changed lint-baseline-update \
+.PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
+        static-gates content-gates check-build \
+        verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
+        parity-image verify-container verify-quick-container \
+        lint lint-changed lint-baseline-update \
         class-size class-size-update \
         analyze duplicates complexity format-check format-check-changed clean install uninstall
 
@@ -445,6 +449,13 @@ lint-baseline-update:
 	 grep -v "^Suppressed\|^Use -header-filter\|warnings generated" | \
 	 python3 "$(SRC_DIR)/tools/lint_baseline.py" --update
 
+# Base for the incremental gates (`lint-changed`, `format-check-changed`).
+# CI always passes an explicit base. Locally the merge-base with origin/main is
+# the safe default: an empty BASE used to make `format-check-changed` swallow a
+# git error and print "no C++ changes", a green gate that measured nothing.
+BASE ?= $(shell git merge-base HEAD origin/main 2>/dev/null || \
+              git rev-parse --verify HEAD~1 2>/dev/null)
+
 # Incremental lint: only the TUs the change can actually affect.
 # A header change is not a reason to lint the whole tree — tools/affected_tus.py
 # asks the compiler for each TU's real dependency list (-MM: preprocess only, no
@@ -456,6 +467,10 @@ lint-baseline-update:
 # Usage: make lint-changed BASE=origin/main
 # Nothing affected → exits 0 immediately.
 lint-changed:
+	@if [ -z "$(BASE)" ]; then \
+	    echo "lint-changed: BASE is empty (no origin/main, no HEAD~1); pass BASE=<ref>"; \
+	    exit 2; \
+	 fi
 	@echo "clang-tidy (incremental, base=$(BASE))..."
 	@changed=$$(python3 "$(SRC_DIR)/tools/affected_tus.py" \
 	    --base $(BASE) --cxx "$(CXX)" --cxxflags "$(LINT_CXXFLAGS)" $(LINT_SRCS)); \
@@ -702,7 +717,7 @@ nesting-update:
 # job logs. Runs the gates only; it never gates anything itself, so a failure here
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
-GATES_RUN := complexity nesting class-size debt hygiene obfuscation duplicates
+GATES_RUN := complexity nesting class-size debt hygiene detach prompt-lint obfuscation duplicates
 # Writes the two report files and, when running under GitHub Actions, appends the
 # table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
 # Artefacts alone were not enough: they sit in a panel at the very bottom of the
@@ -742,6 +757,33 @@ debt:
 
 debt-report:
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --report
+
+# Detach ratchet: the five existing std::thread::detach() sites are recorded; a
+# new one fails. A reduction can be recorded with `make detach-update`.
+detach:
+	@python3 "$(SRC_DIR)/tools/detach_gate.py" --check
+
+detach-update:
+	@python3 "$(SRC_DIR)/tools/detach_gate.py" --update
+
+detach-report:
+	@python3 "$(SRC_DIR)/tools/detach_gate.py" --report
+
+# The prompting philosophy: describe the role and the environment, do not forbid
+# behaviour. Scoped to the agent-facing prompts; the coding library is reference
+# knowledge and is not held to the same voice.
+prompt-lint:
+	@python3 "$(SRC_DIR)/tools/prompt_lint.py" --check
+
+# The enforceable half of red-first: production code changed without a test
+# change fails unless the PR body or a commit carries `tests-allow: <reason>`.
+test-presence:
+	@python3 "$(SRC_DIR)/tools/test_presence_gate.py" --base $(BASE)
+
+# Advisory: commit subjects and the red-test signal. CI runs this with
+# continue-on-error; it is not a merge gate until the convention is adopted.
+commit-lint:
+	@python3 "$(SRC_DIR)/tools/commit_lint.py" --base $(BASE) --tdd
 
 # Shared by `complexity` and `nesting`: both parse lizard's -w output with a regex
 # and both judge success from that output, never from lizard's exit status.
@@ -819,20 +861,28 @@ format-check:
 # bench/scenarios/ is exempt both here and in format-check: fixture code the
 # benchmark agent edits and oracles score, not project style.
 #
-# The changed set is the merge-base-to-HEAD diff PLUS the staged and unstaged
-# working-tree diffs. Omitting the latter two is a fail-open: BASE...HEAD sees
-# only committed work, so running this on uncommitted changes found nothing to
-# check, printed "no C++ changes, skipping" and exited 0 -- a green gate that
-# measured nothing, on the files being edited. Correct on CI, misleading locally.
+# The changed set is the merge-base-to-HEAD diff PLUS the staged, unstaged and
+# untracked working-tree files. Omitting the first two is a fail-open:
+# BASE...HEAD sees only committed work, so running this on uncommitted changes
+# found nothing to check, printed "no C++ changes, skipping" and exited 0 -- a
+# green gate that measured nothing, on the files being edited. Omitting
+# untracked files has the same shape for a brand-new .cpp. An empty BASE is a
+# hard error rather than a skipped check: git diff with no revision also
+# printed nothing and looked clean.
 #
 # This lives in Makefile.in, not Makefile: Makefile is generated by ./configure and
 # gitignored, so an edit made there is lost the next time configure runs.
 format-check-changed:
+	@if [ -z "$(BASE)" ]; then \
+	    echo "format-check-changed: BASE is empty (no origin/main, no HEAD~1); pass BASE=<ref>"; \
+	    exit 2; \
+	 fi
 	@$(MAKE) --no-print-directory _clang_format_version_check
 	@echo "clang-format (incremental, base=$(BASE))..."
 	@changed=$$( { git diff --name-only $(BASE)...HEAD; \
 	                git diff --name-only --cached HEAD; \
-	                git diff --name-only HEAD; } 2>/dev/null \
+	                git diff --name-only HEAD; \
+	                git ls-files --others --exclude-standard; } 2>/dev/null \
 	             | grep -E '\.(cpp|h)$$' \
 	             | grep -vE 'third_party|bench/scenarios' | sort -u || true); \
 	if [ -z "$$changed" ]; then echo "  no C++ changes, skipping"; exit 0; fi; \
@@ -872,18 +922,140 @@ $(BUILD_DIR)/ws_test: $(WS_TEST_OBJ) $(CDP_WS_OBJ)
 $(BUILD_DIR)/url_test: $(URL_TEST_OBJ) $(CDP_URL_OBJ)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(URL_TEST_OBJ) $(CDP_URL_OBJ)
 
-check: $(BUILD_DIR)/smoketest
+# Doctor: name the toolchain drift a version floor cannot see. A newer analyzer
+# is accepted by every gate's floor check but reports a different check set, so
+# "clean locally" is not evidence about CI. This is deliberately separate from
+# `check`: it reports the environment, it does not gate the tree.
+doctor:
+	@python3 "$(SRC_DIR)/tools/doctor.py"
+
+# The CI job inventory and `ci-gate.needs` must agree with tools/gates_manifest.py.
+# A job added to the workflow and not to the required list reports a check run
+# that nothing judges; this is the only check that sees that omission.
+ci-manifest:
+	@python3 "$(SRC_DIR)/tools/ci_manifest_check.py"
+
+smoketest: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
-	sh $(SRC_DIR)/tests/build_hygiene.sh
+
+# The fast static gate set. CI runs this as its own job so a class-size or
+# nesting finding returns in minutes instead of queueing behind the header
+# compile. `library-check` is separate (`content-gates`) because its `run`
+# blocks need a full toolchain; header self-containment is separate
+# (`check-build`) because it compiles the tree.
+static-gates:
+	@$(MAKE) --no-print-directory ci-manifest
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --check
 	@$(MAKE) --no-print-directory nesting
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
+	@$(MAKE) --no-print-directory detach
+	@$(MAKE) --no-print-directory prompt-lint
 	@$(MAKE) --no-print-directory hygiene
-	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
+	@$(MAKE) --no-print-directory complexity
+	@$(MAKE) --no-print-directory duplicates
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory gates-test
+
+# Prompt-library entries carry executable claims; a stale one is knowledge that
+# no longer works. Kept out of static-gates because the blocks compile code.
+content-gates:
 	@$(MAKE) --no-print-directory library-check
-	@$(MAKE) --no-print-directory gate-report
+
+# The slow build invariants: the smoke test, the Makefile/DAG checks and the
+# header self-containment compile.
+check-build: smoketest
+	sh $(SRC_DIR)/tests/build_hygiene.sh
+	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
+
+# The local umbrella. `check` is not the whole CI surface and never was: it does
+# not run the tests or clang-tidy/cppcheck. Use `verify-quick` for the full
+# static mirror and `verify` for the build/test/analyzer half.
+check: static-gates content-gates check-build gate-report
+
+# Local parity with the gating CI jobs.
+#
+# `verify-quick` is the pre-push loop: every static gate, no build. `verify`
+# adds the build, the unit suite, the full-tree lint CI runs and the independent
+# analyzer. The instrumented coverage gate is deliberately not here: it rebuilds
+# the tree with gcov flags and would clobber the build `verify` just used.
+#
+# The command list is pinned by tests/build_hygiene.sh P15. A gate dropped from
+# here still exits 0 locally, and the only symptom is a red run after the push.
+verify-quick:
+	@echo "verify-quick: static gates (CI parity)"
+	@sh "$(SRC_DIR)/tests/build_hygiene.sh"
+	@$(MAKE) --no-print-directory ci-manifest
+	@$(MAKE) --no-print-directory format-check-changed BASE=$(BASE)
+	@$(MAKE) --no-print-directory lint-changed BASE=$(BASE)
+	@$(MAKE) --no-print-directory test-presence
+	@$(MAKE) --no-print-directory class-size
+	@$(MAKE) --no-print-directory nesting
+	@$(MAKE) --no-print-directory debt
+	@$(MAKE) --no-print-directory detach
+	@$(MAKE) --no-print-directory prompt-lint
+	@$(MAKE) --no-print-directory hygiene
+	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
+	@$(MAKE) --no-print-directory complexity
+	@$(MAKE) --no-print-directory duplicates
+	@$(MAKE) --no-print-directory obfuscation
+	@$(MAKE) --no-print-directory gates-test
+	@$(MAKE) --no-print-directory library-check
+	@echo "verify-quick: clean"
+
+# WERROR=1 matches CI, but make does not track flag changes: a tree already
+# built without it keeps those objects. Use `make clean && make verify` for the
+# from-scratch equivalent. This uses one compiler; CI runs the matrix, so run
+# `make verify CXX=clang++` as well when both matter.
+verify: verify-quick smoketest
+	@echo "verify: build, test and independent analysis (CI parity)"
+	@$(MAKE) --no-print-directory test WERROR=1
+	@$(MAKE) --no-print-directory lint
+	@$(MAKE) --no-print-directory analyze
+	@echo "verify: clean"
+
+# Coverage, locally. CI's coverage job and this target both call
+# tools/coverage_report.sh, so the filters, the 80% project floor, the TUI floor
+# and the patch gate cannot drift between them.
+#
+# This is destructive on purpose: gcov needs every object compiled with
+# --coverage, so the normal build is replaced. Restore it with
+# `./configure && make clean && make`.
+COVERAGE_CXXFLAGS ?= -O0 -g --coverage -std=c++17
+COVERAGE_CFLAGS ?= -O0 -g --coverage -std=c99
+PATCH_COVERAGE_ENFORCE ?= true
+coverage:
+	@if [ -z "$(BASE)" ]; then \
+	    echo "coverage: BASE is empty (no origin/main, no HEAD~1); pass BASE=<ref>"; \
+	    exit 2; \
+	 fi
+	@echo "coverage: instrumented clean rebuild (this replaces the normal objects)"
+	@$(MAKE) --no-print-directory clean
+	@env CXX="$(CXX)" CXXFLAGS="$(COVERAGE_CXXFLAGS)" CFLAGS="$(COVERAGE_CFLAGS)" ./configure
+	@$(MAKE) --no-print-directory -j$(NPROC)
+	@$(MAKE) --no-print-directory test
+	@BASE=$(BASE) PATCH_COVERAGE_ENFORCE=$(PATCH_COVERAGE_ENFORCE) \
+	    sh "$(SRC_DIR)/tools/coverage_report.sh"
+	@echo "coverage: done; run ./configure && make clean && make to restore a normal build"
+
+# Container parity for the analyzers that cannot be installed at CI's pin on the
+# host. `verify-container` runs the full local mirror inside the pinned image.
+PARITY_IMAGE ?= amber-parity:18
+parity-image:
+	@docker build -f "$(SRC_DIR)/tools/parity/Dockerfile" -t $(PARITY_IMAGE) .
+
+verify-container: parity-image
+	@git_common="$$(git rev-parse --git-common-dir 2>/dev/null || true)"; \
+	git_common="$${git_common:+$$(cd "$$git_common" && pwd)}"; \
+	docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+	    $${git_common:+-v "$$git_common:$$git_common"} \
+	    -v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(PARITY_IMAGE) make verify
+
+verify-quick-container: parity-image
+	@git_common="$$(git rev-parse --git-common-dir 2>/dev/null || true)"; \
+	git_common="$${git_common:+$$(cd "$$git_common" && pwd)}"; \
+	docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+	    $${git_common:+-v "$$git_common:$$git_common"} \
+	    -v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(PARITY_IMAGE) make verify-quick
 
 # Obfuscated-payload guard. Every other gate reads a build or a metric; none of
 # them reads file contents, which is how an obfuscated dropper sat in website/
