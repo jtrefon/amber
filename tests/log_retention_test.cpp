@@ -4,6 +4,8 @@
 
 #include "agent/log_retention.h"
 
+#include "agent/config.h"
+
 #include "test_util.h"
 
 #include <fcntl.h>
@@ -59,7 +61,7 @@ struct LogDir {
 
 std::vector<std::string> plan_for(const LogDir& logs, const RetentionPolicy& policy,
                                   const std::vector<std::string>& active = {}) {
-    return plan_log_prune(scan_log_entries(logs.dir.string()), policy, kNow, active);
+    return plan_log_prune(scan_regular_files(logs.dir.string()), policy, kNow, active);
 }
 
 RetentionPolicy policy_of(int days, std::uint64_t max_bytes) {
@@ -134,13 +136,14 @@ TEST(plan_prune_leaves_the_error_journal_alone) {
 
 TEST(scan_logs_skips_symlinks_and_subdirectories) {
     LogDir logs;
-    const std::string outside = logs.add("outside.jsonl", 40, kNow);
+    LogDir elsewhere;
+    const std::string outside = elsewhere.add("outside.jsonl", 40, kNow);
     const fs::path link = logs.dir / "link.jsonl";
     std::filesystem::create_symlink(outside, link);
     std::filesystem::create_directories(logs.dir / "nested");
     logs.add("real.jsonl", 60, kNow);
 
-    const auto entries = scan_log_entries(logs.dir.string());
+    const auto entries = scan_regular_files(logs.dir.string());
     ASSERT_EQ(entries.size(), 1u);
     ASSERT_EQ(entries[0].path, (logs.dir / "real.jsonl").string());
 
@@ -171,7 +174,7 @@ TEST(scan_logs_reports_count_bytes_and_bounds) {
     logs.add("b.jsonl", 20, kNow - 2 * kDay);
     logs.add("c.jsonl", 30, kNow - kDay);
 
-    const LogStats stats = summarize_logs(scan_log_entries(logs.dir.string()));
+    const FileStats stats = summarize_files(scan_regular_files(logs.dir.string()));
     ASSERT_EQ(stats.files, 3u);
     ASSERT_EQ(stats.bytes, 60u);
     ASSERT_EQ(stats.oldest, kNow - 3 * kDay);
@@ -179,7 +182,38 @@ TEST(scan_logs_reports_count_bytes_and_bounds) {
 }
 
 TEST(scan_logs_of_a_missing_directory_is_empty) {
-    const LogStats stats = summarize_logs(scan_log_entries("/nonexistent/amber/logs"));
+    const FileStats stats = summarize_files(scan_regular_files("/nonexistent/amber/logs"));
     ASSERT_EQ(stats.files, 0u);
     ASSERT_EQ(stats.bytes, 0u);
+}
+
+TEST(is_prunable_log_manages_transcripts_and_debug_dumps) {
+    ASSERT_TRUE(is_prunable_log("/state/logs/1797000000000.jsonl"));
+    ASSERT_TRUE(is_prunable_log("/state/logs/debug-1797000000000.log"));
+    // The journal is a deliberate, small record of what went wrong.
+    ASSERT_FALSE(is_prunable_log("/state/logs/errors.jsonl"));
+    // Sessions are user data and live elsewhere; nothing here may match them.
+    ASSERT_FALSE(is_prunable_log("/state/sessions/s1.json"));
+}
+
+// The two settings are the policy's only inputs, and an unset value must keep the
+// default rather than freeze a zero.
+TEST(log_retention_settings_round_trip) {
+    const RetentionPolicy defaults;
+    Config fresh;
+    ASSERT_EQ(fresh.log_retention_policy().days, defaults.days);
+    ASSERT_EQ(fresh.log_retention_policy().max_bytes, defaults.max_bytes);
+
+    fresh.log_retention_days = 30;
+    fresh.log_max_mb = 128;
+    LogDir dir;
+    const std::string path = (dir.dir / "settings").string();
+    ASSERT_TRUE(fresh.save_settings(path));
+
+    Config loaded;
+    loaded.load(path);
+    ASSERT_EQ(loaded.log_retention_days, 30);
+    ASSERT_EQ(loaded.log_max_mb, 128);
+    ASSERT_EQ(loaded.log_retention_policy().days, 30);
+    ASSERT_EQ(loaded.log_retention_policy().max_bytes, 128ull * 1024 * 1024);
 }

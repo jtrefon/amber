@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <string>
+
+#include "agent/log_retention.h"
 #include <map>
 #include <vector>
 #include "agent/process.h"
@@ -187,6 +189,15 @@ struct Config {
     bool compression_target_pct_explicit = false;
     int compression_keep_last_prompts = 0;
     bool compression_keep_last_prompts_explicit = false;
+
+    // Log retention, in the units the command tree speaks: days and megabytes.
+    // 0 means unset, which keeps the policy default; the settable ranges are
+    // 1..3650 days and 1..1048576 MB.
+    int log_retention_days = 0;
+    int log_max_mb = 0;
+
+    // The effective policy: the values above when set, the defaults otherwise.
+    RetentionPolicy log_retention_policy() const;
 
     // Current LLM-call counter, updated by Agent after each chat_once. Used for
     // per-call pacing (memory freshness); the compression cooldown uses
