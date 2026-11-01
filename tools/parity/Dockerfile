@@ -19,12 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       clang \
       clang-format-18 \
       clang-tidy-18 \
+      cmake \
       curl \
       git \
       libcurl4-openssl-dev \
       libncursesw5-dev \
       libpcre3-dev \
       make \
+      ninja-build \
       pkg-config \
       python3 \
       python3-pip \
@@ -46,7 +48,8 @@ RUN curl -fsSL \
     && mkdir -p /tmp/cppcheck \
     && tar -xzf /tmp/cppcheck.tar.gz -C /tmp/cppcheck --strip-components=1 \
     && make -C /tmp/cppcheck -j"$(nproc)" MATCHCOMPILER=yes \
-    && make -C /tmp/cppcheck install \
+         FILESDIR=/usr/share/cppcheck \
+    && make -C /tmp/cppcheck install FILESDIR=/usr/share/cppcheck \
     && rm -rf /tmp/cppcheck /tmp/cppcheck.tar.gz
 
 # Ubuntu ships the versioned names; the Makefile expects the unversioned ones.

@@ -196,7 +196,9 @@ jobs:
   static-gates:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 50 min: the dependency install is bounded at 30 (see install-deps), even
+    # with the slim toolchain; the gates themselves take minutes.
+    timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -233,7 +235,8 @@ jobs:
   content-gates:
     needs: [changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 50 min: the install is bounded at 30 and the library run blocks compile.
+    timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7

@@ -1044,10 +1044,18 @@ parity-image:
 	@docker build -f "$(SRC_DIR)/tools/parity/Dockerfile" -t $(PARITY_IMAGE) .
 
 verify-container: parity-image
-	@docker run --rm -v "$(CURDIR):/src" -w /src $(PARITY_IMAGE) make verify
+	@git_common="$$(git rev-parse --git-common-dir 2>/dev/null || true)"; \
+	git_common="$${git_common:+$$(cd "$$git_common" && pwd)}"; \
+	docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+	    $${git_common:+-v "$$git_common:$$git_common"} \
+	    -v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(PARITY_IMAGE) make verify
 
 verify-quick-container: parity-image
-	@docker run --rm -v "$(CURDIR):/src" -w /src $(PARITY_IMAGE) make verify-quick
+	@git_common="$$(git rev-parse --git-common-dir 2>/dev/null || true)"; \
+	git_common="$${git_common:+$$(cd "$$git_common" && pwd)}"; \
+	docker run --rm --user "$$(id -u):$$(id -g)" -e HOME=/tmp \
+	    $${git_common:+-v "$$git_common:$$git_common"} \
+	    -v "$(CURDIR):$(CURDIR)" -w "$(CURDIR)" $(PARITY_IMAGE) make verify-quick
 
 # Obfuscated-payload guard. Every other gate reads a build or a metric; none of
 # them reads file contents, which is how an obfuscated dropper sat in website/
