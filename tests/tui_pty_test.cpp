@@ -38,6 +38,7 @@
 #include <utility>
 #include <vector>
 
+#include "agent/config.h"
 #include "agent/model_probe.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
@@ -73,9 +74,6 @@ std::vector<std::string> killed_sessions;
 // so an exit nobody announced is a failure even when the child is not killed:
 // the suite cannot tell a clean quit from one that died halfway.
 std::vector<std::string> sessions_without_exit_ready;
-
-// Distinguishes the sentinel files of concurrent and successive sessions.
-std::atomic<unsigned> exit_ready_serial{0};
 
 // Drop terminal control sequences so assertions can look at rendered text.
 std::string strip_ansi(const std::string& in) {
@@ -118,7 +116,9 @@ struct Tui {
     pid_t pid = -1;
     std::string raw;
     std::string name; // scenario name, reported if the session is force-killed
-    // Where this session's app announces it reached the end of its quit path.
+    // Where this session's app announces it reached the end of its quit path:
+    // the process derives it from its own state dir and pid, so the harness
+    // computes the same string instead of naming a file.
     std::string exit_ready_path;
 
     ~Tui() { stop(); }
@@ -126,13 +126,6 @@ struct Tui {
     bool start(const std::string& binary, const std::string& workspace,
                const std::string& path_prefix = "", int rows = 0, int cols = 0,
                const std::vector<std::string>& extra_args = {}) {
-        // The sentinel is the harness's exit signal. It lives with the fixture,
-        // and a stale file from an earlier run would be read as this run's exit.
-        exit_ready_path = workspace + "/.exit-ready-" + std::to_string(++exit_ready_serial);
-        {
-            std::error_code ignored;
-            fs::remove(exit_ready_path, ignored);
-        }
         std::vector<std::string> argv_strings;
         argv_strings.push_back(binary);
         argv_strings.insert(argv_strings.end(), extra_args.begin(), extra_args.end());
@@ -164,10 +157,10 @@ struct Tui {
             if (slave > STDERR_FILENO)
                 close(slave);
             setenv("TERM", "xterm-256color", 1);
-            // The app writes this file as the last thing it does in main, after
-            // the session and workspace saves. The harness waits for it rather
-            // than assuming how long a save takes on this machine.
-            setenv("AMBER_EXIT_READY_FILE", exit_ready_path.c_str(), 1);
+            // Ask for the exit announcement. The path is not passed: the app
+            // derives it from its own state dir and pid, and the harness below
+            // computes the same one.
+            setenv("AMBER_EXIT_READY", "1", 1);
             // Deliver a lone Esc promptly: ncurses otherwise waits ESCDELAY
             // (1 s by default) to decide it is not an escape-sequence prefix,
             // which would stall the teardown below.
@@ -197,6 +190,10 @@ struct Tui {
         }
         int flags = fcntl(master, F_GETFL, 0);
         fcntl(master, F_SETFL, flags | O_NONBLOCK);
+        // The app derives its announcement from its own cache dir and pid, so
+        // the harness computes the same path instead of naming a file.
+        exit_ready_path =
+            agent::cache_dir() + "/exit-ready-" + std::to_string(static_cast<long>(pid));
         return true;
     }
 
@@ -3126,13 +3123,13 @@ int main(int argc, char** argv) {
     // An exit nobody announced is not a pass: without the sentinel the suite
     // cannot tell a clean quit from one that died inside its own teardown, and
     // a green run would say nothing about the saves that are supposed to have
-    // happened first. AMBER_EXIT_READY_FILE is written by the app as the last
-    // thing it does before main returns.
+    // happened first. The app writes it as the last thing it does before main
+    // returns, at <state dir>/exit-ready-<pid>.
     if (!sessions_without_exit_ready.empty()) {
         for (const std::string& session : sessions_without_exit_ready)
             std::cerr << "FAIL: session '" << session
-                      << "' exited without creating AMBER_EXIT_READY_FILE — the app must "
-                         "announce the end of its quit path\n";
+                      << "' exited without its exit-ready file — the app must announce the end "
+                         "of its quit path\n";
         failed += static_cast<int>(sessions_without_exit_ready.size());
     }
 

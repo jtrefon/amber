@@ -10,8 +10,14 @@ namespace agent {
 // handlers, so a timeout that is too short becomes a silent coverage hole rather
 // than a failure.
 //
-// The path comes from AMBER_EXIT_READY_FILE. It is set only by a harness, and
-// without it this does nothing. Returns whether the announcement was written.
+// AMBER_EXIT_READY turns this on and names nothing: the file is
+// `<cache dir>/exit-ready-<pid>`, derived by the process itself. A caller-chosen
+// path would make the last thing a process does a write anywhere the user can
+// reach, which is not a capability a harness needs. The cache root rather than
+// the project state dir because a session can switch project (a worktree, a
+// project window), and this is about the process, not the project.
+//
+// Returns whether the announcement was written.
 bool announce_exit_ready();
 
 } // namespace agent

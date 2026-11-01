@@ -3063,27 +3063,32 @@ TEST(private_session_file_is_owner_only) {
 
 // The exit announcement is how a harness learns that the app finished its quit
 // path instead of guessing a duration. It exists only when a harness asks for
-// it, so a normal run leaves no file behind, and an unwritable path is a false
-// rather than a crash.
+// it, so a normal run writes no file, and the path is derived from the process's
+// own state directory and pid -- never from the environment.
 TEST(exit_ready_announces_only_when_a_harness_asks) {
     XdgGuard xdg("exit_ready");
-    ::unsetenv("AMBER_EXIT_READY_FILE");
+    ::unsetenv("AMBER_EXIT_READY");
+    const std::string path = agent::cache_dir() + "/exit-ready-" + std::to_string(::getpid());
     ASSERT_FALSE(agent::announce_exit_ready());
+    ASSERT_FALSE(std::filesystem::exists(path));
 
-    const std::string path = xdg.dir + "/exit-ready";
-    std::filesystem::create_directories(xdg.dir);
-    ASSERT_EQ(::setenv("AMBER_EXIT_READY_FILE", path.c_str(), 1), 0);
+    ASSERT_EQ(::setenv("AMBER_EXIT_READY", "1", 1), 0);
     ASSERT_TRUE(agent::announce_exit_ready());
-    std::ifstream in(path);
-    std::string body;
-    std::getline(in, body);
-    ASSERT_EQ(body, std::string("exit-ready"));
-
-    // A path whose parent does not exist is a failed announcement, not a throw.
-    const std::string missing = xdg.dir + "/no-such-dir/exit-ready";
-    ASSERT_EQ(::setenv("AMBER_EXIT_READY_FILE", missing.c_str(), 1), 0);
-    ASSERT_FALSE(agent::announce_exit_ready());
-    ::unsetenv("AMBER_EXIT_READY_FILE");
+    {
+        std::ifstream in(path);
+        std::string body;
+        std::getline(in, body);
+        ASSERT_EQ(body, std::string("exit-ready"));
+    }
+    // Asking twice rewrites rather than appends: the file is a flag, not a log.
+    ASSERT_TRUE(agent::announce_exit_ready());
+    {
+        std::ifstream in(path);
+        std::string body;
+        std::getline(in, body);
+        ASSERT_EQ(body, std::string("exit-ready"));
+    }
+    ::unsetenv("AMBER_EXIT_READY");
 }
 
 TEST(private_transcript_is_owner_only) {
