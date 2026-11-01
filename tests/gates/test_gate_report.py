@@ -13,6 +13,7 @@ from unittest import mock
 from harness import load
 
 gr = load("gate_report")
+manifest = load("gates_manifest")
 
 PASS, FAIL, ERROR, SKIP = "pass", "fail", "error", "skipped"
 
@@ -115,6 +116,23 @@ class Invocation(unittest.TestCase):
         for name in ("complexity", "nesting", "class-size", "debt", "hygiene",
                      "obfuscation", "duplicates"):
             self.assertIn(name, gr.COMMANDS, name)
+
+
+class NotMeasured(unittest.TestCase):
+    """The report is a build artefact a reviewer trusts. A gating job that is
+    simply absent reads as "nothing to report"; it must say "not measured here"
+    and why, so the gap is visible instead of implied."""
+
+    def test_every_gating_job_is_measured_or_declared(self):
+        gating = {job for job, row in manifest.JOBS.items() if row["gating"]}
+        declared = {row["gate"] for row in gr.not_measured_rows()}
+        self.assertEqual(declared | gr.MEASURED_JOBS, gating)
+        self.assertFalse(declared & gr.MEASURED_JOBS)
+
+    def test_each_declaration_names_its_local_command_or_reason(self):
+        for row in gr.not_measured_rows():
+            self.assertEqual(row["verdict"], SKIP, row["gate"])
+            self.assertTrue(row["summary"], row["gate"])
 
 
 class StepSummary(unittest.TestCase):
