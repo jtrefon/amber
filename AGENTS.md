@@ -19,13 +19,12 @@ driven by an OpenAI-compatible LLM API.
   end-to-end by `tui_pty_test`, which re-runs itself with
   `./tui_pty_test ./amber --repeat N` (each pass a fresh process) and refuses to
   pass when a session had to be SIGKILLed: a killed child never flushes gcov,
-  so a green run would still report `tui/` as 0% covered. The app announces the
-  end of its quit path by creating `<cache dir>/exit-ready-<pid>` when
-  `AMBER_EXIT_READY` is set (the flag names no path; the process derives it), and
-  the harness's deadline for that is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000).
+  so a green run would still report `tui/` as 0% covered. With `AMBER_EXIT_READY`
+  set, the app prints `[amber] exit-ready` on the pty as the last thing it does;
+  the harness treats a session that exits without that marker as failed, and its
+  deadline for the whole quit path is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000).
   `make check` is a separate, lighter gate (`smoketest` +
-  `tests/build_hygiene.sh` build
-  invariants), do not confuse the two. It also runs
+  `tests/build_hygiene.sh` build invariants), do not confuse the two. It also runs
   `tools/obfuscation_guard.py`, which scans tracked files for the signature of
   an injected payload (obfuscator markers, or a single line of code longer
   than 500 chars): every other gate reads a build or a metric, none of them

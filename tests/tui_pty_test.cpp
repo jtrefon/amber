@@ -39,6 +39,7 @@
 #include <vector>
 
 #include "agent/config.h"
+#include "agent/exit_ready.h"
 #include "agent/model_probe.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
@@ -116,10 +117,6 @@ struct Tui {
     pid_t pid = -1;
     std::string raw;
     std::string name; // scenario name, reported if the session is force-killed
-    // Where this session's app announces it reached the end of its quit path:
-    // the process derives it from its own state dir and pid, so the harness
-    // computes the same string instead of naming a file.
-    std::string exit_ready_path;
 
     ~Tui() { stop(); }
 
@@ -190,10 +187,6 @@ struct Tui {
         }
         int flags = fcntl(master, F_GETFL, 0);
         fcntl(master, F_SETFL, flags | O_NONBLOCK);
-        // The app derives its announcement from its own cache dir and pid, so
-        // the harness computes the same path instead of naming a file.
-        exit_ready_path =
-            agent::cache_dir() + "/exit-ready-" + std::to_string(static_cast<long>(pid));
         return true;
     }
 
@@ -294,12 +287,11 @@ struct Tui {
         pump(kPumpMs);
     }
 
-    // Ask the app to quit, then wait for it to say it is done: the sentinel is
-    // written after the terminal is restored and the sessions are saved, so its
-    // presence is evidence rather than an assumption. Draining throughout is
-    // what lets a blocked-on-write app read the quit key at all. The chord is
-    // repeated while waiting: a modal that was mid-transition when Ctrl+C
-    // arrived swallows it, and a second Esc closes it, which is the race the
+    // Ask the app to quit, then drain until it is gone. Draining is what lets a
+    // blocked-on-write app read the quit key at all, and the reap is the event
+    // that ends the wait: atexit runs after it, which is where gcov flushes. The
+    // chord is repeated while waiting because a modal that was mid-transition
+    // when Ctrl+C arrived swallows it, and a second Esc closes it -- the race the
     // old single-shot fixed budget lost on a loaded runner.
     void wait_for_quit() {
         const int timeout_ms = exit_timeout_ms();
@@ -313,19 +305,13 @@ struct Tui {
                 dismiss_modal();
                 write_raw("\x03");
             }
-            if (exit_ready_path.empty() || !fs::exists(exit_ready_path))
-                continue;
-            // Announced: the remaining work is the atexit flush, which cannot
-            // finish while the pty buffer is full. Keep draining until it is
-            // reaped, sharing the same deadline.
-            for (int left = timeout_ms - waited; left > 0; left -= kPumpMs) {
-                pump(kPumpMs);
-                if (reap_if_exited())
-                    return;
-            }
-            return;
         }
     }
+
+    // The app writes this after the terminal is restored and the sessions are
+    // saved. Its presence is evidence the quit path ran; a session that exits
+    // without it died inside its own teardown.
+    bool exit_ready_seen() const { return raw.find(agent::kExitReadyMarker) != std::string::npos; }
 
     std::string text() const { return strip_ansi(raw); }
 
@@ -405,11 +391,10 @@ struct Tui {
             }
             pid = -1;
         }
-        // The app announces the end of its quit path by creating the sentinel.
-        // A killed session is already reported; one that exited without it ran
-        // part of its teardown and then died, which is the silent failure this
-        // check exists to turn into a red run.
-        if (!killed && pid < 0 && !exit_ready_path.empty() && !fs::exists(exit_ready_path))
+        // A killed session is already reported; one that exited without the
+        // marker ran part of its teardown and then died, which is the silent
+        // failure this check exists to turn into a red run.
+        if (!killed && pid < 0 && !exit_ready_seen())
             sessions_without_exit_ready.push_back(name.empty() ? "<unnamed>" : name);
     }
 

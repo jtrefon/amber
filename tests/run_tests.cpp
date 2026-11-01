@@ -1,6 +1,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <fcntl.h>
 #include <future>
 #include <thread>
 #include "agent.h"
@@ -3062,32 +3063,30 @@ TEST(private_session_file_is_owner_only) {
 }
 
 // The exit announcement is how a harness learns that the app finished its quit
-// path instead of guessing a duration. It exists only when a harness asks for
-// it, so a normal run writes no file, and the path is derived from the process's
-// own state directory and pid -- never from the environment.
+// path instead of guessing a duration. It is written to the channel the harness
+// already reads, only when a harness asks for it, so a normal run prints nothing.
 TEST(exit_ready_announces_only_when_a_harness_asks) {
     XdgGuard xdg("exit_ready");
+    std::filesystem::create_directories(xdg.dir);
+    const std::string path = xdg.dir + "/exit-ready";
+    auto captured = [&] {
+        std::ifstream in(path);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+
     ::unsetenv("AMBER_EXIT_READY");
-    const std::string path = agent::cache_dir() + "/exit-ready-" + std::to_string(::getpid());
-    ASSERT_FALSE(agent::announce_exit_ready());
-    ASSERT_FALSE(std::filesystem::exists(path));
+    int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_FALSE(agent::announce_exit_ready(fd));
+    ::close(fd);
+    ASSERT_EQ(captured(), std::string(""));
 
     ASSERT_EQ(::setenv("AMBER_EXIT_READY", "1", 1), 0);
-    ASSERT_TRUE(agent::announce_exit_ready());
-    {
-        std::ifstream in(path);
-        std::string body;
-        std::getline(in, body);
-        ASSERT_EQ(body, std::string("exit-ready"));
-    }
-    // Asking twice rewrites rather than appends: the file is a flag, not a log.
-    ASSERT_TRUE(agent::announce_exit_ready());
-    {
-        std::ifstream in(path);
-        std::string body;
-        std::getline(in, body);
-        ASSERT_EQ(body, std::string("exit-ready"));
-    }
+    fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_TRUE(agent::announce_exit_ready(fd));
+    ::close(fd);
+    ASSERT_TRUE(captured().find(agent::kExitReadyMarker) != std::string::npos);
     ::unsetenv("AMBER_EXIT_READY");
 }
 
