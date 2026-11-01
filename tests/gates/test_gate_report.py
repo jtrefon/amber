@@ -113,8 +113,8 @@ class Invocation(unittest.TestCase):
     def test_the_expected_gates_are_registered(self):
         """Named rather than discovered, so a gate added to `make check` but not
         here shows up as a diff in this file instead of silently going unreported."""
-        for name in ("complexity", "nesting", "class-size", "debt", "hygiene",
-                     "obfuscation", "duplicates"):
+        for name in ("complexity", "nesting", "class-size", "debt", "detach",
+                     "prompt-lint", "hygiene", "obfuscation", "duplicates"):
             self.assertIn(name, gr.COMMANDS, name)
 
 

@@ -91,6 +91,57 @@ class RawMemory(unittest.TestCase):
         self.assertEqual(hg.raw_memory_findings(source), [])
 
 
+class Layering(unittest.TestCase):
+    """`lib/` and `include/agent/` are the core; the dependency arrow points in."""
+
+    def test_core_may_not_include_a_ui(self):
+        self.assertEqual(len(hg.layering_findings("lib/a.cpp", '#include "tui/tui.h"\n')), 1)
+
+    def test_core_may_not_include_a_client_or_adapter(self):
+        for include in ('#include "src/main.h"', '#include "tools/read_tool.h"',
+                        '#include <tools/search/semantic_index.h>'):
+            self.assertEqual(len(hg.layering_findings("lib/a.cpp", include + "\n")), 1,
+                             include)
+
+    def test_core_may_include_its_own_ports(self):
+        self.assertEqual(hg.layering_findings("lib/a.cpp", '#include "agent/tool.h"\n'), [])
+
+    def test_an_adapter_may_include_the_core(self):
+        self.assertEqual(hg.layering_findings("tui/a.cpp", '#include "include/agent/tool.h"\n'), [])
+
+    def test_include_agent_is_checked_too(self):
+        self.assertEqual(
+            len(hg.layering_findings("include/agent/x.h", '#include "tui/tui.h"\n')), 1)
+
+    def test_a_commented_include_is_not_an_include(self):
+        self.assertEqual(hg.layering_findings("lib/a.cpp", '// #include "tui/tui.h"\n'), [])
+
+    def test_acknowledged_include_is_allowed(self):
+        self.assertEqual(
+            hg.layering_findings(
+                "lib/a.cpp", f'#include "tui/tui.h"  // {ALLOW} bootstrap\n'), [])
+
+
+class FirstLine(unittest.TestCase):
+    def test_spdx_boilerplate_is_flagged(self):
+        found = hg.spdx_findings("// SPDX-License-Identifier: Apache-2.0\n")
+        self.assertEqual(len(found), 1)
+
+    def test_copyright_boilerplate_is_flagged(self):
+        self.assertEqual(len(hg.spdx_findings("// Copyright 2026 Someone\n")), 1)
+
+    def test_a_functional_first_line_is_clean(self):
+        self.assertEqual(hg.spdx_findings('#include <string>\n'), [])
+
+    def test_boilerplate_after_the_first_line_is_not_this_rule(self):
+        self.assertEqual(
+            hg.spdx_findings('#include <string>\n// SPDX-License-Identifier: X\n'), [])
+
+    def test_acknowledged_first_line_is_allowed(self):
+        self.assertEqual(
+            hg.spdx_findings(f"// Copyright X  // {ALLOW} vendored\n"), [])
+
+
 class SuppressionCounting(unittest.TestCase):
     """A gate with no escape hatch gets worked around by deleting the code."""
 
