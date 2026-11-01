@@ -11,6 +11,13 @@ that can be checked without a compiler, plus the one that needs one:
   raw-memory        "Never use raw new/delete" (AGENTS.md, Coding standards).
                     Ownership follows RAII, so a bare `new` in project code is a
                     leak or an exception-safety bug waiting to happen.
+  layering          `lib/` and `include/agent/` are the domain core and must not
+                    include from `tui/`, `src/` or `tools/` (AGENTS.md,
+                    "Layering / isolation"). The dependency arrow points inward.
+  first-line        A new source file's first line is functional; license and
+                    copyright boilerplate does not belong at the top. This is
+                    a content rule, not a legal one: the repository license is
+                    the LICENSE file.
 
   self-contained    `--check-self-contained` compiles each header on its own, with
                     the exact flags the build uses (passed in by the Makefile -- it
@@ -69,6 +76,13 @@ USING_NAMESPACE = re.compile(r"^\s*using\s+namespace\b")
 RAW_NEW = re.compile(r"\bnew\b")
 RAW_DELETE = re.compile(r"\bdelete\b")
 EQUALS_DELETE = re.compile(r"=\s*delete\b")
+
+# The domain core. A file under these prefixes may depend on other core headers
+# and on the standard library, never on an adapter or a UI.
+CORE_PREFIXES = ("lib/", "include/agent/")
+LAYERING_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](tui|src|tools)/')
+HEADER_BOILERPLATE = re.compile(r"^\s*(?://|/\*|\*)?\s*(?:SPDX-|Copyright\b)",
+                                re.IGNORECASE)
 
 
 def is_excluded(rel):
@@ -134,6 +148,37 @@ def raw_memory_findings(source):
     return out
 
 
+def layering_findings(rel, source):
+    """(line_number, text) for core files reaching into an adapter or UI."""
+    if not rel.startswith(CORE_PREFIXES):
+        return []
+    out = []
+    for number, (line, original) in enumerate(paired_lines(source), start=1):
+        if acknowledged(original):
+            continue
+        # The include path is a string literal, so `strip_noise` blanks it. Use
+        # the structural line only to prove the `#include` token is code (not a
+        # commented-out include), then match the path on the original.
+        if "#include" not in line:
+            continue
+        if LAYERING_INCLUDE.match(original):
+            out.append((number, original.strip()))
+    return out
+
+
+def spdx_findings(source):
+    """(1, text) when the first line is license/copyright boilerplate."""
+    lines = source.split("\n")
+    if not lines:
+        return []
+    first = lines[0]
+    if acknowledged(first):
+        return []
+    if HEADER_BOILERPLATE.match(first):
+        return [(1, first.strip())]
+    return []
+
+
 def scan():
     """(findings, suppressions, files scanned)."""
     findings, suppressions = {}, 0
@@ -148,6 +193,8 @@ def scan():
         if rel.endswith((".h", ".hpp")):
             hits += using_namespace_findings(source)
         hits += raw_memory_findings(source)
+        hits += layering_findings(rel, source)
+        hits += spdx_findings(source)
         if hits:
             findings[rel] = hits
     return findings, suppressions, scanned
@@ -217,7 +264,7 @@ def check_self_contained(cxx=None, cxxflags=None, verbose=True):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     group = ap.add_mutually_exclusive_group(required=True)
-    group.add_argument("--check", action="store_true", help="gate: no using-namespace, no raw new/delete")
+    group.add_argument("--check", action="store_true", help="gate: no using-namespace, raw new/delete, layering or boilerplate finding")
     group.add_argument("--check-self-contained", action="store_true",
                        help="gate: every header compiles on its own (needs the toolchain)")
     group.add_argument("--report", action="store_true", help="list findings and exceptions")

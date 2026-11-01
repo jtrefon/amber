@@ -52,17 +52,35 @@ JOBS = {
         "gating": True,
         "local": "make lint",
     },
+    "test-presence": {
+        "dimension": "cpp",
+        "events": PR_ONLY,
+        "gating": True,
+        "local": "make test-presence",
+    },
     "analyze": {
         "dimension": "cpp",
         "events": ALL_EVENTS,
         "gating": True,
         "local": "make analyze",
     },
-    "check": {
+    "static-gates": {
         "dimension": "cpp",
         "events": ALL_EVENTS,
         "gating": True,
-        "local": "make check",
+        "local": "make static-gates",
+    },
+    "content-gates": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make content-gates",
+    },
+    "build-hygiene": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make check-build",
     },
     "complexity": {
         "dimension": "cpp",
@@ -93,14 +111,14 @@ JOBS = {
         "events": ALL_EVENTS,
         "gating": True,
         "local": None,
-        "local_reason": "needs an ASan/UBSan rebuild; parity container lands in phase 2",
+        "local_reason": "needs an ASan/UBSan rebuild; use the parity container or CI",
     },
     "tsan": {
         "dimension": "cpp",
         "events": ALL_EVENTS,
         "gating": True,
         "local": None,
-        "local_reason": "needs a TSan rebuild; parity container lands in phase 2",
+        "local_reason": "needs a TSan rebuild; use the parity container or CI",
     },
     "secret-scan": {
         "dimension": "always",
@@ -119,8 +137,7 @@ JOBS = {
         "dimension": "cpp",
         "events": ALL_EVENTS,
         "gating": True,
-        "local": None,
-        "local_reason": "instrumented rebuild; `make coverage` lands in phase 2",
+        "local": "make coverage",
     },
     "build-and-test": {
         "dimension": "cpp",
@@ -172,6 +189,12 @@ JOBS = {
         "events": ALL_EVENTS,
         "gating": False,
         "reason": "aggregator; not aggregated into itself",
+    },
+    "commit-hygiene": {
+        "dimension": "always",
+        "events": PR_ONLY,
+        "gating": False,
+        "reason": "advisory: the commit convention is not yet adopted consistently",
     },
 }
 

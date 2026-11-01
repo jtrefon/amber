@@ -55,10 +55,13 @@ ALL_JOBS = (
     "obfuscation-guard",
     "secret-scan",
     "lint",
+    "test-presence",
     "build-and-test",
     "build-and-test-macos",
     "analyze",
-    "check",
+    "static-gates",
+    "content-gates",
+    "build-hygiene",
     "complexity",
     "duplicates",
     "format-check",
@@ -72,12 +75,12 @@ ALL_JOBS = (
 # The fixture partitions ALL_JOBS so a job cannot be silently unclassified. `lint`
 # is both cpp and pull_request-only; it lives in PR_ONLY_JOBS, not CPP_JOBS, so
 # the four tuples are disjoint.
-CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "check",
-            "complexity", "duplicates", "format-check", "sanitizers", "tsan",
-            "fuzz", "coverage")
+CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "static-gates",
+            "content-gates", "build-hygiene", "complexity", "duplicates",
+            "format-check", "sanitizers", "tsan", "fuzz", "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
-PR_ONLY_JOBS = ("dependency-review", "lint")
+PR_ONLY_JOBS = ("dependency-review", "lint", "test-presence")
 
 NOT_APPLICABLE = {"skipped", "neutral"}
 

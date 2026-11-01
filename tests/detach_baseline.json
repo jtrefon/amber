@@ -1,0 +1,10 @@
+{
+  "_comment": "Existing std::thread::detach() call sites. The rule is no NEW detach: an unjoined thread outliving its owner is how a use-after-free or a shutdown hang starts. Fixing these is separate work; a reduction can be recorded with `make detach-update`, and this file can only shrink.",
+  "files": {
+    "lib/model_probe.cpp": 1,
+    "lib/plugin_runtime.cpp": 1,
+    "lib/provider_health.cpp": 1,
+    "tui/render_engine.cpp": 1,
+    "tui/tui_workspace.cpp": 1
+  }
+}

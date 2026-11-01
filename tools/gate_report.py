@@ -41,14 +41,13 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PASS, FAIL, ERROR, SKIP = "pass", "fail", "error", "skipped"
 
-# The gating CI jobs that this report actually measures. `check` covers the
-# static gate group (class-size, nesting, debt, hygiene, obfuscation, gate tool
-# tests, library-check, ci-manifest); complexity and duplicates are their own
-# jobs *and* their own commands, and obfuscation-guard runs the same
-# `make obfuscation` command as the report's `obfuscation` entry. Every other
-# gating job is listed as skipped with its local command or the reason it is
-# CI-only.
-MEASURED_JOBS = {"check", "complexity", "duplicates", "obfuscation-guard"}
+# The gating CI jobs that this report actually measures. `static-gates` covers
+# the static gate group (class-size, nesting, debt, hygiene, obfuscation, gate
+# tool tests, ci-manifest); complexity and duplicates are their own jobs *and*
+# their own commands, and obfuscation-guard runs the same `make obfuscation`
+# command as the report's `obfuscation` entry. Every other gating job is listed
+# as skipped with its local command or the reason it is CI-only.
+MEASURED_JOBS = {"static-gates", "complexity", "duplicates", "obfuscation-guard"}
 
 # Every gate that can run without a build. Kept explicit rather than discovered,
 # so adding a gate is a visible edit and a missing entry is a review question.
@@ -57,6 +56,8 @@ COMMANDS = {
     "nesting": ["make", "nesting"],
     "class-size": ["python3", "tools/class_size_gate.py", "--check"],
     "debt": ["make", "debt"],
+    "detach": ["make", "detach"],
+    "prompt-lint": ["make", "prompt-lint"],
     "hygiene": ["python3", "tools/hygiene_gate.py", "--check"],
     "obfuscation": ["python3", "tools/obfuscation_guard.py"],
     "duplicates": ["make", "duplicates"],
