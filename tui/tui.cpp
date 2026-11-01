@@ -657,6 +657,10 @@ void Tui::run_startup(CommandLine& cl) {
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     cl.set_history(win().prompt_history);
     refresh_completion_context(cl);
+
+    // After the first paint, never before it: retention is housekeeping, and a
+    // directory walk is not a reason to delay the UI.
+    log_retention_.start(true);
 }
 
 // Completion context from the command tree. This is the SINGLE source of
@@ -733,19 +737,26 @@ bool Tui::pump_io(CommandLine& cl) {
     return had_events;
 }
 
-bool Tui::resource_ever_focused(const std::string& kind, const std::string& id) const {
-    for (const auto& window : window_manager_->all())
+namespace {
+
+// Whether a resource viewer for this work was ever focused: a focused viewer
+// keeps its final output instead of closing with the work.
+bool resource_ever_focused(const WindowManager& windows, const std::string& kind,
+                           const std::string& id) {
+    for (const auto& window : windows.all())
         if (window->kind == Window::Kind::Resource && window->resource_kind == kind &&
             window->resource_id == id)
             return window->ever_focused;
     return false;
 }
 
+} // namespace
+
 void Tui::auto_attach_resources() {
     const auto steps =
         plan_auto_attach(cfg_.work_auto_attach, jobs_.list(), subagents_.tasks(), auto_attached_,
                          [this](const std::string& kind, const std::string& id) {
-                             return resource_ever_focused(kind, id);
+                             return resource_ever_focused(*window_manager_, kind, id);
                          });
     for (const auto& step : steps) {
         if (step.action == AutoAttachStep::Action::Open) {
@@ -794,6 +805,8 @@ void Tui::idle_tick(bool had_events, CommandLine& cl) {
             router_->advance_tool_spinners();
             auto_attach_resources();
             poll_watch_usage();
+            log_retention_.poll();
+            log_retention_.start(false);
             if (runs_.any_busy())
                 render_engine_->draw();
             else

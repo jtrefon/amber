@@ -492,6 +492,77 @@ void SlashDispatcher::cmd_get_config_paths() {
     }
 }
 
+namespace {
+
+std::string mb_text(std::uint64_t bytes) {
+    return std::to_string(bytes / (1024ull * 1024ull)) + " MB";
+}
+
+// Local date, or "none" for an empty directory: the readout is for a human
+// deciding whether the policy is doing the right thing.
+std::string date_text(std::time_t when) {
+    if (when == 0)
+        return "none";
+    std::tm tm{};
+    localtime_r(&when, &tm);
+    char buf[32];
+    if (std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm) == 0)
+        return "unknown";
+    return buf;
+}
+
+} // namespace
+
+void SlashDispatcher::cmd_logs_get() {
+    const agent::RetentionPolicy policy = tui_.cfg_.log_retention_policy();
+    const std::string dir = agent::Workspace::state_dir() + "/logs";
+    const agent::FileStats logs = agent::summarize_files(agent::scan_regular_files(dir));
+    const std::string sessions_dir = agent::Workspace::state_dir() + "/sessions";
+    const agent::FileStats sessions =
+        agent::summarize_files(agent::scan_regular_files(sessions_dir));
+    tui_.append_line(P_STATUS, "  logs        " + dir);
+    tui_.append_line(P_STATUS, "  files       " + std::to_string(logs.files) + " (" +
+                                   mb_text(logs.bytes) + "), oldest " + date_text(logs.oldest) +
+                                   ", newest " + date_text(logs.newest));
+    tui_.append_line(P_STATUS, "  retention: " + std::to_string(policy.days) + " days");
+    tui_.append_line(P_STATUS,
+                     "  cap: " + std::to_string(policy.max_bytes / (1024ull * 1024ull)) + " MB");
+    tui_.append_line(P_STATUS, "  journal     errors.jsonl (kept)");
+    tui_.append_line(P_STATUS, "  sessions:   " + std::to_string(sessions.files) + " files, " +
+                                   mb_text(sessions.bytes) + " (never deleted automatically)");
+}
+
+void SlashDispatcher::cmd_logs_set(const std::string& verb, const std::string& value) {
+    if (verb == "prune") {
+        tui_.log_retention_.start(true);
+        tui_.append_line(P_STATUS, "log retention: started");
+        return;
+    }
+    if (verb == "retention" || verb == "max") {
+        const bool days = verb == "retention";
+        const auto n = text::parse_setting_int(value, 1, days ? 3650 : 1048576);
+        if (!n) {
+            tui_.append_line(P_STATUS, "logs." + verb + ": invalid value (1-" +
+                                           std::to_string(days ? 3650 : 1048576) + "): " + value);
+            return;
+        }
+        if (days)
+            tui_.cfg_.log_retention_days = *n;
+        else
+            tui_.cfg_.log_max_mb = *n;
+        tui_.append_line(P_STATUS, days ? "logs retention: " + std::to_string(*n) + " days"
+                                        : "logs cap: " + std::to_string(*n) + " MB");
+        if (!tui_.cfg_.save_settings(tui_.session_controller_->settings_path()))
+            tui_.append_line(P_STATUS, "warning: could not save to " +
+                                           tui_.session_controller_->settings_path());
+        return;
+    }
+    const agent::RetentionPolicy policy = tui_.cfg_.log_retention_policy();
+    tui_.append_line(P_STATUS, "logs retention: " + std::to_string(policy.days) + " days");
+    tui_.append_line(P_STATUS,
+                     "logs cap: " + std::to_string(policy.max_bytes / (1024ull * 1024ull)) + " MB");
+}
+
 void SlashDispatcher::cmd_get_provider() {
     tui_.append_line(P_STATUS,
                      "provider: " + tui_.cfg_.provider_name + " (" + tui_.cfg_.api_base + ")");
@@ -1647,6 +1718,14 @@ void SlashDispatcher::register_config_set_actions() {
     register_set_engine_actions();
     register_set_policy_actions();
     register_set_feature_actions();
+    register_action("core.config.set.logs",
+                    [this](const std::string&) { cmd_logs_set("show", ""); });
+    register_action("core.config.set.logs.retention",
+                    [this](const std::string& v) { cmd_logs_set("retention", v); });
+    register_action("core.config.set.logs.max",
+                    [this](const std::string& v) { cmd_logs_set("max", v); });
+    register_action("core.config.set.logs.prune",
+                    [this](const std::string&) { cmd_logs_set("prune", ""); });
 }
 
 // /get config, model, mcp, learn and the panel.
@@ -1655,6 +1734,7 @@ void SlashDispatcher::register_get_config_actions() {
     register_action("core.config.get.config", [this](const std::string&) { cmd_get_config(); });
     register_action("core.config.get.config.paths",
                     [this](const std::string&) { cmd_get_config_paths(); });
+    register_action("core.config.get.logs", [this](const std::string&) { cmd_logs_get(); });
     register_action("core.config.get.model", [this](const std::string&) { cmd_get_model(); });
     register_action("core.config.get.model.list",
                     [this](const std::string&) { cmd_get_model_list(); });
@@ -3652,9 +3732,6 @@ void SlashDispatcher::cmd_worktree(const std::string& arg) {
 void SlashDispatcher::cmd_window_new(bool noworkdir, const std::string& name) {
     tui_.new_window("chat", /*prepare_workspace=*/!noworkdir, name);
     tui_.draw();
-}
-void SlashDispatcher::cmd_window_close() {
-    tui_.close_window();
 }
 // /session reset: drop the conversation and every piece of per-turn state the
 // window cached about it. Extracted from register_core_session_actions, where the

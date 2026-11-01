@@ -16,6 +16,7 @@
 #include <csignal>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
@@ -2103,6 +2104,41 @@ TEST(set_logs_retention_round_trips) {
     require(tui.wait_for("cap: 128 MB", 10000), "the readout ignored the new cap", tui);
 }
 
+// The manual trigger, end to end: a transcript that is out of bounds goes when
+// the pass runs, and the report names what happened. The startup pass is held
+// off the file by a wide age bound, so this is the trigger doing the work.
+TEST(set_logs_prune_removes_an_out_of_bounds_transcript) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=http://127.0.0.1:9/v1\nmodel=pty-test\nlog_retention_days=3650\n"));
+    const std::string dir = agent::Workspace::state_dir() + "/logs";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    const std::string stale = dir + "/stale.jsonl";
+    ASSERT(write_file(stale, "{\"type\":\"user\"}\n"));
+    const std::time_t old = std::time(nullptr) - 30 * 24 * 60 * 60;
+    const timespec times[2] = {{old, 0}, {old, 0}};
+    ASSERT(::utimensat(AT_FDCWD, stale.c_str(), times, 0) == 0);
+
+    Tui tui;
+    tui.name = "set_logs_prune_removes_an_out_of_bounds_transcript";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(fs::exists(stale), "the wide age bound did not keep the transcript", tui))
+        return;
+
+    tui.send("/set logs retention 14\r");
+    if (!require(tui.wait_for("logs retention: 14 days", 10000), "the age bound was not lowered",
+                 tui))
+        return;
+    tui.send("/set logs prune\r");
+    if (!require(tui.wait_for("log retention: removed 1 log file(s)", 10000),
+                 "/set logs prune did not report the removal", tui))
+        return;
+    require(!fs::exists(stale), "the out-of-bounds transcript survived the pass", tui);
+}
+
 // ── A window's workspace: prepared on request, skipped on request, given back ──
 //
 // The flow only exists inside a repository, so this test brings its own: its
@@ -3121,6 +3157,7 @@ int main(int argc, char** argv) {
     get_config_paths_prints_the_resolved_layout();
     get_logs_reports_the_policy_and_the_totals();
     set_logs_retention_round_trips();
+    set_logs_prune_removes_an_out_of_bounds_transcript();
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();
