@@ -15,8 +15,14 @@ driven by an OpenAI-compatible LLM API.
   interrogable: `./run_tests --list` prints every test name, a positional
   argument is a substring filter (`./run_tests agent_loop`), and each test runs
   under a watchdog (`AMBER_TEST_TIMEOUT_MS`, default 120000) that names the
-  hung test and exits non-zero instead of hanging the run. `make check` is a
-  separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
+  hung test and exits non-zero instead of hanging the run. The TUI is driven
+  end-to-end by `tui_pty_test`, which re-runs itself with
+  `./tui_pty_test ./amber --repeat N` (each pass a fresh process) and refuses to
+  pass when a session had to be SIGKILLed: a killed child never flushes gcov,
+  so a green run would still report `tui/` as 0% covered. The app announces the
+  end of its quit path by creating `AMBER_EXIT_READY_FILE`, and the harness's
+  deadline for that is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000). `make check`
+  is a separate, lighter gate (`smoketest` + `tests/build_hygiene.sh` build
   invariants), do not confuse the two. It also runs
   `tools/obfuscation_guard.py`, which scans tracked files for the signature of
   an injected payload (obfuscator markers, or a single line of code longer
