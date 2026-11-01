@@ -24,6 +24,8 @@ import json
 import os
 import sys
 
+import gates_manifest
+
 ALWAYS = "always"
 PULL_REQUEST_ONLY = "pull_request"
 # Every event this workflow can run for. A job is only "not applicable" when the
@@ -35,42 +37,26 @@ PULL_REQUEST_ONLY = "pull_request"
 # it: a branch update made with GITHUB_TOKEN creates no `synchronize` event, so the
 # refreshed head would never get a `ci-gate` and the PR would stay BLOCKED forever.
 # A dispatch run is held to the same jobs a push is.
-ALL_EVENTS = ("pull_request", "push", "merge_group", "workflow_dispatch")
+ALL_EVENTS = gates_manifest.ALL_EVENTS
 
-# jobs whose result "skipped" is acceptable when the matching output is false
-DIMENSIONS = {
-    "changes": ALWAYS,
-    "obfuscation-guard": ALWAYS,
-    "secret-scan": ALWAYS,
-    "dependency-review": ALWAYS,
-    "lint": "cpp",
-    "build-and-test": "cpp",
-    "build-and-test-macos": "cpp",
-    "analyze": "cpp",
-    "check": "cpp",
-    "complexity": "cpp",
-    "duplicates": "cpp",
-    "format-check": "cpp",
-    "sanitizers": "cpp",
-    "tsan": "cpp",
-    "fuzz": "cpp",
-    "coverage": "cpp",
-    "website-build": "web",
-    "website-smoke": "web",
-}
+# Dimensions and event scopes come from the one inventory. Keeping a second copy
+# here is how a new gating job could be added to the workflow and never judged.
+_GATING = gates_manifest.gating_jobs()
+DIMENSIONS = {job: row["dimension"] for job, row in _GATING.items()}
+EVENTS = {job: row["events"] for job, row in _GATING.items()
+          if row["events"] != ALL_EVENTS}
 
 # The self-test builds its fixtures from THIS list, never from DIMENSIONS. Deriving them
 # from the table under test makes the test agree with whatever the table says: a
 # mis-mapped entry changes the fixture instead of failing, which is the "gate that
 # measures nothing" shape. An independent list means a bad mapping changes behaviour.
 ALL_JOBS = (
-    "obfuscation-guard",
     "dependency-review",
+    "obfuscation-guard",
     "secret-scan",
     "lint",
     "build-and-test",
     "build-and-test-macos",
-    "lint",
     "analyze",
     "check",
     "complexity",
@@ -83,21 +69,15 @@ ALL_JOBS = (
     "website-build",
     "website-smoke",
 )
-# Jobs the workflow itself scopes to pull_request events. On a push they are skipped by
-# design, and treating that as "the gate did not run" turned every push to main red --
-# for three consecutive runs before anyone noticed, because ci-gate is usually watched on
-# pull requests. The skip is legitimate; the event is the reason.
-EVENTS = {
-    "dependency-review": (PULL_REQUEST_ONLY,),
-    "lint": (PULL_REQUEST_ONLY,),
-}
-
+# The fixture partitions ALL_JOBS so a job cannot be silently unclassified. `lint`
+# is both cpp and pull_request-only; it lives in PR_ONLY_JOBS, not CPP_JOBS, so
+# the four tuples are disjoint.
 CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "check",
-               "complexity", "duplicates", "format-check", "sanitizers", "tsan", "fuzz",
-               "coverage")
+            "complexity", "duplicates", "format-check", "sanitizers", "tsan",
+            "fuzz", "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
-PR_ONLY_JOBS = tuple(sorted(EVENTS))
+PR_ONLY_JOBS = ("dependency-review", "lint")
 
 NOT_APPLICABLE = {"skipped", "neutral"}
 
@@ -114,9 +94,8 @@ def offenders(needs, cpp_changed, web_changed, event="pull_request"):
 
         Two independent reasons, and conflating them is what made every push to main red:
         the diff cannot affect the job's dimension, or the workflow scopes the job to a
-        different event than the one running. `lint` is pull_request-only because its
-        incremental selector is a diff selector; there is no push-shaped equivalent, and
-        `lint-full` is the safety net there.
+        different event than the one running. `lint` is pull_request-only because the
+        full lint runs there; a feature-branch push starts no workflow at all.
         """
         if EVENTS.get(job, ALL_EVENTS) and event not in EVENTS.get(job, ALL_EVENTS):
             return True
@@ -157,13 +136,48 @@ def _check_fixture_coverage():
     so the policy stops covering it without any test failing. That is exactly what
     happened when `secret-scan` was added to DIMENSIONS and not to the fixture list -- the
     test failed, which is why this check exists to make the failure legible.
+
+    The fixture is also checked against the manifest-derived tables: the four
+    explicit tuples must partition the gating jobs, and each tuple must agree
+    with the dimension/event the inventory assigns. Without that, a mis-mapped
+    job moves the fixture instead of failing.
     """
-    missing = sorted(set(DIMENSIONS) - set(ALL_JOBS) - {"changes"})
+    errors = []
+    missing = sorted(set(DIMENSIONS) - set(ALL_JOBS))
     if missing:
-        print(f"gate_needs_check: jobs in DIMENSIONS but not in the self-test fixture: "
-              f"{missing}", file=sys.stderr)
-        return 1
-    return 0
+        errors.append(f"gating jobs missing from the self-test fixture: {missing}")
+    extra = sorted(set(ALL_JOBS) - set(DIMENSIONS))
+    if extra:
+        errors.append(f"self-test fixture jobs that are not gating jobs: {extra}")
+    if len(ALL_JOBS) != len(set(ALL_JOBS)):
+        errors.append(f"self-test fixture has duplicate jobs: {ALL_JOBS}")
+
+    declared = set(CPP_JOBS) | set(WEB_JOBS) | set(ALWAYS_JOBS) | set(PR_ONLY_JOBS)
+    unclassified = sorted(set(ALL_JOBS) - declared)
+    unknown = sorted(declared - set(ALL_JOBS))
+    if unclassified:
+        errors.append(f"gating jobs in no fixture tuple: {unclassified}")
+    if unknown:
+        errors.append(f"fixture-tuple jobs that are not gating jobs: {unknown}")
+
+    expected = (
+        (CPP_JOBS, "cpp", None),
+        (WEB_JOBS, "web", None),
+        (ALWAYS_JOBS, "always", None),
+        (PR_ONLY_JOBS, None, PULL_REQUEST_ONLY),
+    )
+    for jobs, dimension, event in expected:
+        for job in jobs:
+            if dimension is not None and DIMENSIONS.get(job) != dimension:
+                errors.append(f"{job!r} is in a {dimension} tuple but the manifest "
+                              f"says {DIMENSIONS.get(job)!r}")
+            if event is not None and EVENTS.get(job, ALL_EVENTS) != (event,):
+                errors.append(f"{job!r} is in a {event} tuple but the manifest says "
+                              f"{EVENTS.get(job, ALL_EVENTS)!r}")
+
+    for error in errors:
+        print(f"gate_needs_check: {error}", file=sys.stderr)
+    return 1 if errors else 0
 
 
 def _needs(running, changes="success"):
@@ -210,6 +224,11 @@ def selftest():
     for name in ALWAYS_JOBS:
         cases.append((f"{name} skipped even on a docs-only PR",
                       _needs(set(ALL_JOBS) - {name}), False, False, True, PR))
+    # dependency-review is "always" too, but it is also pull_request-only, so it
+    # is not in ALWAYS_JOBS (that tuple is the disjoint fixture). A docs-only PR
+    # still has to run it.
+    cases.append(("BYPASS: dependency-review skipped even on a docs-only PR",
+                  _needs(set(ALL_JOBS) - {"dependency-review"}), False, False, True, PR))
     # PR-only jobs skipped on a push: legitimate, and the reason main used to be red.
     for name, events in sorted(EVENTS.items()):
         cases.append((f"{name} skipped on a push (it is {events[0]}-only)",

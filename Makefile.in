@@ -365,7 +365,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
-        verify verify-quick \
+        verify verify-quick ci-manifest \
         lint lint-changed lint-baseline-update \
         class-size class-size-update \
         analyze duplicates complexity format-check format-check-changed clean install uninstall
@@ -900,6 +900,12 @@ $(BUILD_DIR)/url_test: $(URL_TEST_OBJ) $(CDP_URL_OBJ)
 doctor:
 	@python3 "$(SRC_DIR)/tools/doctor.py"
 
+# The CI job inventory and `ci-gate.needs` must agree with tools/gates_manifest.py.
+# A job added to the workflow and not to the required list reports a check run
+# that nothing judges; this is the only check that sees that omission.
+ci-manifest:
+	@python3 "$(SRC_DIR)/tools/ci_manifest_check.py"
+
 smoketest: $(BUILD_DIR)/smoketest
 	$(BUILD_DIR)/smoketest
 
@@ -909,6 +915,7 @@ smoketest: $(BUILD_DIR)/smoketest
 # the build/test/analyzer half.
 check: smoketest
 	sh $(SRC_DIR)/tests/build_hygiene.sh
+	@$(MAKE) --no-print-directory ci-manifest
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --check
 	@$(MAKE) --no-print-directory nesting
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
@@ -922,15 +929,16 @@ check: smoketest
 # Local parity with the gating CI jobs.
 #
 # `verify-quick` is the pre-push loop: every static gate, no build. `verify`
-# adds the build, the unit suite and the independent analyzer. The instrumented
-# coverage gate is deliberately not here: it rebuilds the tree with gcov flags
-# and would clobber the build `verify` just used.
+# adds the build, the unit suite, the full-tree lint CI runs and the independent
+# analyzer. The instrumented coverage gate is deliberately not here: it rebuilds
+# the tree with gcov flags and would clobber the build `verify` just used.
 #
 # The command list is pinned by tests/build_hygiene.sh P15. A gate dropped from
 # here still exits 0 locally, and the only symptom is a red run after the push.
 verify-quick:
 	@echo "verify-quick: static gates (CI parity)"
 	@sh "$(SRC_DIR)/tests/build_hygiene.sh"
+	@$(MAKE) --no-print-directory ci-manifest
 	@$(MAKE) --no-print-directory format-check-changed BASE=$(BASE)
 	@$(MAKE) --no-print-directory lint-changed BASE=$(BASE)
 	@$(MAKE) --no-print-directory class-size
@@ -952,6 +960,7 @@ verify-quick:
 verify: verify-quick smoketest
 	@echo "verify: build, test and independent analysis (CI parity)"
 	@$(MAKE) --no-print-directory test WERROR=1
+	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory analyze
 	@echo "verify: clean"
 

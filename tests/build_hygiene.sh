@@ -388,7 +388,7 @@ else
 fi
 for t in format-check-changed lint-changed class-size nesting debt hygiene \
          hygiene-self-contained complexity duplicates obfuscation gates-test \
-         library-check; do
+         library-check ci-manifest; do
     if echo "$verify_out" | grep -q -- "$t"; then
         ok "P15: verify-quick runs $t"
     else
@@ -396,7 +396,8 @@ for t in format-check-changed lint-changed class-size nesting debt hygiene \
     fi
 done
 verify_full_out=$(make -n verify 2>/dev/null)
-for t in smoketest '--no-print-directory test' '--no-print-directory analyze'; do
+for t in smoketest '--no-print-directory test' '--no-print-directory lint$' \
+         '--no-print-directory analyze'; do
     if echo "$verify_full_out" | grep -q -- "$t"; then
         ok "P15: verify runs ${t##* }"
     else

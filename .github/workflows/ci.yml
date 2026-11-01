@@ -68,15 +68,13 @@ jobs:
           fail-on-severity: high
 
   # ---------------------------------------------------------------------------
-  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally over the
-  # TUs the diff can affect: the changed .cpp files plus every TU whose includes
-  # reach a changed header, resolved from the compiler's own dependency scan
-  # (-MM) by tools/affected_tus.py. A .clang-tidy change still lints everything,
-  # since it changes how every TU is checked. On main pushes the full lint runs
-  # as a non-gating safety net (see lint-full below).
-  # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
-  # Lint — clang-tidy. PR-gating, incremental over the TUs a change can affect.
+  # Lint — clang-tidy, full tree, on every PR.
+  #
+  # This used to be `lint-changed` here plus a non-gating full-tree job on main.
+  # That left a hole: the workflow's `push` trigger is main/master only, so a
+  # feature-branch push starts no run, and the main-only job could only discover
+  # a selector miss *after* the merge. `lint-changed` still exists for the local
+  # loop; CI measures the whole tree.
   #
   # clang-tidy is PINNED, and .clang-tidy enables whole check families
   # (bugprone-*, readability-*, modernize-*, clang-analyzer-*), so every check a
@@ -105,32 +103,6 @@ jobs:
           extra: clang-tidy-18
 
       - name: Configure (generates config for include paths)
-        run: CXX=clang++ ./configure
-
-      - name: Lint (incremental — changed files only)
-        run: make lint-changed BASE=origin/${{ github.base_ref }}
-        env:
-          CLANG_TIDY: clang-tidy-18
-
-  # ---------------------------------------------------------------------------
-  # Full lint — runs on main pushes as a non-gating safety net. Independent of
-  # the incremental selector: if tools/affected_tus.py ever under-selects (a
-  # dependency the compiler does not see, a wrong diff base), this still sees
-  # the whole tree. Does not block the pipeline.
-  # ---------------------------------------------------------------------------
-  lint-full:
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.changes.outputs.cpp == 'true'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install-deps
-        with:
-          extra: clang-tidy-18
-
-      - name: Configure
         run: CXX=clang++ ./configure
 
       - name: Lint (full tree)
@@ -544,6 +516,18 @@ jobs:
             --exclude '.*tests/.*' --exclude '.*third_party/.*' \
             --json-summary -o coverage-core.json
 
+      # The pty harness is the only thing that exercises tui/. A session that was
+      # SIGKILLed never flushes gcov, so tui/ can read 0% on a run that otherwise
+      # passed -- and the Codecov upload that would show it is best-effort and
+      # broken. 1% is not a quality bar; it is the assertion that the harness ran
+      # and the counters were written. The patch rule still governs new TUI code.
+      - name: TUI coverage floor (the pty harness ran)
+        run: |
+          gcovr --root . \
+            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
+            --filter 'tui/.*' --exclude '.*third_party/.*' \
+            --fail-under-line 1 --print-summary
+
       # Put the coverage numbers on the run page itself. An artefact alone was not
       # enough: it sits in a panel at the bottom of the run, below every job, and
       # has to be downloaded -- so the number nobody looks for is the number
@@ -722,7 +706,7 @@ jobs:
   # ---------------------------------------------------------------------------
   cd:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [changes, build-and-test]
+    needs: [changes, ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -791,7 +775,7 @@ jobs:
   # ---------------------------------------------------------------------------
   cd-macos:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [changes, build-and-test-macos]
+    needs: [changes, ci-gate]
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -915,7 +899,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website-deploy:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [website-build]
+    needs: [website-build, website-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -940,9 +924,9 @@ jobs:
   #
   # Every gating job is aggregated here, not just the fast ones: a red
   # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
-  # reports `skipped` on pushes (allowed). `lint-full` is intentionally
-  # excluded -- it is a safety net, not a gate. `cd`/`cd-macos` and the
-  # website deploy are delivery jobs; website smoke checks are gated.
+  # reports `skipped` on pushes (allowed). `cd`/`cd-macos` and the website
+  # deploy are delivery jobs that depend on this gate; website smoke checks are
+  # gated.
   # ---------------------------------------------------------------------------
   ci-gate:
     needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]

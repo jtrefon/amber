@@ -117,7 +117,9 @@ class Checks(unittest.TestCase):
         self.assertTrue(any("ci-gate" in e for e in errors), errors)
 
     def test_a_scan_that_found_almost_nothing_fails_closed(self):
-        errors = checker.check(self.jobs(), ["changes"], ["changes"])
+        errors = checker.check(self.jobs(), ["changes"], ["changes"],
+                               min_jobs=checker.MIN_JOBS,
+                               min_needs=checker.MIN_NEEDS)
         self.assertTrue(any("scan" in e.lower() or "sanity" in e.lower() for e in errors),
                         errors)
 
