@@ -23,8 +23,14 @@ driven by an OpenAI-compatible LLM API.
   set, the app prints `[amber] exit-ready` on the pty as the last thing it does;
   the harness treats a session that exits without that marker as failed, and its
   deadline for the whole quit path is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000).
-  `make check` is a separate, lighter gate (`smoketest` +
-  `tests/build_hygiene.sh` build invariants), do not confuse the two. It also runs
+  `make check` is the **static gate umbrella**, not the whole pipeline: it runs
+  `smoketest`, the `tests/build_hygiene.sh` invariants, class-size, nesting,
+  debt, hygiene and header self-containment, the obfuscation guard, the gate
+  tools' own tests, `library-check`, and a gate report that also runs complexity
+  and duplicates. It does not build the tree or run the tests. Use
+  `make verify-quick` for the local mirror of the gating static jobs and
+  `make verify` for the build/test/analyzer half; `make doctor` reports which
+  analyzers cannot reproduce CI on this machine. It also runs
   `tools/obfuscation_guard.py`, which scans tracked files for the signature of
   an injected payload (obfuscator markers, or a single line of code longer
   than 500 chars): every other gate reads a build or a metric, none of them
@@ -88,10 +94,13 @@ driven by an OpenAI-compatible LLM API.
   > 4 fails). It is separate from NLOC/CCN because a 20-line function can be
   unreadable at five levels of nesting while a 40-line straight-line function is
   fine. Both `nesting` and `complexity` share `_lizard_version_check`.
-- `make gate-report` runs every gate and writes `artifacts/GATE_REPORT.md` plus
-  `artifacts/gate-report.json` — one table with all verdicts, so "what did the
-  gates say?" is one file instead of six job logs. `make check` produces it and
-  CI uploads it as a build artefact (GitHub's equivalent of an ADO build
+- `make gate-report` runs the static gates in `GATES_RUN` (complexity, nesting,
+  class-size, debt, hygiene, obfuscation, duplicates) and writes
+  `artifacts/GATE_REPORT.md` plus `artifacts/gate-report.json` — one table with
+  those verdicts, so "what did the static gates say?" is one file instead of
+  six job logs. It is not the whole pipeline: lint, cppcheck, format, tests and
+  coverage are separate jobs. `make check` produces it and CI uploads it as a
+  build artefact (GitHub's equivalent of an ADO build
   artefact: attached to the run, listed on the run page, downloadable with
   `gh run download <run-id>`). It also appends the table to
   `$GITHUB_STEP_SUMMARY`, so the verdicts render **on the run page itself** — an
@@ -100,9 +109,24 @@ driven by an OpenAI-compatible LLM API.
   line/function percentages. Only the table goes inline; the full gate output stays
   in the job log and the artefact. The report never gates: a failure there is exit 2
   — a reporting failure, distinct from a gate finding something.
+- **Local parity is a gate invariant.** Every gating CI job must have a local
+  command (`make verify-quick`, `make verify`, or a dedicated target) or an
+  explicit reason it is CI-only. `make verify-quick` runs the static gate set,
+  `make verify` adds `make test` and `make analyze`, and `make doctor` reports
+  analyzer versions that cannot reproduce CI. A gate dropped from the local
+  mirror is invisible: `tests/build_hygiene.sh` **P15** pins the command list so
+  the mirror cannot silently shrink. When an analyzer cannot be installed at
+  CI's pin, run the gate in the parity container rather than trusting a local
+  result from a different major version.
+- `make library-check` executes the `run` blocks in the prompt library
+  (`prompts/domains/coding/library/**/*.md`). A block marked `# manual:` is
+  skipped on purpose; anything else that no longer runs is stale knowledge and
+  fails the check. It is part of `make check` and `make verify-quick`, so a
+  library content edit is gated even when no C++ changed.
 - `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
   in a header, no raw `new`/`delete` in owned source, and every header compiles on
-  its own. All three measured clean first (0 / 1 acknowledged / 0 of 172 failing),
+  its own. All three measured clean first (0 / 1 acknowledged / 0 failing headers;
+  the self-containment check prints how many it compiled),
   so there are no baselines — only zero to stay at. A finding is suppressed by
   acknowledging it inline (`// hygiene-allow: private ctor`), matched **on that
   line**: a marker in a paragraph above would otherwise suppress whatever statement
@@ -132,7 +156,8 @@ driven by an OpenAI-compatible LLM API.
   job ceiling. Jobs that need only `./configure`'s probes (complexity) pass
   `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config.
 - **Fuzzing** (`make fuzz-run`) is the only gate that reaches input nobody wrote.
-  Everything else -- the 1039-case suite, ASan/UBSan, TSan -- runs a fixed corpus, so a
+  Everything else -- the unit suite (`./run_tests --list` prints the current
+  set), ASan/UBSan, TSan -- runs a fixed corpus, so a
   defect needing an input no test author imagined is unreachable by CI. Three targets,
   chosen because they are the parsers fed by bytes we do not control: `mcp_decode_line`
   (MCP JSON-RPC), `StreamDecoder::on_write` (SSE framing off the model endpoint) and
@@ -352,8 +377,8 @@ Known and deliberate, so nobody re-derives them:
   gate. To see patch coverage without blocking, set the repository variable
   `PATCH_COVERAGE_ENFORCE=false`.
 
-  **Expect the first real C++ PR to trip it.** Every PR since the gate landed added
-  no C++, so it has only ever reported "no changed executable lines". Two things
+  **It has already tripped real PRs** (runs `41085630081` and `41123092618`), so
+  the "first PR will find the bugs" caveat is history. Two things
   to know: a changed line the report omits is *not executable* (gcovr drops comment,
   blank and brace lines, so demanding coverage of them is wrong — a bug this gate
   shipped with and caught on its own first run), while a changed `.cpp` absent from
@@ -362,20 +387,22 @@ Known and deliberate, so nobody re-derives them:
   with no harness coverage will read 0% — which is the rule working, not a bug.
 - **Nesting is gated, but not by lizard.** `make nesting` measures it from the
   source with `tools/cpp_source.py` instead, because lizard's `ND` field is
-  `max_nesting_depth` and is **0 for all 2422 C++ functions** — verified against
+  `max_nesting_depth` and is **0 for every C++ function** (the gate prints the
+  count it scanned) — verified against
   a deliberately 6-deep function. Gating on lizard's number would have been a
   permanently green gate that measures nothing, which is the exact failure mode
   the section above exists to prevent. Cap 4, empty baseline (0 violations, 4
   functions *at* the cap, 39 at depth >= 3).
-- **`make lint` cannot be reproduced locally.** clang-tidy is not installed on a
-  default macOS toolchain, and the two reachable builds disagree: CI installs
-  `clang-tidy-18` (`1:18.1.3-1ubuntu1`) from apt, while the only pip wheel is
-  `18.1.8`, and they did not agree on `bugprone-unchecked-optional-access` -- CI
-  reported a finding the pip build did not. So "run the gates before pushing"
-  only covers half of them locally, and a clean local `lint-changed` is not
-  evidence about a finding. Matching the runner needs an LLVM 18 toolchain
-  (`brew install llvm@18` and `CLANG_TIDY=/opt/homebrew/opt/llvm@18/bin/clang-tidy`),
-  which is not present here.
+- **`make lint` cannot be reproduced locally without the pinned toolchain.**
+  clang-tidy is not installed on a default macOS toolchain, and the two reachable
+  builds disagree: CI installs `clang-tidy-18` (`1:18.1.3-1ubuntu1`) from apt,
+  while the only pip wheel is `18.1.8`, and they did not agree on
+  `bugprone-unchecked-optional-access` -- CI reported a finding the pip build did
+  not. `make doctor` reports a different major as a blocker, because a clean
+  local `lint-changed` on another major is not evidence about a finding. Matching
+  the runner needs an LLVM 18 toolchain (`brew install llvm@18` and
+  `CLANG_TIDY=/opt/homebrew/opt/llvm@18/bin/clang-tidy`) or the parity container
+  planned in `docs/plan/pipeline-parity.md`.
 - **Branching needs no separate axis**: CCN is the standard measure of decision
   points, and a branch count would be the same number twice.
 - **`dependabot`: `http-cache-semantics` is open with no patched version.** The
@@ -933,8 +960,8 @@ task; steps 2, 3 and 5 happen once per feature.
 │     threshold. Keep clangd/LSP diagnostics clean as you type. │
 │                                                              │
 │  5. MERGE, per feature. When every task is green, run         │
-│     make clean && make && make test && make lint &&           │
-│     make analyze once, let the PR's gates go green, and        │
+│     make verify-quick before each push, then verify           │
+│     once before review, let the PR's gates go green, and      │
 │     squash-merge. The reviewer checks the commits against     │
 │     the proposal and the whole diff as one change.            │
 └──────────────────────────────────────────────────────────────┘
@@ -963,7 +990,8 @@ Every PR reviewer MUST verify:
 - [ ] Size limits: classes ≤200 lines, methods ≤10 lines with minimal branching.
 - [ ] Test sequence: the PR includes a red (failing) commit followed by a green
       fix commit for each task (or a clear explanation if not possible).
-- [ ] All CI checks pass: `make`, `make test`, `make lint`, `make analyze`.
+- [ ] The author ran `make verify-quick` before the final push and `make verify`
+      before review (or the final CI run is green).
 - [ ] Zero dead code: no commented-out code, no stubs, no speculative branches.
 - [ ] No SPDX/copyright boilerplate, first line is functional (`#include`, `#ifndef`, etc.).
 - [ ] No new clang-tidy or cppcheck warnings.
@@ -1025,16 +1053,18 @@ behavior change: prove it with a before/after benchmark run (see
   the test is committed alongside the fix.
 - **New features** must follow the same cycle: write a failing test that
   specifies the desired behaviour, implement until green, then refactor.
-- **Coverage threshold**: new code paths must have ≥80% line coverage. The CI
-  gate (`make test`) must pass before merge.
+- **Coverage threshold**: new code paths must have ≥80% line coverage. The
+  coverage job's patch gate (`tools/coverage_gate.py`) enforces it; `make test`
+  alone cannot answer it, because the measurement needs an instrumented build.
 - **Hermetic tests**: mock the LLM by testing the pure seams
   (`Dialect::parse_models_response` / `parse_completion` / `context_overflow_hint`,
   `merge_server_info`) directly; do not hit a live server in the unit suite.
 - **Test granularity**: prefer many small `TEST(name)` blocks over a single
   large test function. Each test exercises one behaviour.
-- **Test location**: behaviour changes go in `tests/run_tests.cpp`. New test
-  files may be added for major modules (`tests/compressor_test.cpp`,
-  `tests/agent_test.cpp`), add them to `UNITTEST_OBJ` in `Makefile`.
+- **Test location**: behaviour changes go in the suite under `tests/`, normally
+  the per-area `*_test.cpp` that already covers that module, or a new file
+  (added to `UNITTEST_OBJ` in `Makefile.in`) when the area has no harness yet.
+  `tests/run_tests.cpp` is the shared harness, not the only file the suite runs.
 
 ## Design patterns in use
 
