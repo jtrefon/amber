@@ -2,6 +2,7 @@
 #include <agent.h>
 
 #include "agent/private_file.h"
+#include "agent/exit_ready.h"
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
 #include "agent/context_shape.h"
@@ -223,8 +224,14 @@ int main(int argc, char** argv) try {
     }
 
     TuiHost host(cfg);
-    tui::Tui tui(cfg, host.registry, host.jobs, host.subagents, host.plugins, host.plugin_runtime);
-    tui.run();
+    {
+        tui::Tui tui(cfg, host.registry, host.jobs, host.subagents, host.plugins,
+                     host.plugin_runtime);
+        tui.run();
+    }
+    // After the destructor: the terminal is restored, the sessions and the
+    // workspace are saved. A harness waits for this instead of for a timeout.
+    agent::announce_exit_ready();
     return 0;
 } catch (const std::exception& e) {
     // Tui's destructor has already run endwin() by the time this executes, so

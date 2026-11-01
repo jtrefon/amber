@@ -21,6 +21,7 @@
 #include "../lib/http_transport.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
+#include "agent/exit_ready.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_runtime.h"
 #include "plugins/amber_self/amber_self_plugin.h"
@@ -3058,6 +3059,31 @@ TEST(private_session_file_is_owner_only) {
     ASSERT_TRUE(store.save(s));
     ASSERT_EQ(mode_of(store.dir()), 0700u);
     ASSERT_EQ(mode_of(store.dir() + "/private-session.json"), 0600u);
+}
+
+// The exit announcement is how a harness learns that the app finished its quit
+// path instead of guessing a duration. It exists only when a harness asks for
+// it, so a normal run leaves no file behind, and an unwritable path is a false
+// rather than a crash.
+TEST(exit_ready_announces_only_when_a_harness_asks) {
+    XdgGuard xdg("exit_ready");
+    ::unsetenv("AMBER_EXIT_READY_FILE");
+    ASSERT_FALSE(agent::announce_exit_ready());
+
+    const std::string path = xdg.dir + "/exit-ready";
+    std::filesystem::create_directories(xdg.dir);
+    ASSERT_EQ(::setenv("AMBER_EXIT_READY_FILE", path.c_str(), 1), 0);
+    ASSERT_TRUE(agent::announce_exit_ready());
+    std::ifstream in(path);
+    std::string body;
+    std::getline(in, body);
+    ASSERT_EQ(body, std::string("exit-ready"));
+
+    // A path whose parent does not exist is a failed announcement, not a throw.
+    const std::string missing = xdg.dir + "/no-such-dir/exit-ready";
+    ASSERT_EQ(::setenv("AMBER_EXIT_READY_FILE", missing.c_str(), 1), 0);
+    ASSERT_FALSE(agent::announce_exit_ready());
+    ::unsetenv("AMBER_EXIT_READY_FILE");
 }
 
 TEST(private_transcript_is_owner_only) {
