@@ -1,7 +1,8 @@
 # Pipeline parity: make the gates the standard, and the standard the gates
 
-Status: proposed. Owner: engineering. Scope: CI, gate tooling, `AGENTS.md`.
-Started: 2026-11-01.
+Status: phase 0 and phase 1 implemented on `feat/pipeline-parity` (draft PR
+#504); phases 2–3 proposed. Owner: engineering. Scope: CI, gate tooling,
+`AGENTS.md`. Started: 2026-11-01.
 
 ## Problem
 
@@ -67,8 +68,11 @@ while `GATES_RUN` lists 7 of 17.
 
 ### Single-point failures found while reviewing
 
-- `lint-full` is `continue-on-error: true` and outside `ci-gate`. If
-  `affected_tus.py` under-selects, the only full-tree run is non-gating.
+- `lint` ran `lint-changed` on PRs and a `continue-on-error` full-tree job on
+  main. That cannot close the hole: the workflow's `push` trigger is
+  `main`/`master` only, so a feature-branch push starts no run and a selector
+  miss could only be found after the merge. Phase 1 runs the full tree on the
+  PR and removes `lint-full`.
 - `tui/` coverage is never asserted > 0. A SIGKILLed pty session can leave it at
   0% with a green run; the Codecov upload is known broken and best-effort.
 - `format-check-changed` with an empty `BASE` swallowed a `git` error, printed
@@ -179,7 +183,7 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
 | PP-04 | `BASE` unset makes format gate pass without measuring | high | 0 |
 | PP-05 | gate inventory duplicated in `needs`/`DIMENSIONS`/`ALL_JOBS`/docs | high | 1 |
 | PP-06 | job omitted from `ci-gate.needs` is never required | high | 1 |
-| PP-07 | `lint-full` non-gating; incremental selector is the only failure path | high | 1 |
+| PP-07 | incremental lint is the CI gate; a selector miss is found only after merge | high | 1 |
 | PP-08 | `tui/` coverage can be 0% on a green run | medium | 1 |
 | PP-09 | `duplicate_detector`/`obfuscation_guard` untested | medium | 1 |
 | PP-10 | gate report covers 7 of 17 gates but claims all | medium | 1 |
@@ -192,7 +196,7 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
 
 ## Phases and acceptance criteria
 
-### Phase 0 (this change)
+### Phase 0 (implemented)
 
 - `make doctor` reports local vs CI pins and exits 1 on a blocker.
 - `make verify-quick` and `make verify` exist and are pinned by P15.
@@ -202,10 +206,11 @@ Add only after parity, otherwise every new gate increases the round-trip cost.
   set; stale counts are removed or made self-reporting.
 - `test_doctor.py` and P15 pass; the existing gate suite stays green.
 
-### Phase 1
+### Phase 1 (implemented)
 
 - Manifest + `ci_manifest_check` + tests; `ci-gate.needs` validated.
-- `lint-full` gating on `main`/`merge_group`.
+- Full-tree `make lint` on every PR; `lint-full` removed (its main-only safety
+  net could not block a merge, because feature-branch pushes run no workflow).
 - `tui/` coverage > 0 asserted in the coverage job.
 - Tests for `duplicate_detector` and `obfuscation_guard`.
 - Gate report enumerates every runnable gate or says "not measured here".

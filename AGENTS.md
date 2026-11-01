@@ -24,10 +24,10 @@ driven by an OpenAI-compatible LLM API.
   the harness treats a session that exits without that marker as failed, and its
   deadline for the whole quit path is `AMBER_PTY_EXIT_TIMEOUT_MS` (default 60000).
   `make check` is the **static gate umbrella**, not the whole pipeline: it runs
-  `smoketest`, the `tests/build_hygiene.sh` invariants, class-size, nesting,
-  debt, hygiene and header self-containment, the obfuscation guard, the gate
-  tools' own tests, `library-check`, and a gate report that also runs complexity
-  and duplicates. It does not build the tree or run the tests. Use
+  `smoketest`, the `tests/build_hygiene.sh` invariants, the CI job inventory
+  check (`ci-manifest`), class-size, nesting, debt, hygiene and header
+  self-containment, the obfuscation guard, the gate tools' own tests,
+  `library-check`, and a gate report that also runs complexity and duplicates. It does not build the tree or run the tests. Use
   `make verify-quick` for the local mirror of the gating static jobs and
   `make verify` for the build/test/analyzer half; `make doctor` reports which
   analyzers cannot reproduce CI on this machine. It also runs
@@ -50,10 +50,14 @@ driven by an OpenAI-compatible LLM API.
   truth: build and test here, and never read a sibling worktree's artefacts as
   this project's state.
 - `make lint` runs **clang-tidy** over every project source (third_party
-  excluded) using the `.clang-tidy` config in the repo root. It is fast enough
-  to gate changes on. `make analyze` runs **cppcheck** as an independent,
-  cross-TU second opinion (slower; runs in parallel and skips the vendored
-  nlohmann/json header). Both must come back clean before a commit.
+  excluded) using the `.clang-tidy` config in the repo root. **CI runs this
+  full-tree on every PR**: the `push` trigger covers only `main`/`master`, so a
+  feature-branch push starts no workflow, and an incremental selector miss could
+  only be found after the merge. `make lint-changed BASE=...` is the fast local
+  loop (`tools/affected_tus.py`); it is not the CI gate. `make analyze` runs
+  **cppcheck** as an independent, cross-TU second opinion (slower; runs in
+  parallel and skips the vendored nlohmann/json header). Both must come back
+  clean before a commit.
 - `make lint` is a **ratchet**, not a cliff: `tests/lint_baseline.json` records
   how many findings each (file, check) pair has, and the gate fails only when a
   count **grows**. That is what lets a check with existing findings be switched
@@ -98,8 +102,11 @@ driven by an OpenAI-compatible LLM API.
   class-size, debt, hygiene, obfuscation, duplicates) and writes
   `artifacts/GATE_REPORT.md` plus `artifacts/gate-report.json` — one table with
   those verdicts, so "what did the static gates say?" is one file instead of
-  six job logs. It is not the whole pipeline: lint, cppcheck, format, tests and
-  coverage are separate jobs. `make check` produces it and CI uploads it as a
+  six job logs. Every gating job in `tools/gates_manifest.py` appears in that
+  table: measured here, or `skipped` with the local command or reason it is
+  CI-only, so a missing gate cannot read as a passing one. It is not the whole
+  pipeline: lint, cppcheck, format, tests and coverage are separate jobs.
+  `make check` produces it and CI uploads it as a
   build artefact (GitHub's equivalent of an ADO build
   artefact: attached to the run, listed on the run page, downloadable with
   `gh run download <run-id>`). It also appends the table to
@@ -112,12 +119,19 @@ driven by an OpenAI-compatible LLM API.
 - **Local parity is a gate invariant.** Every gating CI job must have a local
   command (`make verify-quick`, `make verify`, or a dedicated target) or an
   explicit reason it is CI-only. `make verify-quick` runs the static gate set,
-  `make verify` adds `make test` and `make analyze`, and `make doctor` reports
+  `make verify` adds `make test`, the full-tree `make lint` and `make analyze`,
+  and `make doctor` reports
   analyzer versions that cannot reproduce CI. A gate dropped from the local
   mirror is invisible: `tests/build_hygiene.sh` **P15** pins the command list so
   the mirror cannot silently shrink. When an analyzer cannot be installed at
   CI's pin, run the gate in the parity container rather than trusting a local
   result from a different major version.
+- `make ci-manifest` compares `.github/workflows/ci.yml` with
+  `tools/gates_manifest.py`: every job must be in the inventory, every gating
+  job must be in `ci-gate.needs`, and every gating job must name a local command
+  or a reason it is CI-only. It runs inside `make check` and `make verify-quick`.
+  Without it, a job can be added to the workflow, report a check run, and never
+  be judged by the merge gate.
 - `make library-check` executes the `run` blocks in the prompt library
   (`prompts/domains/coding/library/**/*.md`). A block marked `# manual:` is
   skipped on purpose; anything else that no longer runs is stale knowledge and
@@ -226,8 +240,7 @@ driven by an OpenAI-compatible LLM API.
   of feature PRs in flight, so the train is a landing mechanism, not a queue for
   task PRs. After a merge it dispatches `ci.yml` on `main` itself:
   a merge made with `GITHUB_TOKEN` creates no push event, so without that the run
-  that validates `main` (the full suite, and `lint-full`, which only runs there)
-  would silently never start.
+  that validates `main` (the full suite) would silently never start.
 
   `ci.yml` still triggers on `merge_group`, so enabling the native queue later
   needs no workflow change; `tools/gate_needs_check.py` holds that event to
@@ -244,9 +257,11 @@ The gates are the only thing protecting everything else, and until
 `make gates-test` existed they had **no tests at all** — which is exactly how
 the fail-open behaviour below survived. `tests/gates/` holds stdlib `unittest`
 suites (no dependency install, so it runs in the `check` job via `make check`)
-for `complexity_gate.py`, `class_size_gate.py`, `lint_baseline.py`,
-`nesting_gate.py`, `debt_gate.py`, `coverage_gate.py`, `gate_report.py` and the
-shared `cpp_source.py` lexer. When you
+for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
+`lint_baseline.py`, `nesting_gate.py`, `debt_gate.py`, `coverage_gate.py`,
+`hygiene_gate.py`, `library_check.py`, `gate_report.py`,
+`duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py` and
+`ci_manifest_check.py` — plus the shared `cpp_source.py` lexer. When you
 change a gate, change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
