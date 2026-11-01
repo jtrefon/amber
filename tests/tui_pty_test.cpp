@@ -2057,6 +2057,52 @@ TEST(get_config_paths_prints_the_resolved_layout) {
             "the amber-config skill is not reported as a system skill", tui);
 }
 
+// Retention is visible, not silent: the readout names the policy, the directory
+// it applies to, and what is actually there. A cap nobody can see is a cap that
+// deletes something surprising.
+TEST(get_logs_reports_the_policy_and_the_totals) {
+    Tui tui;
+    tui.name = "get_logs_reports_the_policy_and_the_totals";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/get logs\r");
+    if (!require(tui.wait_for("retention: 14 days", 10000),
+                 "/get logs did not report the age bound", tui))
+        return;
+    if (!require(tui.wait_for("cap: 256 MB", 10000), "/get logs did not report the size bound",
+                 tui))
+        return;
+    require(tui.wait_for("sessions:", 10000), "/get logs did not report the session total", tui);
+}
+
+// The two policy values are settings, so they survive the readout and the file
+// the project already keeps its settings in.
+TEST(set_logs_retention_round_trips) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    Tui tui;
+    tui.name = "set_logs_retention_round_trips";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set logs retention 7\r");
+    if (!require(tui.wait_for("logs retention: 7 days", 10000), "the age bound was not applied",
+                 tui))
+        return;
+    tui.send("/set logs max 128\r");
+    if (!require(tui.wait_for("logs cap: 128 MB", 10000), "the size bound was not applied", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/get logs\r");
+    if (!require(tui.wait_for("retention: 7 days", 10000), "the readout ignored the new bound",
+                 tui))
+        return;
+    require(tui.wait_for("cap: 128 MB", 10000), "the readout ignored the new cap", tui);
+}
+
 // ── A window's workspace: prepared on request, skipped on request, given back ──
 //
 // The flow only exists inside a repository, so this test brings its own: its
@@ -3073,6 +3119,8 @@ int main(int argc, char** argv) {
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
     get_config_paths_prints_the_resolved_layout();
+    get_logs_reports_the_policy_and_the_totals();
+    set_logs_retention_round_trips();
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
     set_debug_toggles_the_error_journal();

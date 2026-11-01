@@ -297,6 +297,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/text_diff_test.o \
+               $(BUILD_DIR)/tests/log_retention_test.o \
                $(BUILD_DIR)/tests/skill_update_review_test.o \
                $(BUILD_DIR)/tests/skill_shelves_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
