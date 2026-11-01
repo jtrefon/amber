@@ -16,6 +16,7 @@
 #   P12 the generated Makefile is regenerated when Makefile.in/configure change.
 #   P13 the merge train's selection rule keeps its cases (tools/merge_train.py).
 #   P14 WERROR=1 really turns warnings into errors (compile and link).
+#   P15 the local verify targets still cover every gating static gate.
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -371,6 +372,36 @@ if echo "$werror_out" | grep -q -- "$fatal_warnings"; then
     ok "P14: WERROR=1 makes linker warnings fatal"
 else
     warn "P14: WERROR=1 does not add $fatal_warnings"
+fi
+
+# P15
+# `make verify-quick` / `make verify` are the local mirror of the gating CI
+# jobs. A gate removed from one of them is invisible: the command still exits 0,
+# and the only way to learn that class-size was no longer checked is a red run
+# after the push. Pin the expected command list in one place and fail when a
+# target disappears.
+verify_out=$(make -n verify-quick 2>/dev/null)
+for t in format-check-changed lint-changed class-size nesting debt hygiene \
+         hygiene-self-contained complexity duplicates obfuscation gates-test \
+         library-check; do
+    if echo "$verify_out" | grep -q -- "$t"; then
+        ok "P15: verify-quick runs $t"
+    else
+        warn "P15: verify-quick does not run $t (a gating check is missing locally)"
+    fi
+done
+verify_full_out=$(make -n verify 2>/dev/null)
+for t in '--no-print-directory test' '--no-print-directory analyze'; do
+    if echo "$verify_full_out" | grep -q -- "$t"; then
+        ok "P15: verify runs ${t##* }"
+    else
+        warn "P15: verify does not run ${t##* }"
+    fi
+done
+if make -n doctor 2>/dev/null | grep -q 'doctor.py'; then
+    ok "P15: make doctor reports toolchain drift"
+else
+    warn "P15: make doctor is missing"
 fi
 
 if [ "$failures" -gt 0 ]; then
