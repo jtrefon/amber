@@ -381,6 +381,11 @@ fi
 # after the push. Pin the expected command list in one place and fail when a
 # target disappears.
 verify_out=$(make -n verify-quick 2>/dev/null)
+if echo "$verify_out" | grep -q 'build_hygiene.sh'; then
+    ok "P15: verify-quick runs the build-hygiene invariants"
+else
+    warn "P15: verify-quick does not run tests/build_hygiene.sh"
+fi
 for t in format-check-changed lint-changed class-size nesting debt hygiene \
          hygiene-self-contained complexity duplicates obfuscation gates-test \
          library-check; do
@@ -391,7 +396,7 @@ for t in format-check-changed lint-changed class-size nesting debt hygiene \
     fi
 done
 verify_full_out=$(make -n verify 2>/dev/null)
-for t in '--no-print-directory test' '--no-print-directory analyze'; do
+for t in smoketest '--no-print-directory test' '--no-print-directory analyze'; do
     if echo "$verify_full_out" | grep -q -- "$t"; then
         ok "P15: verify runs ${t##* }"
     else
