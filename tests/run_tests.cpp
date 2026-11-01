@@ -1,6 +1,7 @@
 
 #include <atomic>
 #include <csignal>
+#include <fcntl.h>
 #include <future>
 #include <thread>
 #include "agent.h"
@@ -21,6 +22,7 @@
 #include "../lib/http_transport.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
+#include "agent/exit_ready.h"
 #include "agent/model_probe.h"
 #include "agent/plugin_runtime.h"
 #include "plugins/amber_self/amber_self_plugin.h"
@@ -3058,6 +3060,34 @@ TEST(private_session_file_is_owner_only) {
     ASSERT_TRUE(store.save(s));
     ASSERT_EQ(mode_of(store.dir()), 0700u);
     ASSERT_EQ(mode_of(store.dir() + "/private-session.json"), 0600u);
+}
+
+// The exit announcement is how a harness learns that the app finished its quit
+// path instead of guessing a duration. It is written to the channel the harness
+// already reads, only when a harness asks for it, so a normal run prints nothing.
+TEST(exit_ready_announces_only_when_a_harness_asks) {
+    XdgGuard xdg("exit_ready");
+    std::filesystem::create_directories(xdg.dir);
+    const std::string path = xdg.dir + "/exit-ready";
+    auto captured = [&] {
+        std::ifstream in(path);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+
+    ::unsetenv("AMBER_EXIT_READY");
+    int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_FALSE(agent::announce_exit_ready(fd));
+    ::close(fd);
+    ASSERT_EQ(captured(), std::string(""));
+
+    ASSERT_EQ(::setenv("AMBER_EXIT_READY", "1", 1), 0);
+    fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    ASSERT_TRUE(fd >= 0);
+    ASSERT_TRUE(agent::announce_exit_ready(fd));
+    ::close(fd);
+    ASSERT_TRUE(captured().find(agent::kExitReadyMarker) != std::string::npos);
+    ::unsetenv("AMBER_EXIT_READY");
 }
 
 TEST(private_transcript_is_owner_only) {

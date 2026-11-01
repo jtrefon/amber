@@ -8,6 +8,7 @@
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
+#include <agent/exit_ready.h>
 #include "agent/private_file.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/watch/watch_plugin.h"
@@ -638,7 +639,7 @@ int finish_watches(CliHost& host, agent::Agent& agent, bool wake) {
 
 // One headless run: the agent gets the plugin runtime's events and prompt
 // registry, streams its reply to stdout, and reports failure as an exit code.
-int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
+int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
                    const std::string& prompt, bool watch_wake) {
     try {
         agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
@@ -655,6 +656,16 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         std::cerr << "error: " << e.what() << "\n";
         return 1;
     }
+}
+
+// The run is over on both paths, so the announcement belongs here rather than at
+// one return: a harness waits for the process to say it finished, instead of
+// guessing how long a one-shot turn takes on the machine it is running on.
+int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
+                   const std::string& prompt, bool watch_wake) {
+    const int rc = run_agent_turn(cfg, host, hooks, prompt, watch_wake);
+    agent::announce_exit_ready();
+    return rc;
 }
 
 } // namespace

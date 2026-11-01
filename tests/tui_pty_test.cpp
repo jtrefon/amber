@@ -38,6 +38,8 @@
 #include <utility>
 #include <vector>
 
+#include "agent/config.h"
+#include "agent/exit_ready.h"
 #include "agent/model_probe.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
@@ -50,11 +52,29 @@ namespace fs = std::filesystem;
 
 constexpr int kPumpMs = 50;
 
+// A modal dismissed with Esc has to redraw before Ctrl+C can reach the main
+// loop. This is the cap for "a modal was open"; a session with no modal returns
+// as soon as any output arrives, so it does not pay the full budget.
+constexpr int kModalDismissCapMs = 1000;
+
+// How long the app gets to finish its quit path. It is a deadline for a wedged
+// session, not an estimate of how long a save takes: a healthy app announces
+// itself in well under a second, and a slow machine is exactly what the fixed
+// budgets this replaced could not survive. Override with
+// AMBER_PTY_EXIT_TIMEOUT_MS (milliseconds) on a very slow runner.
+constexpr int kExitTimeoutMs = 60000;
+
 // Sessions that had to be force-killed instead of exiting through the app's own
 // quit path. A killed session never runs its atexit handlers, so gcov cannot
 // flush the TUI's coverage (tui/ would report 0%); this must stay empty. Each
 // entry names the scenario so a failure points at the session that misbehaved.
 std::vector<std::string> killed_sessions;
+
+// Sessions that left the pty without the app announcing it had reached the end
+// of its quit path. The announcement is the only evidence that the saves ran,
+// so an exit nobody announced is a failure even when the child is not killed:
+// the suite cannot tell a clean quit from one that died halfway.
+std::vector<std::string> sessions_without_exit_ready;
 
 // Drop terminal control sequences so assertions can look at rendered text.
 std::string strip_ansi(const std::string& in) {
@@ -134,6 +154,10 @@ struct Tui {
             if (slave > STDERR_FILENO)
                 close(slave);
             setenv("TERM", "xterm-256color", 1);
+            // Ask for the exit announcement. The path is not passed: the app
+            // derives it from its own state dir and pid, and the harness below
+            // computes the same one.
+            setenv("AMBER_EXIT_READY", "1", 1);
             // Deliver a lone Esc promptly: ncurses otherwise waits ESCDELAY
             // (1 s by default) to decide it is not an escape-sequence prefix,
             // which would stall the teardown below.
@@ -219,13 +243,75 @@ struct Tui {
     bool wait_exit(int cap_ms) {
         for (int waited = 0; waited < cap_ms && pid > 0; waited += kPumpMs) {
             pump(kPumpMs);
-            int status = 0;
-            const pid_t reaped = waitpid(pid, &status, WNOHANG);
-            if (reaped == pid || reaped < 0)
-                pid = -1;
+            if (reap_if_exited())
+                return true;
         }
         return pid < 0;
     }
+
+    // Reap without blocking. A child that exited counts as reaped even when
+    // waitpid reports the error: there is nothing left to wait for.
+    bool reap_if_exited() {
+        if (pid <= 0)
+            return true;
+        int status = 0;
+        const pid_t reaped = waitpid(pid, &status, WNOHANG);
+        if (reaped == pid || reaped < 0)
+            pid = -1;
+        return pid < 0;
+    }
+
+    static int exit_timeout_ms() {
+        const char* raw = std::getenv("AMBER_PTY_EXIT_TIMEOUT_MS");
+        if (!raw || !*raw)
+            return kExitTimeoutMs;
+        char* end = nullptr;
+        errno = 0;
+        const long parsed = std::strtol(raw, &end, 10);
+        if (errno != 0 || end == raw || parsed <= 0)
+            return kExitTimeoutMs;
+        return static_cast<int>(std::min<long>(parsed, 600000));
+    }
+
+    // A test may end inside a modal (e.g. the error journal or the session
+    // browser), which reads its own window and would swallow Ctrl+C. Esc closes
+    // it. Wait for the redraw that follows instead of sleeping a fixed 0.8 s: a
+    // loaded runner gets as long as it needs, and a fast one does not stall.
+    void dismiss_modal() {
+        const size_t mark = raw.size();
+        write_raw("\x1b");
+        for (int waited = 0; waited < kModalDismissCapMs && raw.size() == mark; waited += kPumpMs)
+            pump(kPumpMs);
+        // The dismissal's own redraw may still be in flight; one more slice
+        // lets it finish without making the common case wait for a timeout.
+        pump(kPumpMs);
+    }
+
+    // Ask the app to quit, then drain until it is gone. Draining is what lets a
+    // blocked-on-write app read the quit key at all, and the reap is the event
+    // that ends the wait: atexit runs after it, which is where gcov flushes. The
+    // chord is repeated while waiting because a modal that was mid-transition
+    // when Ctrl+C arrived swallows it, and a second Esc closes it -- the race the
+    // old single-shot fixed budget lost on a loaded runner.
+    void wait_for_quit() {
+        const int timeout_ms = exit_timeout_ms();
+        int next_chord = 15000;
+        for (int waited = 0; waited < timeout_ms && pid > 0; waited += kPumpMs) {
+            pump(kPumpMs);
+            if (reap_if_exited())
+                return;
+            if (waited >= next_chord) {
+                next_chord = waited + 15000;
+                dismiss_modal();
+                write_raw("\x03");
+            }
+        }
+    }
+
+    // The app writes this after the terminal is restored and the sessions are
+    // saved. Its presence is evidence the quit path ran; a session that exits
+    // without it died inside its own teardown.
+    bool exit_ready_seen() const { return raw.find(agent::kExitReadyMarker) != std::string::npos; }
 
     std::string text() const { return strip_ansi(raw); }
 
@@ -261,6 +347,10 @@ struct Tui {
     void send_delete() { write_raw("\x1b[3~"); }
 
     void stop() {
+        if (stopped_)
+            return;
+        stopped_ = true;
+        bool killed = false;
         // Ask the app to exit through its own quit path (Ctrl+C) instead of
         // killing it: a normal return runs the atexit handlers, which is where
         // gcov flushes. Keep draining the pty while waiting — the app blocks on
@@ -268,26 +358,9 @@ struct Tui {
         // the quit key. SIGKILL stays as a bounded last resort so the suite can
         // never hang, but a session that needs it is a failure (see main()).
         if (master >= 0 && pid > 0) {
-            // Esc first: a test may end inside a modal (e.g. the session
-            // browser), which reads its own window and would swallow Ctrl+C.
-            // The pty child runs with a short ESCDELAY so a lone Esc lands; the
-            // explicit pause keeps the gap well past it.
-            write_raw("\x1b");
-            for (int i = 0; i < 8; ++i) { // ~0.8 s, draining throughout
-                pump(kPumpMs);
-                usleep(kPumpMs * 1000);
-            }
+            dismiss_modal();
             write_raw("\x03");
-            // Bounded, but generous: a slow CI runner needs room to process the
-            // quit key and unwind, and the SIGKILL below is a failure, not a
-            // normal path. Draining throughout is what lets the app read the key.
-            for (int i = 0; i < 300 && pid > 0; ++i) { // up to ~15 s
-                pump(kPumpMs);
-                int status = 0;
-                pid_t reaped = waitpid(pid, &status, WNOHANG);
-                if (reaped == pid || reaped < 0)
-                    pid = -1;
-            }
+            wait_for_quit();
         }
         // Close the master before reaping: a child still holding the controlling
         // terminal as it exits stays in the kernel's "trying to exit" state on
@@ -300,15 +373,13 @@ struct Tui {
         // quit path while the master was still open can only become reapable at
         // this point, so counting it as force-killed here would be a false
         // positive — exactly the slow-runner case where the exit lands late.
-        for (int i = 0; i < 50 && pid > 0; ++i) {
-            int status = 0;
-            pid_t reaped = waitpid(pid, &status, WNOHANG);
-            if (reaped == pid || reaped < 0)
-                pid = -1;
-            else
-                usleep(20000);
+        for (int i = 0; i < 50; ++i) {
+            if (reap_if_exited())
+                break;
+            usleep(20000);
         }
         if (pid > 0) {
+            killed = true;
             killed_sessions.push_back(name.empty() ? "<unnamed>" : name);
             kill(pid, SIGKILL);
             for (int i = 0; i < 200; ++i) { // bounded reap: never hang the suite
@@ -320,7 +391,14 @@ struct Tui {
             }
             pid = -1;
         }
+        // A killed session is already reported; one that exited without the
+        // marker ran part of its teardown and then died, which is the silent
+        // failure this check exists to turn into a red run.
+        if (!killed && pid < 0 && !exit_ready_seen())
+            sessions_without_exit_ready.push_back(name.empty() ? "<unnamed>" : name);
     }
+
+    bool stopped_ = false;
 };
 
 // Hermetic fixture: a private workspace (sessions + settings) and a private XDG
@@ -1273,20 +1351,38 @@ TEST(system_commands_do_not_freeze_the_ui) {
     if (!require(tui.wait_for("List running processes", 5000), "the /system drawer never listed ps",
                  tui))
         return;
+    // Both markers are needed, and their ORDER is the measurement: the pty's
+    // output accumulates, so "which appeared first in what followed the
+    // dispatch" is independent of how long the machine took. A fixed ack window
+    // is what made this flake on a loaded runner (#369).
+    const size_t dispatch = tui.raw.size();
     tui.send("\r");
     tui.pump(500);
     tui.send("\r");
-    if (!require(tui.wait_for("ps: started", 3000),
-                 "/system ps did not acknowledge the start before the 4 s job finished", tui))
+    bool acked = false;
+    bool finished = false;
+    for (int waited = 0; waited < 30000 && !acked && !finished; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        const std::string delta = text_since(tui, dispatch);
+        acked = delta.find("ps: started") != std::string::npos;
+        finished = delta.find("ps: exit 0") != std::string::npos;
+    }
+    if (!require(acked, "/system ps did not acknowledge the start before the 4 s job finished",
+                 tui))
         return;
 
-    // The UI stays live while the job runs: a keystroke still reaches the prompt.
-    size_t mark = tui.raw.size();
+    // The UI stays live while the job runs: a keystroke still reaches the prompt
+    // before the job's own result does. The job takes 4 s, so losing this race
+    // means the UI was blocked, not that the machine was slow.
+    const size_t mark = tui.raw.size();
     tui.send("z");
     bool echoed = false;
-    for (int waited = 0; waited < 1500 && !echoed; waited += 50) {
-        tui.pump(50);
-        echoed = text_since(tui, mark).find('z') != std::string::npos;
+    finished = false;
+    for (int waited = 0; waited < 30000 && !echoed && !finished; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        const std::string delta = text_since(tui, mark);
+        echoed = delta.find('z') != std::string::npos;
+        finished = delta.find("ps: exit 0") != std::string::npos;
     }
     if (!require(echoed, "the UI stopped accepting input while a command ran", tui))
         return;
@@ -2903,10 +2999,55 @@ TEST(learn_panel_opens_and_returns_to_the_prompt) {
             "the main loop did not resume after closing the panel", tui);
 }
 
+// Re-run the whole suite in fresh processes, so an intermittent failure has to
+// survive more than one pass. Each iteration is a new process: the scenarios
+// share one fixture and deliberately change its state, so repeating them
+// in-process would test a machine that no user ever has.
+int repeat_suite(const std::string& self, const std::string& binary, int repeat) {
+    for (int iteration = 1; iteration <= repeat; ++iteration) {
+        const pid_t child = fork();
+        if (child < 0) {
+            std::cerr << "FAIL: could not fork for --repeat\n";
+            return 1;
+        }
+        if (child == 0) {
+            execlp(self.c_str(), self.c_str(), binary.c_str(), static_cast<char*>(nullptr));
+            std::fprintf(stderr, "repeat child: exec(%s): %s\n", self.c_str(),
+                         std::strerror(errno));
+            _exit(127);
+        }
+        int status = 0;
+        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {
+        }
+        const bool ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        std::cout << "--- repeat " << iteration << "/" << repeat << ": "
+                  << (ok ? "passed" : "FAILED") << "\n";
+        if (!ok)
+            return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char** argv) {
+    std::string binary_arg = "./amber";
+    std::string self_arg = argc > 0 ? argv[0] : "tui_pty_test";
+    int repeat = 1;
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--repeat" && i + 1 < argc) {
+            repeat = std::max(1, std::atoi(argv[++i]));
+            continue;
+        }
+        binary_arg = arg;
+    }
+    if (repeat > 1) {
+        std::error_code ignored;
+        const fs::path self = fs::absolute(self_arg, ignored);
+        return repeat_suite(ignored ? self_arg : self.string(), binary_arg, repeat);
+    }
     // Absolute: the child chdir()s into the workspace before exec.
     std::error_code ec;
-    fixture().binary = fs::absolute(argc > 1 ? argv[1] : "./amber", ec).string();
+    fixture().binary = fs::absolute(binary_arg, ec).string();
     if (ec || !fs::exists(fixture().binary)) {
         std::cerr << "FAIL: amber binary not found at " << fixture().binary << "\n";
         return 1;
@@ -2962,6 +3103,19 @@ int main(int argc, char** argv) {
             std::cerr << "FAIL: session '" << session
                       << "' was force-killed instead of exiting through the quit path\n";
         failed += static_cast<int>(killed_sessions.size());
+    }
+
+    // An exit nobody announced is not a pass: without the sentinel the suite
+    // cannot tell a clean quit from one that died inside its own teardown, and
+    // a green run would say nothing about the saves that are supposed to have
+    // happened first. The app writes it as the last thing it does before main
+    // returns, at <state dir>/exit-ready-<pid>.
+    if (!sessions_without_exit_ready.empty()) {
+        for (const std::string& session : sessions_without_exit_ready)
+            std::cerr << "FAIL: session '" << session
+                      << "' exited without its exit-ready file — the app must announce the end "
+                         "of its quit path\n";
+        failed += static_cast<int>(sessions_without_exit_ready.size());
     }
 
     if (failed)
