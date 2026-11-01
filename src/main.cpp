@@ -9,6 +9,7 @@
 #include <agent/plugin_runtime.h>
 #include <agent/bootstrap.h>
 #include <agent/exit_ready.h>
+#include <agent/log_retention.h>
 #include "agent/private_file.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/watch/watch_plugin.h"
@@ -658,11 +659,26 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
     }
 }
 
+// Retention before the turn: a one-shot process has no idle tick, and a detached
+// worker would be killed by exit before it finished. A scan is a directory walk,
+// and the bounds keep the deletions bounded, so this does not delay the run in
+// any way a user can feel.
+void prune_logs_before_run(const agent::Config& cfg) {
+    const agent::RetentionReport report =
+        agent::prune_logs(agent::Workspace::state_dir() + "/logs", cfg.log_retention_policy(),
+                          std::time(nullptr), {});
+    if (report.removed > 0)
+        std::fprintf(stderr, "log retention: removed %zu log file(s)\n", report.removed);
+    for (const auto& error : report.errors)
+        std::fprintf(stderr, "log retention: %s\n", error.c_str());
+}
+
 // The run is over on both paths, so the announcement belongs here rather than at
 // one return: a harness waits for the process to say it finished, instead of
 // guessing how long a one-shot turn takes on the machine it is running on.
 int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
                    const std::string& prompt, bool watch_wake) {
+    prune_logs_before_run(cfg);
     const int rc = run_agent_turn(cfg, host, hooks, prompt, watch_wake);
     agent::announce_exit_ready();
     return rc;
