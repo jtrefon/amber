@@ -620,9 +620,6 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
         attrs = A_DIM;
         break;
     case top_bar::Role::RunningTab:
-        pair = P_GAUGE_OK;
-        attrs = A_BOLD;
-        break;
     case top_bar::Role::DoneTab:
         pair = P_GAUGE_OK;
         attrs = A_BOLD;
