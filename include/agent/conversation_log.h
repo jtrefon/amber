@@ -24,6 +24,11 @@ public:
     // path may contain "{ts}", replaced with the session start timestamp.
     void open(const std::string& path);
 
+    // The resolved transcript path this process has open, or empty when there
+    // is none. A retention pass must never delete this file, and it cannot be
+    // derived from the session id because "{ts}" is a start timestamp.
+    const std::string& path() const { return path_; }
+
     // The error journal: what the app could not do (chat errors, aborted turns,
     // uncaught failures) in one append-only file, rotated at kMaxErrorBytes with
     // one previous kept. Opened only when diagnostics are on — with them off
@@ -44,6 +49,7 @@ private:
     int out_fd_ = -1;
     int errors_fd_ = -1;
     std::string session_;
+    std::string path_;
     std::string errors_path_;
     std::size_t errors_bytes_ = 0;
 };

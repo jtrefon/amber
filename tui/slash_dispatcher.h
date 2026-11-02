@@ -156,6 +156,9 @@ public:
     void cmd_skills_uninstall(const std::string& name);
     void cmd_get_config();
     void cmd_get_config_paths();
+    // /get logs and /set logs <verb>: one policy, read from two directions.
+    void cmd_logs_get();
+    void cmd_logs_set(const std::string& verb, const std::string& value);
     void cmd_get_model();
     void cmd_get_model_list();
     void cmd_get_model_context();
@@ -171,7 +174,6 @@ public:
     void cmd_get_detection(const std::string& sub);
     void cmd_get_compression();
     void cmd_window_new(bool noworkdir, const std::string& name);
-    void cmd_window_close();
     void cmd_window_list();
     void cmd_window_rename(const std::string& name);
     void cmd_window_set(const std::string& arg);
@@ -190,7 +192,6 @@ public:
     void cmd_project_close();
     void open_resource(const std::string& kind, const std::string& id);
     void apply_work_item(const std::string& kind, const std::string& id, std::size_t window_index);
-    void cmd_window(const std::string& arg);
     void cmd_job(const std::string& rest);
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);

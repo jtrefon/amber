@@ -39,7 +39,8 @@ ConversationLog::~ConversationLog() {
 
 ConversationLog::ConversationLog(ConversationLog&& other) noexcept
     : out_fd_(other.out_fd_), errors_fd_(other.errors_fd_), session_(std::move(other.session_)),
-      errors_path_(std::move(other.errors_path_)), errors_bytes_(other.errors_bytes_) {
+      path_(std::move(other.path_)), errors_path_(std::move(other.errors_path_)),
+      errors_bytes_(other.errors_bytes_) {
     other.out_fd_ = -1;
     other.errors_fd_ = -1;
     other.errors_bytes_ = 0;
@@ -55,6 +56,7 @@ ConversationLog& ConversationLog::operator=(ConversationLog&& other) noexcept {
     out_fd_ = other.out_fd_;
     errors_fd_ = other.errors_fd_;
     session_ = std::move(other.session_);
+    path_ = std::move(other.path_);
     errors_path_ = std::move(other.errors_path_);
     errors_bytes_ = other.errors_bytes_;
     other.out_fd_ = -1;
@@ -72,6 +74,7 @@ void ConversationLog::open(const std::string& path) {
     size_t pos = resolved.find(tok);
     if (pos != std::string::npos)
         resolved.replace(pos, tok.size(), session_);
+    path_ = resolved;
     out_fd_ = open_private_append(resolved);
     if (out_fd_ >= 0)
         event("session_start", {{"session", session_}});

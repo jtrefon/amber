@@ -53,7 +53,8 @@ std::vector<ConfigPath> config_paths() {
     out.push_back(row("sessions", state + "/sessions", "conversation history (/session list)"));
     out.push_back(row("settings", state + "/settings",
                       "project-local non-LLM settings (temperature, prompts, compression)"));
-    out.push_back(row("logs", state + "/logs", "per-session transcripts"));
+    out.push_back(row("logs", state + "/logs",
+                      "per-session transcripts; bounded by /set logs retention|max"));
     out.push_back(row("errors", error_log_path(),
                       "app failures and recovered errors; written only with /set debug on"));
     out.push_back(
