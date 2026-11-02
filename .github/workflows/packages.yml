@@ -62,8 +62,10 @@ jobs:
           esac
           version="${tag#v}"
           # A package whose version disagrees with the tag is a package nobody
-          # can reason about later, so disagreeing is a build failure.
-          test "$(cat version.txt)" = "$version" ||
+          # can reason about later, and a tag cut without the stamp is how
+          # v0.8.3 published nothing at all. The comparison is identical to the
+          # one release.yml makes, so the two cannot disagree about it again.
+          test "$(cat version.txt)" = "${tag#v}" ||
             { echo "error: version.txt says $(cat version.txt), the tag says $version"; exit 1; }
           {
             echo "tag=$tag"

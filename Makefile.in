@@ -370,6 +370,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
         static-gates content-gates check-build \
         verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
+        release-check \
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
         class-size class-size-update \
@@ -787,6 +788,14 @@ test-presence:
 # continue-on-error; it is not a merge gate until the convention is adopted.
 commit-lint:
 	@python3 "$(SRC_DIR)/tools/commit_lint.py" --base $(BASE) --tdd
+
+# The tag and the stamped version have one owner each, and they must agree.
+# Run this before creating the tag: a tag cut without the `release:` stamp
+# produces a GitHub release whose packages every repository refuses to carry,
+# which is what happened to v0.8.3.
+release-check:
+	@test -n "$(TAG)" || { echo "release-check: set TAG=vX.Y.Z"; exit 2; }
+	@python3 "$(SRC_DIR)/tools/release_check.py" --tag "$(TAG)"
 
 # Shared by `complexity` and `nesting`: both parse lizard's -w output with a regex
 # and both judge success from that output, never from lizard's exit status.
