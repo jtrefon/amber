@@ -763,6 +763,15 @@ bug came back after it had been fixed in the context layer.
   commit -- `release.yml` used to overwrite the version and published a GitHub
   release, `packages.yml` refused the tag, and the apt/dnf repositories stayed
   on 0.8.2 while `amber update` reported "already newest".
+- **A tag publishes unattended.** The `release` environment holds the archive
+  signing key and is scoped by branch policy to `main` and `v*` tags, with no
+  reviewer gate: the tag is the decision, so `sign-rpm`, `publish`, `verify`
+  and the GitHub release run to completion on their own. It originally carried
+  a required reviewer, and since a single-maintainer repository let the person
+  who cut the tag approve their own deployment, the only thing it produced was
+  a run parked in `waiting` that looked like a hung pipeline -- v0.8.4 sat
+  there while the apt index stayed on 0.8.2. What guards the channel is the
+  version assertion plus the tag's own access control, not a second prompt.
 
 ### Where amber keeps its own files
 
