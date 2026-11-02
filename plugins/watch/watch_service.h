@@ -73,6 +73,9 @@ private:
     WatchRecord make_record(const WatchStart& options);
     void launch(const WatchRecord& record);
     void mark_restarted_records();
+    // Caller holds mtx_. `extra` is included in the terminal set so a finishing
+    // watch can apply retention in the same critical section that publishes it.
+    std::vector<std::string> retention_victims_locked(const WatchRecord* extra) const;
     void prune();
     void publish_report(const WatchRecord& record, const WatchReport& report);
 
