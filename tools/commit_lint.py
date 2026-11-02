@@ -3,8 +3,9 @@
 
 AGENTS.md asks for imperative subjects with a scoped prefix
 (`tui: fix drawer scroll`) and a red test commit before the green fix. The
-history does not meet that consistently yet, so this is advisory: CI runs it
-with `continue-on-error: true` and it never gates a merge.
+history does not meet that consistently yet, so this is advisory: the CI step
+carries `continue-on-error: true`, the job concludes success, and the findings
+are `::warning::` annotations. It never gates a merge.
 
   * subject     `<area>: <summary>`, <= 72 characters. Merge/revert/fixup are
                 exempt; `fix(coding):` is reported because it is a different
@@ -32,6 +33,18 @@ MAX_SUBJECT = 72
 SUBJECT = re.compile(r"^[a-z][a-z0-9/_-]*: \S")
 EXEMPT = ("Merge ", "Revert ", "fixup!", "squash!")
 RED = re.compile(r"\(red\)", re.IGNORECASE)
+
+# Findings are warning annotations on GitHub. The job concludes success (it is
+# advisory), so a plain log line would be buried; an annotation puts the finding
+# where a reviewer looks without making the check red.
+ANNOTATION = "::warning::"
+
+
+def finding_line(text, in_actions=None):
+    """The line to print for a finding: annotated under GitHub Actions."""
+    if in_actions is None:
+        in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    return f"{ANNOTATION}{text}" if in_actions else text
 
 
 def lint_subjects(subjects):
@@ -84,14 +97,15 @@ def main():
 
     problems = lint_subjects(subjects)
     for index, subject, reason in problems:
-        print(f"commit-lint: {subject!r}: {reason}")
+        print(finding_line(f"commit-lint: {subject!r}: {reason}"))
     if args.tdd:
         diff = _git("diff", "--name-only", f"{args.base}...HEAD")
         files = [line for line in diff.stdout.splitlines() if line] \
             if diff.returncode == 0 else []
         if tdd_warning(subjects, files):
-            print("commit-lint: production changed but no commit subject carries '(red)' "
-                  "(advisory: the red test commit is the evidence the fix was test-first)")
+            print(finding_line(
+                "commit-lint: production changed but no commit subject carries '(red)' "
+                "(advisory: the red test commit is the evidence the fix was test-first)"))
 
     if problems:
         print(f"commit-lint: {len(problems)} subject(s) do not match the convention "

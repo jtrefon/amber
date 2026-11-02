@@ -113,6 +113,13 @@ jobs:
   # ---------------------------------------------------------------------------
   # Commit hygiene — advisory. The history does not yet meet the scoped-subject
   # and red-test conventions consistently, so this reports and never blocks.
+  #
+  # The step carries `continue-on-error` as well as the job. Job-level alone
+  # stops the *workflow* from failing but still reports a failed check run, so
+  # the PR shows a red X for something that cannot block it (measured on
+  # #503). A check people are told to ignore is how a real red gets ignored;
+  # the step-level flag makes the job conclude success, and the tool emits
+  # `::warning::` annotations so the findings stay visible.
   # ---------------------------------------------------------------------------
   commit-hygiene:
     needs: [changes]
@@ -125,6 +132,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Commit subjects and red-test signal
+        continue-on-error: true
         run: python3 tools/commit_lint.py --base origin/${{ github.base_ref }} --tdd
 
   # ---------------------------------------------------------------------------

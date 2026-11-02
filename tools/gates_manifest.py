@@ -17,6 +17,8 @@ The field contract:
     local        the command that reproduces it locally, or None
     local_reason why no local command exists (required when local is None)
     reason       why a non-gating job is excluded (required when gating is False)
+    advisory     reports findings without blocking: the step must carry
+                 `continue-on-error` so the check run concludes success
 
 `tests/gates/test_ci_manifest.py` holds the invariant: every gating job is in
 `ci-gate.needs`, in the skip policy, and has a local command or a stated reason.
@@ -194,6 +196,7 @@ JOBS = {
         "dimension": "always",
         "events": PR_ONLY,
         "gating": False,
+        "advisory": True,
         "reason": "advisory: the commit convention is not yet adopted consistently",
     },
 }
