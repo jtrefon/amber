@@ -449,7 +449,7 @@ bool Config::save_global(const std::string& path) const {
     if (prompt_cache_ttl != "5m")
         f << "prompt_cache_ttl=" << prompt_cache_ttl << "\n";
     if (cache_diagnostics)
-        f << "prompt_cache_diagnostics=on\n";
+        f << "prompt_cache_diagnostics=1\n";
     if (!cache_global_scope)
         f << "prompt_cache_scope=session\n";
     return write_private_file(path, f.str());

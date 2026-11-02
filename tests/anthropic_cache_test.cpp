@@ -213,3 +213,47 @@ TEST(anthropic_client_replays_the_previous_response_id) {
               std::string("msg_mock"));
     ASSERT_EQ(second_stats.response_id, std::string("msg_mock"));
 }
+
+// The streamed path must carry the response id too: diagnostics replay it on
+// the next turn, and a streaming session never sees a buffered body.
+TEST(anthropic_stream_captures_the_response_id) {
+    agent::test::MockAnthropic mock;
+    ASSERT(mock.start());
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_diagnostics = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> msgs{text_msg("system", stable_prompt()),
+                                     text_msg("user", "first")};
+    agent::Stats stats;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &stats);
+    ASSERT_EQ(stats.response_id, std::string("msg_mock"));
+}
+
+// The provider's miss reason travels with the streamed response too, and the
+// second streamed request replays the id the first one returned.
+TEST(anthropic_stream_reports_the_miss_reason_and_replays_the_id) {
+    agent::test::MockAnthropic mock;
+    ASSERT(mock.start());
+    mock.set_cache_miss_reason("system_changed");
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_diagnostics = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> msgs{text_msg("system", stable_prompt()),
+                                     text_msg("user", "first")};
+    agent::Stats first;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &first);
+    ASSERT_EQ(first.cache_miss_reason, std::string("system_changed"));
+
+    msgs.push_back(text_msg("assistant", "reply"));
+    msgs.push_back(text_msg("user", "second"));
+    agent::Stats second;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &second);
+
+    const auto requests = mock.requests();
+    ASSERT(requests.size() >= 2u);
+    const agent::json body = agent::json::parse(requests[1].body);
+    ASSERT_EQ(body["diagnostics"]["previous_message_id"].get<std::string>(),
+              std::string("msg_mock"));
+}

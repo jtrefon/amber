@@ -429,7 +429,6 @@ protected:
             return;
         }
         if (type == "message_delta") {
-            read_miss_reason(evt.value("diagnostics", json::object()));
             read_usage(evt.value("usage", json::object()), "output_tokens", &completion_tokens_);
             return;
         }

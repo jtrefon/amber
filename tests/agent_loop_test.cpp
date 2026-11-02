@@ -4217,6 +4217,210 @@ TEST(wire_breakpoint_sits_on_the_conversation_not_the_tail) {
         ASSERT_EQ(unmarked(b["messages"][i]).dump(), unmarked(a["messages"][i]).dump());
 }
 
+// Position of the moving breakpoint: message and block. A merged user turn
+// carries the tool results and then the tail text, so the message index alone
+// cannot tell "on the tail" from "before it".
+struct CacheMark {
+    std::size_t message = std::numeric_limits<std::size_t>::max();
+    std::size_t block = std::numeric_limits<std::size_t>::max();
+};
+
+CacheMark cache_mark(const json& body) {
+    CacheMark mark;
+    if (!body.contains("messages") || !body["messages"].is_array())
+        return mark;
+    const json& messages = body["messages"];
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        if (!messages[i].contains("content") || !messages[i]["content"].is_array())
+            continue;
+        const json& content = messages[i]["content"];
+        for (std::size_t b = 0; b < content.size(); ++b)
+            if (content[b].is_object() && content[b].contains("cache_control")) {
+                mark.message = i;
+                mark.block = b;
+                return mark;
+            }
+    }
+    return mark;
+}
+
+json unmarked_block(const json& block) {
+    json copy = block;
+    if (copy.is_object())
+        copy.erase("cache_control");
+    return copy;
+}
+
+// The prefix contract as one predicate: every token the earlier request marked
+// reappears, byte-identical, at the same position in the later one. Only blocks
+// up to and including the mark count -- a tail merged behind it is not part of
+// the cached prefix.
+bool marked_prefix_survives(const json& earlier, const json& later) {
+    const CacheMark mark = cache_mark(earlier);
+    if (mark.message == std::numeric_limits<std::size_t>::max())
+        return false;
+    if (!later.contains("messages") || !later["messages"].is_array())
+        return false;
+    const json& next = later["messages"];
+    if (next.size() <= mark.message)
+        return false;
+    for (std::size_t i = 0; i < mark.message; ++i) {
+        if (unmarked(earlier["messages"][i]) != unmarked(next[i]))
+            return false;
+    }
+    const json& before = earlier["messages"][mark.message]["content"];
+    const json& after = next[mark.message]["content"];
+    if (!before.is_array() || !after.is_array() || after.size() <= mark.block)
+        return false;
+    for (std::size_t b = 0; b <= mark.block; ++b)
+        if (unmarked_block(before[b]) != unmarked_block(after[b]))
+            return false;
+    return true;
+}
+
+// A breakpoint with nothing after it is on the volatile tail: the next request
+// rewrites it and the provider re-prefills everything behind it.
+bool breakpoint_has_content_after_it(const json& body) {
+    const CacheMark mark = cache_mark(body);
+    if (mark.message == std::numeric_limits<std::size_t>::max())
+        return false;
+    const json& messages = body["messages"];
+    if (mark.message + 1 < messages.size())
+        return true;
+    const json& content = messages[mark.message]["content"];
+    return mark.block + 1 < content.size();
+}
+
+// Mutation test of the harness itself: it must catch every prefix break that has
+// actually shipped as a bug. A checker that cannot fail is how three cache
+// fixes landed green.
+TEST(prefix_harness_detects_each_mutation_that_shipped_as_a_bug) {
+    json base = {
+        {"tools", json::array({{{"name", "a"}}, {{"name", "b"}}})},
+        {"system", json::array({{{"type", "text"}, {"text", "BASE"}}})},
+        {"messages",
+         json::array({json{{"role", "user"},
+                           {"content", json::array({{{"type", "text"}, {"text", "one"}}})}}})}};
+    base["messages"][0]["content"][0]["cache_control"] = {{"type", "ephemeral"}};
+    json next = base;
+    next["messages"].push_back(
+        {{"role", "assistant"}, {"content", json::array({{{"type", "text"}, {"text", "r"}}})}});
+    ASSERT(marked_prefix_survives(base, next));
+    ASSERT(breakpoint_has_content_after_it(next));
+
+    // 1. A dynamic value interpolated into the system prompt.
+    json system_changed = next;
+    system_changed["system"][0]["text"] = "BASE 1700000000";
+    ASSERT(system_changed["system"] != base["system"]);
+
+    // 2. A reordered tool array.
+    json tools_reordered = base;
+    std::swap(tools_reordered["tools"][0], tools_reordered["tools"][1]);
+    ASSERT(tools_reordered["tools"] != base["tools"]);
+
+    // 3. A rewritten historical block.
+    json rewritten = next;
+    rewritten["messages"][0]["content"][0]["text"] = "ONE";
+    ASSERT(!marked_prefix_survives(base, rewritten));
+
+    // 4. The breakpoint moved onto the volatile tail (the #509 bug): the marked
+    //    block is the last thing in the request.
+    json on_tail = base;
+    on_tail["messages"][0]["content"][0].erase("cache_control");
+    on_tail["messages"].push_back(
+        {{"role", "user"},
+         {"content", json::array({{{"type", "text"},
+                                   {"text", "brief"},
+                                   {"cache_control", {{"type", "ephemeral"}}}}})}});
+    ASSERT(!breakpoint_has_content_after_it(on_tail));
+}
+
+// A long, multi-tool session: every request's marked prefix must reappear in the
+// next one, and the stable tier must not move at all. This is the regression the
+// wire-level tests exist for -- a brief refresh, a tool result merged into a user
+// turn, and a plugin tail all in the same session.
+TEST(wire_prefix_survives_a_long_multitool_session) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.flavor = "anthropic";
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    const std::vector<std::string> prompts = {"one",  "two", "three", "four",
+                                              "five", "six", "seven", "eight"};
+    for (std::size_t i = 0; i < prompts.size(); ++i) {
+        if (i == 2 || i == 5) {
+            agent_test::FakeReply call;
+            call.tool_calls = json::array(
+                {{{"id", "call_" + std::to_string(i)},
+                  {"type", "function"},
+                  {"function", {{"name", "read"}, {"arguments", R"({"path":"README.md"})"}}}}});
+            raw->script.push_back(call);
+        }
+        push_text(*fake, "reply " + std::to_string(i));
+    }
+
+    agent::PromptRegistry prompts_reg;
+    prompts_reg.add("plug", "tail", 400, [] { return std::string("PLUGIN TAIL"); });
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
+                    std::move(fake));
+    ag.set_prompt_registry(prompts_reg);
+
+    for (std::size_t i = 0; i < prompts.size(); ++i) {
+        agent::SessionBrief brief;
+        brief.intent = "intent " + std::to_string(i);
+        brief.next = "step " + std::to_string(i);
+        ag.session_brief_store()->merge(brief);
+        ag.run(prompts[i]);
+    }
+
+    ASSERT(raw->requests.size() >= prompts.size());
+
+    // Provider-independent contract: the context projection is append-only. The
+    // harness tails are the only trailing messages that change, so the
+    // conversation before them must be identical at every shared index. OpenAI
+    // and Gemini inherit this; the Anthropic body below adds the breakpoint
+    // placement on top of it.
+    const auto conversation_end = [](const std::vector<agent::Message>& request) {
+        std::size_t end = request.size();
+        while (end > 0 && request[end - 1].harness)
+            --end;
+        return end;
+    };
+    for (std::size_t i = 0; i + 1 < raw->requests.size(); ++i) {
+        const auto& before = raw->requests[i];
+        const auto& after = raw->requests[i + 1];
+        const std::size_t n = conversation_end(before);
+        ASSERT(n <= conversation_end(after));
+        for (std::size_t k = 0; k < n; ++k) {
+            ASSERT_EQ(before[k].role, after[k].role);
+            ASSERT_EQ(before[k].content, after[k].content);
+            ASSERT_EQ(before[k].tool_calls.dump(), after[k].tool_calls.dump());
+        }
+    }
+
+    auto dialect = agent::make_anthropic_dialect();
+    const auto tools = reg.snapshot_tools();
+    std::vector<json> bodies;
+    bodies.reserve(raw->requests.size());
+    for (const auto& request : raw->requests)
+        bodies.push_back(dialect->build_chat_body(cfg, request, tools, false));
+
+    for (std::size_t i = 1; i < bodies.size(); ++i) {
+        ASSERT_EQ(bodies[i]["system"].dump(), bodies[0]["system"].dump());
+        ASSERT_EQ(bodies[i]["tools"].dump(), bodies[0]["tools"].dump());
+    }
+    for (std::size_t i = 0; i + 1 < bodies.size(); ++i) {
+        ASSERT(breakpoint_has_content_after_it(bodies[i]));
+        ASSERT(marked_prefix_survives(bodies[i], bodies[i + 1]));
+    }
+}
+
 // Disabling a plugin can strip the registry down to nothing it contributed (the
 // core tool set is a plugin contribution). That has to read as an agent that
 // cannot act, not as a hang: the turn still completes, and the request
