@@ -283,22 +283,13 @@ bool prompt_caching(const Config& cfg) {
     return cfg.prompt_cache_ttl != "off";
 }
 
-// One breakpoint value, shared by the block markers and the top-level field so
-// a mixed request can never carry two different lifetimes (the API rejects
-// that with a 400).
-json cache_control(const Config& cfg) {
+// A block-level breakpoint. `scope: "global"` is the Claude Code shape: it lets
+// the provider reuse the entry across request identities, which is what a
+// gateway that does not pin requests to one upstream identity needs.
+json block_cache_control(const Config& cfg) {
     json control = {{"type", "ephemeral"}};
     if (cfg.prompt_cache_ttl == "1h")
         control["ttl"] = "1h";
-    return control;
-}
-
-// A block-level breakpoint. `scope: "global"` is the Claude Code shape: it lets
-// the provider reuse the entry across request identities, which is what a
-// gateway that pools upstream credentials needs (the default scope is tied to
-// the caller's workspace). The beta that carries the field is sent with it.
-json block_cache_control(const Config& cfg) {
-    json control = cache_control(cfg);
     if (cfg.cache_global_scope)
         control["scope"] = "global";
     return control;
@@ -751,17 +742,10 @@ public:
             json blocks = cached_system_blocks(messages, cfg);
             if (!blocks.empty())
                 body["system"] = std::move(blocks);
-            // Automatic caching, alongside the explicit breakpoints above. The
-            // API documents this combination as the recommended shape (explicit
-            // for the stable prompt, automatic for the growing conversation),
-            // and it is the field a gateway dashboard looks for when deciding
-            // whether a request asked to be cached at all. "off" removes it.
-            // The automatic top-level breakpoint is the shape a gateway
-            // dashboard looks for, but it cannot carry `scope: global`. The
-            // global-scope experiment therefore sends the two explicit
-            // breakpoints alone, exactly as Claude Code does.
-            if (!cfg.cache_global_scope)
-                body["cache_control"] = cache_control(cfg);
+            // No top-level `cache_control`: it is the automatic alternative to
+            // explicit breakpoints (not a documented combination with them), it
+            // cannot carry `scope`, and it consumes one of the four slots. The
+            // two explicit breakpoints are the whole directive.
             // Cache diagnostics: replay the previous response id so the provider
             // names the first tier that diverged instead of leaving a zero read
             // unexplained. `null` on the first turn is the opt-in, so it is

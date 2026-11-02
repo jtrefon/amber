@@ -172,10 +172,10 @@ struct Config {
 
     // Global cache scope: `scope: "global"` on the explicit breakpoints plus
     // the `prompt-caching-scope-2026-01-05` beta. This is the shape Claude Code
-    // sends, and the one that keeps working through a gateway that pools
-    // upstream credentials. Off by default: a proxy may reject the field (400),
-    // so it is an experiment, not a default. Env: AMBER_CACHE_SCOPE=global.
-    bool cache_global_scope = false;
+    // sends, and the one that keeps working through a gateway that does not pin
+    // every request to one upstream identity. On by default; `session` is the
+    // narrowing value, for a proxy that rejects the field.
+    bool cache_global_scope = true;
 
     // The previous response id, owned by the client and never persisted. Empty
     // means the first turn: the request opts in with `previous_message_id: null`.

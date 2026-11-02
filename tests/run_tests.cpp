@@ -2387,10 +2387,12 @@ TEST(anthropic_request_marks_the_stable_prefix_cacheable) {
     ASSERT_EQ(blocks[0]["text"].get<std::string>(), "BASE PROMPT");
     ASSERT(blocks[0].contains("cache_control"));
     ASSERT_EQ(blocks[0]["cache_control"]["type"].get<std::string>(), "ephemeral");
-    // The automatic form rides alongside, so a gateway that looks for the
-    // top-level field recognises the request as asking for a cache.
-    ASSERT(body.contains("cache_control"));
-    ASSERT_EQ(body["cache_control"]["type"].get<std::string>(), "ephemeral");
+    // `scope: global` is the default: it is the shape Claude Code sends, and the
+    // one that survives a gateway that does not pin requests to one upstream
+    // identity. There is deliberately no top-level `cache_control`: it is the
+    // automatic alternative, it cannot carry a scope, and it costs a slot.
+    ASSERT_EQ(blocks[0]["cache_control"]["scope"].get<std::string>(), "global");
+    ASSERT(!body.contains("cache_control"));
     // The 5-minute default is the protocol default: no ttl field.
     ASSERT(!blocks[0]["cache_control"].contains("ttl"));
 
@@ -2417,7 +2419,6 @@ TEST(anthropic_cache_ttl_follows_the_setting) {
     cfg.prompt_cache_ttl = "1h";
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["system"][0]["cache_control"]["ttl"].get<std::string>(), "1h");
-    ASSERT_EQ(body["cache_control"]["ttl"].get<std::string>(), "1h");
     ASSERT_EQ(body["messages"].back()["content"].back()["cache_control"]["ttl"].get<std::string>(),
               "1h");
 

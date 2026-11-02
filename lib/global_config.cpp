@@ -23,10 +23,8 @@ GlobalConfig apply_global_selection(Config& cfg) {
     // see them; the default is not copied, so a future default can move.
     if (global.cfg.prompt_cache_ttl != "5m")
         cfg.prompt_cache_ttl = global.cfg.prompt_cache_ttl;
-    if (global.cfg.cache_diagnostics)
-        cfg.cache_diagnostics = true;
-    if (global.cfg.cache_global_scope)
-        cfg.cache_global_scope = true;
+    cfg.cache_diagnostics = global.cfg.cache_diagnostics;
+    cfg.cache_global_scope = global.cfg.cache_global_scope;
     // The provider domain owns the endpoint and the key: a provider's last-used
     // model comes with the selection, which is why the global model is applied
     // as a separate, later step.

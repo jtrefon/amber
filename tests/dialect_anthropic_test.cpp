@@ -73,6 +73,9 @@ TEST(anthropic_endpoints_tolerate_a_versioned_base) {
 TEST(anthropic_auth_headers) {
     auto d = anthropic();
     agent::Config cfg;
+    // Auth-only test: the default global cache scope adds its own beta header,
+    // which the scope test covers.
+    cfg.cache_global_scope = false;
 
     // Version header is always present; the key header only with a key.
     auto headers = d->auth_headers(cfg);
@@ -1020,5 +1023,5 @@ TEST(anthropic_global_scope_matches_the_claude_code_shape) {
     cfg.cache_global_scope = false;
     const agent::json plain = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(!plain["system"][0]["cache_control"].contains("scope"));
-    ASSERT(plain.contains("cache_control"));
+    ASSERT(!plain.contains("cache_control"));
 }

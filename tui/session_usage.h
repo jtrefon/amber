@@ -78,8 +78,10 @@ inline void load_usage(const agent::json& meta, UsageLedger& ledger) {
         if (measured) {
             ledger.main.prompt_tokens = number("session_prompt_tokens");
             ledger.main.completion_tokens = number("session_completion_tokens");
-            ledger.main.cache_read_tokens = number("session_cache_read_tokens");
-            ledger.main.cache_write_tokens = number("session_cache_write_tokens");
+            // Cache counters are deliberately not restored: they describe the
+            // process that made the requests, and carrying them into a new
+            // session made `/get provider` report "reading from cache" for a run
+            // that had never had a hit.
             ledger.main.measured = true;
         }
     }

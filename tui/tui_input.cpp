@@ -572,13 +572,15 @@ void SlashDispatcher::cmd_get_provider() {
     const std::string flavor = tui_.cfg_.flavor.empty() ? "openai" : tui_.cfg_.flavor;
     tui_.append_line(P_STATUS, "flavor: " + flavor + "  (prompt cache " +
                                    tui_.cfg_.prompt_cache_ttl + ", /set provider cache 5m|1h|off)");
-    long prefix = -1;
-    if (auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr)
-        prefix = acfg->prompt_tokens_used;
-    const auto& main = tui_.win().ledger.main;
-    tui_.append_line(P_STATUS,
-                     tui::prompt_cache_note(tui_.cfg_.model, tui_.cfg_.prompt_cache_ttl, prefix,
-                                            main.cache_read_tokens, main.cache_write_tokens));
+    // The last request's counters, not the session's lifetime sums: one hit
+    // ever must not read as "reading from cache" forever, and a resumed session
+    // must not inherit the reads of the process that wrote the session file.
+    const agent::Stats& last = tui_.win().stats;
+    const long prefix = last.valid ? last.prompt_tokens : -1;
+    const long read = last.valid ? last.cache_read_tokens : -1;
+    const long write = last.valid ? last.cache_write_tokens : -1;
+    tui_.append_line(P_STATUS, tui::prompt_cache_note(tui_.cfg_.model, tui_.cfg_.prompt_cache_ttl,
+                                                     prefix, read, write));
     if (!tui_.win().stats.cache_miss_reason.empty())
         tui_.append_line(P_STATUS, "last cache miss: " + tui_.win().stats.cache_miss_reason +
                                        " (the provider named the tier that changed)");
