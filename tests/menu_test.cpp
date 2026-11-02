@@ -1,6 +1,7 @@
 // The menu tree, its selection state and the painted rectangle model. Pure L1:
 // the renderer and the mouse handler both use the same layout.
 
+#include "agent/data_path.h"
 #include "tui/menu_controller.h"
 #include "tui/menu_model.h"
 #include "tui/menu_view.h"
@@ -9,6 +10,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdlib>
 #include <fstream>
 #include <set>
 #include <string>
@@ -262,6 +264,30 @@ TEST(menu_controller_opens_runs_and_unwinds) {
     ASSERT(controller.handle_key(27));
     ASSERT(controller.handle_key(27));
     ASSERT_FALSE(controller.is_open());
+}
+
+TEST(bundled_data_candidates_ignore_user_data_roots) {
+    const char* old_ws = std::getenv("AMBER_WORKSPACE");
+    const char* old_xdg = std::getenv("XDG_DATA_HOME");
+    const std::string saved_ws = old_ws ? old_ws : "";
+    const std::string saved_xdg = old_xdg ? old_xdg : "";
+    setenv("AMBER_WORKSPACE", "/tmp/amber-bundled-ws", 1);
+    setenv("XDG_DATA_HOME", "/tmp/amber-bundled-xdg", 1);
+
+    const auto candidates = agent::bundled_data_candidates("menus.json", "/opt/amber/bin/amber");
+    for (const auto& candidate : candidates) {
+        ASSERT(candidate.find("/tmp/amber-bundled-ws") == std::string::npos);
+        ASSERT(candidate.find("/tmp/amber-bundled-xdg") == std::string::npos);
+    }
+
+    if (old_ws)
+        setenv("AMBER_WORKSPACE", saved_ws.c_str(), 1);
+    else
+        unsetenv("AMBER_WORKSPACE");
+    if (old_xdg)
+        setenv("XDG_DATA_HOME", saved_xdg.c_str(), 1);
+    else
+        unsetenv("XDG_DATA_HOME");
 }
 
 TEST(menu_actions_resolve_against_the_command_tree) {

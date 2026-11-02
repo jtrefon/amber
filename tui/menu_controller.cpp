@@ -15,14 +15,14 @@ MenuController::MenuController(ActionRunner run, Redraw redraw, Status status)
 void MenuController::load_data() {
     const std::string exe = agent::exe_path();
     const char* exe_path = exe.empty() ? nullptr : exe.c_str();
-    for (const auto& path : agent::data_file_candidates("menus.json", exe_path)) {
+    for (const auto& path : agent::bundled_data_candidates("menus.json", exe_path)) {
         if (model_.load(path)) {
             loaded_ = true;
             break;
         }
     }
     std::vector<std::string> hints = default_hints();
-    for (const auto& path : agent::data_file_candidates("hints.json", exe_path)) {
+    for (const auto& path : agent::bundled_data_candidates("hints.json", exe_path)) {
         auto loaded = tui::load_hints(path);
         if (!loaded.empty()) {
             hints = std::move(loaded);

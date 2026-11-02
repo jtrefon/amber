@@ -41,6 +41,31 @@ void add_if_unique(std::vector<std::string>& out, std::string dir, const std::st
         out.push_back(std::move(candidate));
 }
 
+void add_install_candidates(std::vector<std::string>& out, const std::string& path,
+                            const char* argv0) {
+    if (!argv0)
+        return;
+    std::string bindir = dirname_of(argv0);
+    // A bare argv0 (no slash) means the binary was launched via PATH; resolve
+    // the real executable path so a relocatable install prefix (Homebrew,
+    // /usr/local, custom) can be found next to it.
+    if (std::string(argv0).find('/') == std::string::npos) {
+        std::string real = exe_dir();
+        if (!real.empty())
+            bindir = real;
+    }
+    add_if_unique(out, bindir, path);
+    if (bindir != ".")
+        add_if_unique(out, bindir + "/../share/amber", path);
+}
+
+void add_system_candidates(std::vector<std::string>& out, const std::string& path) {
+    if (agent::kDataDir[0])
+        add_if_unique(out, agent::kDataDir, path);
+    add_if_unique(out, "/usr/local/share/amber", path);
+    add_if_unique(out, "/usr/share/amber", path);
+}
+
 } // namespace
 
 std::string exe_dir() {
@@ -98,20 +123,7 @@ std::vector<std::string> data_file_candidates(const std::string& path, const cha
     //    workflows working and makes packaged installs relocatable to any
     //    prefix — Homebrew on Intel (/usr/local) and Apple Silicon
     //    (/opt/homebrew), or a custom --prefix.
-    if (argv0) {
-        std::string bindir = dirname_of(argv0);
-        // A bare argv0 (no slash) means the binary was launched via PATH;
-        // resolve the real executable path so a relocatable install prefix
-        // (Homebrew, /usr/local, custom) can be found next to it.
-        if (std::string(argv0).find('/') == std::string::npos) {
-            std::string real = exe_dir();
-            if (!real.empty())
-                bindir = real;
-        }
-        add_if_unique(out, bindir, path);
-        if (bindir != ".")
-            add_if_unique(out, bindir + "/../share/amber", path);
-    }
+    add_install_candidates(out, path, argv0);
     // 3. Workspace root.
     if (const char* ws = std::getenv("AMBER_WORKSPACE"))
         add_if_unique(out, ws, path);
@@ -125,10 +137,21 @@ std::vector<std::string> data_file_candidates(const std::string& path, const cha
     }
     // 5. System data dirs. The compiled-in one is where a package put the tree;
     //    the two literals keep relocatable and hand-built installs working.
-    if (agent::kDataDir[0])
-        add_if_unique(out, agent::kDataDir, path);
-    add_if_unique(out, "/usr/local/share/amber", path);
-    add_if_unique(out, "/usr/share/amber", path);
+    add_system_candidates(out, path);
+    return out;
+}
+
+std::vector<std::string> bundled_data_candidates(const std::string& path, const char* argv0) {
+    std::vector<std::string> out;
+    if (path.empty())
+        return out;
+    // 1. As given — CWD when relative.
+    if (path[0] == '/' || file_exists(path))
+        out.push_back(path);
+    // 2. The install prefix beside the binary.
+    add_install_candidates(out, path, argv0);
+    // 3. Compiled-in and conventional system data dirs.
+    add_system_candidates(out, path);
     return out;
 }
 
