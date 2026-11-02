@@ -377,6 +377,8 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
     final.attempt = report.attempt;
     if (!report.journal_update.empty())
         final.journal.push_back(report.journal_update);
+    std::vector<std::string> remove;
+    bool retained = true;
     {
         std::scoped_lock lk(mtx_);
         auto existing = records_.find(final.id);
@@ -385,12 +387,26 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
             final.delivered = final.delivered || existing->second.delivered;
         }
         final.delivered = final.delivered || final.abandoned;
-        records_[final.id] = final;
-        reports_[final.id] = report;
+        // Retention is part of the terminal transition: a caller that can see
+        // the state must also see the retention outcome, or `list()` reports one
+        // record past the policy until a later prune runs.
+        remove = retention_victims_locked(&final);
+        retained = std::find(remove.begin(), remove.end(), final.id) == remove.end();
+        for (const auto& id : remove) {
+            records_.erase(id);
+            reports_.erase(id);
+        }
+        if (retained) {
+            records_[final.id] = final;
+            reports_[final.id] = report;
+        }
     }
+    for (const auto& id : remove)
+        store_.remove(id);
+    if (!retained)
+        return;
     store_.save_record(final);
     store_.save_report(report);
-    prune();
     if (!final.abandoned)
         publish_report(final, report);
 }
@@ -466,20 +482,27 @@ int WatchService::running_count() const {
     return counts().running;
 }
 
+std::vector<std::string> WatchService::retention_victims_locked(const WatchRecord* extra) const {
+    std::vector<WatchRecord> terminal;
+    for (const auto& [id, record] : records_) {
+        if (extra && id == extra->id)
+            continue;
+        if (watch_state_terminal(record.state))
+            terminal.push_back(record);
+    }
+    if (extra)
+        terminal.push_back(*extra);
+    const std::size_t keep =
+        settings_.retention > 0 ? static_cast<std::size_t>(settings_.retention) : 0;
+    const long max_age_ms = static_cast<long>(settings_.retention_days) * 24 * 60 * 60 * 1000;
+    return retention_victims(terminal, keep, now_ms(), max_age_ms);
+}
+
 void WatchService::prune() {
     std::vector<std::string> remove;
     {
         std::scoped_lock lk(mtx_);
-        std::vector<WatchRecord> terminal;
-        for (const auto& [id, record] : records_) {
-            (void)id;
-            if (watch_state_terminal(record.state))
-                terminal.push_back(record);
-        }
-        const std::size_t keep =
-            settings_.retention > 0 ? static_cast<std::size_t>(settings_.retention) : 0;
-        const long max_age_ms = static_cast<long>(settings_.retention_days) * 24 * 60 * 60 * 1000;
-        remove = retention_victims(terminal, keep, now_ms(), max_age_ms);
+        remove = retention_victims_locked(nullptr);
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
