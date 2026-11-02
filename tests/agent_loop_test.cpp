@@ -12,6 +12,7 @@
 #include <mutex>
 #include <string>
 #include <future>
+#include <limits>
 #include <thread>
 #include <unistd.h>
 #include <atomic>
@@ -4128,6 +4129,92 @@ TEST(agent_places_injected_blocks_after_the_system_prompt) {
             break; // reached the conversation without seeing it
     }
     ASSERT(memory_before_conversation);
+}
+
+// The moving cache breakpoint belongs on the conversation, never on a tail
+// block. Tail blocks (session brief, activated skills, plugin tails) exist to
+// change between turns; marking one means the provider re-prefills the whole
+// conversation behind it on every request, and the only surviving breakpoint is
+// the small system block -- which can sit below the model's minimum, leaving the
+// request entirely uncached.
+std::size_t marked_message_index(const json& body) {
+    const std::size_t none = std::numeric_limits<std::size_t>::max();
+    if (!body.contains("messages") || !body["messages"].is_array())
+        return none;
+    const json& messages = body["messages"];
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        if (!messages[i].contains("content") || !messages[i]["content"].is_array())
+            continue;
+        for (const auto& block : messages[i]["content"])
+            if (block.is_object() && block.contains("cache_control"))
+                return i;
+    }
+    return none;
+}
+
+// The breakpoint marker is positional, not content: it moves to the newest turn
+// each request. Comparing the cached prefix means comparing the tokens, so the
+// marker is stripped first.
+json unmarked(const json& message) {
+    json copy = message;
+    if (copy.contains("content") && copy["content"].is_array()) {
+        for (auto& block : copy["content"])
+            if (block.is_object())
+                block.erase("cache_control");
+    }
+    return copy;
+}
+
+TEST(wire_breakpoint_sits_on_the_conversation_not_the_tail) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.flavor = "anthropic";
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "tail", 400, [] { return std::string("PLUGIN TAIL"); });
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
+                    std::move(fake));
+    ag.set_prompt_registry(prompts);
+
+    agent::SessionBrief first;
+    first.intent = "first intent";
+    ag.session_brief_store()->merge(first);
+    ag.run("one");
+
+    // A brief refresh is the normal case between two turns, and it must not
+    // move the breakpoint off the conversation.
+    agent::SessionBrief second;
+    second.intent = "a completely different intent";
+    second.next = "and a next step";
+    ag.session_brief_store()->merge(second);
+    ag.run("two");
+
+    ASSERT(raw->requests.size() >= 2u);
+    auto dialect = agent::make_anthropic_dialect();
+    const auto tools = reg.snapshot_tools();
+    const auto a = dialect->build_chat_body(cfg, raw->requests[0], tools, false);
+    const auto b = dialect->build_chat_body(cfg, raw->requests[1], tools, false);
+
+    const std::size_t marker = marked_message_index(a);
+    ASSERT(marker != std::numeric_limits<std::size_t>::max());
+    // The brief and the plugin tail follow the marker, so their churn stays
+    // outside the cached prefix instead of landing on top of it.
+    ASSERT(marker + 1 < static_cast<std::size_t>(a["messages"].size()));
+
+    // Turn 1's marked prefix must reappear byte-identical in turn 2. That is the
+    // whole contract: the provider can only read what did not change.
+    for (std::size_t i = 0; i <= marker; ++i)
+        ASSERT_EQ(unmarked(b["messages"][i]).dump(), unmarked(a["messages"][i]).dump());
 }
 
 // Disabling a plugin can strip the registry down to nothing it contributed (the

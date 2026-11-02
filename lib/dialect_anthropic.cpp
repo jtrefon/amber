@@ -19,6 +19,17 @@ constexpr const char* kApiVersion = "2023-06-01";
 constexpr const char* kRoleUser = "user";
 constexpr const char* kRoleAssistant = "assistant";
 
+// Index sentinel for "no turn" and the breakpoint's position: a message and the
+// content block inside it. The block matters because a merged user message can
+// carry the tool results (the conversation) followed by a harness tail (churn);
+// marking the message's last block would put the breakpoint on the churn.
+constexpr std::size_t kNoTurn = static_cast<std::size_t>(-1);
+
+struct TurnMark {
+    std::size_t message = kNoTurn;
+    std::size_t block = kNoTurn;
+};
+
 // A tool_use whose tool_result never arrived (a cancelled or failed dispatch)
 // still needs an answer: the API requires one for every id in the message
 // immediately after the assistant blocks, and an unanswered id rejects every
@@ -286,19 +297,23 @@ void mark_cacheable(json& block, const Config& cfg) {
     block["cache_control"] = cache_control(cfg);
 }
 
-// The moving breakpoint: everything up to and including the newest user turn
+// The moving breakpoint: everything up to and including the newest real turn
 // (a prompt, or the tool results answering the last call) is reused by the next
-// request. Only own-built user blocks are eligible -- a replayed assistant turn
-// can carry signed thinking blocks, which must stay byte-identical.
-void mark_last_turn_cacheable(json& messages, const Config& cfg) {
-    if (!prompt_caching(cfg) || !messages.is_array() || messages.empty())
+// request. The caller passes that block's position, because the volatile tail
+// blocks that ride the user channel must never carry the marker -- their churn
+// would invalidate the breakpoint and re-prefill every token behind it. Only
+// own-built user blocks are eligible: a replayed assistant turn can carry signed
+// thinking blocks, which must stay byte-identical.
+void mark_last_turn_cacheable(json& messages, const Config& cfg, const TurnMark& mark) {
+    if (!prompt_caching(cfg) || !messages.is_array() || mark.message >= messages.size())
         return;
-    json& last = messages.back();
-    if (last.value("role", std::string()) != kRoleUser)
+    json& turn = messages[mark.message];
+    if (turn.value("role", std::string()) != kRoleUser)
         return;
-    if (!last.contains("content") || !last["content"].is_array() || last["content"].empty())
+    if (!turn.contains("content") || !turn["content"].is_array() ||
+        mark.block >= turn["content"].size())
         return;
-    json& block = last["content"].back();
+    json& block = turn["content"][mark.block];
     if (!block.is_object())
         return;
     const std::string type = str_field(block, "type");
@@ -557,7 +572,7 @@ void append_tools_json(json& body, const std::vector<std::shared_ptr<Tool>>& too
 // ids whose result never arrived, and a user turn landing right after the
 // results (as text, so the roles still alternate).
 void append_tool_results(json& out, const std::vector<Message>& messages, std::size_t& i,
-                         std::vector<std::string>& pending) {
+                         std::vector<std::string>& pending, std::size_t& last_result_block) {
     json blocks = json::array();
     for (; i < messages.size() && messages[i].role == "tool"; ++i) {
         const std::string id = result_id_for(messages[i], pending);
@@ -566,6 +581,9 @@ void append_tool_results(json& out, const std::vector<Message>& messages, std::s
     }
     for (auto& b : take_answers(pending))
         blocks.push_back(std::move(b));
+    // The breakpoint goes here: the results are the conversation. A user turn
+    // merged below rides after them and carries only harness churn.
+    last_result_block = blocks.empty() ? kNoTurn : blocks.size() - 1;
     if (i < messages.size() && messages[i].role == kRoleUser && !messages[i].content.empty()) {
         blocks.push_back(text_block(messages[i].content));
         ++i;
@@ -637,7 +655,8 @@ void append_text_turn(json& out, const Message& m, std::vector<std::string>& pen
 // history restored from a session file can predate any of this, so the
 // walk repairs rather than trusts: that is the difference between a valid
 // replay and a 400 on every later request in the session.
-void append_messages(json& out, const std::vector<Message>& messages) {
+void append_messages(json& out, const std::vector<Message>& messages, TurnMark& mark) {
+    mark = TurnMark{};
     std::vector<std::string> pending; // tool_use ids awaiting a tool_result
     std::size_t next_id = 0;          // numbering for calls that arrived without one
     std::size_t i = 0;
@@ -646,13 +665,21 @@ void append_messages(json& out, const std::vector<Message>& messages) {
         if (m.role == "system") {
             ++i; // merged into `system`
         } else if (m.role == "tool") {
-            append_tool_results(out, messages, i, pending);
+            const std::size_t before = out.size();
+            std::size_t result_block = kNoTurn;
+            append_tool_results(out, messages, i, pending, result_block);
+            if (out.size() > before && result_block != kNoTurn)
+                mark = TurnMark{out.size() - 1, result_block};
         } else if (m.role == "assistant" && !m.tool_calls.is_null() && m.tool_calls.is_array() &&
                    !m.tool_calls.empty()) {
             append_assistant_tool_turn(out, m, pending, next_id);
             ++i;
         } else {
+            const std::size_t before = out.size();
             append_text_turn(out, m, pending);
+            if (!m.harness && out.size() > before &&
+                out.back().value("role", std::string()) == kRoleUser)
+                mark = TurnMark{out.size() - 1, out.back()["content"].size() - 1};
             ++i;
         }
     }
@@ -715,8 +742,9 @@ public:
         // said nothing. See append_thinking.
         append_thinking(body, cfg, max_tokens);
 
-        append_messages(body["messages"], messages);
-        mark_last_turn_cacheable(body["messages"], cfg);
+        TurnMark mark;
+        append_messages(body["messages"], messages, mark);
+        mark_last_turn_cacheable(body["messages"], cfg, mark);
         if (tools_advertised(cfg))
             append_tools_json(body, tools);
         return body;

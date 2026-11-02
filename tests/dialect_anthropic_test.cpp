@@ -911,3 +911,42 @@ TEST(dialect_registry_accepts_new_factories) {
     });
     ASSERT_EQ(agent::make_dialect("testflavor")->flavor(), "anthropic");
 }
+
+// The agent loop's usual request ends with tool results, and the harness tail
+// blocks are merged after them into the same user turn (so the roles keep
+// alternating). The moving breakpoint must land on the tool_result block -- the
+// end of the conversation -- not on the harness text behind it, whose content
+// changes between turns and would invalidate everything in front of it.
+TEST(anthropic_breakpoint_lands_on_the_tool_results_not_the_merged_tail) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    agent::Message system = text_msg("system", "You are amber.");
+    agent::Message user = text_msg("user", "read the file");
+
+    agent::Message assistant;
+    assistant.role = "assistant";
+    assistant.tool_calls = agent::json::array(
+        {{{"id", "toolu_1"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
+
+    agent::Message brief = text_msg("user", "[session brief] intent: first");
+    brief.harness = true;
+
+    std::vector<agent::Message> msgs = {system, user, assistant,
+                                        tool_result_msg("toolu_1", "file body"), brief};
+    const agent::json body = d->build_chat_body(cfg, msgs, {}, false);
+    const agent::json& out = body["messages"];
+
+    // One user turn holds the results and the brief, and the roles alternate.
+    ASSERT_EQ(out.size(), 3u);
+    ASSERT_EQ(out[2]["content"].size(), 2u);
+    ASSERT_EQ(out[2]["content"][0]["type"], "tool_result");
+    ASSERT_EQ(out[2]["content"][1]["text"], "[session brief] intent: first");
+
+    // The breakpoint sits on the results, never on the brief behind them.
+    ASSERT(out[2]["content"][0].contains("cache_control"));
+    ASSERT(!out[2]["content"][1].contains("cache_control"));
+}
