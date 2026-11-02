@@ -950,7 +950,7 @@ void SkillsExplorer::arm_retry(const agent::IndexFailure& error, long long now) 
         return;
     retry_used_ = true;
     retry_armed_ = true;
-    retry_at_ms_ = now + error.retry_after_s * 1000LL;
+    retry_at_ms_ = now + (error.retry_after_s * 1000LL);
 }
 
 void SkillsExplorer::on_files(const SkillsEvent& event) {
