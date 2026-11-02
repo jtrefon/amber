@@ -1,6 +1,7 @@
-# TUI 1.0 beta — full ncurses interface
+# TUI shell — full ncurses interface
 
-- **Status:** Agreed 2026-11-02. Delivery plan for the 1.0.0 beta.
+- **Status:** Agreed 2026-11-02. Delivery plan for the ncurses shell; the
+  version is assigned later by the maintainer.
 - **Epic:** tracks the seven milestones below; each milestone is one PR.
 - **Scope owner:** `tui/`.
 - **Related:** `docs/spec/tui/architecture.md`, `docs/style/tui-design-guide.md`,
@@ -8,8 +9,8 @@
 
 ## Goal
 
-Make the ncurses client a coherent 1.0 product: one component system, one
-theme layer, one input router, and a shell that never looks like a collection of
+Make the ncurses client a coherent product: one component system, one theme
+layer, one input router, and a shell that never looks like a collection of
 screens that grew independently.
 
 The bottom bar and prompt are already the product's densest, most refined
@@ -20,7 +21,7 @@ under every other screen.
 
 | Area | Decision |
 |---|---|
-| Window model | Full-screen workspace per tab. `SplitPane` is designed into the model but not required for beta. No overlapping desktop. |
+| Window model | Full-screen workspace per tab. `SplitPane` is designed into the model but not required for the shell. No overlapping desktop. |
 | Tabs | Chat sessions only. Tools, panels, skills, jobs and the work board open as layers inside the active tab. |
 | App mark | A bare `◆` at the far left, amber, no frame. It toggles the menu; F10 is the keyboard path. |
 | Top rail | One row of capped tabs, one rule row beneath it. Classic density. Compact drops the rule. |
@@ -116,16 +117,16 @@ indicator, markdown/theme integration. Final ncurses include ratchet.
 **Done when:** 10k lines scroll within the frame budget, resize rewraps once,
 and the only file including `<ncurses.h>` is the terminal adapter.
 
-### M7 — Beta hardening
+### M7 — Shell hardening
 
 Amber Classic, Modern, High Contrast and Monochrome palettes; ASCII and
 8/16/256-color fallbacks; no-color-only attention; reduced motion; terminal
 matrix; performance budgets; docs; release notes.
 
 **Done when:** the pty suite passes on xterm, tmux and a small terminal; the
-terminal matrix and key caveats are documented; the 1.0 beta gates below pass.
+terminal matrix and key caveats are documented; the shell gates below pass.
 
-## Beta release gates
+## Shell release gates
 
 - `make verify-quick` and `make verify` clean; no new clang-tidy or cppcheck
   findings.
@@ -141,7 +142,7 @@ terminal matrix and key caveats are documented; the 1.0 beta gates below pass.
 - Accessibility: high contrast, monochrome, ASCII, no blink, reduced motion.
 - Session restore preserves tab order, active tab and scroll position.
 
-## Non-goals for beta
+## Non-goals for this shell
 
 - Overlapping/draggable windows.
 - A second command surface beside `completions.json` + action IDs.
