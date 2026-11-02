@@ -136,8 +136,8 @@ channel.
 **What ships.**
 
 1. Key ceremony: an RSA-4096 sign-only key, 10-year expiry, generated offline,
-   whose private key exists only in the `amber-packages` repository's `release`
-   environment (required reviewers) as an encrypted secret. The public key and
+   whose private key exists only in this repository's `release` environment as
+   an encrypted secret. The public key and
    its fingerprint are committed under `packaging/keys/`, installed by
    `amber-agent-release`, and readable locally with
    `gpg --show-keys --with-fingerprint /usr/share/keyrings/amber-agent-archive-keyring.gpg`.
@@ -145,9 +145,19 @@ channel.
 
    The key exists: `amber-agent archive signing key <hello@trefon.com>`,
    fingerprint `C373A7C2F4BB30ABEB1B35DAAAFCEAE6C29E0D1B`, expires 2036-10-27.
-   Signing material lives in `jtrefon/amber-packages` → environment `release`,
-   restricted to `main`, as `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`, with the
+   Signing material lives in `jtrefon/amber` → environment `release`, scoped to
+   `main` and `v*` tags, as `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`, with the
    fingerprint in the `GPG_KEY_ID` variable.
+
+   **No reviewer gate.** The environment originally required a reviewer, on the
+   theory that signing deserves a human decision. In a single-maintainer
+   repository that reviewer is the person who just cut the tag, allowed to
+   approve their own deployment, so it added nothing but an unattended run that
+   looked like a hung pipeline (`v0.8.4` sat in `waiting` and the apt index
+   stayed on the previous version until someone noticed). The tag is the
+   decision: it can only be created by a maintainer, it already names the
+   version that `version.txt` must match, and the environment's branch policy
+   scopes the key to `main` and `v*` tags, so nothing else can reach it.
 2. `amber-agent-release` ships the trust anchor and the source definition:
 
    ```

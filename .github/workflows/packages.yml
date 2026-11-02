@@ -241,7 +241,8 @@ jobs:
     container: fedora:44
     timeout-minutes: 15
     # Same environment as publishing: the rpm signature is worth nothing
-    # without the key, and the key is not reachable without a reviewer.
+    # without the key. The environment scopes the key to `main` and `v*` tags
+    # and carries no reviewer gate -- the tag is the release decision.
     environment: release
     steps:
       - uses: actions/checkout@v7
@@ -295,9 +296,10 @@ jobs:
     needs: [prepare, build-deb, sign-rpm]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The signing key lives in this environment as an encrypted secret with a
-    # required reviewer, so nothing is signed or published without a human
-    # decision.
+    # The signing key lives in this environment as an encrypted secret. The
+    # environment is scoped to `main` and `v*` tags, so cutting the tag is the
+    # decision to publish; a reviewer prompt on top of that is the same person
+    # approving their own tag, which delayed every release and gated nothing.
     environment: release
     steps:
       - uses: actions/checkout@v7
