@@ -7,13 +7,19 @@
 #include <cctype>
 #include <cstdlib>
 #include <ctime>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <spawn.h>
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
+
+#ifdef __APPLE__
+#include <crt_externs.h>
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -29,36 +35,78 @@ struct GitResult {
     std::string output;
 };
 
+char** child_environ() {
+#ifdef __APPLE__
+    return *_NSGetEnviron();
+#else
+    return environ;
+#endif
+}
+
+bool add_spawn_actions(posix_spawn_file_actions_t& actions, const int fds[2]) {
+    // A non-interactive child gets /dev/null on stdin: a git command that ever
+    // asks a question fails instead of blocking the UI thread on the pty.
+    const auto ok = [](int rc) { return rc == 0; };
+    return ok(posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0)) &&
+           ok(posix_spawn_file_actions_addclose(&actions, fds[0])) &&
+           ok(posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO)) &&
+           ok(posix_spawn_file_actions_adddup2(&actions, fds[1], STDERR_FILENO)) &&
+           ok(posix_spawn_file_actions_addclose(&actions, fds[1]));
+}
+
+std::vector<char*> git_argv(const std::string& repo, const std::vector<std::string>& args,
+                            std::vector<std::string>& owned) {
+    owned.reserve(args.size() + 3);
+    owned.emplace_back("git");
+    owned.emplace_back("-C");
+    owned.emplace_back(repo);
+    owned.insert(owned.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    argv.reserve(owned.size() + 1);
+    for (auto& arg : owned)
+        argv.push_back(arg.data());
+    argv.push_back(nullptr);
+    return argv;
+}
+
+pid_t spawn_git(const std::vector<char*>& argv, int fds[2]) {
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0)
+        return -1;
+    if (!add_spawn_actions(actions, fds)) {
+        posix_spawn_file_actions_destroy(&actions);
+        return -1;
+    }
+    pid_t pid = -1;
+    const int rc = posix_spawnp(&pid, "git", &actions, nullptr, argv.data(), child_environ());
+    posix_spawn_file_actions_destroy(&actions);
+    return rc == 0 ? pid : -1;
+}
+
 // Run `git -C <repo> <args...>` with argv exec — never a shell string, because
 // worktree names reach this from the model — and capture merged stdout+stderr:
 // git's own refusals are the messages the user ends up reading.
+//
+// posix_spawnp, not fork+exec: amber is multithreaded, and the old child built
+// its argv vector after fork. A forked child that allocates can deadlock on a
+// malloc lock another thread held at the fork; the macOS runner hung in
+// /worktree remove, where this path runs. posix_spawnp also does the PATH
+// search without a user-space child.
 GitResult run_git(const std::string& repo, const std::vector<std::string>& args) {
     GitResult result;
     int fds[2] = {-1, -1};
     if (pipe(fds) != 0)
         return result;
-    const pid_t pid = fork();
+
+    std::vector<std::string> owned;
+    const std::vector<char*> argv = git_argv(repo, args, owned);
+    const pid_t pid = spawn_git(argv, fds);
+    close(fds[1]);
     if (pid < 0) {
         close(fds[0]);
-        close(fds[1]);
         return result;
     }
-    if (pid == 0) {
-        close(fds[0]);
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[1]);
-        std::vector<char*> argv;
-        argv.push_back(const_cast<char*>("git"));
-        argv.push_back(const_cast<char*>("-C"));
-        argv.push_back(const_cast<char*>(repo.c_str()));
-        for (const auto& a : args)
-            argv.push_back(const_cast<char*>(a.c_str()));
-        argv.push_back(nullptr);
-        execvp("git", argv.data());
-        _exit(127);
-    }
-    close(fds[1]);
+
     char buf[512];
     ssize_t got = 0;
     while ((got = read(fds[0], buf, sizeof buf)) > 0)
