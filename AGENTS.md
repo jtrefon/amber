@@ -756,7 +756,13 @@ bug came back after it had been fixed in the context layer.
   point at a local OpenAI-compatible endpoint (`localhost:8081/v1`).
 - Streaming via SSE; disable with `--no-stream` or `AMBER_STREAM=0`.
 - Releases are tag-driven (`vX.Y.Z`; tags with `-` are pre-releases), see
-  `.github/workflows/release.yml`.
+  `.github/workflows/release.yml`. **A tag has to agree with `version.txt`**:
+  land the `release: X.Y.Z` stamp commit, run `make release-check TAG=vX.Y.Z`,
+  then tag that commit. `release.yml` and `packages.yml` run the same
+  comparison and neither writes the file. v0.8.3 was tagged on an unstamped
+  commit -- `release.yml` used to overwrite the version and published a GitHub
+  release, `packages.yml` refused the tag, and the apt/dnf repositories stayed
+  on 0.8.2 while `amber update` reported "already newest".
 
 ### Where amber keeps its own files
 

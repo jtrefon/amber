@@ -68,11 +68,17 @@ jobs:
             --no-install-recommends \
             build-essential libcurl4-openssl-dev libncursesw5-dev pkg-config
 
-      - name: Sync VERSION to tag
+      - name: Verify VERSION matches the tag
+        # One owner each: the tag names the release, and a `release:` commit
+        # stamps version.txt before the tag is cut. Overwriting it here is what
+        # let v0.8.3 publish binaries while the repositories refused the tag.
         run: |
-          # Keep the in-binary version (mural / kVersion) consistent with the
-          # release tag. configure reads version.txt to stamp version.h.
-          printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
+          tag="${{ inputs.tag || github.ref_name }}"
+          test "$(cat version.txt)" = "${tag#v}" || {
+            echo "error: version.txt says $(cat version.txt), the tag says ${tag#v}"
+            echo "stamp version.txt and commit it before cutting the tag"
+            exit 1
+          }
 
       - name: Configure
         run: ./configure --prefix=/usr
@@ -228,8 +234,14 @@ jobs:
       - name: Install dependencies
         run: brew install curl ncurses pkg-config
 
-      - name: Sync VERSION to tag
-        run: printf '%s\n' "${{ steps.ver.outputs.version }}" > version.txt
+      - name: Verify VERSION matches the tag
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          test "$(cat version.txt)" = "${tag#v}" || {
+            echo "error: version.txt says $(cat version.txt), the tag says ${tag#v}"
+            echo "stamp version.txt and commit it before cutting the tag"
+            exit 1
+          }
 
       - name: Configure
         # brew's ncurses is keg-only; point pkg-config at it so the wide
