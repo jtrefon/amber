@@ -403,7 +403,7 @@ private:
     bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);
     bool cancel_active_run(int ch, CommandLine& cl);
     bool handle_ctrl_c(int ch, CommandLine& cl);
-    bool handle_mouse_wheel(int ch, CommandLine& cl);
+    bool handle_mouse(int ch, CommandLine& cl);
     bool scroll_mode_nav(int ch);
     detail::PromptOutcome route_to_command_line(int ch, CommandLine& cl,
                                                 CommandLine::Result& result);

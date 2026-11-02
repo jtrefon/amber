@@ -63,6 +63,19 @@ TEST(top_bar_marks_the_app_and_the_active_tab) {
     ASSERT(layout.active_width == tui::text::display_cols(active->text));
 }
 
+TEST(top_bar_records_clickable_tab_hits) {
+    const Layout layout = tui::top_bar::layout(two_tabs(), 80);
+    ASSERT_EQ(layout.hits.size(), 2u);
+    ASSERT_EQ(layout.hits[0].id, 1u);
+    ASSERT_EQ(layout.hits[1].id, 2u);
+    ASSERT_EQ(layout.hits[0].start, layout.active_start);
+    ASSERT_EQ(layout.hits[0].width, layout.active_width);
+    for (const auto& hit : layout.hits) {
+        ASSERT(hit.start > 0);
+        ASSERT(hit.width > 0);
+    }
+}
+
 TEST(top_bar_uses_caps_for_tabs) {
     const Layout layout = tui::top_bar::layout(two_tabs(), 80);
     const auto* inactive = find_role(layout, Role::InactiveTab);
@@ -90,6 +103,11 @@ TEST(top_bar_keeps_the_active_tab_visible_when_narrow) {
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
     ASSERT(active->text.find("s5") != std::string::npos);
+    bool saw_active_hit = false;
+    for (const auto& hit : layout.hits)
+        if (hit.id == 5)
+            saw_active_hit = true;
+    ASSERT(saw_active_hit);
 }
 
 TEST(top_bar_shrinks_titles_before_overflowing) {

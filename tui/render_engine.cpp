@@ -61,6 +61,15 @@ int RenderEngine::top_rows() const {
         return 1;
     return 0;
 }
+std::optional<std::size_t> RenderEngine::tab_at(int x, int y) const {
+    if (y != 0 || top_rows() <= 0)
+        return std::nullopt;
+    for (const auto& hit : top_layout_.hits)
+        if (x >= hit.start && x < hit.start + hit.width)
+            return hit.id;
+    return std::nullopt;
+}
+
 int RenderEngine::chat_top() const {
     return top_rows();
 }
@@ -709,12 +718,12 @@ void RenderEngine::draw_top_bar() {
     const std::string pulse = top_bar::pulse_glyph(lit, utf8);
     const int right_w = top_right_width(tops, pulse);
     const int left_w = std::max(0, w - right_w - (right_w > 0 ? 1 : 0));
-    const top_bar::Layout layout = top_bar::layout(top_tabs(), left_w, utf8);
+    top_layout_ = top_bar::layout(top_tabs(), left_w, utf8);
 
-    draw_top_tabs(layout, left_w);
+    draw_top_tabs(top_layout_, left_w);
     draw_top_right(w, tops, pulse, lit);
     if (rows >= 2)
-        draw_top_rule(layout, utf8);
+        draw_top_rule(top_layout_, utf8);
 }
 
 void RenderEngine::tick_clock() {
