@@ -140,10 +140,11 @@ void Tui::toggle_mouse() {
     // selection. Turning it off is the plain way to select and copy (Cmd/Ctrl+C
     // as usual, no Shift chord); the wheel then scrolls the terminal instead of
     // the chat log, which is the trade-off being made consciously.
-    mousemask(mouse_on_ ? (BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
+    mousemask(mouse_on_ ? (BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
     append_line(P_STATUS,
-                mouse_on_ ? "mouse: on — wheel scrolls, Alt+M gives selection back"
-                          : "mouse: off — drag selects and copies; Alt+M turns the wheel back on");
+                mouse_on_
+                    ? "mouse: on — wheel scrolls, tab clicks switch, Alt+M gives selection back"
+                    : "mouse: off — drag selects and copies; Alt+M turns mouse reporting back on");
 }
 
 void Tui::init_terminal() {
@@ -157,12 +158,12 @@ void Tui::init_terminal() {
     set_escdelay(25);
     curs_set(1);
     start_color();
-    // Mouse wheel events (BUTTON4/5) scroll the chat log. Enabling mouse
-    // reporting replaces terminal-level click-drag selection — the trade-off
-    // documented in docs/architecture/scroll-design.md — but keeps wheel
-    // ticks distinct from arrow keys, so Up/Down stay prompt-history
-    // navigation instead of the xterm alt-scroll aliasing.
-    mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
+    // Wheel events scroll the chat log; button 1 clicks the top rail's tabs.
+    // Enabling mouse reporting replaces terminal-level click-drag selection —
+    // the trade-off documented in docs/architecture/scroll-design.md — but
+    // keeps wheel ticks distinct from arrow keys, so Up/Down stay
+    // prompt-history navigation instead of the xterm alt-scroll aliasing.
+    mousemask(BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
     mouseinterval(0);
     // From here the terminal has modes that outlive the process: anything that
     // exits without endwin() must undo them itself.
@@ -603,7 +604,7 @@ void Tui::run() {
             continue;
         if (handle_ctrl_c(ch, cl))
             continue;
-        if (handle_mouse_wheel(ch, cl))
+        if (handle_mouse(ch, cl))
             continue;
 
         CommandLine::Result result;
@@ -1001,18 +1002,33 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
 
 // Mouse wheel: scroll the chat log (never prompt history). Wheel ticks arrive
 // as KEY_MOUSE (alt-scroll is off), so this is the only place they can land;
-// Up/Down keys keep their meaning.
-bool Tui::handle_mouse_wheel(int ch, CommandLine& cl) {
+// Up/Down keys keep their meaning. Button 1 on the top rail selects a session
+// tab; the hit map is the one the last paint used, so a click cannot land on a
+// tab the user is not looking at.
+bool Tui::handle_mouse(int ch, CommandLine& cl) {
     if (ch != KEY_MOUSE)
         return false;
     MEVENT ev;
-    if (getmouse(&ev) == OK) {
-        int delta = scroll_dispatch::wheel_delta(ev.bstate);
-        if (delta != 0) {
-            win().scroll_top = scroll_dispatch::clamped_scroll_top(
-                win().scroll_top, delta, render_engine_->max_scroll(win()));
-            render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+    if (getmouse(&ev) != OK)
+        return true;
+    const int delta = scroll_dispatch::wheel_delta(ev.bstate);
+    if (delta != 0) {
+        win().scroll_top = scroll_dispatch::clamped_scroll_top(win().scroll_top, delta,
+                                                               render_engine_->max_scroll(win()));
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    }
+    if ((ev.bstate & BUTTON1_PRESSED) == 0)
+        return true;
+    const auto id = render_engine_->tab_at(ev.x, ev.y);
+    if (!id)
+        return true;
+    const auto& all = window_manager_->all();
+    for (std::size_t i = 0; i < all.size(); ++i) {
+        if (all[i] && all[i]->id == *id) {
+            switch_to(i);
+            break;
         }
     }
     return true;

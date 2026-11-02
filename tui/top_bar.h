@@ -33,11 +33,21 @@ struct Span {
     Role role = Role::InactiveTab;
 };
 
+// One clickable tab in the painted rail. `start` is the column of the opening
+// cap; `width` covers the whole capped label, so a click anywhere on the tab
+// selects it.
+struct TabHit {
+    std::size_t id = 0;
+    int start = 0;
+    int width = 0;
+};
+
 struct Layout {
     std::vector<Span> spans; // left zone, in display order
-    int active_start = -1;   // column of the active tab's opening cap
-    int active_width = 0;    // display width of the active tab
-    int overflow = 0;        // sessions not shown
+    std::vector<TabHit> hits;
+    int active_start = -1; // column of the active tab's opening cap
+    int active_width = 0;  // display width of the active tab
+    int overflow = 0;      // sessions not shown
 };
 
 inline constexpr int kAppMarkWidth = 1;

@@ -107,6 +107,7 @@ void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels,
     int x = used;
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         out.spans.push_back({labels.text[i], tab_role(tabs[i])});
+        out.hits.push_back({tabs[i].id, x, labels.width[i]});
         if (tabs[i].active) {
             out.active_start = x;
             out.active_width = labels.width[i];
@@ -194,6 +195,7 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
     int x = used;
     for (std::size_t idx : shown) {
         out.spans.push_back({labels.text[idx], tab_role(tabs[idx])});
+        out.hits.push_back({tabs[idx].id, x, labels.width[idx]});
         if (idx == active) {
             out.active_start = x;
             out.active_width = labels.width[idx];

@@ -9,6 +9,7 @@
 #include <chrono>
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,8 @@ public:
     // The top rail is two rows (tabs + rule) on a normal terminal, one row on a
     // short one, and absent when there is no room above the status/input pair.
     int top_rows() const;
+    // The session tab under a screen cell, when the top rail owns that row.
+    std::optional<std::size_t> tab_at(int x, int y) const;
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
@@ -228,6 +231,9 @@ private:
     // The top rail changes on the second (clock + pulse), not on every idle
     // tick. Cached so the 150 ms loop does not repaint it seven times.
     std::time_t last_top_second_ = 0;
+    // The last painted rail, kept for mouse hit-testing. Repainted whenever the
+    // tabs or the width change, so it cannot lag a click behind the screen.
+    top_bar::Layout top_layout_;
 };
 
 } // namespace tui
