@@ -36,6 +36,24 @@ jobs:
     runs-on: ubuntu-latest
 """
 
+# An advisory job: it reports findings and must conclude success. The job-level
+# flag alone keeps the workflow green but still fails the check run, which is
+# what put a red X on #503.
+ADVISORY = """\
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+  commit-hygiene:
+    needs: [changes]
+    continue-on-error: true
+    steps:
+      - name: Commit subjects
+        continue-on-error: true
+        run: python3 tools/commit_lint.py
+  ci-gate:
+    needs: [changes]
+"""
+
 
 class Parsing(unittest.TestCase):
     def test_jobs_are_read_from_the_jobs_section_only(self):
@@ -54,6 +72,12 @@ class Parsing(unittest.TestCase):
             "    needs:\n      [changes,\n       lint]\n",
         )
         self.assertIn("lint", checker.parse_needs(text))
+
+    def test_job_blocks_are_read_per_job(self):
+        blocks = checker.parse_job_blocks(ADVISORY)
+        self.assertEqual(sorted(blocks), ["changes", "ci-gate", "commit-hygiene"])
+        self.assertTrue(any("continue-on-error" in line
+                            for line in blocks["commit-hygiene"]))
 
 
 def spec(**overrides):
@@ -122,6 +146,43 @@ class Checks(unittest.TestCase):
                                min_needs=checker.MIN_NEEDS)
         self.assertTrue(any("scan" in e.lower() or "sanity" in e.lower() for e in errors),
                         errors)
+
+
+class Advisory(unittest.TestCase):
+    """An advisory job must annotate, not report a failed check."""
+
+    def jobs(self):
+        return {
+            "changes": spec(gating=False, reason="change detector"),
+            "commit-hygiene": spec(gating=False, advisory=True,
+                                   reason="advisory: not adopted yet"),
+            "ci-gate": spec(gating=False, reason="aggregator"),
+        }
+
+    def evaluate(self, text):
+        return checker.check(self.jobs(), ["changes", "commit-hygiene", "ci-gate"],
+                             ["changes"], blocks=checker.parse_job_blocks(text))
+
+    def test_a_step_level_flag_is_accepted(self):
+        self.assertEqual(self.evaluate(ADVISORY), [])
+
+    def test_job_level_alone_is_an_error(self):
+        text = ADVISORY.replace("        continue-on-error: true\n        run:", "        run:")
+        errors = self.evaluate(text)
+        self.assertTrue(any("step-level" in e for e in errors), errors)
+
+    def test_an_advisory_job_cannot_be_gating(self):
+        jobs = self.jobs()
+        jobs["commit-hygiene"] = spec(advisory=True, gating=True)
+        errors = checker.check(jobs, ["changes", "commit-hygiene", "ci-gate"],
+                               ["changes", "commit-hygiene"],
+                               blocks=checker.parse_job_blocks(ADVISORY))
+        self.assertTrue(any("cannot also be gating" in e for e in errors), errors)
+
+    def test_the_real_advisory_job_is_flagged_in_the_workflow(self):
+        with open(WORKFLOW, encoding="utf-8") as handle:
+            blocks = checker.parse_job_blocks(handle.read())
+        self.assertEqual(checker.advisory_errors(manifest.JOBS, blocks), [])
 
 
 class TheRepository(unittest.TestCase):
