@@ -1049,6 +1049,24 @@ private:
 
 } // namespace
 
+// ── The top rail is the first shell surface: amber mark, capped session tabs
+// and the rule that opens under the active tab. The clock's HH:MM format is
+// pinned by the pure top_bar test, where local time is controllable. ──
+
+TEST(top_rail_shows_amber_mark_capped_tabs_and_rule) {
+    Tui tui;
+    tui.name = "top_rail_shows_amber_mark_capped_tabs_and_rule";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.wait_for("\u25c6", 10000), "the amber mark is missing", tui))
+        return;
+    if (!require(tui.wait_for("\u2590", 10000), "the tab caps are missing", tui))
+        return;
+    if (!require(tui.wait_for("\u2550", 10000), "the tab rule is missing", tui))
+        return;
+}
+
 // ── Down moves the selection; it must not cancel the browser ──
 
 TEST(down_arrow_selects_the_next_session) {
@@ -3139,6 +3157,7 @@ int main(int argc, char** argv) {
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
+    top_rail_shows_amber_mark_capped_tabs_and_rule();
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();

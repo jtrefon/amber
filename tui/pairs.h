@@ -49,6 +49,7 @@ enum Pair {
     P_GAUGE_CRIT_HI,  // white on blue
     P_TEXT_SHINE_MID, // bright yellow on the transcript background
     P_TEXT_SHINE_HI,  // white on the transcript background
+    P_BRAND,          // amber mark on the top rail
     // Grayscale art pairs (24 levels, 0=black .. 23=near-white).
     P_GRAY = 100, // grayscale art base (0 + 24 levels)
 };

@@ -64,6 +64,9 @@ void init_pairs() {
     init_pair(P_GAUGE_CRIT_HI, COLOR_WHITE, COLOR_BLUE);
     init_pair(P_TEXT_SHINE_MID, 11, -1);
     init_pair(P_TEXT_SHINE_HI, COLOR_WHITE, -1);
+    // Amber is 214 in the 256-colour palette; the 16-colour fallback is the
+    // bright yellow that reads as amber on the blue rail.
+    init_pair(P_BRAND, COLORS >= 256 ? 214 : COLOR_YELLOW, COLOR_BLUE);
 }
 
 Dialog::Dialog(int h, int w, const std::string& title) : Panel(h, w, title) {}

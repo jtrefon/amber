@@ -43,23 +43,23 @@ std::optional<StatusSegment> find_segment(PluginRuntime& runtime, const std::str
 
 } // namespace
 
-TEST(clock_formats_the_time_the_way_the_bar_always_showed_it) {
+TEST(clock_formats_minutes_without_seconds) {
     std::tm tm = local_tm(9, 5, 7);
     const std::time_t when = std::mktime(&tm);
-    ASSERT_EQ(ClockPlugin::format(when), std::string("[09:05:07]"));
+    ASSERT_EQ(ClockPlugin::format(when), std::string("09:05"));
 }
 
 TEST(clock_formats_midnight_and_noon_without_a_twelve_hour_surprise) {
     std::tm midnight = local_tm(0, 0, 0);
     const std::time_t m = std::mktime(&midnight);
-    ASSERT_EQ(ClockPlugin::format(m), std::string("[00:00:00]"));
+    ASSERT_EQ(ClockPlugin::format(m), std::string("00:00"));
 
     std::tm noon = local_tm(12, 0, 0);
     const std::time_t n = std::mktime(&noon);
-    ASSERT_EQ(ClockPlugin::format(n), std::string("[12:00:00]"));
+    ASSERT_EQ(ClockPlugin::format(n), std::string("12:00"));
 }
 
-TEST(clock_attaches_to_the_right_edge) {
+TEST(clock_attaches_to_the_top_right_edge) {
     ToolRegistry tools;
     Config cfg;
     Workspace ws;
@@ -70,6 +70,7 @@ TEST(clock_attaches_to_the_right_edge) {
     auto segment = find_segment(runtime, "clock");
     ASSERT(segment.has_value());
     ASSERT_TRUE(segment->align == StatusAlign::Right);
+    ASSERT_TRUE(segment->zone == StatusZone::Top);
     ASSERT(segment->text.find(':') != std::string::npos);
 }
 

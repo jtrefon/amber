@@ -13,6 +13,7 @@
 
 #include "canvas.h"
 #include "input_line_layout.h"
+#include "top_bar.h"
 #include "markdown.h"
 #include "rich.h"
 #include "palette.h"
@@ -32,6 +33,9 @@ public:
 
     int height() const;
     int width() const;
+    // The top rail is two rows (tabs + rule) on a normal terminal, one row on a
+    // short one, and absent when there is no room above the status/input pair.
+    int top_rows() const;
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
@@ -77,6 +81,9 @@ public:
     void draw_right_zone(int y, int w, int right_w,
                          const std::vector<status_bar_layout::Segment>& right_zone);
     void draw_status_bar();
+    // The top rail: bare amber mark, capped session tabs, health pulse, clock
+    // and the icon-only right tray. The bottom bar paints itself.
+    void draw_top_bar();
     // The row the working line occupies, when it is shown.
     int working_row() const;
     // Advance the 150 ms frame the spin glyph steps through. The sweep itself is
@@ -155,6 +162,12 @@ private:
     // (status_bar_layout) and this class only paints the plan.
     using Seg = status_bar_layout::Segment;
     std::vector<Seg> bar_segments() const;
+    std::vector<Seg> top_segments() const;
+    std::vector<top_bar::Tab> top_tabs() const;
+    int top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const;
+    void draw_top_tabs(const top_bar::Layout& layout, int left_w);
+    void draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse, bool lit);
+    void draw_top_rule(const top_bar::Layout& layout, bool utf8);
     agent::StatusSnapshot build_status_snapshot() const;
     static int tone_pair(agent::StatusTone tone);
     static int display_cols(const std::string& s);
@@ -162,6 +175,8 @@ private:
     static int gauge_pair(double f);
     // Draw one input-line piece at `x`, advancing it (truncated to the width).
     void put_input(int y, int w, int& x, const std::string& text, int pair, int attrs = 0);
+    // The same for top-rail spans, which carry an attribute as well as a pair.
+    void put_span(int y, int w, int& x, const std::string& text, int pair, int attrs);
     // Draw the dim completion hint after the input, when the cursor is at the end.
     void draw_input_shadow(int y, int w, int prompt_w, int scroll_off, const std::string& input,
                            std::size_t cursor, const std::string& shadow);
