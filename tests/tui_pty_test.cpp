@@ -1324,7 +1324,6 @@ TEST(shell_amber_mark_click_opens_the_menu) {
         return;
 
     // A click outside the menu closes it and gives the prompt its keys back.
-    mark = tui.raw.size();
     send_click(tui, sgr, 39, 11);
     tui.pump(300);
     mark = tui.raw.size();
