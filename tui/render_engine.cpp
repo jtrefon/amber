@@ -1,5 +1,6 @@
 #include "render_engine.h"
 #include "git_reads.h"
+#include "top_bar.h"
 #include "tui.h"
 #include "welcome.h"
 #include "tool_display.h"
@@ -52,11 +53,19 @@ int RenderEngine::width() const {
     (void)y;
     return x;
 }
-int RenderEngine::chat_top() const {
+int RenderEngine::top_rows() const {
+    const int h = height();
+    if (h >= 6)
+        return 2;
+    if (h >= 4)
+        return 1;
     return 0;
 }
+int RenderEngine::chat_top() const {
+    return top_rows();
+}
 int RenderEngine::chat_height() const {
-    return std::max(1, height() - 2);
+    return std::max(1, height() - top_rows() - 2);
 }
 int RenderEngine::lines_per_page() const {
     return chat_height();
@@ -273,6 +282,19 @@ int RenderEngine::tone_pair(agent::StatusTone tone) {
 std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
     std::vector<Seg> segs;
     for (auto& segment : tui_.plugin_runtime_.status().render(build_status_snapshot())) {
+        if (segment.zone != agent::StatusZone::Bottom)
+            continue;
+        segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
+                        segment.align});
+    }
+    return segs;
+}
+
+std::vector<RenderEngine::Seg> RenderEngine::top_segments() const {
+    std::vector<Seg> segs;
+    for (auto& segment : tui_.plugin_runtime_.status().render(build_status_snapshot())) {
+        if (segment.zone != agent::StatusZone::Top || segment.align != agent::StatusAlign::Right)
+            continue;
         segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
                         segment.align});
     }
@@ -314,12 +336,14 @@ void RenderEngine::draw() {
     working_row_owned_ = false;
     if (tui_.win().welcome_art) {
         erase();
+        draw_top_bar();
         welcome::render(stdscr, chat_top(), width());
         draw_status_bar();
         wnoutrefresh(stdscr);
         return;
     }
 
+    draw_top_bar();
     const bool show_working = tui_.runs_.busy(tui_.win().id) && working_visible_;
     // The canvas gives up a row only when this is true; tick_pulse repaints that
     // row without resizing the canvas, so it must not touch a row the transcript
@@ -373,6 +397,21 @@ void RenderEngine::put_wsegment(int y, int budget, int& x, const std::wstring& w
     mvaddnwstr(y, x, ws.c_str(), static_cast<int>(n));
     attroff(COLOR_PAIR(pair));
     x += static_cast<int>(n);
+}
+
+void RenderEngine::put_span(int y, int w, int& x, const std::string& text, int pair, int attrs) {
+    if (x >= w || text.empty())
+        return;
+    std::wstring ws = to_wide(text);
+    const auto room = static_cast<size_t>(w - x);
+    if (ws.size() > room)
+        ws.resize(room);
+    if (ws.empty())
+        return;
+    attron(COLOR_PAIR(pair) | attrs);
+    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+    attroff(COLOR_PAIR(pair) | attrs);
+    x += static_cast<int>(ws.size());
 }
 
 int RenderEngine::shine_pair(int base_pair, int level) {
@@ -555,9 +594,130 @@ void RenderEngine::draw_status_bar() {
         draw_right_zone(y, w, plan.right_cols, plan.right);
 }
 
+namespace {
+
+void top_role_style(top_bar::Role role, int& pair, int& attrs) {
+    pair = P_BANNER;
+    attrs = 0;
+    switch (role) {
+    case top_bar::Role::AppMark:
+        pair = P_BRAND;
+        attrs = A_BOLD;
+        break;
+    case top_bar::Role::ActiveTab:
+        attrs = A_REVERSE | A_BOLD;
+        break;
+    case top_bar::Role::InactiveTab:
+        attrs = A_DIM;
+        break;
+    case top_bar::Role::RunningTab:
+        pair = P_GAUGE_OK;
+        attrs = A_BOLD;
+        break;
+    case top_bar::Role::AttentionTab:
+        pair = P_BUTTON_ACT;
+        attrs = A_BOLD;
+        break;
+    case top_bar::Role::Overflow:
+        pair = P_BAR_DIM;
+        break;
+    case top_bar::Role::Separator:
+        break;
+    }
+}
+
+} // namespace
+
+std::vector<top_bar::Tab> RenderEngine::top_tabs() const {
+    std::vector<top_bar::Tab> tabs;
+    const Window& active = tui_.win();
+    for (const auto& wp : tui_.window_manager_->all()) {
+        if (!wp || wp->kind != Window::Kind::Chat)
+            continue;
+        tabs.push_back({wp->id, wp->title, wp.get() == &active, tui_.runs_.busy(wp->id), false});
+    }
+    return tabs;
+}
+
+int RenderEngine::top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const {
+    int width = text::display_cols(pulse);
+    for (const auto& s : tops)
+        width += text::display_cols(s.text) + 1;
+    return width;
+}
+
+void RenderEngine::draw_top_tabs(const top_bar::Layout& layout, int left_w) {
+    int x = 0;
+    for (const auto& span : layout.spans) {
+        int pair = P_BANNER;
+        int attrs = 0;
+        top_role_style(span.role, pair, attrs);
+        put_span(0, left_w, x, span.text, pair, attrs);
+    }
+}
+
+void RenderEngine::draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse,
+                                  bool lit) {
+    int right_w = text::display_cols(pulse);
+    for (const auto& s : tops)
+        right_w += text::display_cols(s.text) + 1;
+    int x = std::max(0, w - right_w);
+    put_span(0, w, x, pulse, lit ? P_GAUGE_OK : P_BAR_DIM, A_BOLD);
+    for (const auto& s : tops) {
+        put_span(0, w, x, " ", P_BANNER, 0);
+        put_span(0, w, x, s.text, s.pair, 0);
+    }
+}
+
+void RenderEngine::draw_top_rule(const top_bar::Layout& layout, bool utf8) {
+    const int w = width();
+    attron(COLOR_PAIR(P_BANNER));
+    mvhline(1, 0, ' ', w);
+    attroff(COLOR_PAIR(P_BANNER));
+    const std::wstring unit = to_wide(top_bar::tab_rule(utf8));
+    if (!unit.empty()) {
+        std::wstring rule;
+        rule.reserve(static_cast<size_t>(w));
+        for (int i = 0; i < w; ++i)
+            rule += unit;
+        attron(COLOR_PAIR(P_BAR_DIM));
+        mvaddnwstr(1, 0, rule.c_str(), w);
+        attroff(COLOR_PAIR(P_BAR_DIM));
+    }
+    if (layout.active_start >= 0 && layout.active_width > 0) {
+        attron(COLOR_PAIR(P_BANNER));
+        mvhline(1, layout.active_start, ' ', layout.active_width);
+        attroff(COLOR_PAIR(P_BANNER));
+    }
+}
+
+void RenderEngine::draw_top_bar() {
+    const int rows = top_rows();
+    if (rows <= 0)
+        return;
+    const int w = width();
+    const bool utf8 = agent::bar::utf8();
+
+    attron(COLOR_PAIR(P_BANNER));
+    mvhline(0, 0, ' ', w);
+    attroff(COLOR_PAIR(P_BANNER));
+
+    const auto tops = top_segments();
+    const bool lit = top_bar::pulse_on(std::time(nullptr));
+    const std::string pulse = top_bar::pulse_glyph(lit, utf8);
+    const int right_w = top_right_width(tops, pulse);
+    const int left_w = std::max(0, w - right_w - (right_w > 0 ? 1 : 0));
+    const top_bar::Layout layout = top_bar::layout(top_tabs(), left_w, utf8);
+
+    draw_top_tabs(layout, left_w);
+    draw_top_right(w, tops, pulse, lit);
+    if (rows >= 2)
+        draw_top_rule(layout, utf8);
+}
+
 void RenderEngine::tick_clock() {
     dirty_ = true;
-    draw_status_bar();
+    draw_top_bar();
     wnoutrefresh(stdscr);
 }
 
