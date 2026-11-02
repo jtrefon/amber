@@ -208,6 +208,11 @@ enum class StatusZone {
 struct StatusPlacement {
     StatusAlign align = StatusAlign::Left;
     StatusZone zone = StatusZone::Bottom;
+
+    StatusPlacement() = default;
+    // A bare alignment keeps existing plugin source compiling: the old API's
+    // last argument was StatusAlign, and the bottom bar remains the default.
+    StatusPlacement(StatusAlign a, StatusZone z = StatusZone::Bottom) : align(a), zone(z) {}
 };
 
 // A rendered segment, in display order.
