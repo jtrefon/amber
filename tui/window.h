@@ -23,6 +23,9 @@ namespace tui {
 // are switchable IRC-style; the active one is drawn.
 struct Window {
     enum class Kind { Chat, Resource };
+    // What the tab should say when this window is not the one on screen. The
+    // active window has no marker: the user is already looking at it.
+    enum class Attention { None, Done, NeedsInput, Error };
     Kind kind = Kind::Chat;
     std::string resource_kind;
     std::string resource_id;
@@ -76,6 +79,19 @@ struct Window {
     // own worker (RunRegistry, keyed by id). Everything a worker reports
     // lives here so two concurrent runs never corrupt each other's status.
     agent::RunState state = agent::RunState::Idle;
+    Attention attention = Attention::None;
+    // The tab marker a run's completion leaves behind. The active window clears
+    // it (the user is looking), a pending question keeps its mark, and an error
+    // outranks a completed turn.
+    static Attention after_done(bool active, agent::RunState state, Attention current) noexcept {
+        if (active)
+            return Attention::None;
+        if (state == agent::RunState::Error)
+            return Attention::Error;
+        if (current == Attention::NeedsInput)
+            return current;
+        return Attention::Done;
+    }
     agent::Stats stats;
     // Session spend, accumulated from every completed exchange (see
     // UsageTotals: it spans compactions and is what the token segment shows;

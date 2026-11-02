@@ -15,9 +15,20 @@ enum class Role {
     ActiveTab,
     InactiveTab,
     RunningTab,
+    DoneTab,
     AttentionTab,
+    ErrorTab,
     Overflow,
     Separator,
+};
+
+// Why a tab wants the user's eyes. The host owns the transition; the rail only
+// paints it. NeedsInput wins over Error, which wins over Done.
+enum class Attention {
+    None,
+    Done,
+    NeedsInput,
+    Error,
 };
 
 struct Tab {
@@ -25,7 +36,7 @@ struct Tab {
     std::string title;
     bool active = false;
     bool running = false;
-    bool attention = false;
+    Attention attention = Attention::None;
 };
 
 struct Span {
@@ -75,7 +86,7 @@ std::string tab_open(bool utf8 = true);
 std::string tab_close(bool utf8 = true);
 std::string tab_rule(bool utf8 = true);
 std::string tab_overflow(int hidden, bool utf8 = true);
-std::string attention_glyph(bool running, bool attention, bool utf8 = true);
+std::string attention_glyph(bool running, Attention attention, bool utf8 = true);
 
 } // namespace tui::top_bar
 

@@ -178,6 +178,10 @@ public:
     void on_error(Window* w, const AgentEvent& ev);
     void on_done(Window* w, const AgentEvent& ev);
     void on_compress_result(Window* w, const AgentEvent& ev);
+    // A background window's blocked question marks its tab; answering it clears
+    // the mark. The active window needs no marker: its modal is already up.
+    void mark_needs_input(const AgentEvent& ev);
+    void clear_needs_input(const AgentEvent& ev);
     void resolve_approval(const AgentEvent& ev);
     void pump_pending_approvals();
     void resolve_api_key(const AgentEvent& ev);

@@ -1888,6 +1888,32 @@ TEST(window_manager_finds_the_owner_chat) {
     ASSERT(wm.by_owner_id("") == nullptr);
 }
 
+TEST(window_manager_clears_attention_when_a_window_is_activated) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    tui::Window& first = wm.new_window("first");
+    tui::Window& second = wm.new_window("second");
+    first.attention = tui::Window::Attention::Done;
+    second.attention = tui::Window::Attention::NeedsInput;
+
+    wm.set_active(1);
+    ASSERT(second.attention == tui::Window::Attention::None);
+
+    wm.set_active(0);
+    ASSERT(first.attention == tui::Window::Attention::None);
+}
+
+TEST(window_attention_after_done_keeps_pending_questions_and_errors) {
+    using A = tui::Window::Attention;
+    using agent::RunState;
+    ASSERT(tui::Window::after_done(false, RunState::Idle, A::None) == A::Done);
+    ASSERT(tui::Window::after_done(false, RunState::Idle, A::NeedsInput) == A::NeedsInput);
+    ASSERT(tui::Window::after_done(false, RunState::Error, A::Done) == A::Error);
+    ASSERT(tui::Window::after_done(true, RunState::Idle, A::Done) == A::None);
+    ASSERT(tui::Window::after_done(true, RunState::Error, A::Error) == A::None);
+}
+
 TEST(usage_ledger_reads_legacy_session_keys_as_main) {
     agent::json meta = {{"session_prompt_tokens", 700},
                         {"session_completion_tokens", 70},
