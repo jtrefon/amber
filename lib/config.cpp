@@ -277,13 +277,18 @@ void apply_skills_keys(Config& c, const std::string& key, const std::string& val
         apply_acquisition_keys(c, key, val, warnings);
 }
 
-void apply_logging_keys(Config& c, const std::string& key, const std::string& val) {
+void apply_logging_keys(Config& c, const std::string& key, const std::string& val,
+                        std::vector<std::string>& warnings) {
     if (key == "log_path")
         c.log_path = val;
     else if (key == "debug_log")
         c.debug_log = val;
     else if (key == "debug")
         c.debug = parse_bool(val);
+    else if (key == "log_retention_days")
+        parse_int(key, val, warnings, c.log_retention_days);
+    else if (key == "log_max_mb")
+        parse_int(key, val, warnings, c.log_max_mb);
 }
 } // namespace
 
@@ -305,7 +310,7 @@ void Config::load(const std::string& path) {
         apply_compression_keys(*this, s.key, s.value, warnings);
         apply_experience_keys(*this, s.key, s.value, warnings);
         apply_skills_keys(*this, s.key, s.value, warnings);
-        apply_logging_keys(*this, s.key, s.value);
+        apply_logging_keys(*this, s.key, s.value, warnings);
     }
 }
 
@@ -447,6 +452,15 @@ void write_compression_settings(std::ostream& f, const Config& c) {
 
 } // namespace
 
+RetentionPolicy Config::log_retention_policy() const {
+    RetentionPolicy policy;
+    if (log_retention_days > 0)
+        policy.days = log_retention_days;
+    if (log_max_mb > 0)
+        policy.max_bytes = static_cast<std::uint64_t>(log_max_mb) * 1024ull * 1024ull;
+    return policy;
+}
+
 bool Config::save_settings(const std::string& path) const {
     std::ostringstream f;
     f << "# amber project settings (local)\n";
@@ -480,6 +494,12 @@ bool Config::save_settings(const std::string& path) const {
     f << "skills_update_review=" << (skills_update_review ? 1 : 0) << "\n";
     f << "skills_update_check=" << skills_update_check << "\n";
     f << "max_tool_result_bytes=" << max_tool_result_bytes << "\n";
+    // Retention is written only when it was set: an unset value must not
+    // round-trip into the file and freeze a default a later release raises.
+    if (log_retention_days > 0)
+        f << "log_retention_days=" << log_retention_days << "\n";
+    if (log_max_mb > 0)
+        f << "log_max_mb=" << log_max_mb << "\n";
     return write_private_file(path, f.str());
 }
 

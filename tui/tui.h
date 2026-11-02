@@ -26,6 +26,7 @@
 #include "render_engine.h"
 #include "session_controller.h"
 #include "slash_dispatcher.h"
+#include "log_retention_controller.h"
 #include "model_picker.h"
 #include "skills_explorer.h"
 
@@ -97,6 +98,7 @@ class Tui {
     friend class SessionController;
     friend class SlashDispatcher;
     friend class LearnSurface;
+    friend class LogRetentionController;
     friend class TuiWindowOpsHooks;
 
 public:
@@ -206,7 +208,6 @@ private:
     static std::vector<std::string> wrap_text(const std::string& text, int w);
     static std::string timestamp();
     void append_line(int color, const std::string& text);
-    void append_line_ts(int color, const std::string& text, const std::string& ts);
     size_t append_line_to(Window& w, int color, const std::string& text);
     size_t append_line_to(Window& w, int color, const std::string& text, const std::string& ts);
     void append_rich(const rich::Line& l);
@@ -395,7 +396,6 @@ private:
     // Open/close background resource viewers for work whose state changed;
     // never moves focus.
     void auto_attach_resources();
-    bool resource_ever_focused(const std::string& kind, const std::string& id) const;
     // Drain watch-observer usage into each owner window's ledger.
     void poll_watch_usage();
     bool handle_option_key(int& ch, CommandLine& cl);
@@ -428,6 +428,9 @@ private:
     // answer must settle its own row, not the newer one).
     PendingProviderRows provider_rows_;
     unsigned provider_list_seq_ = 0;
+    // Declared last so it is destroyed first: its pass joins while every member
+    // it may report into is still alive.
+    LogRetentionController log_retention_{*this};
 };
 
 } // namespace tui

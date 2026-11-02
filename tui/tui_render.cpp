@@ -23,10 +23,7 @@ std::string Tui::timestamp() {
     return buf;
 }
 void Tui::append_line(int color, const std::string& text) {
-    append_line_ts(color, text, timestamp());
-}
-void Tui::append_line_ts(int color, const std::string& text, const std::string& ts) {
-    append_line_to(win(), color, text, ts);
+    append_line_to(win(), color, text, timestamp());
 }
 size_t Tui::append_line_to(Window& w, int color, const std::string& text) {
     return append_line_to(w, color, text, timestamp());
