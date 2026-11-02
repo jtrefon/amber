@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <memory>
 #include <string>
 #include <vector>
@@ -224,6 +225,9 @@ private:
     bool working_row_owned_ = false;
     bool dirty_ = true;
     std::chrono::steady_clock::time_point last_status_tick_{};
+    // The top rail changes on the second (clock + pulse), not on every idle
+    // tick. Cached so the 150 ms loop does not repaint it seven times.
+    std::time_t last_top_second_ = 0;
 };
 
 } // namespace tui
