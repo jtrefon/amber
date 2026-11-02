@@ -15,15 +15,15 @@ Closes #
 
 ## Verification
 
-- [ ] `make clean && make` succeeds
-- [ ] `make test` passes
-- [ ] `make lint` — zero new clang-tidy warnings
-- [ ] `make analyze` — zero new cppcheck warnings
+- [ ] `make verify-quick` passes (the static gate set CI runs; pre-push)
+- [ ] `make verify` passes, or the final CI run is green on this commit
+- [ ] `make doctor` is clean, or the local/CI toolchain difference is noted
 - [ ] Manually verified (describe how)
 
 ## Red → Green sequence
 
 - [ ] Each task in this feature has a red (failing) commit before its green fix
+- [ ] A production change touches `tests/`, or this PR carries `tests-allow: <reason>`
 - [ ] Or explain why not: ________________________________
 
 ## Checklist

@@ -32,6 +32,9 @@ their stacks, and it is the only tool that sees this class at all.
 ## Run it
 
 ```run
+# manual: ThreadSanitizer's shadow mapping is refused under some container/ASLR
+# configurations (FATAL: unexpected memory mapping). Run this on a host where
+# the report appears; the block is not a portable CI check.
 cat > racy.cpp <<'SRC'
 #include <thread>
 int counter = 0;
@@ -44,5 +47,6 @@ int main() {
 }
 SRC
 g++ -std=c++17 -fsanitize=thread -g racy.cpp -o racy
-grep -q "ThreadSanitizer: data race" <(./racy 2>&1 || true)
+./racy > racy.out 2>&1 || true
+grep -q "ThreadSanitizer: data race" racy.out
 ```

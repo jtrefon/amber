@@ -16,6 +16,10 @@
 #   P12 the generated Makefile is regenerated when Makefile.in/configure change.
 #   P13 the merge train's selection rule keeps its cases (tools/merge_train.py).
 #   P14 WERROR=1 really turns warnings into errors (compile and link).
+#   P15 the local verify targets still cover every gating static gate.
+#   P16 coverage is one recipe: make coverage and CI both call the script.
+#   P17 the parity image pins the analyzers CI pins and is wired to a target.
+#   P18 a delivery job that needs the always() aggregator must use always().
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -372,6 +376,113 @@ if echo "$werror_out" | grep -q -- "$fatal_warnings"; then
 else
     warn "P14: WERROR=1 does not add $fatal_warnings"
 fi
+
+# P15
+# `make verify-quick` / `make verify` are the local mirror of the gating CI
+# jobs. A gate removed from one of them is invisible: the command still exits 0,
+# and the only way to learn that class-size was no longer checked is a red run
+# after the push. Pin the expected command list in one place and fail when a
+# target disappears.
+verify_out=$(make -n verify-quick 2>/dev/null)
+if echo "$verify_out" | grep -q 'build_hygiene.sh'; then
+    ok "P15: verify-quick runs the build-hygiene invariants"
+else
+    warn "P15: verify-quick does not run tests/build_hygiene.sh"
+fi
+for t in format-check-changed lint-changed test-presence class-size nesting debt \
+         detach prompt-lint hygiene hygiene-self-contained complexity duplicates \
+         obfuscation gates-test library-check ci-manifest; do
+    if echo "$verify_out" | grep -q -- "$t"; then
+        ok "P15: verify-quick runs $t"
+    else
+        warn "P15: verify-quick does not run $t (a gating check is missing locally)"
+    fi
+done
+verify_full_out=$(make -n verify 2>/dev/null)
+for t in smoketest '--no-print-directory test' '--no-print-directory lint$' \
+         '--no-print-directory analyze'; do
+    if echo "$verify_full_out" | grep -q -- "$t"; then
+        ok "P15: verify runs ${t##* }"
+    else
+        warn "P15: verify does not run ${t##* }"
+    fi
+done
+if make -n doctor 2>/dev/null | grep -q 'doctor.py'; then
+    ok "P15: make doctor reports toolchain drift"
+else
+    warn "P15: make doctor is missing"
+fi
+
+# P16
+# The coverage filters are the gate: a local run that measures a different scope
+# than CI is how "84% project coverage" and "patch coverage failed" both get to
+# be true. Both paths must go through the same script, and that script must be
+# valid shell before either runs it.
+coverage_out=$(make -n coverage 2>/dev/null)
+if echo "$coverage_out" | grep -q 'coverage_report.sh'; then
+    ok "P16: make coverage runs tools/coverage_report.sh"
+else
+    warn "P16: make coverage does not run tools/coverage_report.sh"
+fi
+if echo "$coverage_out" | grep -q -- '--coverage'; then
+    ok "P16: make coverage configures an instrumented build"
+else
+    warn "P16: make coverage does not configure --coverage"
+fi
+if grep -q 'coverage_report.sh' .github/workflows/ci.yml; then
+    ok "P16: the CI coverage job runs tools/coverage_report.sh"
+else
+    warn "P16: the CI coverage job has its own inline gcovr recipe"
+fi
+if sh -n tools/coverage_report.sh 2>/dev/null; then
+    ok "P16: tools/coverage_report.sh parses"
+else
+    warn "P16: tools/coverage_report.sh does not parse"
+fi
+
+# P17
+# `make verify-container` is the only way to run clang-tidy 18 and cppcheck
+# 2.22 on a machine that cannot install them. An image that quietly carries a
+# different analyzer is worse than no image: it looks like parity.
+dockerfile=tools/parity/Dockerfile
+if [ -f "$dockerfile" ]; then
+    for needle in 'clang-tidy-18' 'clang-format-18' 'lizard==1.24.0' \
+                  'gcovr==8.6' 'CPPCHECK_VERSION=2.22.0'; do
+        if grep -q -- "$needle" "$dockerfile"; then
+            ok "P17: parity image pins $needle"
+        else
+            warn "P17: parity image does not pin $needle"
+        fi
+    done
+else
+    warn "P17: tools/parity/Dockerfile is missing"
+fi
+if make -n verify-container 2>/dev/null | grep -q 'docker run'; then
+    ok "P17: verify-container runs the image"
+else
+    warn "P17: verify-container is not wired to docker run"
+fi
+
+# P18
+# `ci-gate` is an `always()` job. A delivery job that needs it with a plain
+# `if:` is skipped on main, because the skip/always interaction is evaluated
+# through the aggregator (measured: run 41352135767 after #504). The job must
+# use `always()` plus an explicit needs result check, so this extracts each
+# delivery job block and requires the `always()` term.
+for job in cd cd-macos; do
+    block=$(awk -v start="  $job:" '
+        $0 == start { inside = 1; next }
+        inside && /^  [A-Za-z0-9_-]+:/ { inside = 0 }
+        inside { print }
+    ' .github/workflows/ci.yml)
+    if echo "$block" | grep -q 'ci-gate'; then
+        if echo "$block" | grep -q 'always()'; then
+            ok "P18: $job guards its ci-gate dependency with always()"
+        else
+            warn "P18: $job needs ci-gate without always(); it is skipped on main"
+        fi
+    fi
+done
 
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"

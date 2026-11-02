@@ -68,15 +68,13 @@ jobs:
           fail-on-severity: high
 
   # ---------------------------------------------------------------------------
-  # Static analysis — clang-tidy (per-file). On PRs, runs incrementally over the
-  # TUs the diff can affect: the changed .cpp files plus every TU whose includes
-  # reach a changed header, resolved from the compiler's own dependency scan
-  # (-MM) by tools/affected_tus.py. A .clang-tidy change still lints everything,
-  # since it changes how every TU is checked. On main pushes the full lint runs
-  # as a non-gating safety net (see lint-full below).
-  # ---------------------------------------------------------------------------
-  # ---------------------------------------------------------------------------
-  # Lint — clang-tidy. PR-gating, incremental over the TUs a change can affect.
+  # Lint — clang-tidy, full tree, on every PR.
+  #
+  # This used to be `lint-changed` here plus a non-gating full-tree job on main.
+  # That left a hole: the workflow's `push` trigger is main/master only, so a
+  # feature-branch push starts no run, and the main-only job could only discover
+  # a selector miss *after* the merge. `lint-changed` still exists for the local
+  # loop; CI measures the whole tree.
   #
   # clang-tidy is PINNED, and .clang-tidy enables whole check families
   # (bugprone-*, readability-*, modernize-*, clang-analyzer-*), so every check a
@@ -107,36 +105,45 @@ jobs:
       - name: Configure (generates config for include paths)
         run: CXX=clang++ ./configure
 
-      - name: Lint (incremental — changed files only)
-        run: make lint-changed BASE=origin/${{ github.base_ref }}
-        env:
-          CLANG_TIDY: clang-tidy-18
-
-  # ---------------------------------------------------------------------------
-  # Full lint — runs on main pushes as a non-gating safety net. Independent of
-  # the incremental selector: if tools/affected_tus.py ever under-selects (a
-  # dependency the compiler does not see, a wrong diff base), this still sees
-  # the whole tree. Does not block the pipeline.
-  # ---------------------------------------------------------------------------
-  lint-full:
-    needs: [changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.changes.outputs.cpp == 'true'
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/install-deps
-        with:
-          extra: clang-tidy-18
-
-      - name: Configure
-        run: CXX=clang++ ./configure
-
       - name: Lint (full tree)
         run: make lint
         env:
           CLANG_TIDY: clang-tidy-18
+
+  # ---------------------------------------------------------------------------
+  # Commit hygiene — advisory. The history does not yet meet the scoped-subject
+  # and red-test conventions consistently, so this reports and never blocks.
+  # ---------------------------------------------------------------------------
+  commit-hygiene:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Commit subjects and red-test signal
+        run: python3 tools/commit_lint.py --base origin/${{ github.base_ref }} --tdd
+
+  # ---------------------------------------------------------------------------
+  # Test presence — a production change must touch the suite, or carry a
+  # `tests-allow:` reason. The enforceable half of the red-first rule.
+  # ---------------------------------------------------------------------------
+  test-presence:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Production change has a test change
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 tools/test_presence_gate.py --base origin/${{ github.base_ref }}
 
   # ---------------------------------------------------------------------------
   # Static analysis — cppcheck (cross-TU, compiler-agnostic). Independent of
@@ -181,31 +188,34 @@ jobs:
         shell: micromamba-shell {0}
 
   # ---------------------------------------------------------------------------
-  # Build hygiene — smoketest + static invariant checks (P1–P5), plus the
-  # class-size, nesting and debt gates and the gate tools' own unit tests. It
-  # needs lizard now (the nesting gate), pinned as in the complexity job.
+  # Fast static gates — no build, no header compile, no prompt-library blocks.
+  # Running these separately means a class-size or nesting finding returns in
+  # minutes instead of queueing behind the slow header compile. `make check`
+  # still runs the union locally.
   # ---------------------------------------------------------------------------
-  check:
+  static-gates:
     needs: [changes]
     runs-on: ubuntu-latest
-    # 50 min: the dependency install is bounded at 30 (see install-deps) and
-    # `make check` needs ~12 on top of it.
+    # 50 min: the dependency install is bounded at 30 (see install-deps), even
+    # with the slim toolchain; the gates themselves take minutes.
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
+        with:
+          cpp_toolchain: 'false'
 
-      # `make check` runs the nesting gate, which parses lizard's -w output. Pinned
-      # for the same reason as the complexity job, and floored by the Makefile.
+      # The nesting/complexity gates parse lizard's -w output. Pinned for the
+      # same reason as the complexity job, and floored by the Makefile.
       - name: Install lizard
         run: pip install "lizard==1.24.0" -q
 
       - name: Configure
         run: ./configure
 
-      - name: Check (smoketest + build hygiene)
-        run: make check
+      - name: Static gates
+        run: make static-gates gate-report
 
       # The gate report is the reviewable artefact: one table with every gate's
       # verdict, downloadable from the run page or with `gh run download`.
@@ -216,6 +226,48 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Content gates — the prompt library's `run` blocks execute commands, so this
+  # needs the full toolchain. Kept separate so a library edit fails in minutes
+  # rather than behind a header compile.
+  # ---------------------------------------------------------------------------
+  content-gates:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    # 50 min: the install is bounded at 30 and the library run blocks compile.
+    timeout-minutes: 50
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure
+        run: ./configure
+
+      - name: Prompt-library run blocks
+        run: make content-gates
+
+  # ---------------------------------------------------------------------------
+  # Build hygiene — smoketest, the Makefile/DAG invariants (P1–P17) and header
+  # self-containment. This is the slow half: it compiles every header.
+  # ---------------------------------------------------------------------------
+  build-hygiene:
+    needs: [changes]
+    runs-on: ubuntu-latest
+    # 50 min: the dependency install is bounded at 30 (see install-deps) and
+    # the compile needs ~12 on top of it.
+    timeout-minutes: 50
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build hygiene
+        run: make check-build
 
   # ---------------------------------------------------------------------------
   # Duplicate code — cross-file duplicate block detector. Gating: identical
@@ -505,44 +557,15 @@ jobs:
       - name: Test
         run: make test
 
-      - name: Generate coverage report
-        # conftest.gcno is left by configure's compile probes (built with the
-        # coverage CXXFLAGS) and has no surviving source — remove it or gcovr
-        # aborts on the orphan note file.
-        #
-        # Two runs: the 80% line gate covers the unit-testable core
-        # (lib/tools/plugins), whose designated harness is the unit suite. The
-        # UI (tui/), benchmark harness (bench/) and client entry points (src/)
-        # are driven by the pty/e2e and bench harnesses, so they are reported to
-        # Codecov but not gated — the documented bar is ">=80% line coverage for
-        # new code paths" (PULL_REQUEST_TEMPLATE.md), not a whole-tree floor.
-        run: |
-          rm -rf conftest*
-          gcovr --root . \
-            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
-            --filter 'lib/.*' --filter 'tools/.*' --filter 'plugins/.*' \
-            --exclude '.*tests/.*' --exclude '.*third_party/.*' \
-            --fail-under-line 80 \
-            --print-summary
-          gcovr --root . \
-            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
-            --filter 'lib/.*' --filter 'tools/.*' --filter 'tui/.*' \
-            --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
-            --exclude '.*tests/.*' --exclude '.*third_party/.*' \
-            --exclude '.*fuzz/.*' \
-            --exclude '.*src/main\.cpp' --exclude '.*src/smoketest\.cpp' \
-            --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
-            --exclude '.*src/update\.cpp' \
-            --xml-pretty -o coverage.xml
-
-          # Top-level percentages only, for the inline run summary. Its per-file
-          # entries have no `lines` key, which is why the patch gate reads the
-          # Cobertura XML above instead -- this file is for display, not gating.
-          gcovr --root . \
-            --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
-            --filter 'lib/.*' --filter 'tools/.*' --filter 'plugins/.*' \
-            --exclude '.*tests/.*' --exclude '.*third_party/.*' \
-            --json-summary -o coverage-core.json
+      - name: Coverage reports and gates
+        # One recipe, shared with `make coverage`: it writes coverage.xml and
+        # coverage-core.json, and runs the 80% project floor, the TUI floor and
+        # the patch gate. Keeping the filters in one place is what stops a local
+        # run from measuring a different scope than CI.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PATCH_COVERAGE_ENFORCE: ${{ vars.PATCH_COVERAGE_ENFORCE != '' && vars.PATCH_COVERAGE_ENFORCE || 'true' }}
+        run: sh tools/coverage_report.sh
 
       # Put the coverage numbers on the run page itself. An artefact alone was not
       # enough: it sits in a panel at the bottom of the run, below every job, and
@@ -561,48 +584,6 @@ jobs:
                 f"| {fn:.1f}% ({d['function_covered']}/{d['function_total']}) |")
           print(f"\nGated at 80% lines. Full report: the `coverage-report` artefact on this run.")
           PYEOF
-
-      # Patch coverage: the documented "new code paths must have >=80% line
-      # coverage". This was never actually enforced -- `.codecov.yml` asks for it,
-      # but the Codecov upload below fails with "Repository not found" (the Codecov
-      # GitHub App is not installed) behind fail_ci_if_error: false, so no Codecov
-      # status check was ever created. Measured here instead.
-      #
-      # PATCH_COVERAGE_ENFORCE=false reports without blocking, for one PR if you
-      # want to see the number before it starts biting.
-      - name: Patch coverage gate
-        env:
-          PATCH_COVERAGE_ENFORCE: ${{ vars.PATCH_COVERAGE_ENFORCE != '' && vars.PATCH_COVERAGE_ENFORCE || 'true' }}
-        run: |
-          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
-            BASE="$(git rev-parse HEAD~1 2>/dev/null || echo '')"
-          fi
-          echo "patch-coverage base: ${BASE:-<none>}"
-          set +e
-          # --absent-ok mirrors the gcovr --exclude entry-point patterns used to build
-          # coverage.xml above. A changed source the report deliberately omits is not a
-          # measurement gap, and without this the gate blocks every PR that touches a
-          # main() for the wrong reason. Keep the two lists in step.
-          # fuzz/ is here because the harnesses are test drivers, like tests/: they are
-          # built by a separate libFuzzer invocation with sanitizers, which is a stronger
-          # check of that code than a line-coverage percentage would be.
-          # src/update.cpp joins them: its job is to exec the system package
-          # manager, which a unit test cannot do without running apt. What is
-          # testable (the plan, the argv handling) is in run_tests, and the
-          # execution is proven by the install-verify matrix in packages.yml on
-          # two distributions -- stronger evidence than a line percentage.
-          python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE" \
-            --absent-ok '.*src/main\.cpp' --absent-ok '.*src/smoketest\.cpp' \
-            --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp' \
-            --absent-ok '.*src/update\.cpp' \
-            --absent-ok '.*fuzz/.*'
-          rc=$?
-          set -e
-          if [ "$PATCH_COVERAGE_ENFORCE" = "true" ] && [ "$rc" -ne 0 ]; then
-            echo "::error::patch coverage below the bar (set the PATCH_COVERAGE_ENFORCE repository variable to 'false' to report without blocking)"
-            exit "$rc"
-          fi
 
       # GitHub's equivalent of an ADO build artefact: attached to the run, listed
       # on the run page, downloadable with `gh run download <run-id>`.
@@ -721,8 +702,16 @@ jobs:
   # latest main is always shippable. Artifacts are stored for 7 days.
   # ---------------------------------------------------------------------------
   cd:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [changes, build-and-test]
+    # `ci-gate` is an `always()` job. A plain `if` on a job that needs it is
+    # evaluated with the skipped PR-only jobs behind it and quietly skips the
+    # delivery job on main (measured: run 41352135767 after #504). `always()`
+    # plus an explicit result check keeps delivery gated without that
+    # interaction.
+    if: >
+      always() &&
+      needs.ci-gate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [changes, ci-gate]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -790,8 +779,13 @@ jobs:
   # self-contained tarball (binaries + data) for the Homebrew tap.
   # ---------------------------------------------------------------------------
   cd-macos:
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [changes, build-and-test-macos]
+    # Same interaction as `cd`: `ci-gate` is an `always()` job, so the
+    # delivery job needs `always()` plus an explicit result check.
+    if: >
+      always() &&
+      needs.ci-gate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: [changes, ci-gate]
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
@@ -915,7 +909,7 @@ jobs:
   # ---------------------------------------------------------------------------
   website-deploy:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    needs: [website-build]
+    needs: [website-build, website-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -940,12 +934,12 @@ jobs:
   #
   # Every gating job is aggregated here, not just the fast ones: a red
   # sanitizer, coverage or macOS run must block a merge. `lint` is PR-only and
-  # reports `skipped` on pushes (allowed). `lint-full` is intentionally
-  # excluded -- it is a safety net, not a gate. `cd`/`cd-macos` and the
-  # website deploy are delivery jobs; website smoke checks are gated.
+  # reports `skipped` on pushes (allowed). `cd`/`cd-macos` and the website
+  # deploy are delivery jobs that depend on this gate; website smoke checks are
+  # gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, analyze, check, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
+    needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
