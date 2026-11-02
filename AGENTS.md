@@ -563,9 +563,12 @@ deferred, see the developer guide's availability table).
   `clang-format -i <files>` on touched code. No comments that restate code.
 - New source files need no copyright/SPDX header, keep the first line functional.
 - Commits: imperative mood, scoped prefixes (e.g. `tui: fix drawer scroll`).
-  `make commit-lint BASE=origin/main` is advisory (CI `commit-hygiene`,
-  continue-on-error) until the convention is adopted; it also warns when
-  production changed without a `(red)` commit.
+  `make commit-lint BASE=origin/main` is advisory (CI `commit-hygiene`) until
+  the convention is adopted; it also warns when production changed without a
+  `(red)` commit. The advisory job carries `continue-on-error` **on its step**,
+  so it concludes success and the findings are `::warning::` annotations: a
+  job-level flag alone keeps the workflow green but still reports a failed
+  check that cannot block a merge, which teaches people to ignore red.
 - Tests for behaviour changes go in the suite under `tests/` (the per-area
   `*_test.cpp`); `make test-presence` enforces that a production change touches
   the suite or carries `tests-allow: <reason>`.

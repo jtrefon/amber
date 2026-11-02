@@ -12,6 +12,8 @@ The check is structural and fail-closed:
   * every manifest job is defined in `ci.yml` (a stale entry is drift too);
   * every gating job is in `ci-gate.needs`, and nothing non-gating is aggregated;
   * every gating job has a local command or a stated reason it is CI-only;
+  * an advisory job's step carries `continue-on-error`, so it concludes success
+    instead of reporting a failed check that cannot block a merge;
   * the scan found a plausible number of jobs (a parser that matched nothing
     must not report a clean inventory).
 
@@ -37,6 +39,10 @@ MIN_NEEDS = 10
 JOB = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 CI_GATE = re.compile(r"^  ci-gate:\s*$")
 NEEDS = re.compile(r"^    needs:\s*(.*)$")
+# A step-level flag is indented under the `- name:`, i.e. eight spaces. The
+# job-level flag is four, and the difference is the whole point: job-level alone
+# still reports a failed check run.
+STEP_CONTINUE_ON_ERROR = re.compile(r"^        continue-on-error:\s*true\s*$")
 
 DIMENSIONS = ("always", "cpp", "web")
 
@@ -93,7 +99,26 @@ def parse_needs(text):
     return [part.strip() for part in buffer.split(",") if part.strip()]
 
 
-def check(manifest, ci_jobs, needs, min_jobs=0, min_needs=0):
+def parse_job_blocks(text):
+    """{job id: lines of its block} for every job under `jobs:`."""
+    lines = text.splitlines()
+    if "jobs:" not in lines:
+        return {}
+    blocks = {}
+    current = None
+    for line in lines[lines.index("jobs:") + 1:]:
+        if line and not line.startswith(" "):
+            break
+        match = JOB.match(line)
+        if match:
+            current = match.group(1)
+            blocks[current] = []
+        elif current is not None:
+            blocks[current].append(line)
+    return blocks
+
+
+def check(manifest, ci_jobs, needs, min_jobs=0, min_needs=0, blocks=None):
     """Every way the inventory can disagree with the workflow."""
     errors = []
     if not manifest:
@@ -143,6 +168,33 @@ def check(manifest, ci_jobs, needs, min_jobs=0, min_needs=0):
             errors.append(
                 f"gating job {job!r} has neither a local command nor a local_reason"
             )
+    if blocks is not None:
+        errors.extend(advisory_errors(manifest, blocks))
+    return errors
+
+
+def advisory_errors(manifest, blocks):
+    """An advisory job must not report a failed check that cannot block.
+
+    Job-level `continue-on-error` keeps the workflow green but still concludes
+    the check run as a failure, so the PR shows a red X for a gate that is
+    explicitly not a merge gate (measured on #503). The step-level flag is what
+    makes the job conclude success; the tool's findings become annotations.
+    """
+    errors = []
+    for job, row in manifest.items():
+        if not row.get("advisory"):
+            continue
+        if row["gating"]:
+            errors.append(f"advisory job {job!r} cannot also be gating")
+        block = blocks.get(job)
+        if block is None:
+            continue  # the missing-job error is already reported
+        if not any(STEP_CONTINUE_ON_ERROR.match(line) for line in block):
+            errors.append(
+                f"advisory job {job!r} has no step-level continue-on-error: it would "
+                "report a failed check that cannot block a merge"
+            )
     return errors
 
 
@@ -150,7 +202,8 @@ def load_and_check(path=DEFAULT_WORKFLOW):
     with open(path, encoding="utf-8") as handle:
         text = handle.read()
     return check(gates_manifest.JOBS, parse_jobs(text), parse_needs(text),
-                 min_jobs=MIN_JOBS, min_needs=MIN_NEEDS)
+                 min_jobs=MIN_JOBS, min_needs=MIN_NEEDS,
+                 blocks=parse_job_blocks(text))
 
 
 def main(argv):

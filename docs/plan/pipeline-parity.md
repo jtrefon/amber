@@ -238,9 +238,13 @@ PP-15, which is deliberately manual (see Phase 3).
 - `make prompt-lint` enforces the sentence-initial form on agent-facing prompts.
 - `make test-presence` (CI `test-presence`) requires a production change to
   touch `tests/` or carry `tests-allow: <reason>`.
-- `make commit-lint` (CI `commit-hygiene`, `continue-on-error`) reports
-  scoped-subject violations and the missing `(red)` signal, advisory until the
-  convention is adopted.
+- `make commit-lint` (CI `commit-hygiene`, advisory) reports scoped-subject
+  violations and the missing `(red)` signal until the convention is adopted. It
+  carries `continue-on-error` on the **step**, not just the job: job-level only
+  keeps the workflow green while the check run still reports a failure (#503),
+  so the job now concludes success and emits `::warning::` annotations.
+  `ci_manifest_check` holds the invariant — an advisory job without a
+  step-level flag is an inventory error.
 - Prompt benchmark: **deliberately manual.** CI's hermetic bench uses a fake
   LLM, which cannot measure prompt behavior, and CI has no live model. A green
   hermetic run would not be evidence about a prompt, so the rule stays a

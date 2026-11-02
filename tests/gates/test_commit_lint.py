@@ -2,6 +2,7 @@
 rather than an exit code that blocks a merge.
 """
 
+import os
 import unittest
 
 from harness import load
@@ -50,6 +51,27 @@ class RedSignal(unittest.TestCase):
 
     def test_a_docs_change_needs_no_red(self):
         self.assertFalse(commit.tdd_warning(["docs: clarify"], ["docs/a.md"]))
+
+
+class Annotations(unittest.TestCase):
+    """An advisory check concludes success, so the finding has to be an
+    annotation; a plain log line in a green job is invisible."""
+
+    def test_a_local_run_prints_a_plain_line(self):
+        line = commit.finding_line("commit-lint: x", in_actions=False)
+        self.assertEqual(line, "commit-lint: x")
+
+    def test_actions_runs_prefix_a_warning_annotation(self):
+        line = commit.finding_line("commit-lint: x", in_actions=True)
+        self.assertTrue(line.startswith("::warning::"), line)
+        self.assertIn("commit-lint: x", line)
+
+    def test_the_environment_selects_the_annotation(self):
+        os.environ["GITHUB_ACTIONS"] = "true"
+        try:
+            self.assertTrue(commit.finding_line("x").startswith("::warning::"))
+        finally:
+            del os.environ["GITHUB_ACTIONS"]
 
 
 if __name__ == "__main__":
