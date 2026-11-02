@@ -15,6 +15,7 @@
 
 #include "canvas.h"
 #include "input_line_layout.h"
+#include "menu_view.h"
 #include "top_bar.h"
 #include "markdown.h"
 #include "rich.h"
@@ -40,6 +41,10 @@ public:
     int top_rows() const;
     // The session tab under a screen cell, when the top rail owns that row.
     std::optional<std::size_t> tab_at(int x, int y) const;
+    // The close cell inside a tab, when the click landed on its `×`.
+    std::optional<std::size_t> tab_close_at(int x, int y) const;
+    // The menu title/item/dropdown under a screen cell.
+    std::optional<menu::Hit> menu_hit(int x, int y) const;
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
@@ -171,7 +176,19 @@ private:
     int top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const;
     void draw_top_tabs(const top_bar::Layout& layout, int left_w);
     void draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse, bool lit);
-    void draw_top_rule(const top_bar::Layout& layout, bool utf8);
+    void draw_top_rule(int active_start, int active_width, bool utf8);
+    void draw_menu_dropdown();
+    void draw_menu_titles(int left_w, bool utf8);
+    void draw_menu_box(const menu::Rect& box, const std::vector<menu::Item>& items,
+                       std::size_t selected, bool utf8);
+    void draw_menu_frame(const menu::Rect& box, bool utf8);
+    void draw_menu_items(const menu::Rect& box, const std::vector<menu::Item>& items,
+                         std::size_t selected, bool utf8);
+    void draw_menu_row(const menu::Rect& box, int row, const menu::Item& item, bool chosen,
+                       bool utf8);
+    void draw_menu_separator(const menu::Rect& box, int row, bool utf8);
+    void put_menu_glyph(int row, int col, const std::string& glyph, int pair);
+    void put_menu_hline(int row, int col, int n, const std::string& glyph, int pair);
     agent::StatusSnapshot build_status_snapshot() const;
     static int tone_pair(agent::StatusTone tone);
     static int display_cols(const std::string& s);
@@ -234,6 +251,8 @@ private:
     // The last painted rail, kept for mouse hit-testing. Repainted whenever the
     // tabs or the width change, so it cannot lag a click behind the screen.
     top_bar::Layout top_layout_;
+    // The last painted menu surface, kept for mouse hit-testing.
+    menu::Layout menu_layout_;
 };
 
 } // namespace tui

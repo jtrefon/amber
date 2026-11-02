@@ -51,6 +51,7 @@ struct TabHit {
     std::size_t id = 0;
     int start = 0;
     int width = 0;
+    int close_start = 0;
 };
 
 struct Layout {

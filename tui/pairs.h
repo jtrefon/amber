@@ -41,6 +41,7 @@ enum Pair {
     P_MD_TABLE,     // table rows
     P_MD_HR,        // horizontal rule
     P_INPUT_SHADOW, // faded completion hint (gray on default bg)
+    P_HINT,         // idle hint after the prompt (darker than typed text)
     // The working pulse. The gauge runs solid: three cells in the one light
     // shade, so it never reads as a fourth health state or as a second signal.
     // The verb keeps the fade, whose mid step is the bright hue.

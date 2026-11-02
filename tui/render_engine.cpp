@@ -1,5 +1,6 @@
 #include "render_engine.h"
 #include "git_reads.h"
+#include "menu_controller.h"
 #include "top_bar.h"
 #include "tui.h"
 #include "welcome.h"
@@ -68,6 +69,19 @@ std::optional<std::size_t> RenderEngine::tab_at(int x, int y) const {
         if (x >= hit.start && x < hit.start + hit.width)
             return hit.id;
     return std::nullopt;
+}
+
+std::optional<std::size_t> RenderEngine::tab_close_at(int x, int y) const {
+    if (y != 0 || top_rows() <= 0)
+        return std::nullopt;
+    for (const auto& hit : top_layout_.hits)
+        if (x == hit.close_start)
+            return hit.id;
+    return std::nullopt;
+}
+
+std::optional<menu::Hit> RenderEngine::menu_hit(int x, int y) const {
+    return menu::hit_test(menu_layout_, x, y);
 }
 
 int RenderEngine::chat_top() const {
@@ -347,6 +361,7 @@ void RenderEngine::draw() {
         erase();
         draw_top_bar();
         welcome::render(stdscr, chat_top(), width());
+        draw_menu_dropdown();
         draw_status_bar();
         wnoutrefresh(stdscr);
         return;
@@ -370,6 +385,7 @@ void RenderEngine::draw() {
     chat_canvas_.render();
     if (show_working)
         draw_working_indicator(working_row());
+    draw_menu_dropdown();
 
     draw_status_bar();
     wnoutrefresh(stdscr);
@@ -698,7 +714,7 @@ void RenderEngine::draw_top_right(int w, const std::vector<Seg>& tops, const std
     }
 }
 
-void RenderEngine::draw_top_rule(const top_bar::Layout& layout, bool utf8) {
+void RenderEngine::draw_top_rule(int active_start, int active_width, bool utf8) {
     const int w = width();
     attron(COLOR_PAIR(P_BANNER));
     mvhline(1, 0, ' ', w);
@@ -713,10 +729,128 @@ void RenderEngine::draw_top_rule(const top_bar::Layout& layout, bool utf8) {
         mvaddnwstr(1, 0, rule.c_str(), w);
         attroff(COLOR_PAIR(P_BAR_DIM));
     }
-    if (layout.active_start >= 0 && layout.active_width > 0) {
+    if (active_start >= 0 && active_width > 0) {
         attron(COLOR_PAIR(P_BANNER));
-        mvhline(1, layout.active_start, ' ', layout.active_width);
+        mvhline(1, active_start, ' ', active_width);
         attroff(COLOR_PAIR(P_BANNER));
+    }
+}
+
+void RenderEngine::put_menu_glyph(int row, int col, const std::string& glyph, int pair) {
+    int x = col;
+    put_span(row, col + 1, x, glyph, pair, 0);
+}
+
+void RenderEngine::put_menu_hline(int row, int col, int n, const std::string& glyph, int pair) {
+    const std::wstring unit = to_wide(glyph);
+    if (unit.empty() || n <= 0)
+        return;
+    const std::wstring line(static_cast<std::size_t>(n), unit.front());
+    attron(COLOR_PAIR(pair));
+    mvaddnwstr(row, col, line.c_str(), n);
+    attroff(COLOR_PAIR(pair));
+}
+
+void RenderEngine::draw_menu_frame(const menu::Rect& box, bool utf8) {
+    if (!box.visible() || box.w < 4 || box.h < 3)
+        return;
+    const std::string horizontal = utf8 ? "\u2500" : "-";
+    const std::string vertical = utf8 ? "\u2502" : "|";
+    const std::string top_left = utf8 ? "\u250c" : "+";
+    const std::string top_right = utf8 ? "\u2510" : "+";
+    const std::string bottom_left = utf8 ? "\u2514" : "+";
+    const std::string bottom_right = utf8 ? "\u2518" : "+";
+
+    attron(COLOR_PAIR(P_DIALOG));
+    for (int row = box.y; row < box.y + box.h; ++row) {
+        move(row, box.x);
+        for (int i = 0; i < box.w; ++i)
+            addch(' ');
+    }
+    attroff(COLOR_PAIR(P_DIALOG));
+
+    put_menu_glyph(box.y, box.x, top_left, P_BAR_DIM);
+    put_menu_hline(box.y, box.x + 1, box.w - 2, horizontal, P_BAR_DIM);
+    put_menu_glyph(box.y, box.x + box.w - 1, top_right, P_BAR_DIM);
+    put_menu_glyph(box.y + box.h - 1, box.x, bottom_left, P_BAR_DIM);
+    put_menu_hline(box.y + box.h - 1, box.x + 1, box.w - 2, horizontal, P_BAR_DIM);
+    put_menu_glyph(box.y + box.h - 1, box.x + box.w - 1, bottom_right, P_BAR_DIM);
+    for (int row = box.y + 1; row < box.y + box.h - 1; ++row) {
+        put_menu_glyph(row, box.x, vertical, P_BAR_DIM);
+        put_menu_glyph(row, box.x + box.w - 1, vertical, P_BAR_DIM);
+    }
+}
+
+void RenderEngine::draw_menu_separator(const menu::Rect& box, int row, bool utf8) {
+    const std::string horizontal = utf8 ? "\u2500" : "-";
+    put_menu_glyph(row, box.x, utf8 ? "\u251c" : "+", P_BAR_DIM);
+    put_menu_hline(row, box.x + 1, box.w - 2, horizontal, P_BAR_DIM);
+    put_menu_glyph(row, box.x + box.w - 1, utf8 ? "\u2524" : "+", P_BAR_DIM);
+}
+
+void RenderEngine::draw_menu_row(const menu::Rect& box, int row, const menu::Item& item,
+                                 bool chosen, bool utf8) {
+    const int pair = chosen ? P_BUTTON_ACT : P_DIALOG;
+    const int attrs = chosen ? A_BOLD : 0;
+    attron(COLOR_PAIR(pair));
+    move(row, box.x + 1);
+    for (int j = 0; j < box.w - 2; ++j)
+        addch(' ');
+    attroff(COLOR_PAIR(pair));
+    const bool children = !item.children.empty();
+    int x = box.x + 2;
+    const int budget = box.x + box.w - 2 - (children ? 1 : 0);
+    put_span(row, budget, x, std::string(" ") + item.label, pair, attrs);
+    if (children) {
+        int ax = box.x + box.w - 2;
+        put_span(row, box.x + box.w - 1, ax, utf8 ? "\u25b8" : ">", pair, attrs);
+    }
+}
+
+void RenderEngine::draw_menu_items(const menu::Rect& box, const std::vector<menu::Item>& items,
+                                   std::size_t selected, bool utf8) {
+    if (!box.visible() || box.w < 4 || box.h < 3)
+        return;
+    const int rows = box.h - 2;
+    for (int i = 0; i < rows && i < static_cast<int>(items.size()); ++i) {
+        const int row = box.y + 1 + i;
+        const auto& item = items[static_cast<std::size_t>(i)];
+        if (item.separator)
+            draw_menu_separator(box, row, utf8);
+        else
+            draw_menu_row(box, row, item, static_cast<std::size_t>(i) == selected, utf8);
+    }
+}
+
+void RenderEngine::draw_menu_box(const menu::Rect& box, const std::vector<menu::Item>& items,
+                                 std::size_t selected, bool utf8) {
+    draw_menu_frame(box, utf8);
+    draw_menu_items(box, items, selected, utf8);
+}
+
+void RenderEngine::draw_menu_dropdown() {
+    const menu::State& state = tui_.menu_->state();
+    if (!tui_.menu_->is_open() || state.menu >= tui_.menu_->model().menus.size() ||
+        !menu_layout_.dropdown.visible())
+        return;
+    const bool utf8 = agent::bar::utf8();
+    const auto& items = tui_.menu_->model().menus[state.menu].items;
+    draw_menu_box(menu_layout_.dropdown, items, state.item, utf8);
+    if (state.mode == menu::Mode::Submenu && state.item < items.size() &&
+        menu_layout_.submenu.visible())
+        draw_menu_box(menu_layout_.submenu, items[state.item].children, state.submenu, utf8);
+}
+
+void RenderEngine::draw_menu_titles(int left_w, bool utf8) {
+    menu_layout_ =
+        menu::layout(tui_.menu_->model(), tui_.menu_->state(), left_w, top_rows(), height() - 2);
+    int x = 0;
+    put_span(0, left_w, x, top_bar::app_mark(utf8), P_BRAND, A_BOLD);
+    for (const auto& title : menu_layout_.titles) {
+        const auto& label = tui_.menu_->model().menus[title.menu].label;
+        const int attrs = title.menu == tui_.menu_->state().menu ? (A_REVERSE | A_BOLD) : 0;
+        int tx = title.rect.x;
+        put_span(0, left_w, tx, std::string(" ") + label + " ", P_BANNER, attrs);
     }
 }
 
@@ -738,12 +872,21 @@ void RenderEngine::draw_top_bar() {
     const std::string pulse = top_bar::pulse_glyph(lit, utf8);
     const int right_w = top_right_width(tops, pulse);
     const int left_w = std::max(0, w - right_w - (right_w > 0 ? 1 : 0));
-    top_layout_ = top_bar::layout(top_tabs(), left_w, utf8);
-
-    draw_top_tabs(top_layout_, left_w);
+    int active_start = -1;
+    int active_width = 0;
+    if (tui_.menu_->is_open()) {
+        top_layout_ = {};
+        draw_menu_titles(left_w, utf8);
+    } else {
+        menu_layout_ = {};
+        top_layout_ = top_bar::layout(top_tabs(), left_w, utf8);
+        draw_top_tabs(top_layout_, left_w);
+        active_start = top_layout_.active_start;
+        active_width = top_layout_.active_width;
+    }
     draw_top_right(w, tops, pulse, lit);
     if (rows >= 2)
-        draw_top_rule(top_layout_, utf8);
+        draw_top_rule(active_start, active_width, utf8);
 }
 
 void RenderEngine::tick_clock() {
@@ -847,6 +990,18 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     draw_input_slice(y, w, prompt_w, sc.offset, s);
     draw_input_shadow(y, w, prompt_w, sc.offset, s, cursor, shadow);
 
+    if (s.empty() && shadow.empty() && !tui_.menu_->hint().empty()) {
+        int hx = std::max(0, prompt_w - sc.offset);
+        put_input(y, w, hx, tui_.menu_->hint(), P_HINT);
+        curs_set(0);
+        wnoutrefresh(stdscr);
+        return;
+    }
+    if (tui_.menu_->is_open()) {
+        curs_set(0);
+        wnoutrefresh(stdscr);
+        return;
+    }
     curs_set(1);
     move(y, cursor_column(sc.cursor_col, sc.offset, w));
     wnoutrefresh(stdscr);

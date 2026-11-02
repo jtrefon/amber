@@ -70,6 +70,7 @@ TEST(top_bar_records_clickable_tab_hits) {
     ASSERT_EQ(layout.hits[1].id, 2u);
     ASSERT_EQ(layout.hits[0].start, layout.active_start);
     ASSERT_EQ(layout.hits[0].width, layout.active_width);
+    ASSERT_EQ(layout.hits[0].close_start, layout.hits[0].start + layout.hits[0].width - 3);
     for (const auto& hit : layout.hits) {
         ASSERT(hit.start > 0);
         ASSERT(hit.width > 0);
