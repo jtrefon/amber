@@ -1403,6 +1403,10 @@ void SlashDispatcher::register_action(const std::string& action,
     action_registry_.register_action(action, std::move(handler));
 }
 
+bool SlashDispatcher::run_action(const std::string& action, const std::string& arg) {
+    return action_registry_.dispatch(action, arg);
+}
+
 void SlashDispatcher::register_builtin_actions() {
     register_core_actions();
     register_provider_actions();
@@ -1410,6 +1414,38 @@ void SlashDispatcher::register_builtin_actions() {
     register_config_set_actions();
     register_config_get_actions();
     register_actions(*this);
+    auto cycle = [this](int delta) {
+        const auto& all = tui_.window_manager_->all();
+        if (all.empty())
+            return;
+        const std::size_t n = all.size();
+        std::size_t idx = tui_.window_manager_->active();
+        for (std::size_t step = 0; step < n; ++step) {
+            idx = (idx + n + (delta < 0 ? n - 1 : 1)) % n;
+            if (all[idx] && all[idx]->kind == Window::Kind::Chat) {
+                tui_.switch_to(idx);
+                return;
+            }
+        }
+    };
+    register_action("ui.tab.next", [cycle](const std::string&) { cycle(1); });
+    register_action("ui.tab.prev", [cycle](const std::string&) { cycle(-1); });
+    register_action("ui.view.reasoning", [this](const std::string&) {
+        auto& engine = *tui_.render_engine_;
+        engine.set_show_reasoning(!engine.show_reasoning());
+        tui_.append_line(P_STATUS,
+                         engine.show_reasoning() ? "reasoning: shown" : "reasoning: hidden");
+        engine.draw();
+    });
+    register_action("ui.mouse.toggle", [this](const std::string&) { tui_.toggle_mouse(); });
+    register_action("ui.scroll.toggle", [this](const std::string&) {
+        auto& engine = *tui_.render_engine_;
+        engine.set_scroll_mode(!engine.scroll_mode());
+        tui_.append_line(P_STATUS, engine.scroll_mode()
+                                       ? "scroll mode — arrows/PgUp/PgDn navigate window"
+                                       : "scroll mode: off");
+        engine.draw();
+    });
 }
 
 // /window*: screen lifecycle and resource attachment.
@@ -2205,7 +2241,7 @@ void SlashDispatcher::refresh_settings_feed() {
         if (!man.empty())
             kids[g]["man"] = man;
         register_action("core.settings.group." + g,
-                        [this, g](const std::string&) { cmd_settings_group(g); });
+                        [this, g](const std::string&) { cmd_settings(g); });
     }
     kids["provider"]["action"] = "core.settings.provider";
     kids["provider"]["help"] = "Manage API providers: add, edit, key and connection test.";
@@ -2215,7 +2251,24 @@ void SlashDispatcher::refresh_settings_feed() {
     tui_.settings_.merge_completions_json(sub);
 }
 
-void SlashDispatcher::cmd_settings() {
+void SlashDispatcher::cmd_settings(const std::string& group) {
+    if (!group.empty()) {
+        const auto& tree = tui_.settings_.command_tree();
+        const auto& get = tree["commands"]["get"]["children"];
+        if (get.contains(group)) {
+            const auto& node = get[group];
+            const std::string action = (node.contains("action") && node["action"].is_string())
+                                           ? node["action"].get<std::string>()
+                                           : std::string();
+            if (!action.empty() && action_registry_.has(action)) {
+                action_registry_.dispatch(action, "");
+                return;
+            }
+        }
+        tui_.append_line(P_STATUS, "settings " + group + " \u2014 use /set " + group);
+        tui_.draw();
+        return;
+    }
     tui_.append_line(P_STATUS, "settings groups (edit with /set <group>):");
     for (const auto& g : tui_.settings_.children_of("settings")) {
         std::string line = "  " + g;
@@ -2224,23 +2277,6 @@ void SlashDispatcher::cmd_settings() {
             line += "  \u2014  " + help;
         tui_.append_line(P_STATUS, line);
     }
-    tui_.draw();
-}
-
-void SlashDispatcher::cmd_settings_group(const std::string& group) {
-    const auto& tree = tui_.settings_.command_tree();
-    const auto& get = tree["commands"]["get"]["children"];
-    if (get.contains(group)) {
-        const auto& node = get[group];
-        const std::string action = (node.contains("action") && node["action"].is_string())
-                                       ? node["action"].get<std::string>()
-                                       : std::string();
-        if (!action.empty() && action_registry_.has(action)) {
-            action_registry_.dispatch(action, "");
-            return;
-        }
-    }
-    tui_.append_line(P_STATUS, "settings " + group + " \u2014 use /set " + group);
     tui_.draw();
 }
 

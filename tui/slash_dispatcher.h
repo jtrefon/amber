@@ -48,6 +48,8 @@ public:
     bool handle_slash(const std::string& line);
     void register_action(const std::string& action,
                          std::function<void(const std::string&)> handler);
+    // The menu runs the same action IDs as the slash commands and the feeds.
+    bool run_action(const std::string& action, const std::string& arg);
     void register_builtin_actions();
     bool busy_reject(const std::string& what);
     void request_quit();
@@ -60,8 +62,7 @@ public:
     void refresh_provider_feed();
     void refresh_job_feed();
     void refresh_settings_feed();
-    void cmd_settings();
-    void cmd_settings_group(const std::string& group);
+    void cmd_settings(const std::string& group = "");
     double compression_threshold_effective() const;
     void cmd_model_set(const std::string& arg);
     void cmd_model_context(const std::string& arg);
