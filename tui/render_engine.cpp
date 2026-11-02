@@ -623,8 +623,16 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
         pair = P_GAUGE_OK;
         attrs = A_BOLD;
         break;
+    case top_bar::Role::DoneTab:
+        pair = P_GAUGE_OK;
+        attrs = A_BOLD;
+        break;
     case top_bar::Role::AttentionTab:
         pair = P_BUTTON_ACT;
+        attrs = A_BOLD;
+        break;
+    case top_bar::Role::ErrorTab:
+        pair = P_GAUGE_CRIT;
         attrs = A_BOLD;
         break;
     case top_bar::Role::Overflow:
@@ -643,7 +651,22 @@ std::vector<top_bar::Tab> RenderEngine::top_tabs() const {
     for (const auto& wp : tui_.window_manager_->all()) {
         if (!wp || wp->kind != Window::Kind::Chat)
             continue;
-        tabs.push_back({wp->id, wp->title, wp.get() == &active, tui_.runs_.busy(wp->id), false});
+        top_bar::Attention attention = top_bar::Attention::None;
+        switch (wp->attention) {
+        case Window::Attention::Done:
+            attention = top_bar::Attention::Done;
+            break;
+        case Window::Attention::NeedsInput:
+            attention = top_bar::Attention::NeedsInput;
+            break;
+        case Window::Attention::Error:
+            attention = top_bar::Attention::Error;
+            break;
+        case Window::Attention::None:
+            break;
+        }
+        tabs.push_back(
+            {wp->id, wp->title, wp.get() == &active, tui_.runs_.busy(wp->id), attention});
     }
     return tabs;
 }

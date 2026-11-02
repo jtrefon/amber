@@ -52,11 +52,17 @@ std::string tab_label(const Tab& tab, int index, int title_cols, bool utf8) {
 Role tab_role(const Tab& tab) {
     if (tab.active)
         return Role::ActiveTab;
-    if (tab.attention)
+    switch (tab.attention) {
+    case Attention::NeedsInput:
         return Role::AttentionTab;
-    if (tab.running)
-        return Role::RunningTab;
-    return Role::InactiveTab;
+    case Attention::Error:
+        return Role::ErrorTab;
+    case Attention::Done:
+        return Role::DoneTab;
+    case Attention::None:
+        break;
+    }
+    return tab.running ? Role::RunningTab : Role::InactiveTab;
 }
 
 int index_digits(int index) {
@@ -235,12 +241,18 @@ std::string tab_overflow(int hidden, bool utf8) {
     return utf8 ? "\u2039" + n + "\u203a" : "[" + n + "]";
 }
 
-std::string attention_glyph(bool running, bool attention, bool utf8) {
-    if (attention)
+std::string attention_glyph(bool running, Attention attention, bool utf8) {
+    switch (attention) {
+    case Attention::NeedsInput:
         return "!";
-    if (running)
-        return utf8 ? "\u25d0" : "*";
-    return " ";
+    case Attention::Error:
+        return utf8 ? "\u2717" : "x";
+    case Attention::Done:
+        return utf8 ? "\u25cf" : "*";
+    case Attention::None:
+        break;
+    }
+    return running ? (utf8 ? "\u25d0" : "*") : " ";
 }
 
 std::string clock_text(std::time_t now) {

@@ -212,15 +212,30 @@ bool EventRouter::handle_window_event(Window* w, AgentEvent& ev) {
     return true;
 }
 
+void EventRouter::mark_needs_input(const AgentEvent& ev) {
+    Window* w = tui_.window_by_id(ev.window_id);
+    if (w && w != &tui_.win())
+        w->attention = Window::Attention::NeedsInput;
+}
+
+void EventRouter::clear_needs_input(const AgentEvent& ev) {
+    Window* w = tui_.window_by_id(ev.window_id);
+    if (w && w->attention == Window::Attention::NeedsInput)
+        w->attention = Window::Attention::None;
+}
+
 bool EventRouter::defer_event(AgentEvent&& ev) {
     switch (ev.type) {
     case AgentEvent::Approval:
+        mark_needs_input(ev);
         defer_or_resolve_approval(std::move(ev));
         return true;
     case AgentEvent::ApiKey:
+        mark_needs_input(ev);
         defer_or_resolve_api_key(std::move(ev));
         return true;
     case AgentEvent::Ask:
+        mark_needs_input(ev);
         defer_or_resolve_ask(std::move(ev));
         return true;
     default:
@@ -350,6 +365,7 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
     tui_.append_line(P_STATUS, std::string("approval: ") + verdict + "  (" + ev.text + ")");
     if (ev.approval_promise)
         ev.approval_promise->set_value(d);
+    clear_needs_input(ev);
 }
 
 void EventRouter::pump_pending_asks() {
@@ -398,6 +414,7 @@ void EventRouter::resolve_ask(const AgentEvent& ev) {
     }
     if (ev.ask_promise)
         ev.ask_promise->set_value(answer);
+    clear_needs_input(ev);
 }
 
 void EventRouter::resolve_api_key(const AgentEvent& ev) {
@@ -414,6 +431,7 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
     }
     if (ev.api_key_promise)
         ev.api_key_promise->set_value(std::move(key));
+    clear_needs_input(ev);
 }
 
 void EventRouter::on_reasoning(Window* w, const AgentEvent& ev) {
@@ -517,6 +535,8 @@ void EventRouter::on_error(Window* w, const AgentEvent& ev) {
     if (!w)
         return;
     w->state = agent::RunState::Error;
+    if (w != &tui_.win())
+        w->attention = Window::Attention::Error;
     tui_.flush_stream(*w);
     tui_.append_line_to(*w, P_STATUS, std::string("error: ") + ev.error_msg);
 }
@@ -524,6 +544,7 @@ void EventRouter::on_error(Window* w, const AgentEvent& ev) {
 void EventRouter::on_done(Window* w, const AgentEvent&) {
     if (!w)
         return;
+    w->attention = Window::after_done(w == &tui_.win(), w->state, w->attention);
     if (w->state != agent::RunState::Error)
         w->state = agent::RunState::Idle;
     w->running_tool.clear();
