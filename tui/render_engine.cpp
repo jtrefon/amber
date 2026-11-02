@@ -703,7 +703,9 @@ void RenderEngine::draw_top_bar() {
     attroff(COLOR_PAIR(P_BANNER));
 
     const auto tops = top_segments();
-    const bool lit = top_bar::pulse_on(std::time(nullptr));
+    const std::time_t now = std::time(nullptr);
+    last_top_second_ = now;
+    const bool lit = top_bar::pulse_on(now);
     const std::string pulse = top_bar::pulse_glyph(lit, utf8);
     const int right_w = top_right_width(tops, pulse);
     const int left_w = std::max(0, w - right_w - (right_w > 0 ? 1 : 0));
@@ -716,6 +718,8 @@ void RenderEngine::draw_top_bar() {
 }
 
 void RenderEngine::tick_clock() {
+    if (std::time(nullptr) == last_top_second_)
+        return;
     dirty_ = true;
     draw_top_bar();
     wnoutrefresh(stdscr);
