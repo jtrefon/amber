@@ -163,6 +163,24 @@ struct Config {
     // account and the model, not of the project.
     std::string prompt_cache_ttl = "5m";
 
+    // Cache diagnostics. On, every request carries
+    // `diagnostics.previous_message_id`, the id of the last response, and the
+    // provider names the first tier that diverged (system/tools/messages/model)
+    // instead of leaving a zero read unexplained. Off by default: it adds a
+    // request field a proxy may reject. Env: AMBER_CACHE_DIAG.
+    bool cache_diagnostics = false;
+
+    // Global cache scope: `scope: "global"` on the explicit breakpoints plus
+    // the `prompt-caching-scope-2026-01-05` beta. This is the shape Claude Code
+    // sends, and the one that keeps working through a gateway that pools
+    // upstream credentials. Off by default: a proxy may reject the field (400),
+    // so it is an experiment, not a default. Env: AMBER_CACHE_SCOPE=global.
+    bool cache_global_scope = false;
+
+    // The previous response id, owned by the client and never persisted. Empty
+    // means the first turn: the request opts in with `previous_message_id: null`.
+    std::string previous_response_id;
+
     // Detection toggles (BitchX-style /set detection namespace).
     //   loop:      tool-loop and text-loop detectors; when off the model runs
     //              until max_tool_iterations or a natural stop. Default off.

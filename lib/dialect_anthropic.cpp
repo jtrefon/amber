@@ -293,8 +293,19 @@ json cache_control(const Config& cfg) {
     return control;
 }
 
+// A block-level breakpoint. `scope: "global"` is the Claude Code shape: it lets
+// the provider reuse the entry across request identities, which is what a
+// gateway that pools upstream credentials needs (the default scope is tied to
+// the caller's workspace). The beta that carries the field is sent with it.
+json block_cache_control(const Config& cfg) {
+    json control = cache_control(cfg);
+    if (cfg.cache_global_scope)
+        control["scope"] = "global";
+    return control;
+}
+
 void mark_cacheable(json& block, const Config& cfg) {
-    block["cache_control"] = cache_control(cfg);
+    block["cache_control"] = block_cache_control(cfg);
 }
 
 // The moving breakpoint: everything up to and including the newest real turn
@@ -411,7 +422,11 @@ protected:
         const std::string type = str_field(evt, "type");
 
         if (type == "message_start") {
-            const json& usage = evt.value("message", json::object()).value("usage", json::object());
+            const json message = evt.value("message", json::object());
+            if (message.contains("id") && message["id"].is_string())
+                response_id_ = message["id"].get<std::string>();
+            read_miss_reason(message.value("diagnostics", json::object()));
+            const json& usage = message.value("usage", json::object());
             read_usage(usage, "input_tokens", &prompt_tokens_);
             read_usage(usage, "cache_read_input_tokens", &cache_read_tokens_);
             read_usage(usage, "cache_creation_input_tokens", &cache_write_tokens_);
@@ -423,6 +438,7 @@ protected:
             return;
         }
         if (type == "message_delta") {
+            read_miss_reason(evt.value("diagnostics", json::object()));
             read_usage(evt.value("usage", json::object()), "output_tokens", &completion_tokens_);
             return;
         }
@@ -550,6 +566,12 @@ private:
         StreamChunk chunk;
         chunk.tool_calls = json::array({it->second});
         emit(chunk);
+    }
+
+    void read_miss_reason(const json& diagnostics) {
+        if (diagnostics.contains("cache_miss_reason") &&
+            diagnostics["cache_miss_reason"].is_object())
+            cache_miss_reason_ = diagnostics["cache_miss_reason"].value("type", std::string());
     }
 
     std::map<int, json> tool_slots_;
@@ -706,6 +728,8 @@ public:
         if (!cfg.api_key.empty())
             headers.push_back("x-api-key: " + cfg.api_key);
         headers.push_back(std::string("anthropic-version: ") + kApiVersion);
+        if (cfg.cache_global_scope)
+            headers.push_back("anthropic-beta: prompt-caching-scope-2026-01-05");
         return headers;
     }
 
@@ -732,7 +756,21 @@ public:
             // for the stable prompt, automatic for the growing conversation),
             // and it is the field a gateway dashboard looks for when deciding
             // whether a request asked to be cached at all. "off" removes it.
-            body["cache_control"] = cache_control(cfg);
+            // The automatic top-level breakpoint is the shape a gateway
+            // dashboard looks for, but it cannot carry `scope: global`. The
+            // global-scope experiment therefore sends the two explicit
+            // breakpoints alone, exactly as Claude Code does.
+            if (!cfg.cache_global_scope)
+                body["cache_control"] = cache_control(cfg);
+            // Cache diagnostics: replay the previous response id so the provider
+            // names the first tier that diverged instead of leaving a zero read
+            // unexplained. `null` on the first turn is the opt-in, so it is
+            // serialized explicitly rather than omitted.
+            if (cfg.cache_diagnostics)
+                body["diagnostics"] = {
+                    {"previous_message_id", cfg.previous_response_id.empty()
+                                                ? json(nullptr)
+                                                : json(cfg.previous_response_id)}};
         } else if (const std::string system = merged_system(messages); !system.empty()) {
             body["system"] = system;
         }
@@ -813,6 +851,12 @@ public:
     TokenUsage parse_usage(const std::string& raw) const override {
         TokenUsage usage;
         json resp = json::parse(raw, nullptr, false);
+        if (resp.contains("id") && resp["id"].is_string())
+            usage.response_id = resp["id"].get<std::string>();
+        const json diagnostics = resp.value("diagnostics", json::object());
+        if (diagnostics.contains("cache_miss_reason") &&
+            diagnostics["cache_miss_reason"].is_object())
+            usage.cache_miss_reason = diagnostics["cache_miss_reason"].value("type", std::string());
         const json u = resp.value("usage", json::object());
         if (u.contains("input_tokens") && u["input_tokens"].is_number())
             usage.prompt = u["input_tokens"].get<long>();

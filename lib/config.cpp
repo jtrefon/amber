@@ -124,6 +124,15 @@ void apply_sampling_keys(Config& c, const std::string& key, const std::string& v
             c.prompt_cache_ttl = val;
         else
             warnings.push_back("prompt_cache_ttl: expected 5m|1h|off, got '" + val + "'");
+    } else if (key == "prompt_cache_diagnostics")
+        c.cache_diagnostics = parse_bool(val);
+    else if (key == "prompt_cache_scope") {
+        if (val == "global")
+            c.cache_global_scope = true;
+        else if (val == "session" || val == "off")
+            c.cache_global_scope = false;
+        else
+            warnings.push_back("prompt_cache_scope: expected global|session, got '" + val + "'");
     }
 }
 
@@ -428,6 +437,10 @@ bool Config::save_global(const std::string& path) const {
     // into the file and freeze a value a future release wants to change.
     if (prompt_cache_ttl != "5m")
         f << "prompt_cache_ttl=" << prompt_cache_ttl << "\n";
+    if (cache_diagnostics)
+        f << "prompt_cache_diagnostics=on\n";
+    if (cache_global_scope)
+        f << "prompt_cache_scope=global\n";
     return write_private_file(path, f.str());
 }
 
@@ -546,6 +559,10 @@ void Config::apply_environment() {
     env_string("AMBER_REASONING", reasoning_effort);
 
     stream = env_flag("AMBER_STREAM", stream);
+    cache_diagnostics = env_flag("AMBER_CACHE_DIAG", cache_diagnostics);
+    if (const char* scope = std::getenv("AMBER_CACHE_SCOPE");
+        scope && std::string(scope) == "global")
+        cache_global_scope = true;
     subagent_parallel = env_flag("AMBER_SUBAGENT_PARALLEL", subagent_parallel);
     subagent_max = env_int("AMBER_SUBAGENT_MAX", subagent_max);
     max_tool_result_bytes = env_int("AMBER_MAX_TOOL_RESULT_BYTES", max_tool_result_bytes);

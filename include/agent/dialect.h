@@ -36,6 +36,14 @@ struct TokenUsage {
     long completion = -1;
     long cache_read = -1;
     long cache_write = -1;
+    // The response's own id (`msg_...`). The next request replays it as
+    // `diagnostics.previous_message_id` so the provider can name the first
+    // cache tier that diverged.
+    std::string response_id;
+    // The provider's explanation for a prefix miss (`system_changed`,
+    // `tools_changed`, `messages_changed`, `model_changed`, ...), empty when it
+    // reported none. Without it "0 read" has no cause anywhere in amber.
+    std::string cache_miss_reason;
 };
 
 class Dialect {

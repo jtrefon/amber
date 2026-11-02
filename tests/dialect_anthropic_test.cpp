@@ -950,3 +950,75 @@ TEST(anthropic_breakpoint_lands_on_the_tool_results_not_the_merged_tail) {
     ASSERT(out[2]["content"][0].contains("cache_control"));
     ASSERT(!out[2]["content"][1].contains("cache_control"));
 }
+
+// Cache diagnostics replay the previous response id. The first turn must still
+// serialize `previous_message_id: null`: sending the object at all is the opt-in
+// that makes the provider store a fingerprint, and omitting it stores nothing.
+TEST(anthropic_diagnostics_opt_in_and_replay) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+    cfg.cache_diagnostics = true;
+    std::vector<agent::Message> msgs = {text_msg("system", "You are amber."),
+                                        text_msg("user", "hello")};
+
+    const agent::json first = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(first.contains("diagnostics"));
+    ASSERT(first["diagnostics"]["previous_message_id"].is_null());
+
+    cfg.previous_response_id = "msg_01abc";
+    const agent::json second = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT_EQ(second["diagnostics"]["previous_message_id"].get<std::string>(),
+              std::string("msg_01abc"));
+
+    cfg.cache_diagnostics = false;
+    const agent::json off = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(!off.contains("diagnostics"));
+}
+
+// The response id and the provider's miss reason are read off the same body the
+// usage split comes from, so a zero read can name the tier that changed.
+TEST(anthropic_usage_carries_the_response_id_and_miss_reason) {
+    auto d = anthropic();
+    const std::string raw = R"({
+      "id": "msg_01xyz",
+      "usage": {"input_tokens": 42, "cache_read_input_tokens": 0,
+                "cache_creation_input_tokens": 41850, "output_tokens": 210},
+      "diagnostics": {"cache_miss_reason": {"type": "system_changed",
+                                            "cache_missed_input_tokens": 41850}}
+    })";
+    const agent::TokenUsage usage = d->parse_usage(raw);
+    ASSERT_EQ(usage.response_id, std::string("msg_01xyz"));
+    ASSERT_EQ(usage.cache_miss_reason, std::string("system_changed"));
+    ASSERT_EQ(usage.prompt, 42L + 41850L);
+}
+
+// The shape Claude Code sends through a gateway: explicit breakpoints carrying
+// `scope: "global"`, the beta that legitimizes the field, and no top-level
+// automatic breakpoint (which cannot carry a scope). It is what keeps a cache
+// entry reusable when the proxy does not route every request to the same
+// upstream identity.
+TEST(anthropic_global_scope_matches_the_claude_code_shape) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+    cfg.cache_global_scope = true;
+
+    std::vector<agent::Message> msgs = {text_msg("system", "You are amber."),
+                                        text_msg("user", "hello")};
+    const agent::json body = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(body["system"][0]["cache_control"]["scope"] == "global");
+    ASSERT(body["messages"].back()["content"].back()["cache_control"]["scope"] == "global");
+    ASSERT(!body.contains("cache_control"));
+
+    const auto headers = d->auth_headers(cfg);
+    bool saw_beta = false;
+    for (const auto& h : headers)
+        saw_beta = saw_beta || h == "anthropic-beta: prompt-caching-scope-2026-01-05";
+    ASSERT(saw_beta);
+
+    cfg.cache_global_scope = false;
+    const agent::json plain = d->build_chat_body(cfg, msgs, {}, false);
+    ASSERT(!plain["system"][0]["cache_control"].contains("scope"));
+    ASSERT(plain.contains("cache_control"));
+}

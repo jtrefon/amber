@@ -123,8 +123,10 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
     debug_log(cfg_.debug_dump_path(), "response", response);
 
     Message out = dialect_->parse_completion(response);
+    const TokenUsage usage = dialect_->parse_usage(response);
+    cfg_.previous_response_id = usage.response_id;
     if (stats)
-        fill_buffered_stats(*stats, *dialect_, response, ttfb, total);
+        fill_buffered_stats(*stats, usage, ttfb, total);
     return out;
 }
 

@@ -579,6 +579,9 @@ void SlashDispatcher::cmd_get_provider() {
     tui_.append_line(P_STATUS,
                      tui::prompt_cache_note(tui_.cfg_.model, tui_.cfg_.prompt_cache_ttl, prefix,
                                             main.cache_read_tokens, main.cache_write_tokens));
+    if (!tui_.win().stats.cache_miss_reason.empty())
+        tui_.append_line(P_STATUS, "last cache miss: " + tui_.win().stats.cache_miss_reason +
+                                       " (the provider named the tier that changed)");
 }
 
 void SlashDispatcher::cmd_get_policy(const std::string& arg) {
