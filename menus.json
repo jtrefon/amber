@@ -25,6 +25,10 @@
     {
       "label": "View",
       "items": [
+        {"label": "Tabs", "children": [
+          {"label": "Next tab", "action": "ui.tab.next"},
+          {"label": "Previous tab", "action": "ui.tab.prev"}
+        ]},
         {"label": "Toggle reasoning", "action": "ui.view.reasoning"},
         {"label": "Toggle mouse", "action": "ui.mouse.toggle"},
         {"label": "Scroll mode", "action": "ui.scroll.toggle"},

@@ -5,6 +5,8 @@
 #include "test_util.h"
 
 #include <chrono>
+#include <cstdio>
+#include <fstream>
 #include <set>
 #include <string>
 #include <vector>
@@ -54,6 +56,36 @@ TEST(hints_reset_hides_the_current_text) {
     ASSERT_FALSE(rotator.update(5000ms, true).empty());
     rotator.reset();
     ASSERT_EQ(rotator.update(5000ms, true).empty(), false); // restart is eligible
+}
+
+TEST(hints_empty_and_filtered_lists_stay_quiet) {
+    HintRotator empty;
+    ASSERT(empty.empty());
+    ASSERT_EQ(empty.update(10000ms, true), std::string{});
+
+    HintRotator filtering({"", "real", ""}, 7);
+    ASSERT_FALSE(filtering.empty());
+    ASSERT_EQ(filtering.update(5000ms, true), std::string("real"));
+    filtering.set_hints({});
+    ASSERT(filtering.empty());
+    ASSERT_EQ(filtering.update(20000ms, true), std::string{});
+}
+
+TEST(hints_load_rejects_malformed_and_wrong_shapes) {
+    const std::string path = "/tmp/amber-hints-" + std::to_string(::getpid()) + ".json";
+    auto write = [&](const char* text) {
+        std::ofstream out(path);
+        out << text;
+    };
+    write("{");
+    ASSERT_EQ(tui::load_hints(path).size(), 0u);
+    write(R"({"hints":"no"})");
+    ASSERT_EQ(tui::load_hints(path).size(), 0u);
+    write(R"({"hints":[1,null,"ok",""]})");
+    const auto loaded = tui::load_hints(path);
+    ASSERT_EQ(loaded.size(), 1u);
+    ASSERT_EQ(loaded[0], std::string("ok"));
+    std::remove(path.c_str());
 }
 
 TEST(hints_load_the_shipped_file_and_have_a_fallback) {

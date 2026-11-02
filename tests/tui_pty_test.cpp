@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <cerrno>
 #include <cstdio>
@@ -34,6 +35,7 @@
 #include <iterator>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <utility>
@@ -1065,6 +1067,323 @@ TEST(top_rail_shows_amber_mark_capped_tabs_and_rule) {
         return;
     if (!require(tui.wait_for("\u2550", 10000), "the tab rule is missing", tui))
         return;
+}
+
+// Output since a mark, not the whole session: a label that was painted once
+// stays in the accumulated raw stream, so "the menu closed" needs a delta.
+bool wait_since(Tui& tui, size_t mark, const std::string& marker, int cap_ms) {
+    for (int waited = 0; waited < cap_ms; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        if (text_since(tui, mark).find(marker) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+// ncurses enables either SGR (1006) or the legacy X10 encoding; send the one
+// the app asked the terminal for, or the bytes would arrive as Alt+M + spaces.
+// The enable is often combined: "\x1b[?1006;1000h", not two separate modes.
+bool mouse_sgr(const Tui& tui) {
+    return tui.raw.find("\x1b[?1006") != std::string::npos;
+}
+
+bool mouse_enabled(const Tui& tui) {
+    return tui.raw.find("\x1b[?100") != std::string::npos;
+}
+
+void send_click(Tui& tui, bool sgr, int x, int y) {
+    // A real click is press + release. ncurses only arms the next press after
+    // the release, so a bare press opens the menu once and swallows every
+    // click that follows.
+    if (sgr) {
+        const std::string at = ";" + std::to_string(x + 1) + ";" + std::to_string(y + 1);
+        tui.send("\x1b[<0" + at + "M");
+        tui.send("\x1b[<0" + at + "m");
+        return;
+    }
+    tui.send(std::string("\x1b[M") + static_cast<char>(32) + static_cast<char>(32 + x) +
+             static_cast<char>(32 + y));
+    tui.send(std::string("\x1b[M") + static_cast<char>(32 + 3) + static_cast<char>(32 + x) +
+             static_cast<char>(32 + y));
+}
+
+// The fixture is shared by the whole suite, so earlier scenarios leave any
+// number of session tabs behind. Read the host's own window list instead of
+// scraping the status bar: ncurses repaints only changed cells, so "[s4/4]"
+// often reaches the pty as just "4/4".
+std::string window_list_line(Tui& tui) {
+    const size_t mark = tui.raw.size();
+    // Ctrl-G sends the line as typed; Enter with the completion drawer open
+    // would run the highlighted row instead of the command.
+    tui.send("/window list");
+    tui.pump(250);
+    tui.send("\x07");
+    // Give the command time to append its line. A redraw triggered by the
+    // previous action can repeat the OLD "windows:" line inside the delta;
+    // scanning too early would return that stale count.
+    tui.pump(400);
+    for (int waited = 0; waited < 8000; waited += kPumpMs) {
+        tui.pump(kPumpMs);
+        const std::string delta = text_since(tui, mark);
+        const size_t at = delta.rfind("windows:");
+        if (at != std::string::npos) {
+            const size_t end = delta.find('\n', at);
+            return delta.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        }
+    }
+    return {};
+}
+
+int window_count_in(const std::string& line) {
+    std::istringstream in(line);
+    std::string token;
+    int count = 0;
+    while (in >> token)
+        if (token.size() > 1 && std::isdigit(static_cast<unsigned char>(token[0])) &&
+            token.find(':') != std::string::npos)
+            ++count;
+    return count;
+}
+
+int active_window_in(const std::string& line) {
+    std::istringstream in(line);
+    std::string token;
+    while (in >> token)
+        if (token.find('*') != std::string::npos)
+            return std::atoi(token.c_str());
+    return 0;
+}
+
+TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
+    Tui tui;
+    tui.name = "shell_menu_navigates_runs_an_action_and_releases_the_prompt";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    size_t mark = tui.raw.size();
+    tui.send("\x1b[21~"); // F10
+    if (!require(wait_since(tui, mark, "File", 5000), "F10 did not paint the menu bar", tui))
+        return;
+    if (!require(wait_since(tui, mark, "Help", 5000), "the menu bar is incomplete", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send_arrow('B'); // Down: open the File dropdown
+    if (!require(wait_since(tui, mark, "New session", 5000), "the File dropdown did not open", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send_arrow('C'); // Right: move to the Session menu
+    if (!require(wait_since(tui, mark, "Next tab", 5000), "Right did not move to Session", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send_arrow('B'); // Previous tab
+    tui.send_arrow('B'); // skips the separator -> List tabs
+    tui.send("\r");
+    if (!require(wait_since(tui, mark, "windows:", 8000), "Enter did not run the menu action", tui))
+        return;
+
+    // A real submenu: View -> Tabs -> Previous tab, with one more tab open.
+    const int tabs = window_count_in(window_list_line(tui));
+    if (!require(tabs > 0, "the window list is empty", tui))
+        return;
+    tui.send("\x0e"); // Ctrl+N
+    const std::string added = window_list_line(tui);
+    if (!require(window_count_in(added) == tabs + 1, "Ctrl+N did not add a tab", tui))
+        return;
+    if (!require(active_window_in(added) == tabs + 1, "the new tab is not active", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send("\x1b[21~");
+    tui.send_arrow('C'); // Session
+    tui.send_arrow('C'); // View
+    tui.send_arrow('B'); // open View: Tabs is selected
+    tui.send("\r");      // open the Tabs submenu
+    if (!require(wait_since(tui, mark, "Previous tab", 5000), "the Tabs submenu did not paint",
+                 tui))
+        return;
+    tui.send_arrow('B'); // Next tab -> Previous tab
+    tui.send("\r");
+    if (!require(active_window_in(window_list_line(tui)) == tabs,
+                 "the submenu action did not switch tabs", tui))
+        return;
+
+    // The View actions are the same registry entries the slash surface uses.
+    mark = tui.raw.size();
+    tui.send("\x1b[21~");
+    tui.send_arrow('C');
+    tui.send_arrow('C');
+    tui.send_arrow('B'); // Tabs
+    tui.send_arrow('B'); // Toggle reasoning
+    tui.send("\r");
+    // Reasoning defaults to on, so the first toggle reports "hidden". Either
+    // message proves the View action ran; the direction is a config default.
+    if (!require(wait_since(tui, mark, "reasoning: ", 5000),
+                 "the View menu did not toggle reasoning", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send("\x1b[21~");
+    tui.send_arrow('C');
+    tui.send_arrow('C');
+    tui.send_arrow('B'); // Tabs
+    tui.send_arrow('B'); // Toggle reasoning
+    tui.send_arrow('B'); // Toggle mouse
+    tui.send("\r");
+    if (!require(wait_since(tui, mark, "mouse: off", 5000),
+                 "the View menu did not toggle the mouse", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send("\x1b[21~");
+    tui.send_arrow('C');
+    tui.send_arrow('C');
+    tui.send_arrow('B'); // Tabs
+    tui.send_arrow('B'); // Toggle reasoning
+    tui.send_arrow('B'); // Toggle mouse
+    tui.send_arrow('B'); // Scroll mode
+    tui.send("\r");
+    if (!require(wait_since(tui, mark, "scroll mode", 5000),
+                 "the View menu did not toggle scroll mode", tui))
+        return;
+
+    // Esc unwinds the dropdown and the bar; the prompt must take keys again.
+    mark = tui.raw.size();
+    tui.send("\x1b[21~");
+    if (!require(wait_since(tui, mark, "File", 5000), "the menu did not reopen", tui))
+        return;
+    tui.send_arrow('B');
+    tui.pump(200);
+    tui.send("\x1b");
+    tui.pump(250);
+    tui.send("\x1b");
+    tui.pump(250);
+    mark = tui.raw.size();
+    tui.send("menu-released");
+    if (!require(wait_since(tui, mark, "menu-released", 3000),
+                 "the prompt did not take input after Esc closed the menu", tui))
+        return;
+    tui.send("\x15"); // clear the line
+    tui.pump(200);
+
+    // A hint appears after the idle delay, and the menu hides it.
+    mark = tui.raw.size();
+    bool hinted = false;
+    for (int waited = 0; waited < 9000 && !hinted; waited += 100) {
+        tui.pump(100);
+        hinted = text_since(tui, mark).find("Hint:") != std::string::npos;
+    }
+    if (!require(hinted, "no idle hint appeared after the delay", tui))
+        return;
+
+    mark = tui.raw.size();
+    tui.send("hint-cleared-xyz");
+    if (!require(wait_since(tui, mark, "hint-cleared-xyz", 3000), "typing did not clear the hint",
+                 tui))
+        return;
+    tui.send("\x15");
+    tui.pump(200);
+
+    tui.send("\x1b[21~");
+    tui.pump(300);
+    mark = tui.raw.size();
+    tui.pump(6500);
+    if (!require(text_since(tui, mark).find("Hint:") == std::string::npos,
+                 "a hint painted while the menu was open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(200);
+    tui.send("\x1b");
+    tui.pump(200);
+    mark = tui.raw.size();
+    bool rearmed = false;
+    for (int waited = 0; waited < 9000 && !rearmed; waited += 100) {
+        tui.pump(100);
+        rearmed = text_since(tui, mark).find("Hint:") != std::string::npos;
+    }
+    require(rearmed, "the hint did not return after the menu closed", tui);
+}
+
+TEST(shell_amber_mark_click_opens_the_menu) {
+    Tui tui;
+    tui.name = "shell_amber_mark_click_opens_the_menu";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    const bool sgr = mouse_sgr(tui);
+    if (!require(mouse_enabled(tui), "the app never enabled mouse reporting", tui))
+        return;
+
+    size_t mark = tui.raw.size();
+    send_click(tui, sgr, 0, 0); // left press on the amber mark
+    if (!require(wait_since(tui, mark, "File", 5000),
+                 "clicking the amber mark did not open the menu", tui))
+        return;
+
+    // A click outside the menu closes it and gives the prompt its keys back.
+    mark = tui.raw.size();
+    send_click(tui, sgr, 39, 11);
+    tui.pump(300);
+    mark = tui.raw.size();
+    tui.send("mark-menu-closed");
+    require(wait_since(tui, mark, "mark-menu-closed", 3000),
+            "a click outside the menu did not close it", tui);
+}
+
+TEST(shell_tab_click_switches_and_the_close_cell_closes) {
+    Tui tui;
+    tui.name = "shell_tab_click_switches_and_the_close_cell_closes";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    const bool sgr = mouse_sgr(tui);
+    if (!require(mouse_enabled(tui), "the app never enabled mouse reporting", tui))
+        return;
+
+    // Earlier scenarios leave tabs behind. Peel them off from the right so the
+    // first tab (the seeded "pty-beta") survives and the widths below are the
+    // untruncated ones.
+    int count = window_count_in(window_list_line(tui));
+    if (!require(count > 0, "the window list is empty", tui))
+        return;
+    while (count > 1) {
+        tui.send("/window set " + std::to_string(count));
+        tui.pump(250);
+        tui.send("\x07");
+        tui.pump(300);
+        tui.send("/window close");
+        tui.pump(250);
+        tui.send("\x07");
+        tui.pump(500);
+        const int next = window_count_in(window_list_line(tui));
+        if (!require(next < count, "a leftover tab did not close", tui))
+            return;
+        count = next;
+    }
+
+    tui.send("\x0e"); // Ctrl+N: a second session tab
+    const std::string added = window_list_line(tui);
+    if (!require(window_count_in(added) == 2 && active_window_in(added) == 2,
+                 "Ctrl+N did not add a tab", tui))
+        return;
+
+    send_click(tui, sgr, 4, 0); // inside the first tab
+    if (!require(active_window_in(window_list_line(tui)) == 1,
+                 "clicking the first tab did not switch", tui))
+        return;
+
+    // Tab 1 is "▐ 1 pty-beta <marker> × ▌": 18 columns from x=3. Tab 2 ("chat")
+    // starts at 21 and is 14 wide, so its close cell is at 21 + 14 - 3 = 32.
+    send_click(tui, sgr, 22, 0);
+    if (!require(active_window_in(window_list_line(tui)) == 2,
+                 "clicking the second tab did not switch", tui))
+        return;
+    send_click(tui, sgr, 32, 0);
+    require(window_count_in(window_list_line(tui)) == 1,
+            "clicking the tab close cell did not close it", tui);
 }
 
 // ── Down moves the selection; it must not cancel the browser ──
@@ -2462,7 +2781,10 @@ TEST(worktree_manager_round_trip) {
     if (!require(tui.wait_for("nothing to prune", 8000), "prune should have nothing to do", tui))
         return;
     run("/worktree remove feature-x");
-    require(tui.wait_for("workspace removed", 10000), "remove did not delete the workspace", tui);
+    // `git worktree remove` runs its own `git status` over the whole checkout.
+    // On a cold macOS runner that scan takes well past ten seconds on this
+    // repository; the action is synchronous, so the marker arrives late.
+    require(tui.wait_for("workspace removed", 30000), "remove did not delete the workspace", tui);
     ASSERT(!fs::exists(prepared));
     ASSERT(agent::load_worktrees(child_state_dir(repo.workspace)).empty());
 }
@@ -3158,6 +3480,9 @@ int main(int argc, char** argv) {
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
     top_rail_shows_amber_mark_capped_tabs_and_rule();
+    shell_menu_navigates_runs_an_action_and_releases_the_prompt();
+    shell_amber_mark_click_opens_the_menu();
+    shell_tab_click_switches_and_the_close_cell_closes();
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();
