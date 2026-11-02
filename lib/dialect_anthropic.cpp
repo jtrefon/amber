@@ -719,7 +719,7 @@ public:
             headers.push_back("x-api-key: " + cfg.api_key);
         headers.push_back(std::string("anthropic-version: ") + kApiVersion);
         if (cfg.cache_global_scope)
-            headers.push_back("anthropic-beta: prompt-caching-scope-2026-01-05");
+            headers.emplace_back("anthropic-beta: prompt-caching-scope-2026-01-05");
         return headers;
     }
 
