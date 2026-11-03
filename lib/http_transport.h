@@ -60,6 +60,13 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
 // not a request problem).
 std::string describe_http_error(long http_code, const std::string& body);
 
+// The product token every outbound HTTP request identifies itself with:
+// `amber/<version> (<comment>)` per RFC 9110, with the project URL in the
+// comment so a WAF operator can recognise the origin instead of blocking an
+// unknown `curl/8.x`. `AMBER_USER_AGENT` overrides it for a provider that
+// insists on a specific string.
+std::string user_agent();
+
 // Fill `stats` from an already-parsed usage record and its transfer timings
 // (seconds). Mirrors the telemetry that stream_completion() produces for the
 // streamed path.

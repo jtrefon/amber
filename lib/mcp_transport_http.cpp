@@ -242,6 +242,7 @@ HeaderList build_headers(const std::string& session_id, const std::string& auth_
     HeaderList headers;
     headers.add("Content-Type: application/json");
     headers.add("Accept: application/json, text/event-stream");
+    headers.add("User-Agent: " + user_agent());
     headers.add("MCP-Protocol-Version: " + std::string(kProtocolVersion));
     if (!session_id.empty())
         headers.add("Mcp-Session-Id: " + session_id);

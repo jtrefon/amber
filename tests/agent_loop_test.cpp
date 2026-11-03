@@ -21,6 +21,8 @@
 #include "agent/agent_helpers.h"
 #include "agent/dialect.h"
 #include "agent/dialect_anthropic.h"
+#include "agent/dialect_gemini.h"
+#include "agent/dialect_openai.h"
 #include "agent/rate_governor.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
@@ -4659,4 +4661,99 @@ TEST(agent_prompt_names_a_detached_worktree) {
     std::string cleanup_err;
     ASSERT_TRUE(agent::remove_worktree_safe(repo, tree, cleanup_err));
     fs::remove_all(repo);
+}
+
+// The cacheable prefix is the same contract on every protocol, even though each
+// renders it differently: Anthropic hoists `system` into a block array, OpenAI
+// merges it into the first message, Gemini into `systemInstruction`. One session,
+// three renderings, and tier 1 must be byte-identical for all three.
+TEST(wire_stable_prefix_is_identical_for_every_dialect) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_read_tool());
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "one");
+    push_text(*fake, "two");
+    push_text(*fake, "three");
+
+    agent::PromptRegistry prompts;
+    prompts.add("plug", "tail", 400, [] { return std::string("PLUGIN TAIL"); });
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
+                    std::move(fake));
+    ag.set_prompt_registry(prompts);
+
+    for (const std::string& prompt : {"one", "two", "three"}) {
+        agent::SessionBrief brief;
+        brief.intent = "intent " + prompt;
+        ag.session_brief_store()->merge(brief);
+        ag.run(prompt);
+    }
+    ASSERT(raw->requests.size() >= 3u);
+
+    const auto tools = reg.snapshot_tools();
+    auto anthropic = agent::make_anthropic_dialect();
+    auto openai = agent::make_openai_dialect();
+    auto gemini = agent::make_gemini_dialect();
+    const auto a0 = anthropic->build_chat_body(cfg, raw->requests[0], tools, false);
+    const auto o0 = openai->build_chat_body(cfg, raw->requests[0], tools, false);
+    const auto g0 = gemini->build_chat_body(cfg, raw->requests[0], tools, false);
+    ASSERT(a0.contains("system"));
+    ASSERT(o0.contains("messages") && o0["messages"][0]["role"] == "system");
+    ASSERT(g0.contains("systemInstruction"));
+
+    for (std::size_t i = 1; i < raw->requests.size(); ++i) {
+        const auto a = anthropic->build_chat_body(cfg, raw->requests[i], tools, false);
+        const auto o = openai->build_chat_body(cfg, raw->requests[i], tools, false);
+        const auto g = gemini->build_chat_body(cfg, raw->requests[i], tools, false);
+        ASSERT_EQ(a["system"].dump(), a0["system"].dump());
+        ASSERT_EQ(a["tools"].dump(), a0["tools"].dump());
+        ASSERT_EQ(o["messages"][0].dump(), o0["messages"][0].dump());
+        ASSERT_EQ(o["tools"].dump(), o0["tools"].dump());
+        ASSERT_EQ(g["systemInstruction"].dump(), g0["systemInstruction"].dump());
+    }
+}
+
+// The two changes an operator makes mid-session must reset only their own tier.
+// A model switch touches `model` alone; adding a tool touches `tools` alone. If
+// either leaked into the system block, every cached token would be lost.
+TEST(wire_edge_cases_change_only_their_own_tier) {
+    auto dialect = agent::make_anthropic_dialect();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+    std::vector<agent::Message> msgs;
+    agent::Message sys;
+    sys.role = "system";
+    sys.content = "BASE PROMPT";
+    msgs.push_back(sys);
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    msgs.push_back(user);
+
+    agent::ToolRegistry one;
+    one.register_tool(agent::make_read_tool());
+    const auto one_tools = one.snapshot_tools();
+    const auto base = dialect->build_chat_body(cfg, msgs, one_tools, false);
+
+    agent::Config switched = cfg;
+    switched.model = "claude-opus-4-6";
+    const auto other_model = dialect->build_chat_body(switched, msgs, one_tools, false);
+    ASSERT_EQ(other_model["system"].dump(), base["system"].dump());
+    ASSERT_EQ(other_model["messages"].dump(), base["messages"].dump());
+    ASSERT(other_model["model"] != base["model"]);
+
+    agent::ToolRegistry two;
+    two.register_tool(agent::make_read_tool());
+    two.register_tool(agent::make_write_tool());
+    const auto two_tools = two.snapshot_tools();
+    const auto other_tools = dialect->build_chat_body(cfg, msgs, two_tools, false);
+    ASSERT_EQ(other_tools["system"].dump(), base["system"].dump());
+    ASSERT_EQ(other_tools["messages"].dump(), base["messages"].dump());
+    ASSERT(other_tools["tools"].dump() != base["tools"].dump());
 }
