@@ -12,6 +12,8 @@ const char* state_name(const McpServerStatus& st) {
         return "disabled";
     if (st.connected)
         return "connected";
+    if (st.connecting)
+        return "connecting";
     return "disconnected";
 }
 
@@ -33,6 +35,15 @@ std::vector<std::string> mcp_list_lines(const ServerManager& mgr) {
 std::vector<std::string> mcp_show_lines(const ServerManager& mgr, const std::string& server,
                                         std::string& error) {
     std::vector<std::string> lines;
+    for (const auto& st : mgr.snapshot()) {
+        if (st.name != server)
+            continue;
+        if (st.connecting && !st.connected) {
+            lines.push_back("server: " + server + " (connecting)");
+            return lines;
+        }
+        break;
+    }
     auto client = mgr.client(server);
     if (!client) {
         error = "server '" + server + "' not connected";

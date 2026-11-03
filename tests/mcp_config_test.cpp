@@ -143,34 +143,6 @@ TEST(mcp_config_save_delete_roundtrip) {
     ASSERT_EQ(agent::load_mcp_servers().count("saved"), 0u);
 }
 
-// connect_all respects enabled + auto_connect; a real stdio server connects.
-TEST(mcp_manager_connect_all) {
-    McpEnv env("conn");
-    // Use absolute command path since cwd is now confined to the workspace.
-    std::string echo = env.cwd + "/tests/fixtures/mcp_echo";
-    write_file(env.project_mcp + "/echo.conf", "type=stdio\ncommand=" + echo +
-                                                   "\n"
-                                                   "cwd=.\nauto_connect=1\n");
-    write_file(env.project_mcp + "/off.conf", "type=stdio\ncommand=" + echo +
-                                                  "\n"
-                                                  "cwd=.\nenabled=0\n");
-
-    agent::ServerManager mgr(agent::load_mcp_servers());
-    mgr.connect_all();
-    auto snap = mgr.snapshot();
-    ASSERT_EQ(snap.size(), 2u);
-    for (const auto& s : snap) {
-        if (s.name == "echo") {
-            ASSERT(s.connected);
-            ASSERT_EQ(s.error, "");
-        }
-        if (s.name == "off") {
-            ASSERT_FALSE(s.connected);
-        }
-    }
-    mgr.shutdown_all();
-}
-
 // Explicit connect works; connecting a disabled server is refused.
 TEST(mcp_manager_connect_disabled_refused) {
     McpEnv env("dis");

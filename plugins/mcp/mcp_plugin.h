@@ -5,6 +5,8 @@
 #include "agent/mcp_config.h"
 #include "agent/plugin_core.h"
 
+#include <future>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -62,6 +64,9 @@ private:
     // the port right after).
     void start(PluginServices& services, ToolPort& port);
     void stop();
+    // The activation worker: connects each enabled auto_connect server off the
+    // host thread and registers what it discovers through the port.
+    void run_auto_connect(const std::map<std::string, McpServerConfig>& servers);
 
     // The command surfaces. The /mcp verbs are one small handler each, so the
     // spec builder is wiring, not a hundred-line function.
@@ -86,6 +91,9 @@ private:
     // The plugin's own token, so stop() aborts an in-flight handshake without
     // touching the host's token (which cancels an agent run, not a server).
     CancellationToken cancel_;
+    // Joined by stop() before the port is cleared. A future rather than a
+    // detached thread: the plugin owns the worker's lifetime.
+    std::future<void> auto_connect_;
 };
 
 // The instance a host reaches through the runtime (PluginRuntime::find is the

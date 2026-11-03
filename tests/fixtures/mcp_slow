@@ -1,0 +1,5 @@
+#!/bin/sh
+# A stdio MCP server that takes two seconds to answer, so a test can prove
+# activation returned before the handshake finished.
+sleep 2
+exec "$(dirname "$0")/mcp_echo"

@@ -72,6 +72,27 @@ private:
     fs::path dir_;
 };
 
+class ScratchWorkspace {
+public:
+    explicit ScratchWorkspace(const std::string& tag)
+        : dir_(fs::temp_directory_path() / ("amber_ws_" + tag)),
+          previous_(Workspace::project_root()) {
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+        Workspace::set_root(dir_.string());
+    }
+    ~ScratchWorkspace() { Workspace::set_root(previous_); }
+    ScratchWorkspace(const ScratchWorkspace&) = delete;
+    ScratchWorkspace& operator=(const ScratchWorkspace&) = delete;
+
+    // Where the files a project would have live during the test.
+    const fs::path& root() const { return dir_; }
+
+private:
+    fs::path dir_;
+    std::string previous_;
+};
+
 // Point a plugin at the stdio MCP fixture server through the same config file
 // a user writes: <XDG_CONFIG_HOME>/amber/mcp/<name>.conf.
 void write_mcp_server_conf(const std::string& config_root, const std::string& name,
@@ -99,6 +120,19 @@ bool command_root_present(const CommandRegistry& commands, const std::string& ro
         if (entry.spec.name == root)
             return true;
     return false;
+}
+
+// Poll a predicate until it holds or the deadline expires. MCP activation is
+// asynchronous by design; a test that needs a connected server waits for it
+// instead of assuming the handshake finished inside start().
+template <typename Fn> bool wait_until(Fn fn, int timeout_ms = 5000) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (fn())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return fn();
 }
 
 // Declares one prompt block, so activation has something observable to install.
@@ -825,10 +859,11 @@ TEST(mcp_command_surface_is_documented_and_executable) {
 // switch — servers are not spawned, discovered tools are gone, and the surfaces
 // that describe them leave with them.
 TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
+    ScratchWorkspace root("mcp-plugin");
     ScratchConfig scratch("mcp-plugin");
     char buf[4096];
     const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
-    write_mcp_server_conf(scratch.root(), "echo", "tests/fixtures/mcp_echo", cwd);
+    write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.add_bundled();
@@ -838,7 +873,7 @@ TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
     // is in the registry (the fixture speaks the protocol on stdio).
     ASSERT_TRUE(runtime.has("mcp"));
     ASSERT_TRUE(runtime.status("mcp").enabled);
-    ASSERT_TRUE((bool)f.tools.find("mcp_echo_echo_tool"));
+    ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
 
     // Surfaces: the prompt block, the status segment and the command namespace.
     const std::string mcp_prompt = "# MCP (Model Context Protocol)";
@@ -865,6 +900,70 @@ TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
     ASSERT_FALSE(segment_owned_by(runtime.status(), "mcp"));
     ASSERT_FALSE(command_root_present(runtime.commands(), "mcp"));
     ASSERT_FALSE(command_root_present(runtime.commands(), "prompt"));
+}
+
+// Activation must not wait for a server handshake. The fixture sleeps two
+// seconds before it speaks the protocol; start() has to return with the server
+// still connecting, and the discovered tool must arrive later without a second
+// activation.
+TEST(mcp_activation_returns_before_a_slow_server_answers) {
+    ScratchWorkspace root("mcp-async-start");
+    ScratchConfig scratch("mcp-async-start");
+    char buf[4096];
+    const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    write_mcp_server_conf(scratch.root(), "slow", cwd + "/tests/fixtures/mcp_slow", ".");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    const auto started = std::chrono::steady_clock::now();
+    runtime.start(/*use_persisted_state=*/false);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    // A CI-safe bound on "did not perform the handshake inline": the server
+    // needs 2s, so 500ms still fails a synchronous implementation by 4x.
+    ASSERT(elapsed.count() < 500);
+    ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
+    ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_slow_echo_tool"); }));
+}
+
+// One unreachable server is a row on the status snapshot, not a failed
+// activation: the other server still connects and its tools still arrive.
+TEST(mcp_a_failed_server_does_not_block_a_good_one) {
+    ScratchWorkspace root("mcp-async-failure");
+    ScratchConfig scratch("mcp-async-failure");
+    char buf[4096];
+    const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    write_mcp_server_conf(scratch.root(), "bad", "no-such-mcp-binary", ".");
+    write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
+    ASSERT_TRUE(runtime.status("mcp").enabled);
+    ASSERT_TRUE(wait_until([&] {
+        for (const auto& s : runtime.status().render(StatusSnapshot{}))
+            if (s.id == "mcp")
+                return s.text.find("!bad") != std::string::npos;
+        return false;
+    }));
+}
+
+// Deactivation while a handshake is in flight joins the worker before the port
+// closes: no late tool, no write through a dangling pointer.
+TEST(mcp_stop_joins_an_inflight_connect) {
+    ScratchWorkspace root("mcp-async-stop");
+    ScratchConfig scratch("mcp-async-stop");
+    char buf[4096];
+    const std::string cwd = getcwd(buf, sizeof buf) ? buf : ".";
+    write_mcp_server_conf(scratch.root(), "slow", cwd + "/tests/fixtures/mcp_slow", ".");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
+    runtime.shutdown();
+    ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
 }
 
 // ---------------------------------------------------------------------------
@@ -901,27 +1000,6 @@ std::string run_verb(PluginRuntime& rt, const std::string& root, const std::stri
 // These tests toggle server state, and a toggle persists into the *project*
 // mcp dir — which, running from the checkout, is the checkout. Point the
 // workspace at a scratch dir for their lifetime.
-class ScratchWorkspace {
-public:
-    explicit ScratchWorkspace(const std::string& tag)
-        : dir_(fs::temp_directory_path() / ("amber_ws_" + tag)),
-          previous_(Workspace::project_root()) {
-        fs::remove_all(dir_);
-        fs::create_directories(dir_);
-        Workspace::set_root(dir_.string());
-    }
-    ~ScratchWorkspace() { Workspace::set_root(previous_); }
-    ScratchWorkspace(const ScratchWorkspace&) = delete;
-    ScratchWorkspace& operator=(const ScratchWorkspace&) = delete;
-
-    // Where the files a project would have live during the test.
-    const fs::path& root() const { return dir_; }
-
-private:
-    fs::path dir_;
-    std::string previous_;
-};
-
 // A runtime with one live fixture server configured, exactly as a user would.
 struct LiveMcp {
     explicit LiveMcp(const std::string& tag, UiServices* ui = nullptr) : ws(tag), scratch(tag) {
@@ -934,6 +1012,7 @@ struct LiveMcp {
             runtime.attach_ui_services(ui);
         runtime.add_bundled();
         runtime.start(/*use_persisted_state=*/false);
+        ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
     }
     ScratchWorkspace ws;
     ScratchConfig scratch;
@@ -2365,10 +2444,13 @@ TEST(mcp_plugin_status_segment_reports_failures) {
         runtime.add_bundled();
         runtime.start(false);
         std::string text = "<no mcp segment>";
-        for (const auto& s : runtime.status().render(StatusSnapshot{}))
-            if (s.id == "mcp")
-                text = s.text;
-        ASSERT_TRUE(text.find("!bad") != std::string::npos);
+        ASSERT_TRUE(wait_until([&] {
+            text = "<no mcp segment>";
+            for (const auto& s : runtime.status().render(StatusSnapshot{}))
+                if (s.id == "mcp")
+                    text = s.text;
+            return text.find("!bad") != std::string::npos;
+        }));
     }
     {
         ScratchWorkspace ws("mcp-segment-empty");
