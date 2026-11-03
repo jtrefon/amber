@@ -44,7 +44,13 @@ CURLcode fetch_models(const Config& cfg, std::string& body, CatalogFetchReport& 
     report.transport_ok = r.transport_ok;
     if (!r.transport_ok)
         return CURLE_HTTP_RETURNED_ERROR;
-    return r.http_code >= 200 && r.http_code < 300 ? CURLE_OK : CURLE_HTTP_RETURNED_ERROR;
+    if (r.http_code >= 200 && r.http_code < 300)
+        return CURLE_OK;
+    // The protocol decides whether this failure was the credential: a 400 with
+    // API_KEY_INVALID is a refused key on Gemini, while the same 400 elsewhere
+    // is a malformed request.
+    report.auth_rejected = make_dialect(cfg.flavor)->is_auth_error(r.http_code, r.body);
+    return CURLE_HTTP_RETURNED_ERROR;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,10 +105,11 @@ std::map<std::string, std::shared_ptr<FetchSlot>>& slots() {
 
 } // namespace
 
-// One GET {api_base}/models. Returns CURLE_OK on HTTP 2xx when want_body is set
-// and the body is collected; when it is false the body is discarded and the HTTP
-// status is reported either way, so a 401 is visible rather than collapsed into a
-// transport failure.
+// One GET {api_base}/models. `want_body` buffers the response body; either way
+// the HTTP status and transport_ok are reported, so a 4xx/5xx arrives as a
+// response rather than being collapsed into a transport failure. A non-2xx is
+// not an error here: the catalogue caller judges the status, and the auth
+// classifier needs the error body (Gemini's API_KEY_INVALID is a 400).
 ModelsGetResult models_get(const Config& cfg, bool want_body) {
     ModelsGetResult out;
     auto dialect = make_dialect(cfg.flavor);
@@ -127,10 +134,9 @@ ModelsGetResult models_get(const Config& cfg, bool want_body) {
     curl_easy_setopt(c, CURLOPT_TIMEOUT, 10L);
     curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
     curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
-    // Only when the body matters: an error page is not a usable catalogue, so it
-    // must fail. A status probe needs the opposite -- a 401 has to arrive as a
-    // response to classify, not as an error that hides the code.
-    curl_easy_setopt(c, CURLOPT_FAILONERROR, want_body ? 1L : 0L);
+    // No FAILONERROR: a 4xx/5xx must arrive as a response with a body and a
+    // status. The catalogue caller treats a non-2xx as a failure itself, and an
+    // auth classifier needs the error body (Gemini's API_KEY_INVALID is a 400).
 
     const CURLcode rc = curl_easy_perform(c);
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &out.http_code);
@@ -155,7 +161,7 @@ std::string CatalogFetchReport::failure_reason() const {
     if (http_code <= 0)
         return why + "no answer (check the server is running and the URL is right)";
     why += "HTTP " + std::to_string(http_code);
-    if (http_code == 401 || http_code == 403)
+    if (auth_rejected || http_code == 401 || http_code == 403)
         why += " (the endpoint rejected the key)";
     else if (http_code == 404)
         why += " (no model list at this URL - check the provider's server URL)";

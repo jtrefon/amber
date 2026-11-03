@@ -66,7 +66,12 @@ struct FieldSpec {
 // Native libform modal. Editable fields plus [ OK ]/[ Cancel ] buttons, with
 // Tab/arrow navigation and inline editing. Returns true on OK (writing edited
 // values back into `fields`), false on Cancel/Esc.
-bool form_edit(const std::string& title, std::vector<FieldSpec>& fields);
+//
+// `notice` is drawn just above the buttons. A caller that verifies the values
+// (the provider form checks the credential) reopens the same form with the
+// reason instead of closing on a value that cannot work.
+bool form_edit(const std::string& title, std::vector<FieldSpec>& fields,
+               const std::string& notice = {});
 
 // Scrollable read-only text popup (libmenu-backed). Enter/Esc/q closes.
 void info_dialog(const std::string& title, const std::vector<std::string>& rows);

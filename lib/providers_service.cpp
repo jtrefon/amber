@@ -177,6 +177,15 @@ bool ProviderService::validate(const std::string& name) {
 }
 
 void apply_selection(Config& cfg, const ProviderSelection& sel) {
+    // A credential belongs to the provider that owns it. Switching away clears
+    // the previous provider's key before the new definition's own key is
+    // applied; keeping it is how one provider's token reached the global config
+    // under another provider's name (land_provider_switch). Re-selecting the
+    // active provider keeps the live key, which may exist only in the global
+    // config (its file carries none).
+    const bool same_provider = cfg.provider_name == sel.provider.name;
+    if (!same_provider)
+        cfg.api_key.clear();
     cfg.provider_name = sel.provider.name;
     if (!sel.provider.api_base.empty()) {
         cfg.api_base = sel.provider.api_base;
@@ -185,8 +194,6 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
         // (load_workspace_defaults).
         cfg.api_base_from_provider = true;
     }
-    // A key from the provider file travels with the switch; a provider
-    // without its own key keeps whatever the user configured (env/global).
     if (!sel.provider.api_key.empty())
         cfg.api_key = sel.provider.api_key;
     // Auto-load the last-used model for this provider.
@@ -209,6 +216,35 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     // contributed by a plugin needs nothing from a table in the core. Derived
     // on every selection, never persisted.
     cfg.flavor = sel.provider.flavor;
+}
+
+Config provider_edit_seed(const Config& active, const Provider& editing) {
+    Config seed;
+    seed.provider_name = editing.name;
+    seed.api_base = editing.api_base;
+    // The edited definition's own credential, never the active provider's: a
+    // form for gemini must not open pre-filled with the kilocode token.
+    seed.api_key = editing.api_key;
+    seed.model = editing.default_model;
+    seed.flavor = editing.flavor;
+    seed.context_size = editing.default_context_size;
+    seed.context_explicit = editing.default_context_size > 0;
+    if (editing.name == active.provider_name) {
+        // The live connection is the truth for the provider in use: its key may
+        // live in the global config, and its endpoint/model may have moved since
+        // the file was written.
+        seed.api_base = active.api_base;
+        seed.api_key = active.api_key;
+        seed.model = active.model;
+        seed.model_explicit = active.model_explicit;
+        seed.context_size = active.context_size;
+        seed.context_explicit = active.context_explicit;
+    } else if (seed.api_base.empty()) {
+        // A definition with no endpoint of its own (custom) is a name for the
+        // gateway already configured; the convenience is the endpoint only.
+        seed.api_base = active.api_base;
+    }
+    return seed;
 }
 
 Provider provider_from_edit(const Provider& existing, const Config& cfg, bool builtin) {

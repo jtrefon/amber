@@ -89,6 +89,13 @@ public:
     // window the server enforced (0 when unknown).
     virtual bool is_retryable(long http_code, const std::string& body) const = 0;
     virtual int context_overflow_hint(const std::string& error_body) const = 0;
+
+    // Did the endpoint refuse the CREDENTIAL, as opposed to the path, the rate
+    // limit, or its own health? The base rule is the HTTP auth statuses; a
+    // protocol that reports a bad key with another status overrides this (Gemini
+    // answers 400 API_KEY_INVALID), so the UI can say "rejected" instead of
+    // "no answer". The body is the response body when the caller buffered it.
+    virtual bool is_auth_error(long http_code, const std::string& body) const;
 };
 
 // Resolve a dialect by flavor. Unknown flavors fall back to "openai" (user

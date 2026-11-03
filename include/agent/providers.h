@@ -11,14 +11,14 @@
 // names. Wiring of adapters happens at the boundary
 // (make_default_provider_service).
 
+#include "agent/config.h"
+
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace agent {
-
-struct Config;
 
 // ---------------------------------------------------------------------------
 // Domain entity — a provider definition. Pure data; owned by repositories.
@@ -121,6 +121,18 @@ private:
 // Apply a selection to a transport Config: provider name, endpoint, key
 // (non-empty fields only) and the provider's last-used model.
 void apply_selection(Config& cfg, const ProviderSelection& sel);
+
+// The connection an edit form starts from: the provider's OWN definition, with
+// the active connection overlaid when the provider being edited is the active
+// one (its key may live in the global config rather than in its file).
+//
+// A credential never crosses providers. A brand-new provider's form starts with
+// an empty key even while another provider is active -- the bug this exists to
+// prevent: /set provider gemini arrived pre-filled with the active provider's
+// token, and OK saved it into gemini.conf. The endpoint may be inherited when
+// the definition has none (custom is the same gateway under another name); a
+// key never is.
+Config provider_edit_seed(const Config& active, const Provider& editing);
 
 // The Provider a save persists, from the definition the user was editing and
 // the connection the edit form produced.

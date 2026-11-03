@@ -285,3 +285,82 @@ TEST(provider_repro_a_file_without_a_preset_defaults_to_openai) {
     ASSERT(found.has_value());
     ASSERT_EQ(found->flavor, std::string("openai"));
 }
+
+// ── a credential never crosses providers ──
+//
+// /set provider gemini opened its form pre-filled with the ACTIVE provider's
+// key (a kilocode JWT), and OK saved it into gemini.conf. The seed policy is
+// the seam: a form starts from the definition it edits, never from another
+// provider's credential.
+
+TEST(provider_edit_seed_never_carries_another_providers_key) {
+    agent::Config active;
+    active.provider_name = "kilocode";
+    active.api_base = "https://api.kilo.ai/api/gateway";
+    active.api_key = "sk-active-secret";
+    active.model = "kilo-model";
+
+    agent::Provider gemini;
+    gemini.name = "gemini";
+    gemini.api_base = "https://generativelanguage.googleapis.com";
+    gemini.requires_key = true;
+    gemini.default_model = "gemini-2.5-pro";
+    gemini.flavor = "gemini";
+
+    const agent::Config seed = agent::provider_edit_seed(active, gemini);
+    ASSERT(seed.api_key.empty());
+    ASSERT_EQ(seed.provider_name, std::string("gemini"));
+    ASSERT_EQ(seed.api_base, std::string("https://generativelanguage.googleapis.com"));
+    ASSERT_EQ(seed.model, std::string("gemini-2.5-pro"));
+    ASSERT_EQ(seed.flavor, std::string("gemini"));
+}
+
+TEST(provider_edit_seed_shows_a_providers_own_saved_key) {
+    agent::Config active;
+    active.provider_name = "kilocode";
+    active.api_key = "sk-active-secret";
+
+    agent::Provider openrouter;
+    openrouter.name = "openrouter";
+    openrouter.api_base = "https://openrouter.ai/api/v1";
+    openrouter.api_key = "sk-or-own";
+    openrouter.flavor = "openai";
+
+    const agent::Config seed = agent::provider_edit_seed(active, openrouter);
+    ASSERT_EQ(seed.api_key, std::string("sk-or-own"));
+}
+
+TEST(provider_edit_seed_uses_the_live_connection_for_the_active_provider) {
+    agent::Config active;
+    active.provider_name = "kilocode";
+    active.api_base = "https://api.kilo.ai/api/gateway";
+    active.api_key = "sk-active-secret";
+    active.model = "kilo-model";
+    active.model_explicit = true;
+
+    agent::Provider kilocode;
+    kilocode.name = "kilocode";
+    kilocode.api_base = "https://stale.example/v1"; // the file may lag the session
+    kilocode.flavor = "openai";
+
+    const agent::Config seed = agent::provider_edit_seed(active, kilocode);
+    ASSERT_EQ(seed.api_key, std::string("sk-active-secret"));
+    ASSERT_EQ(seed.api_base, std::string("https://api.kilo.ai/api/gateway"));
+    ASSERT_EQ(seed.model, std::string("kilo-model"));
+    ASSERT(seed.model_explicit);
+}
+
+TEST(provider_edit_seed_inherits_the_active_endpoint_only_when_the_definition_has_none) {
+    agent::Config active;
+    active.provider_name = "kilocode";
+    active.api_base = "https://api.kilo.ai/api/gateway";
+    active.api_key = "sk-active-secret";
+
+    agent::Provider custom;
+    custom.name = "custom";
+    custom.flavor = "openai";
+
+    const agent::Config seed = agent::provider_edit_seed(active, custom);
+    ASSERT_EQ(seed.api_base, std::string("https://api.kilo.ai/api/gateway"));
+    ASSERT(seed.api_key.empty()); // the endpoint is a convenience, the key is not
+}

@@ -1,3 +1,4 @@
+#include "agent/dialect_gemini.h"
 #include "agent/provider_health.h"
 #include "tests/test_util.h"
 
@@ -58,10 +59,10 @@ TEST(auth_state_from_http_keeps_a_transport_failure_unknown) {
 namespace {
 
 agent::ProbeResult answering(long code) {
-    return agent::ProbeResult{code, true};
+    return agent::ProbeResult{code, true, {}};
 }
 
-const agent::ProbeResult kNoResponse{0, false};
+const agent::ProbeResult kNoResponse{0, false, {}};
 
 } // namespace
 
@@ -141,4 +142,72 @@ TEST(provider_mark_for_an_unconfigured_provider_is_blank) {
     // nothing is claimed -- whatever a previous probe may have said.
     ASSERT(agent::provider_mark(agent::AuthState::Unknown, false) == ' ');
     ASSERT(agent::provider_mark(agent::AuthState::Valid, false) == ' ');
+}
+
+// The protocol's own auth rule. Gemini answers a bad key with HTTP 400
+// API_KEY_INVALID, not 401: a classifier that only knew the HTTP auth statuses
+// reported a key the server had refused as "no answer", which is the row the
+// user saw with an exclamation mark and no explanation.
+
+namespace {
+
+const char* kGoogleInvalidKey =
+    R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
+    R"("status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",)"
+    R"("reason":"API_KEY_INVALID","domain":"googleapis.com"}]}})";
+
+} // namespace
+
+TEST(auth_state_from_probe_uses_the_protocols_auth_rule) {
+    auto gemini = agent::make_gemini_dialect();
+    const agent::ProbeResult rejected{400, true, kGoogleInvalidKey};
+    ASSERT(agent::auth_state_from_probe(rejected, *gemini) == agent::AuthState::Rejected);
+
+    // A 400 that is NOT about the key stays unknown: a malformed request is not
+    // evidence the credential is bad.
+    const agent::ProbeResult other_400{400, true, R"({"error":{"status":"INVALID_ARGUMENT"}})"};
+    ASSERT(agent::auth_state_from_probe(other_400, *gemini) == agent::AuthState::Unknown);
+
+    // No response arrived, so no server said anything about the key.
+    const agent::ProbeResult no_answer{400, false, kGoogleInvalidKey};
+    ASSERT(agent::auth_state_from_probe(no_answer, *gemini) == agent::AuthState::Unknown);
+}
+
+TEST(classify_connection_calls_a_gemini_400_a_rejected_key) {
+    auto gemini = agent::make_gemini_dialect();
+    agent::ModelsGetResult r;
+    r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+    r.http_code = 400;
+    r.transport_ok = true;
+    r.body = kGoogleInvalidKey;
+
+    const agent::ConnectionCheck c = agent::classify_connection(r, *gemini);
+    ASSERT(c.auth_rejected);
+    ASSERT(c.reason.find("rejected the key") != std::string::npos);
+    ASSERT(c.reason.find("400") != std::string::npos);
+}
+
+TEST(classify_connection_accepts_a_2xx) {
+    auto gemini = agent::make_gemini_dialect();
+    agent::ModelsGetResult r;
+    r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+    r.http_code = 200;
+    r.transport_ok = true;
+    r.body = R"({"models":[{"name":"models/gemini-2.5-pro"}]})";
+
+    const agent::ConnectionCheck c = agent::classify_connection(r, *gemini);
+    ASSERT_FALSE(c.auth_rejected);
+    ASSERT(c.reason.empty());
+}
+
+TEST(classify_connection_does_not_call_an_unreachable_endpoint_rejected) {
+    auto gemini = agent::make_gemini_dialect();
+    agent::ModelsGetResult r;
+    r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+    r.http_code = 0;
+    r.transport_ok = false;
+
+    const agent::ConnectionCheck c = agent::classify_connection(r, *gemini);
+    ASSERT_FALSE(c.auth_rejected);
+    ASSERT(c.reason.find("no answer") != std::string::npos);
 }
