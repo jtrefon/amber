@@ -59,6 +59,10 @@ public:
     // diagnostics are enabled and the prefix diverged.
     void set_cache_miss_reason(const std::string& reason);
 
+    // Answer the next request whose body contains `needle` with a 400 carrying
+    // `message`, once. Models a provider that refuses a cache field.
+    void reject_once(const std::string& needle, const std::string& message);
+
     std::vector<MockRequest> requests();
     MockUsage last_usage();
 
@@ -85,6 +89,8 @@ private:
     std::map<std::string, CacheEntry> cache_;
     long min_tokens_ = 1024;
     std::string miss_reason_;
+    std::string reject_needle_;
+    std::string reject_message_;
 };
 
 } // namespace agent::test

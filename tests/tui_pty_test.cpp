@@ -1070,18 +1070,19 @@ private:
 // and the rule that opens under the active tab. The clock's HH:MM format is
 // pinned by the pure top_bar test, where local time is controllable. ──
 
-TEST(top_rail_shows_amber_mark_capped_tabs_and_rule) {
+TEST(top_rail_is_one_row_with_the_amber_mark_and_tabs) {
     Tui tui;
-    tui.name = "top_rail_shows_amber_mark_capped_tabs_and_rule";
+    tui.name = "top_rail_is_one_row_with_the_amber_mark_and_tabs";
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
     if (!require(tui.wait_for("\u25c6", 10000), "the amber mark is missing", tui))
         return;
-    if (!require(tui.wait_for("\u2590", 10000), "the tab caps are missing", tui))
+    if (!require(tui.wait_for("pty-beta", 10000), "the session tab is missing", tui))
         return;
-    if (!require(tui.wait_for("\u2550", 10000), "the tab rule is missing", tui))
-        return;
+    const std::string screen = tui.text();
+    require(screen.find("\u2590") == std::string::npos, "the tab caps are back", tui);
+    require(screen.find("\u2550") == std::string::npos, "the second rail row is back", tui);
 }
 
 // Output since a mark, not the whole session: a label that was painted once
@@ -1226,7 +1227,7 @@ TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
     if (!require(tabs > 0, "the window list is empty", tui))
         return;
     mark = tui.raw.size();
-    const std::string new_tab = "\u2590 " + std::to_string(tabs + 1) + " chat";
+    const std::string new_tab = " " + std::to_string(tabs + 1) + " chat   \u00d7";
     tui.send("\x0e"); // Ctrl+N
     if (!require(wait_since(tui, mark, new_tab, 8000), "Ctrl+N did not add a tab", tui))
         return;
@@ -1400,19 +1401,20 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
 
     const size_t mark = tui.raw.size();
     tui.send("\x0e"); // Ctrl+N: a second session tab
-    if (!require(wait_since(tui, mark, "\u2590 2 chat", 8000), "Ctrl+N did not add a tab", tui))
+    if (!require(wait_since(tui, mark, " 2 chat   \u00d7", 8000), "Ctrl+N did not add a tab", tui))
         return;
 
     send_click(tui, sgr, 4, 0); // inside the first tab
     if (!require(wait_for_window_list(tui, 1, 2), "clicking the first tab did not switch", tui))
         return;
 
-    // Tab 1 is "▐ 1 pty-beta <marker> × ▌": 18 columns from x=3. Tab 2 ("chat")
-    // starts at 21 and is 14 wide, so its close cell is at 21 + 14 - 3 = 32.
+    // The rail is one row with no caps: margin, mark, two spaces, then
+    // " 1 pty-beta   ×" (15 columns from x=4). Tab 2 ("chat") starts at 19 and is
+    // 11 wide, so its close cell is at 19 + 11 - 1 = 29.
     send_click(tui, sgr, 22, 0);
     if (!require(wait_for_window_list(tui, 2, 2), "clicking the second tab did not switch", tui))
         return;
-    send_click(tui, sgr, 32, 0);
+    send_click(tui, sgr, 29, 0);
     require(wait_for_window_list(tui, 0, 1), "clicking the tab close cell did not close it", tui);
 }
 
@@ -3596,7 +3598,7 @@ int main(int argc, char** argv) {
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
-    top_rail_shows_amber_mark_capped_tabs_and_rule();
+    top_rail_is_one_row_with_the_amber_mark_and_tabs();
     shell_menu_navigates_runs_an_action_and_releases_the_prompt();
     shell_amber_mark_click_opens_the_menu();
     shell_tab_click_switches_and_the_close_cell_closes();

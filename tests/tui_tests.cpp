@@ -2430,9 +2430,9 @@ using BarSeg = tui::status_bar_layout::Segment;
 
 TEST(status_bar_layout_splits_by_alignment) {
     std::vector<BarSeg> segs = {
-        {"left1", 0, 0, agent::StatusAlign::Left},
-        {"right1", 0, 0, agent::StatusAlign::Right},
-        {"left2", 0, 0, agent::StatusAlign::Left},
+        {"left1", 0, 0, agent::StatusAlign::Left, {}},
+        {"right1", 0, 0, agent::StatusAlign::Right, {}},
+        {"left2", 0, 0, agent::StatusAlign::Left, {}},
     };
     auto p = tui::status_bar_layout::plan(segs, 80);
     ASSERT_EQ(p.left.size(), 2u);
@@ -2443,14 +2443,14 @@ TEST(status_bar_layout_splits_by_alignment) {
 }
 
 TEST(status_bar_layout_budget_reserves_the_right_zone) {
-    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right}};
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right, {}}};
     auto p = tui::status_bar_layout::plan(segs, 80);
     ASSERT_EQ(p.right_cols, 3);
     ASSERT_EQ(p.budget, 80 - (3 + 1)); // right zone + the separating column
 }
 
 TEST(status_bar_layout_budget_is_the_whole_bar_without_a_right_zone) {
-    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left}};
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left, {}}};
     auto p = tui::status_bar_layout::plan(segs, 40);
     ASSERT_EQ(p.right_cols, 0);
     ASSERT_EQ(p.budget, 40);
@@ -2460,7 +2460,7 @@ TEST(status_bar_layout_budget_never_goes_negative) {
     // A right zone wider than the terminal leaves the left zone nothing to
     // paint, rather than a negative budget the painters would have to defend
     // against.
-    std::vector<BarSeg> segs = {{"0123456789", 0, 0, agent::StatusAlign::Right}};
+    std::vector<BarSeg> segs = {{"0123456789", 0, 0, agent::StatusAlign::Right, {}}};
     auto p = tui::status_bar_layout::plan(segs, 5);
     ASSERT_EQ(p.budget, 0);
 }
@@ -2482,8 +2482,8 @@ TEST(status_bar_layout_drops_highest_priority_first) {
     // Two 10-column left segments (21 columns with the separator) in a budget
     // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
     std::vector<BarSeg> segs = {
-        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left},
-        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left},
+        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left, {}},
+        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left, {}},
     };
     auto p = tui::status_bar_layout::plan(segs, 20);
     ASSERT_EQ(p.left.size(), 1u);
@@ -2492,7 +2492,7 @@ TEST(status_bar_layout_drops_highest_priority_first) {
 
 TEST(status_bar_layout_keeps_undroppable_segment) {
     // A segment with drop 0 is never removed, even when it overflows the budget.
-    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left}};
+    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left, {}}};
     auto p = tui::status_bar_layout::plan(segs, 20);
     ASSERT_EQ(p.left.size(), 1u);
     ASSERT_EQ(p.left[0].text, "aaaaaaaaaa");

@@ -257,3 +257,34 @@ TEST(anthropic_stream_reports_the_miss_reason_and_replays_the_id) {
     ASSERT_EQ(body["diagnostics"]["previous_message_id"].get<std::string>(),
               std::string("msg_mock"));
 }
+
+// A provider that rejects `cache_control.scope` must not take the session down.
+// A real gateway answered 400 with
+// "messages.256.content.0.tool_result.cache_control.ephemeral.scope: extra
+// inputs are not permitted"; the client retries once without the field, keeps
+// the breakpoints, remembers for the session, and leaves a notice.
+TEST(anthropic_client_degrades_when_scope_is_rejected) {
+    agent::test::MockAnthropic mock;
+    ASSERT(mock.start());
+    mock.reject_once("\"scope\":\"global\"",
+                     "messages.0.content.0.tool_result.cache_control.ephemeral.scope: extra "
+                     "inputs are not permitted");
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_global_scope = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> msgs{text_msg("system", stable_prompt()),
+                                     text_msg("user", "first")};
+    agent::Stats stats;
+    client.chat(msgs, {}, &stats);
+    ASSERT(stats.valid);
+
+    const auto requests = mock.requests();
+    ASSERT(requests.size() >= 2u);
+    ASSERT(requests[0].body.find("\"scope\":\"global\"") != std::string::npos);
+    ASSERT(requests[1].body.find("\"scope\":\"global\"") == std::string::npos);
+    // The breakpoints survive: only the scope field is dropped.
+    ASSERT(requests[1].body.find("cache_control") != std::string::npos);
+    const auto notices = client.take_notices();
+    ASSERT(!notices.empty());
+}

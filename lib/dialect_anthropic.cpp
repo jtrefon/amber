@@ -285,18 +285,24 @@ bool prompt_caching(const Config& cfg) {
 
 // A block-level breakpoint. `scope: "global"` is the Claude Code shape: it lets
 // the provider reuse the entry across request identities, which is what a
-// gateway that does not pin requests to one upstream identity needs.
-json block_cache_control(const Config& cfg) {
+// gateway that does not pin requests to one upstream identity needs. The scope
+// field is only valid on the stable prefix (the system block and tool
+// definitions): the API rejects it on a message block, and a `tool_result`
+// carrying it fails the whole request with
+// "messages.N.content.0.tool_result.cache_control.ephemeral.scope: extra inputs
+// are not permitted". The moving conversation breakpoint therefore never carries
+// it -- exactly as Claude Code places it.
+json block_cache_control(const Config& cfg, bool stable) {
     json control = {{"type", "ephemeral"}};
     if (cfg.prompt_cache_ttl == "1h")
         control["ttl"] = "1h";
-    if (cfg.cache_global_scope)
+    if (stable && cfg.cache_global_scope)
         control["scope"] = "global";
     return control;
 }
 
-void mark_cacheable(json& block, const Config& cfg) {
-    block["cache_control"] = block_cache_control(cfg);
+void mark_cacheable(json& block, const Config& cfg, bool stable) {
+    block["cache_control"] = block_cache_control(cfg, stable);
 }
 
 // The moving breakpoint: everything up to and including the newest real turn
@@ -321,7 +327,9 @@ void mark_last_turn_cacheable(json& messages, const Config& cfg, const TurnMark&
     const std::string type = str_field(block, "type");
     if (type != "text" && type != "tool_result")
         return;
-    mark_cacheable(block, cfg);
+    // The moving breakpoint never carries `scope`: on a tool_result the API
+    // rejects it outright.
+    mark_cacheable(block, cfg, /*stable=*/false);
 }
 
 // The top-level system field when caching is on: one block per system message,
@@ -335,7 +343,7 @@ json cached_system_blocks(const std::vector<Message>& messages, const Config& cf
             continue;
         json block = text_block(m.content);
         if (!marked) {
-            mark_cacheable(block, cfg);
+            mark_cacheable(block, cfg, /*stable=*/true);
             marked = true;
         }
         blocks.push_back(std::move(block));

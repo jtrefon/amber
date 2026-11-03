@@ -63,6 +63,9 @@ struct Layout {
 };
 
 inline constexpr int kAppMarkWidth = 1;
+// The mark is inset from the left edge: flush against it the glyph reads as a
+// rendering glitch rather than as a logo.
+inline constexpr int kAppLeftMargin = 1;
 inline constexpr int kAppGap = 2;
 inline constexpr int kTabMinTitle = 5;
 inline constexpr int kTabMaxTitle = 18;
@@ -78,14 +81,13 @@ int tab_width(int title_cols, int index);
 // OSX-style clock: HH:MM, local time, no seconds.
 std::string clock_text(std::time_t now);
 
-// The health pulse: one-second beat, lit on the even second.
+// The health pulse: one-second beat, lit on the even second. It has no glyph of
+// its own -- the clock's colon is what blinks, so the beat costs no columns and
+// means "something is running" instead of decorating the rail.
 bool pulse_on(std::time_t now) noexcept;
-std::string pulse_glyph(bool on, bool utf8 = true);
+std::string pulse_clock(std::string text, bool colon);
 
 std::string app_mark(bool utf8 = true);
-std::string tab_open(bool utf8 = true);
-std::string tab_close(bool utf8 = true);
-std::string tab_rule(bool utf8 = true);
 std::string tab_overflow(int hidden, bool utf8 = true);
 std::string attention_glyph(bool running, Attention attention, bool utf8 = true);
 

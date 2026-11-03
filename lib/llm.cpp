@@ -96,6 +96,32 @@ void HttpLLMClient::add_notice(std::string text) {
     notices_.push_back(std::move(text));
 }
 
+bool HttpLLMClient::degrade_cache_for(const ApiError& error) {
+    if (error.status != 400)
+        return false;
+    const std::string text = error.what();
+    // Narrowest first: a request naming `scope` may also name cache_control, and
+    // dropping the whole cache to fix the scope field would be a regression.
+    if (cfg_.cache_global_scope && text.find("scope") != std::string::npos) {
+        cfg_.cache_global_scope = false;
+        add_notice(
+            "the provider rejected cache_control.scope; continuing without cross-identity caching");
+        return true;
+    }
+    if (cfg_.cache_diagnostics && text.find("diagnostics") != std::string::npos) {
+        cfg_.cache_diagnostics = false;
+        add_notice("the provider rejected cache diagnostics; continuing without them");
+        return true;
+    }
+    if (cfg_.prompt_cache_ttl != "off" && text.find("cache_control") != std::string::npos) {
+        cfg_.prompt_cache_ttl = "off";
+        add_notice(
+            "the provider rejected the cache breakpoints; continuing without prompt caching");
+        return true;
+    }
+    return false;
+}
+
 std::vector<std::string> HttpLLMClient::take_notices() {
     std::scoped_lock lk(notices_mtx_);
     return std::exchange(notices_, {});
@@ -107,27 +133,36 @@ ServerInfo HttpLLMClient::probe_server() const {
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
                             const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
-    json body =
-        dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages, tools, false);
-    // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
-    // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
-    std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
-    debug_log(cfg_.debug_dump_path(), "request", payload);
+    for (int attempt = 0;; ++attempt) {
+        json body = dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages,
+                                              tools, false);
+        // Tool/model text can contain invalid UTF-8 (e.g. binary from grep);
+        // nlohmann throws type_error.316 on dump() unless we replace bad bytes.
+        std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
+        debug_log(cfg_.debug_dump_path(), "request", payload);
 
-    double ttfb = 0, total = 0;
-    LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
-        add_notice("the server rejected the prompt size; the context window is now " +
-                   std::to_string(window) + " tokens");
-    });
-    std::string response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
-    debug_log(cfg_.debug_dump_path(), "response", response);
+        double ttfb = 0, total = 0;
+        LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
+            add_notice("the server rejected the prompt size; the context window is now " +
+                       std::to_string(window) + " tokens");
+        });
+        std::string response;
+        try {
+            response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
+        } catch (const ApiError& error) {
+            if (attempt == 0 && degrade_cache_for(error))
+                continue;
+            throw;
+        }
+        debug_log(cfg_.debug_dump_path(), "response", response);
 
-    Message out = dialect_->parse_completion(response);
-    const TokenUsage usage = dialect_->parse_usage(response);
-    cfg_.previous_response_id = usage.response_id;
-    if (stats)
-        fill_buffered_stats(*stats, usage, ttfb, total);
-    return out;
+        Message out = dialect_->parse_completion(response);
+        const TokenUsage usage = dialect_->parse_usage(response);
+        cfg_.previous_response_id = usage.response_id;
+        if (stats)
+            fill_buffered_stats(*stats, usage, ttfb, total);
+        return out;
+    }
 }
 
 // Drop tool calls whose arguments are not JSON. Malformed calls in history
@@ -155,32 +190,40 @@ Message HttpLLMClient::chat_stream(const std::vector<Message>& messages,
                                    const std::vector<std::shared_ptr<Tool>>& tools,
                                    const std::function<void(const StreamChunk&)>& on_chunk,
                                    Stats* stats) {
-    json body =
-        dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages, tools, true);
-    std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
-    debug_log(cfg_.debug_dump_path(), "request-stream", payload);
+    for (int attempt = 0;; ++attempt) {
+        json body =
+            dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages, tools, true);
+        std::string payload = body.dump(-1, ' ', false, json::error_handler_t::replace);
+        debug_log(cfg_.debug_dump_path(), "request-stream", payload);
 
-    Message out;
-    out.role = "assistant";
-    auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_dump_path());
+        Message out;
+        out.role = "assistant";
+        auto decoder = dialect_->make_decoder(out, on_chunk, cfg_.debug_dump_path());
 
-    long status = 0;
-    LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
-        add_notice("the server rejected the prompt size; the context window is now " +
-                   std::to_string(window) + " tokens");
-    });
-    stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
-    debug_log(cfg_.debug_dump_path(), "response-stream",
-              "http=" + std::to_string(status) + " content=" + out.content + "\n---reasoning---\n" +
-                  out.reasoning);
+        long status = 0;
+        LearnedWindowCapture learned_window(cfg_, learned_, [this](int window) {
+            add_notice("the server rejected the prompt size; the context window is now " +
+                       std::to_string(window) + " tokens");
+        });
+        try {
+            stream_completion(cfg_, *dialect_, payload, *decoder, stats, status);
+        } catch (const ApiError& error) {
+            if (attempt == 0 && degrade_cache_for(error))
+                continue;
+            throw;
+        }
+        debug_log(cfg_.debug_dump_path(), "response-stream",
+                  "http=" + std::to_string(status) + " content=" + out.content +
+                      "\n---reasoning---\n" + out.reasoning);
 
-    if (drop_malformed_tool_calls(out)) {
-        debug_log(cfg_.debug_dump_path(), "response-stream", "discarding malformed tool calls");
-        add_notice("a tool call arrived with invalid arguments and was dropped for this request; "
-                   "the reply's text is what stands");
+        if (drop_malformed_tool_calls(out)) {
+            debug_log(cfg_.debug_dump_path(), "response-stream", "discarding malformed tool calls");
+            add_notice("a tool call arrived with invalid arguments and was dropped for this "
+                       "request; the reply's text is what stands");
+        }
+
+        return out;
     }
-
-    return out;
 }
 
 } // namespace agent
