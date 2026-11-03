@@ -1,5 +1,6 @@
 
 #include <csignal>
+#include <thread>
 #include <fstream>
 #include <string>
 #include <sys/stat.h>
@@ -141,6 +142,43 @@ TEST(mcp_config_save_delete_roundtrip) {
 
     ASSERT_TRUE(agent::delete_mcp_server("saved"));
     ASSERT_EQ(agent::load_mcp_servers().count("saved"), 0u);
+}
+
+// A handshake in flight is a visible state, not "disconnected": the UI has to
+// tell a server it has not tried yet from one it is trying now.
+TEST(mcp_snapshot_reports_connecting) {
+    McpEnv env("connecting");
+    const std::string slow = env.cwd + "/tests/fixtures/mcp_slow";
+    write_file(env.project_mcp + "/slow.conf",
+               "type=stdio\ncommand=" + slow + "\ncwd=.\nauto_connect=0\n");
+
+    agent::ServerManager mgr(agent::load_mcp_servers());
+    std::thread connect_thread([&] { mgr.connect("slow"); });
+
+    bool connecting = false;
+    for (int i = 0; i < 200 && !connecting; ++i) {
+        for (const auto& status : mgr.snapshot())
+            if (status.name == "slow" && status.connecting)
+                connecting = true;
+        if (!connecting)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(connecting);
+
+    bool list_says_connecting = false;
+    for (const auto& line : agent::mcp_list_lines(mgr))
+        if (line.find("connecting") != std::string::npos)
+            list_says_connecting = true;
+    ASSERT_TRUE(list_says_connecting);
+
+    std::string error;
+    const auto show = agent::mcp_show_lines(mgr, "slow", error);
+    ASSERT_TRUE(error.empty());
+    ASSERT_FALSE(show.empty());
+    ASSERT_TRUE(show[0].find("connecting") != std::string::npos);
+
+    connect_thread.join();
+    mgr.shutdown_all();
 }
 
 // Explicit connect works; connecting a disabled server is refused.
