@@ -66,6 +66,9 @@ TEST(anthropic_wire_marks_the_stable_prefix) {
     ASSERT(version && *version == "2023-06-01");
     const std::string* key = header(reqs[0], "x-api-key");
     ASSERT(key && *key == "test-key");
+    // The request identifies the harness, not libcurl.
+    const std::string* ua = header(reqs[0], "user-agent");
+    ASSERT(ua && ua->rfind("amber/", 0) == 0);
 
     json body = json::parse(reqs[0].body, nullptr, false);
     ASSERT_FALSE(body.is_discarded());

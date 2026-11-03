@@ -20,6 +20,7 @@
 #include "agent/experience.h"
 #include "agent/environment.h"
 #include "../lib/http_transport.h"
+#include "agent/version.h"
 #include "agent/data_path.h"
 #include "agent/bootstrap.h"
 #include "agent/exit_ready.h"
@@ -11325,4 +11326,20 @@ TEST(prompt_cache_scope_and_diagnostics_roundtrip) {
     ASSERT(back.cache_global_scope);
     ASSERT(!back.cache_diagnostics);
     std::remove(path.c_str());
+}
+
+// Every outbound request identifies the harness with an RFC 9110 product token
+// and a contact URL, so a WAF can recognise amber instead of blocking an
+// unknown `curl/8.x`. A provider that insists on a specific string can override
+// it without a rebuild.
+TEST(user_agent_identifies_the_harness) {
+    const std::string ua = agent::user_agent();
+    ASSERT(ua.rfind("amber/", 0) == 0);
+    ASSERT(ua.find(agent::kVersion) != std::string::npos);
+    ASSERT(ua.find("github.com/jtrefon/amber") != std::string::npos);
+    ASSERT(ua.find(")") != std::string::npos); // the comment is closed
+
+    setenv("AMBER_USER_AGENT", "custom-harness/1.0", 1);
+    ASSERT_EQ(agent::user_agent(), std::string("custom-harness/1.0"));
+    unsetenv("AMBER_USER_AGENT");
 }

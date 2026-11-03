@@ -1031,3 +1031,26 @@ TEST(anthropic_global_scope_matches_the_claude_code_shape) {
     ASSERT(!plain["system"][0]["cache_control"].contains("scope"));
     ASSERT(!plain.contains("cache_control"));
 }
+
+// A head block (memory, project instructions, skills discovery) sits after the
+// cached system block. It may change without invalidating `system[0]`, which is
+// the breakpoint the provider reads on the next request. A change there costs
+// the tokens behind it, never the stable prefix.
+TEST(anthropic_a_head_block_change_keeps_the_stable_breakpoint) {
+    auto d = anthropic();
+    agent::Config cfg;
+    cfg.model = "claude-sonnet-4-5";
+
+    std::vector<agent::Message> msgs = {text_msg("system", "BASE PROMPT"),
+                                        text_msg("system", "memory: build is make"),
+                                        text_msg("user", "hello")};
+    const agent::json first = d->build_chat_body(cfg, msgs, {}, false);
+    msgs[1].content = "memory: build is make, tests are make test";
+    const agent::json second = d->build_chat_body(cfg, msgs, {}, false);
+
+    ASSERT(first["system"].size() == 2u);
+    ASSERT_EQ(first["system"][0].dump(), second["system"][0].dump());
+    ASSERT(first["system"][1].dump() != second["system"][1].dump());
+    ASSERT(first["system"][0].contains("cache_control"));
+    ASSERT(!first["system"][1].contains("cache_control"));
+}

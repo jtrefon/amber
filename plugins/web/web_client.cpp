@@ -1,5 +1,7 @@
 #include "web_client.h"
 
+#include "lib/http_transport.h"
+
 #include <algorithm>
 #include <cctype>
 #include <curl/curl.h>
@@ -44,7 +46,7 @@ std::optional<HttpResponse> CurlWebTransport::get(const std::string& url, int ti
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "amber-web/0.7");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent().c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, static_cast<long>(std::max(1, timeout_s)));

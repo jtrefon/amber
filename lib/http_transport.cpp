@@ -1,5 +1,7 @@
 
 #include "http_transport.h"
+
+#include "agent/version.h"
 #include "agent/debug_log.h"
 #include "agent/dialect.h"
 #include "agent/llm.h"
@@ -25,6 +27,13 @@ size_t write_cb(char* ptr, size_t size, size_t nmemb, void* user) {
 #include <nlohmann/json.hpp>
 
 namespace agent {
+
+std::string user_agent() {
+    if (const char* override = std::getenv("AMBER_USER_AGENT"); override && *override)
+        return override;
+    return std::string("amber/") + kVersion +
+           " (agentic coding harness; +https://github.com/jtrefon/amber)";
+}
 
 namespace {
 
@@ -100,6 +109,7 @@ void configure_headers(CURL* c, const Config& cfg, const Dialect& dialect, bool 
     headers.add("Content-Type: application/json");
     if (accept_sse)
         headers.add("Accept: text/event-stream");
+    headers.add("User-Agent: " + user_agent());
     for (const auto& h : dialect.auth_headers(cfg))
         headers.add(h);
     curl_easy_setopt(c, CURLOPT_HTTPHEADER, headers.list);
