@@ -34,10 +34,10 @@ std::vector<std::string> list_models(const Config& cfg);
 // only success, and optionally discarding the body.
 //
 // Split out because two callers need different halves of it: the catalogue wants
-// the body and treats any 4xx as a failure (FAILONERROR, an error page is not a
-// catalogue), while a credential probe wants the STATUS and must see a 401 rather
-// than have it swallowed. Duplicating the request setup was the alternative, and
-// left ~40 lines no test could reach.
+// the body and judges the status itself, while a credential probe needs the
+// status and, for a protocol whose auth failure is not 401 (Gemini's 400), the
+// error body. Duplicating the request setup was the alternative, and left ~40
+// lines no test could reach.
 struct ModelsGetResult {
     std::string body;
     std::string url; // the endpoint the dialect built ("" when none)
@@ -45,7 +45,9 @@ struct ModelsGetResult {
     bool transport_ok = false; // false when no response arrived at all
 };
 
-// `want_body` false skips buffering the body: a probe only needs the status.
+// `want_body` false skips buffering the body: a probe that only needs the status
+// can ask for nothing. A non-2xx is a response, not an error: transport_ok says
+// whether the server spoke, and http_code says what it said.
 ModelsGetResult models_get(const Config& cfg, bool want_body);
 
 // ---------------------------------------------------------------------------

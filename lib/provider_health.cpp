@@ -30,12 +30,14 @@ AuthState auth_state_from_probe(const ProbeResult& result, const Dialect& dialec
 
 namespace {
 
-// The real probe: the shared GET /models with its body discarded, so the status
-// arrives intact. Reusing the catalogue's request keeps one implementation of
-// "how do we call a models endpoint" rather than two that can drift.
+// The real probe: the shared GET /models with its body kept, because a protocol
+// may report a refused credential with a body marker instead of an auth status
+// (Gemini answers 400 API_KEY_INVALID). Reusing the catalogue's request keeps
+// one implementation of "how do we call a models endpoint" rather than two that
+// can drift.
 ProbeResult probe_over_http(const Config& cfg) {
-    const auto r = models_get(cfg, /*want_body=*/false);
-    return ProbeResult{r.http_code, r.transport_ok, {}};
+    const auto r = models_get(cfg, /*want_body=*/true);
+    return ProbeResult{r.http_code, r.transport_ok, r.body};
 }
 
 } // namespace
@@ -60,10 +62,16 @@ void auth_probe_async(const Config& cfg, std::function<void(std::function<void()
     }).detach();
 }
 
-ConnectionCheck classify_connection(const ModelsGetResult& result, const Dialect&) {
+ConnectionCheck classify_connection(const ModelsGetResult& result, const Dialect& dialect) {
     ConnectionCheck out;
     if (result.transport_ok && result.http_code >= 200 && result.http_code < 300)
         return out;
+    if (result.transport_ok && dialect.is_auth_error(result.http_code, result.body)) {
+        out.auth_rejected = true;
+        out.reason =
+            "the endpoint rejected the key (HTTP " + std::to_string(result.http_code) + ")";
+        return out;
+    }
     if (!result.transport_ok)
         out.reason = "no answer from the endpoint";
     else
@@ -72,7 +80,7 @@ ConnectionCheck classify_connection(const ModelsGetResult& result, const Dialect
 }
 
 ConnectionCheck validate_connection(const Config& cfg) {
-    const auto r = models_get(cfg, /*want_body=*/false);
+    const auto r = models_get(cfg, /*want_body=*/true);
     return classify_connection(r, *make_dialect(cfg.flavor));
 }
 

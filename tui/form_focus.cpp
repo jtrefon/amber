@@ -58,7 +58,13 @@ Decision field_key(int ch, bool at_last_field) {
         return d;
     }
     if (is_submit(ch)) {
+        // A one-line field has no newline to insert, and the footer has always
+        // said "Enter confirm": Enter accepts wherever the focus is. Moving to
+        // the OK button first made a typed (or pasted) value look dropped.
+        d.intent = Intent::Accept;
         d.zone = Zone::Ok;
+        d.done = true;
+        d.result = true;
         return d;
     }
     if (ch == 27) {

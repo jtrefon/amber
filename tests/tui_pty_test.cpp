@@ -689,6 +689,11 @@ public:
 
     void reset_chat() { chat_calls_ = 0; }
 
+    // Answer the Gemini listing with Google's refused-key body (HTTP 400
+    // API_KEY_INVALID) instead of a catalogue, so the form's credential check
+    // sees exactly what the real endpoint says about a bad key.
+    void reject_gemini_key() { reject_gemini_ = true; }
+
     void stop() {
         stopping_ = true;
         if (thread_.joinable())
@@ -762,9 +767,15 @@ private:
             paths_.push_back(path);
         }
         bool ok = path == "/v1/models";
+        const bool rejected_gemini = reject_gemini_ && path == "/v1beta/models";
         std::string response;
         std::string content_type = "application/json";
-        if (ok) {
+        if (rejected_gemini) {
+            response =
+                R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
+                R"("status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",)"
+                R"("reason":"API_KEY_INVALID","domain":"googleapis.com"}]}})";
+        } else if (ok) {
             response =
                 R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
         } else if (path == "/v1/chat/completions") {
@@ -844,7 +855,10 @@ private:
             response =
                 R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
         }
-        const std::string http = std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
+        const std::string status = rejected_gemini ? "400 Bad Request"
+                                   : ok            ? "200 OK"
+                                                   : "404 Not Found";
+        const std::string http = std::string("HTTP/1.1 ") + status +
                                  "\r\nContent-Type: application/json\r\nContent-Length: " +
                                  std::to_string(response.size()) + "\r\nConnection: close\r\n\r\n" +
                                  response;
@@ -855,6 +869,7 @@ private:
     int listen_fd_ = -1;
     int port_ = 0;
     std::atomic<bool> stopping_{false};
+    std::atomic<bool> reject_gemini_{false};
     std::atomic<int> chat_calls_{0};
     std::thread thread_;
     std::mutex mtx_;
@@ -1923,9 +1938,7 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     tui.pump(300);
     tui.send("sk-ant-pty-test");
     tui.pump(300);
-    tui.send("\r"); // Enter from a field reaches the OK button
-    tui.pump(300);
-    tui.send("\r"); // OK accepts
+    tui.send("\r"); // Enter from a field confirms, as the footer says
     if (!require(tui.wait_for("provider switched to anthropic", 10000),
                  "the switch never completed", tui))
         return;
@@ -1944,6 +1957,92 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     // the same provider directory and global config.
     std::error_code ec;
     fs::remove(fixture().workspace + "/xdg/amber/providers/anthropic.conf", ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── a new provider's form never starts with the active provider's key ──
+//
+// /provider gemini opened its editor pre-filled with the ACTIVE provider's
+// token, and OK wrote it into gemini.conf. The form is where a credential is
+// entered, so it starts from the definition being edited.
+TEST(provider_form_never_seeds_another_providers_key) {
+    Tui tui;
+    tui.name = "provider_form_never_seeds_another_providers_key";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    // Make a provider with a distinctive key the active one.
+    tui.send("/provider beta\r");
+    if (!require(tui.wait_for("provider switched to beta", 10000), "beta did not become active",
+                 tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    tui.send("/provider gemini\r");
+    if (!require(tui.wait_for("Configure: gemini", 10000), "the gemini form did not open", tui))
+        return;
+    // The form paints its fields, so "the key is absent" is not a blank screen:
+    // the preset's endpoint is on screen, and the active key is not.
+    require(text_since(tui, mark).find("generativelanguage.googleapis.com") != std::string::npos,
+            "the provider form did not paint the definition it edits", tui);
+    require(text_since(tui, mark).find("sk-test") == std::string::npos,
+            "the new provider's form was seeded with the active provider's key", tui);
+
+    tui.send("\x1b");
+    tui.pump(400);
+    std::error_code ec;
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── a rejected key keeps the form open and writes nothing ──
+//
+// A bad key used to be saved and the failure surfaced later as "no answer".
+// The form checks the credential before OK returns; a REJECTED key reopens the
+// form with the reason, and Esc leaves the file untouched.
+TEST(provider_form_rejects_a_key_the_endpoint_refuses) {
+    Tui tui;
+    tui.name = "provider_form_rejects_a_key_the_endpoint_refuses";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    endpoint.reject_gemini_key();
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/gemini.conf";
+    if (!require(write_file(conf, "provider=gemini\napi_base=" + endpoint.base() +
+                                      "\nflavor=gemini\nrequires_key=1\n"
+                                      "default_model=gemini-2.5-pro\n"),
+                 "could not seed the gemini provider", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    tui.send("/provider gemini\r");
+    if (!require(tui.wait_for("Configure: gemini", 10000), "the gemini form did not open", tui))
+        return;
+    tui.send("\t"); // Server URL -> API Key
+    tui.pump(300);
+    tui.send("AQ.bad-key");
+    tui.pump(300);
+    tui.send("\r"); // confirms: the form checks the key before saving
+    if (!require(tui.wait_for("Rejected:", 15000),
+                 "a refused key closed the form instead of explaining itself", tui))
+        return;
+
+    require(text_since(tui, mark).find("provider switched to gemini") == std::string::npos,
+            "a rejected key still switched the provider", tui);
+    tui.send("\x1b");
+    tui.pump(400);
+    std::ifstream f(conf);
+    const std::string saved((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    require(saved.find("AQ.bad-key") == std::string::npos,
+            "the rejected key reached the provider file", tui);
+    require(saved.find("api_key=") == std::string::npos,
+            "the rejected key was saved under another spelling", tui);
+
+    std::error_code ec;
+    fs::remove(conf, ec);
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
@@ -2029,9 +2128,7 @@ TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     tui.send("\r"); // "Activate & edit" -> the provider form
     if (!require(tui.wait_for("Edit: anthropic", 10000), "the provider form did not open", tui))
         return;
-    tui.send("\r"); // Enter from a field reaches the OK button
-    tui.pump(300);
-    tui.send("\r"); // OK accepts
+    tui.send("\r"); // Enter from a field confirms, as the footer says
     if (!require(tui.wait_for("provider 'anthropic' activated", 10000),
                  "the activation never completed", tui))
         return;
@@ -3511,6 +3608,8 @@ int main(int argc, char** argv) {
     get_model_list_shows_advertised_capabilities();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
+    provider_form_never_seeds_another_providers_key();
+    provider_form_rejects_a_key_the_endpoint_refuses();
     settings_lists_the_groups_and_opens_the_provider_picker();
     settings_bare_prints_the_group_overview();
     settings_activation_switches_the_session_to_the_providers_protocol();

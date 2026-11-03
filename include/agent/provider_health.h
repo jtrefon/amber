@@ -14,10 +14,11 @@ class Dialect;
 // Whether a provider's credential was accepted, as far as one probe could tell.
 //
 // The distinction this type exists to enforce: `Rejected` means the SERVER said
-// the credential was bad. It never means "the request failed". A timeout, a
-// refused connection, a DNS failure, a 404, a 429, a 5xx are all `Unknown`,
-// because reporting a working token as broken after a network blip is worse
-// than admitting the probe could not tell.
+// the credential was bad, in whatever shape its protocol uses (an HTTP auth
+// status, or a body marker such as Gemini's 400 API_KEY_INVALID). It never means
+// "the request failed". A timeout, a refused connection, a DNS failure, a 404, a
+// 429, a 5xx are all `Unknown`, because reporting a working token as broken
+// after a network blip is worse than admitting the probe could not tell.
 enum class AuthState {
     Unknown,  // no answer, or the answer was inconclusive
     Valid,    // the endpoint answered 2xx to an authenticated GET /models
