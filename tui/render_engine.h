@@ -173,10 +173,9 @@ private:
     std::vector<Seg> bar_segments() const;
     std::vector<Seg> top_segments() const;
     std::vector<top_bar::Tab> top_tabs() const;
-    int top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const;
+    int top_right_width(const std::vector<Seg>& tops) const;
     void draw_top_tabs(const top_bar::Layout& layout, int left_w);
-    void draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse, bool lit);
-    void draw_top_rule(int active_start, int active_width, bool utf8);
+    void draw_top_right(int w, const std::vector<Seg>& tops, bool colon);
     void draw_menu_dropdown();
     void draw_menu_titles(int left_w, bool utf8);
     void draw_menu_box(const menu::Rect& box, const std::vector<menu::Item>& items,

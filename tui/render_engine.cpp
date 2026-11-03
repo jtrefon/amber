@@ -55,12 +55,10 @@ int RenderEngine::width() const {
     return x;
 }
 int RenderEngine::top_rows() const {
-    const int h = height();
-    if (h >= 6)
-        return 2;
-    if (h >= 4)
-        return 1;
-    return 0;
+    // One row: the rail carries the mark, the tabs and the clock. The second row
+    // that underlined the active tab cost a line of transcript to say what the
+    // reverse-video block already says.
+    return height() >= 4 ? 1 : 0;
 }
 std::optional<std::size_t> RenderEngine::tab_at(int x, int y) const {
     if (y != 0 || top_rows() <= 0)
@@ -308,7 +306,7 @@ std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
         if (segment.zone != agent::StatusZone::Bottom)
             continue;
         segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
-                        segment.align});
+                        segment.align, segment.id});
     }
     return segs;
 }
@@ -319,7 +317,7 @@ std::vector<RenderEngine::Seg> RenderEngine::top_segments() const {
         if (segment.zone != agent::StatusZone::Top || segment.align != agent::StatusAlign::Right)
             continue;
         segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
-                        segment.align});
+                        segment.align, segment.id});
     }
     return segs;
 }
@@ -633,7 +631,8 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
         attrs = A_REVERSE | A_BOLD;
         break;
     case top_bar::Role::InactiveTab:
-        attrs = A_DIM;
+        // The clock's own pair: dim-on-banner melted into the bar.
+        pair = P_BAR_DIM;
         break;
     case top_bar::Role::RunningTab:
     case top_bar::Role::DoneTab:
@@ -684,8 +683,8 @@ std::vector<top_bar::Tab> RenderEngine::top_tabs() const {
     return tabs;
 }
 
-int RenderEngine::top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const {
-    int width = text::display_cols(pulse);
+int RenderEngine::top_right_width(const std::vector<Seg>& tops) const {
+    int width = 0;
     for (const auto& s : tops)
         width += text::display_cols(s.text) + 1;
     return width;
@@ -701,38 +700,15 @@ void RenderEngine::draw_top_tabs(const top_bar::Layout& layout, int left_w) {
     }
 }
 
-void RenderEngine::draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse,
-                                  bool lit) {
-    int right_w = text::display_cols(pulse);
-    for (const auto& s : tops)
-        right_w += text::display_cols(s.text) + 1;
-    int x = std::max(0, w - right_w);
-    put_span(0, w, x, pulse, lit ? P_GAUGE_OK : P_BAR_DIM, A_BOLD);
+void RenderEngine::draw_top_right(int w, const std::vector<Seg>& tops, bool colon) {
+    const int right_w = top_right_width(tops);
+    // One column of air at the edge: flush against it the last segment reads as
+    // clipped by the window rather than as placed there.
+    int x = std::max(0, w - right_w - 1);
     for (const auto& s : tops) {
         put_span(0, w, x, " ", P_BANNER, 0);
-        put_span(0, w, x, s.text, s.pair, 0);
-    }
-}
-
-void RenderEngine::draw_top_rule(int active_start, int active_width, bool utf8) {
-    const int w = width();
-    attron(COLOR_PAIR(P_BANNER));
-    mvhline(1, 0, ' ', w);
-    attroff(COLOR_PAIR(P_BANNER));
-    const std::wstring unit = to_wide(top_bar::tab_rule(utf8));
-    if (!unit.empty()) {
-        std::wstring rule;
-        rule.reserve(static_cast<size_t>(w));
-        for (int i = 0; i < w; ++i)
-            rule += unit;
-        attron(COLOR_PAIR(P_BAR_DIM));
-        mvaddnwstr(1, 0, rule.c_str(), w);
-        attroff(COLOR_PAIR(P_BAR_DIM));
-    }
-    if (active_start >= 0 && active_width > 0) {
-        attron(COLOR_PAIR(P_BANNER));
-        mvhline(1, active_start, ' ', active_width);
-        attroff(COLOR_PAIR(P_BANNER));
+        const std::string text = s.id == "clock" ? top_bar::pulse_clock(s.text, colon) : s.text;
+        put_span(0, w, x, text, s.pair, 0);
     }
 }
 
@@ -868,12 +844,12 @@ void RenderEngine::draw_top_bar() {
     const auto tops = top_segments();
     const std::time_t now = std::time(nullptr);
     last_top_second_ = now;
-    const bool lit = top_bar::pulse_on(now);
-    const std::string pulse = top_bar::pulse_glyph(lit, utf8);
-    const int right_w = top_right_width(tops, pulse);
-    const int left_w = std::max(0, w - right_w - (right_w > 0 ? 1 : 0));
-    int active_start = -1;
-    int active_width = 0;
+    // The beat belongs to work in progress: the clock's colon blinks while a turn
+    // or a job runs, and is solid when amber is idle. `colon` is "draw the colon",
+    // so idle is always true -- inverting this printed "15 28" at rest.
+    const bool colon = !tui_.runs_.any_busy() || top_bar::pulse_on(now);
+    const int right_w = top_right_width(tops);
+    const int left_w = std::max(0, w - right_w - (right_w > 0 ? 2 : 0));
     if (tui_.menu_->is_open()) {
         top_layout_ = {};
         draw_menu_titles(left_w, utf8);
@@ -881,12 +857,8 @@ void RenderEngine::draw_top_bar() {
         menu_layout_ = {};
         top_layout_ = top_bar::layout(top_tabs(), left_w, utf8);
         draw_top_tabs(top_layout_, left_w);
-        active_start = top_layout_.active_start;
-        active_width = top_layout_.active_width;
     }
-    draw_top_right(w, tops, pulse, lit);
-    if (rows >= 2)
-        draw_top_rule(active_start, active_width, utf8);
+    draw_top_right(w, tops, colon);
 }
 
 void RenderEngine::tick_clock() {
