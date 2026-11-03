@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -76,6 +77,9 @@ private:
     // Caller holds mtx_. `extra` is included in the terminal set so a finishing
     // watch can apply retention in the same critical section that publishes it.
     std::vector<std::string> retention_victims_locked(const WatchRecord* extra) const;
+    // Caller holds mtx_. Folds the id tombstone and the record this write
+    // replaces into the terminal record, so a cancel that raced it still wins.
+    void merge_terminal_flags(WatchRecord& final) const;
     void prune();
     void publish_report(const WatchRecord& record, const WatchReport& report);
 
@@ -91,6 +95,10 @@ private:
     std::map<std::string, WatchReport> reports_;
     std::map<std::string, agent::UsageTotals> usage_by_owner_;
     std::map<std::string, std::shared_ptr<WatchWorker>> workers_;
+    // Cancelled record ids. The per-record flag in `records_` can be replaced
+    // by a terminal write racing the cancel; an id tombstone cannot, so the
+    // report stays suppressed. Future watches get new ids and are unaffected.
+    std::set<std::string> abandoned_records_;
     std::map<std::string, std::thread> threads_;
     mutable std::mutex observer_mtx_; // one observer call at a time
     std::atomic<int> observers_{0};
