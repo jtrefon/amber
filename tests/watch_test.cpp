@@ -480,6 +480,40 @@ TEST(watch_cancel_owner_stops_a_window_watch) {
     ASSERT_TRUE(record->state == WatchState::Cancelled);
 }
 
+// A user cancel is not a completion. The host acks and abandons the owned
+// watches; the worker reaches Cancelled, the flag survives the terminal write,
+// and nothing is left for the window to wake on.
+TEST(watch_abandon_owner_stops_and_suppresses_the_report) {
+    ScratchEnv env("abandon_owner");
+    auto runner = std::make_shared<FakeRunner>();
+    runner->handler = [](const std::string&, const std::string&, int, const CancellationToken& c) {
+        for (int i = 0; i < 500 && !c.is_requested(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return CommandRunner::Result{"partial", 0, false, c.is_requested()};
+    };
+    auto observer = std::make_shared<FakeObserver>();
+    WatchService service(runner, observer, WatchStore(env.path("watch")), "observer", nullptr);
+    std::string err;
+    const std::string id = service.start(process_options("sleep"), err);
+    ASSERT_TRUE(err.empty());
+    for (int i = 0; i < 100; ++i) {
+        auto record = service.get(id);
+        if (record && record->state == WatchState::Running)
+            break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // The host's helper does both: ack closes the wake before the terminal
+    // write, abandon cancels the worker and keeps the flag across finish().
+    service.ack(id);
+    service.abandon_owner("7");
+    auto record = wait_terminal(service, id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_TRUE(record->state == WatchState::Cancelled);
+    ASSERT_TRUE(record->abandoned);
+    ASSERT_TRUE(service.pending_reports().empty());
+}
+
 TEST(watch_url_change_uses_observer_and_artifact) {
     ScratchEnv env("url");
     auto runner = std::make_shared<FakeRunner>();

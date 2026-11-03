@@ -1,8 +1,7 @@
 #include "tui/tui_window_ops_hooks.h"
+#include "tui/watch_cancel.h"
 #include "tui/tui.h"
 #include "tui/widgets.h"
-
-#include "plugins/watch/watch_plugin.h"
 
 #include <algorithm>
 
@@ -33,11 +32,7 @@ void TuiWindowOpsHooks::on_close() {
     size_t closing_id = tui_.win().id;
     // A watch belongs to the window that started it; stop it before the
     // workspace it runs in is released.
-    if (auto* watch =
-            dynamic_cast<agent::plugins::WatchPlugin*>(tui_.plugin_runtime_.find("watch"))) {
-        watch->cancel_owner(tui_.win().owner_id);
-        watch->abandon_owner(tui_.win().owner_id);
-    }
+    cancel_owned_watches(tui_.plugin_runtime_, tui_.win().owner_id);
     tui_.autosave();
     // The workspace is released while the window still exists (autosave just
     // ran, so its conversation is safe), and its notice is flushed on the next
