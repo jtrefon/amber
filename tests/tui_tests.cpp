@@ -3148,3 +3148,26 @@ TEST(claude_min_cacheable_follows_the_family) {
     ASSERT_EQ(agent::min_cacheable_tokens("anthropic/claude-opus-5-5"), 512);
     ASSERT_EQ(agent::min_cacheable_tokens("gpt-4o-mini"), 0);
 }
+
+// A resumed session must not inherit the previous process's cache counters:
+// they describe requests this process never made, and carrying them made
+// `/get provider` report "reading from cache" for a run with no hits.
+TEST(usage_ledger_does_not_restore_cache_counters_across_sessions) {
+    agent::json meta = {{"session_prompt_tokens", 700},
+                        {"session_completion_tokens", 70},
+                        {"session_cache_read_tokens", 5000},
+                        {"session_cache_write_tokens", 900},
+                        {"session_usage_measured", true}};
+    tui::UsageLedger ledger;
+    tui::load_usage(meta, ledger);
+    ASSERT_EQ(ledger.main.prompt_tokens, 700L);
+    ASSERT_EQ(ledger.main.cache_read_tokens, 0L);
+    ASSERT_EQ(ledger.main.cache_write_tokens, 0L);
+}
+
+// A provider that reports no cache counters must say so, not read as a cache
+// that is written and never read.
+TEST(prompt_cache_note_reports_a_provider_without_counters) {
+    const std::string note = tui::prompt_cache_note("some-model", "5m", 12000, -1, -1);
+    ASSERT(note.find("reports no cache counters") != std::string::npos);
+}

@@ -103,8 +103,34 @@ void apply_prompt_keys(Config& c, const std::string& key, const std::string& val
         c.git_prompt_path = val;
 }
 
+void apply_prompt_cache_keys(Config& c, const std::string& key, const std::string& val,
+                             std::vector<std::string>& warnings, bool& handled) {
+    handled = true;
+    if (key == "prompt_cache_ttl") {
+        if (val == "5m" || val == "1h" || val == "off")
+            c.prompt_cache_ttl = val;
+        else
+            warnings.push_back("prompt_cache_ttl: expected 5m|1h|off, got '" + val + "'");
+    } else if (key == "prompt_cache_diagnostics") {
+        c.cache_diagnostics = parse_bool(val);
+    } else if (key == "prompt_cache_scope") {
+        if (val == "global")
+            c.cache_global_scope = true;
+        else if (val == "session" || val == "off")
+            c.cache_global_scope = false;
+        else
+            warnings.push_back("prompt_cache_scope: expected global|session, got '" + val + "'");
+    } else {
+        handled = false;
+    }
+}
+
 void apply_sampling_keys(Config& c, const std::string& key, const std::string& val,
                          std::vector<std::string>& warnings) {
+    bool handled = false;
+    apply_prompt_cache_keys(c, key, val, warnings, handled);
+    if (handled)
+        return;
     if (key == "temperature")
         parse_double(key, val, warnings, c.temperature);
     else if (key == "max_tokens")
@@ -119,12 +145,6 @@ void apply_sampling_keys(Config& c, const std::string& key, const std::string& v
         c.reasoning_effort = val;
     else if (key == "show_reasoning")
         c.show_reasoning = parse_bool(val);
-    else if (key == "prompt_cache_ttl") {
-        if (val == "5m" || val == "1h" || val == "off")
-            c.prompt_cache_ttl = val;
-        else
-            warnings.push_back("prompt_cache_ttl: expected 5m|1h|off, got '" + val + "'");
-    }
 }
 
 void apply_agent_keys(Config& c, const std::string& key, const std::string& val,
@@ -428,6 +448,10 @@ bool Config::save_global(const std::string& path) const {
     // into the file and freeze a value a future release wants to change.
     if (prompt_cache_ttl != "5m")
         f << "prompt_cache_ttl=" << prompt_cache_ttl << "\n";
+    if (cache_diagnostics)
+        f << "prompt_cache_diagnostics=1\n";
+    if (!cache_global_scope)
+        f << "prompt_cache_scope=session\n";
     return write_private_file(path, f.str());
 }
 
@@ -546,6 +570,12 @@ void Config::apply_environment() {
     env_string("AMBER_REASONING", reasoning_effort);
 
     stream = env_flag("AMBER_STREAM", stream);
+    cache_diagnostics = env_flag("AMBER_CACHE_DIAG", cache_diagnostics);
+    if (const char* cache = std::getenv("AMBER_CACHE"); cache && std::string(cache) == "off")
+        prompt_cache_ttl = "off";
+    if (const char* scope = std::getenv("AMBER_CACHE_SCOPE");
+        scope && std::string(scope) == "session")
+        cache_global_scope = false;
     subagent_parallel = env_flag("AMBER_SUBAGENT_PARALLEL", subagent_parallel);
     subagent_max = env_int("AMBER_SUBAGENT_MAX", subagent_max);
     max_tool_result_bytes = env_int("AMBER_MAX_TOOL_RESULT_BYTES", max_tool_result_bytes);

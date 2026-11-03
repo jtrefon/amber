@@ -179,3 +179,81 @@ TEST(anthropic_below_the_minimum_reports_no_cache) {
     const agent::test::MockUsage usage = mock.last_usage();
     ASSERT_EQ(second.prompt_tokens, usage.input);
 }
+
+// The diagnostics opt-in, driven through the real client: the first request
+// serializes `previous_message_id: null`, and every later request replays the
+// id the provider returned for the one before it. Without that round-trip the
+// provider has no baseline to compare and can only report "no divergence",
+// which is indistinguishable from a healthy cache.
+TEST(anthropic_client_replays_the_previous_response_id) {
+    agent::test::MockAnthropic mock;
+    ASSERT_TRUE(mock.start());
+
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_diagnostics = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> messages = {text_msg("system", "You are amber."),
+                                            text_msg("user", stable_prompt())};
+    agent::Stats first_stats;
+    client.chat(messages, {}, &first_stats);
+
+    messages.push_back(text_msg("assistant", "done"));
+    messages.push_back(text_msg("user", "again"));
+    agent::Stats second_stats;
+    client.chat(messages, {}, &second_stats);
+
+    const auto requests = mock.requests();
+    ASSERT(requests.size() >= 2u);
+    const agent::json first = agent::json::parse(requests[0].body);
+    const agent::json second = agent::json::parse(requests[1].body);
+    ASSERT(first.contains("diagnostics"));
+    ASSERT(first["diagnostics"]["previous_message_id"].is_null());
+    ASSERT_EQ(second["diagnostics"]["previous_message_id"].get<std::string>(),
+              std::string("msg_mock"));
+    ASSERT_EQ(second_stats.response_id, std::string("msg_mock"));
+}
+
+// The streamed path must carry the response id too: diagnostics replay it on
+// the next turn, and a streaming session never sees a buffered body.
+TEST(anthropic_stream_captures_the_response_id) {
+    agent::test::MockAnthropic mock;
+    ASSERT(mock.start());
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_diagnostics = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> msgs{text_msg("system", stable_prompt()),
+                                     text_msg("user", "first")};
+    agent::Stats stats;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &stats);
+    ASSERT_EQ(stats.response_id, std::string("msg_mock"));
+}
+
+// The provider's miss reason travels with the streamed response too, and the
+// second streamed request replays the id the first one returned.
+TEST(anthropic_stream_reports_the_miss_reason_and_replays_the_id) {
+    agent::test::MockAnthropic mock;
+    ASSERT(mock.start());
+    mock.set_cache_miss_reason("system_changed");
+    agent::Config cfg = mock_config(mock);
+    cfg.cache_diagnostics = true;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    std::vector<agent::Message> msgs{text_msg("system", stable_prompt()),
+                                     text_msg("user", "first")};
+    agent::Stats first;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &first);
+    ASSERT_EQ(first.cache_miss_reason, std::string("system_changed"));
+
+    msgs.push_back(text_msg("assistant", "reply"));
+    msgs.push_back(text_msg("user", "second"));
+    agent::Stats second;
+    client.chat_stream(msgs, {}, [](const agent::StreamChunk&) {}, &second);
+
+    const auto requests = mock.requests();
+    ASSERT(requests.size() >= 2u);
+    const agent::json body = agent::json::parse(requests[1].body);
+    ASSERT_EQ(body["diagnostics"]["previous_message_id"].get<std::string>(),
+              std::string("msg_mock"));
+}

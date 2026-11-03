@@ -41,6 +41,10 @@ public:
     long completion_tokens() const noexcept { return completion_tokens_; }
     long cache_read_tokens() const noexcept { return cache_read_tokens_; }
     long cache_write_tokens() const noexcept { return cache_write_tokens_; }
+    // The provider's response id, and its cache-miss reason when the prefix
+    // diverged. Empty when the protocol or the response carries neither.
+    const std::string& response_id() const noexcept { return response_id_; }
+    const std::string& cache_miss_reason() const noexcept { return cache_miss_reason_; }
 
     // The bounded raw byte accumulation (error diagnostics).
     const std::string& raw_body() const noexcept { return raw_body_; }
@@ -63,8 +67,10 @@ protected:
     std::string debug_path_;
     long prompt_tokens_ = -1; // from the final usage event
     long completion_tokens_ = -1;
-    long cache_read_tokens_ = -1;  // prompt-cache read counter, -1 when absent
-    long cache_write_tokens_ = -1; // prompt-cache write counter, -1 when absent
+    long cache_read_tokens_ = -1;   // prompt-cache read counter, -1 when absent
+    long cache_write_tokens_ = -1;  // prompt-cache write counter, -1 when absent
+    std::string response_id_;       // provider response id (`msg_...`)
+    std::string cache_miss_reason_; // provider's first-divergence reason
 
 private:
     std::string buffer_;    // partial SSE line carried across writes

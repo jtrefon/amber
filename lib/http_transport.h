@@ -60,11 +60,10 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
 // not a request problem).
 std::string describe_http_error(long http_code, const std::string& body);
 
-// Fill `stats` from a buffered response body and its transfer timings
-// (seconds), mapping the dialect's token usage. Mirrors the telemetry that
-// stream_completion() produces for the streamed path.
-void fill_buffered_stats(Stats& stats, const Dialect& dialect, const std::string& response,
-                         double ttfb, double total);
+// Fill `stats` from an already-parsed usage record and its transfer timings
+// (seconds). Mirrors the telemetry that stream_completion() produces for the
+// streamed path.
+void fill_buffered_stats(Stats& stats, const TokenUsage& usage, double ttfb, double total);
 
 } // namespace agent
 

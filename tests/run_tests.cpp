@@ -2387,10 +2387,12 @@ TEST(anthropic_request_marks_the_stable_prefix_cacheable) {
     ASSERT_EQ(blocks[0]["text"].get<std::string>(), "BASE PROMPT");
     ASSERT(blocks[0].contains("cache_control"));
     ASSERT_EQ(blocks[0]["cache_control"]["type"].get<std::string>(), "ephemeral");
-    // The automatic form rides alongside, so a gateway that looks for the
-    // top-level field recognises the request as asking for a cache.
-    ASSERT(body.contains("cache_control"));
-    ASSERT_EQ(body["cache_control"]["type"].get<std::string>(), "ephemeral");
+    // `scope: global` is the default: it is the shape Claude Code sends, and the
+    // one that survives a gateway that does not pin requests to one upstream
+    // identity. There is deliberately no top-level `cache_control`: it is the
+    // automatic alternative, it cannot carry a scope, and it costs a slot.
+    ASSERT_EQ(blocks[0]["cache_control"]["scope"].get<std::string>(), "global");
+    ASSERT(!body.contains("cache_control"));
     // The 5-minute default is the protocol default: no ttl field.
     ASSERT(!blocks[0]["cache_control"].contains("ttl"));
 
@@ -2417,7 +2419,6 @@ TEST(anthropic_cache_ttl_follows_the_setting) {
     cfg.prompt_cache_ttl = "1h";
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["system"][0]["cache_control"]["ttl"].get<std::string>(), "1h");
-    ASSERT_EQ(body["cache_control"]["ttl"].get<std::string>(), "1h");
     ASSERT_EQ(body["messages"].back()["content"].back()["cache_control"]["ttl"].get<std::string>(),
               "1h");
 
@@ -2517,6 +2518,18 @@ TEST(prompt_cache_ttl_roundtrips_in_the_global_config) {
     bad.load(path);
     ASSERT_EQ(bad.prompt_cache_ttl, std::string("5m"));
     ASSERT(!bad.warnings.empty());
+
+    // An unusable scope is a warning too, not a silent narrowing.
+    std::ofstream(path) << "prompt_cache_scope=bogus\n";
+    agent::Config scope;
+    scope.load(path);
+    ASSERT(scope.cache_global_scope);
+    ASSERT(!scope.warnings.empty());
+
+    std::ofstream(path) << "prompt_cache_scope=global\n";
+    agent::Config wide;
+    wide.load(path);
+    ASSERT(wide.cache_global_scope);
     std::remove(path.c_str());
 }
 
@@ -3138,6 +3151,8 @@ TEST(global_selection_is_what_a_live_run_uses) {
         // A provider-scoped runtime knob: persisted globally and restored into
         // the live config, not just read by the UI that set it.
         f << "prompt_cache_ttl=1h\n";
+        f << "prompt_cache_scope=session\n";
+        f << "prompt_cache_diagnostics=1\n";
     }
     {
         // What the provider domain reads before any plugin is installed: the
@@ -3160,6 +3175,10 @@ TEST(global_selection_is_what_a_live_run_uses) {
     ASSERT(cfg.api_base.find("kilo.ai") != std::string::npos);
     ASSERT(cfg.api_base_from_provider);
     ASSERT_EQ(cfg.prompt_cache_ttl, std::string("1h"));
+    // The narrowing cache values are provider-scoped too: a host that restores
+    // the selection must restore the shape it was using.
+    ASSERT(!cfg.cache_global_scope);
+    ASSERT(cfg.cache_diagnostics);
 
     // The project layer still applies, but not its endpoint.
     cfg.load_workspace_defaults(project);
@@ -11181,4 +11200,47 @@ TEST(update_surface_print_does_not_execute) {
     char* argv[] = {prog, verb, flag, nullptr};
     const int rc = run_update_surface(3, argv);
     ASSERT_TRUE(rc == 0 || rc == 1);
+}
+
+// The environment narrows the cache defaults; it never has to enable them.
+TEST(prompt_cache_environment_only_narrows) {
+    const auto scoped = [](const char* name, const char* value) {
+        setenv(name, value, 1);
+        agent::Config cfg;
+        cfg.apply_environment();
+        unsetenv(name);
+        return cfg;
+    };
+
+    const agent::Config defaults;
+    ASSERT(defaults.cache_global_scope);
+    ASSERT(!defaults.cache_diagnostics);
+    ASSERT_EQ(defaults.prompt_cache_ttl, std::string("5m"));
+
+    ASSERT_EQ(scoped("AMBER_CACHE", "off").prompt_cache_ttl, std::string("off"));
+    ASSERT(!scoped("AMBER_CACHE_SCOPE", "session").cache_global_scope);
+    ASSERT(scoped("AMBER_CACHE_DIAG", "1").cache_diagnostics);
+}
+
+// The narrowing values round-trip, and so does the debug switch. A default must
+// not be written into the file, or a future release cannot change it.
+TEST(prompt_cache_scope_and_diagnostics_roundtrip) {
+    const std::string path = "/tmp/amber_cache_scope_test.conf";
+    agent::Config narrow;
+    narrow.cache_global_scope = false;
+    narrow.cache_diagnostics = true;
+    ASSERT(narrow.save_global(path));
+
+    agent::Config loaded;
+    loaded.load(path);
+    ASSERT(!loaded.cache_global_scope);
+    ASSERT(loaded.cache_diagnostics);
+
+    agent::Config defaults;
+    ASSERT(defaults.save_global(path));
+    agent::Config back;
+    back.load(path);
+    ASSERT(back.cache_global_scope);
+    ASSERT(!back.cache_diagnostics);
+    std::remove(path.c_str());
 }

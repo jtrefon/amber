@@ -257,6 +257,7 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
                        out.retry_after_ms);
     }
     decoder.finalize();
+    cfg.previous_response_id = decoder.response_id();
     if (stats) {
         stats->valid = true;
         stats->latency_ms = out.ttfb * 1000.0;
@@ -264,6 +265,8 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
         stats->completion_tokens = decoder.completion_tokens();
         stats->cache_read_tokens = decoder.cache_read_tokens();
         stats->cache_write_tokens = decoder.cache_write_tokens();
+        stats->response_id = decoder.response_id();
+        stats->cache_miss_reason = decoder.cache_miss_reason();
         apply_tps(*stats, out.ttfb, out.total);
     }
 }
@@ -271,15 +274,15 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
 // Fill `stats` from a buffered response body and its transfer timings
 // (seconds), mapping the dialect's token usage. Mirrors the telemetry that
 // stream_completion() produces for the streamed path.
-void fill_buffered_stats(Stats& stats, const Dialect& dialect, const std::string& response,
-                         double ttfb, double total) {
+void fill_buffered_stats(Stats& stats, const TokenUsage& usage, double ttfb, double total) {
     stats.valid = true;
     stats.latency_ms = ttfb * 1000.0;
-    const TokenUsage usage = dialect.parse_usage(response);
     stats.prompt_tokens = usage.prompt;
     stats.completion_tokens = usage.completion;
     stats.cache_read_tokens = usage.cache_read;
     stats.cache_write_tokens = usage.cache_write;
+    stats.response_id = usage.response_id;
+    stats.cache_miss_reason = usage.cache_miss_reason;
     apply_tps(stats, ttfb, total);
 }
 

@@ -154,6 +154,11 @@ std::string MockAnthropic::base() const {
     return "http://127.0.0.1:" + std::to_string(port_);
 }
 
+void MockAnthropic::set_cache_miss_reason(const std::string& reason) {
+    std::scoped_lock lk(mtx_);
+    miss_reason_ = reason;
+}
+
 void MockAnthropic::set_min_cacheable_tokens(long tokens) {
     std::scoped_lock lk(mtx_);
     min_tokens_ = tokens;
@@ -341,13 +346,18 @@ std::string MockAnthropic::message_json(const std::string& body_text, bool strea
         last_usage_ = MockUsage{u.input, u.read, u.write};
     }
 
-    const json message = {{"id", "msg_mock"},
-                          {"type", "message"},
-                          {"role", "assistant"},
-                          {"model", "mock"},
-                          {"content", json::array({{{"type", "text"}, {"text", "ok"}}})},
-                          {"stop_reason", "end_turn"},
-                          {"usage", usage_json(u)}};
+    json message = {{"id", "msg_mock"},
+                    {"type", "message"},
+                    {"role", "assistant"},
+                    {"model", "mock"},
+                    {"content", json::array({{{"type", "text"}, {"text", "ok"}}})},
+                    {"stop_reason", "end_turn"},
+                    {"usage", usage_json(u)}};
+    {
+        std::scoped_lock lk(mtx_);
+        if (!miss_reason_.empty())
+            message["diagnostics"] = {{"cache_miss_reason", {{"type", miss_reason_}}}};
+    }
     if (!stream)
         return message.dump();
 

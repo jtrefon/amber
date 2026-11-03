@@ -55,6 +55,10 @@ public:
     // API caches nothing and returns no error.
     void set_min_cacheable_tokens(long tokens);
 
+    // Report a cache-miss reason on the response, as the provider does when
+    // diagnostics are enabled and the prefix diverged.
+    void set_cache_miss_reason(const std::string& reason);
+
     std::vector<MockRequest> requests();
     MockUsage last_usage();
 
@@ -80,6 +84,7 @@ private:
     MockUsage last_usage_;
     std::map<std::string, CacheEntry> cache_;
     long min_tokens_ = 1024;
+    std::string miss_reason_;
 };
 
 } // namespace agent::test

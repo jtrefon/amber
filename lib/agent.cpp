@@ -541,6 +541,8 @@ void Agent::record_stats(const Stats& stats) {
                          stats.cache_write_tokens,
                          {},
                          {}});
+    if (!stats.cache_miss_reason.empty())
+        log_.event("cache_miss", {{"reason", stats.cache_miss_reason}});
     if (stats.prompt_tokens > 0)
         cfg_.prompt_tokens_used = stats.prompt_tokens;
 }
