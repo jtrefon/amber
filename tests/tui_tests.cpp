@@ -2802,10 +2802,19 @@ TEST(form_focus_printable_inserts_and_others_do_nothing) {
     ASSERT(FF::key(300, FF::Zone::Fields, false).intent == FF::Intent::None);
 }
 
-TEST(form_focus_enter_from_fields_reaches_the_ok_button) {
+// Enter confirms from a field. The footer has always said "Enter confirm", but
+// the first Enter only moved focus to the OK button, so a key typed (or pasted)
+// and confirmed with one Enter looked like it had been dropped; the second Enter
+// saved, and Esc in between cancelled without a word.
+TEST(form_focus_enter_from_fields_submits) {
     auto d = FF::key('\n', FF::Zone::Fields, false);
+    ASSERT(d.intent == FF::Intent::Accept);
     ASSERT(d.zone == FF::Zone::Ok);
-    ASSERT_FALSE(d.done);
+    ASSERT_TRUE(d.done);
+    ASSERT_TRUE(d.result);
+    // Same from the last field: there is no newline to insert in a one-line
+    // field, so Enter means the same thing wherever the focus is.
+    ASSERT_TRUE(FF::key('\r', FF::Zone::Fields, true).result);
 }
 
 TEST(form_focus_buttons_toggle_and_return_to_the_last_field) {

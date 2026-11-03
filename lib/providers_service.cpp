@@ -211,6 +211,28 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.flavor = sel.provider.flavor;
 }
 
+Config provider_edit_seed(const Config& active, const Provider& editing) {
+    Config seed;
+    seed.provider_name = editing.name;
+    seed.api_base = editing.api_base.empty() ? active.api_base : editing.api_base;
+    // Today's behaviour: the active key always wins, whatever provider is being
+    // edited. This is the leak the seam exists to pin down.
+    seed.api_key = active.api_key;
+    seed.model = editing.default_model;
+    seed.flavor = editing.flavor;
+    seed.context_size = editing.default_context_size;
+    seed.context_explicit = editing.default_context_size > 0;
+    if (editing.name == active.provider_name) {
+        seed.api_base = active.api_base;
+        seed.api_key = active.api_key;
+        seed.model = active.model;
+        seed.model_explicit = active.model_explicit;
+        seed.context_size = active.context_size;
+        seed.context_explicit = active.context_explicit;
+    }
+    return seed;
+}
+
 Provider provider_from_edit(const Provider& existing, const Config& cfg, bool builtin) {
     Provider p;
     p.name = cfg.provider_name;

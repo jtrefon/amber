@@ -94,6 +94,10 @@ struct CatalogFetchReport {
     std::string url;    // endpoint attempted; empty when none could be built
     long http_code = 0; // 0 when no response arrived
     bool transport_ok = false;
+    // The protocol recognised the failure as a refused credential. Not derivable
+    // from the status: Gemini answers 400 API_KEY_INVALID, so a report that only
+    // knew 401/403 told the user "no answer" about a key the server had rejected.
+    bool auth_rejected = false;
 
     // One line for the UI, e.g.
     //   GET https://api.anthropic.com/models -> HTTP 404 (no model list at

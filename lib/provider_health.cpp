@@ -1,5 +1,6 @@
 #include "agent/provider_health.h"
 
+#include "agent/dialect.h"
 #include "agent/model_probe.h"
 
 #include <thread>
@@ -17,6 +18,16 @@ AuthState auth_state_from_http(long http_code, bool transport_ok) {
     return AuthState::Unknown;
 }
 
+AuthState auth_state_from_probe(const ProbeResult& result, const Dialect& dialect) {
+    if (!result.transport_ok)
+        return AuthState::Unknown;
+    if (result.http_code >= 200 && result.http_code < 300)
+        return AuthState::Valid;
+    if (dialect.is_auth_error(result.http_code, result.body))
+        return AuthState::Rejected;
+    return AuthState::Unknown;
+}
+
 namespace {
 
 // The real probe: the shared GET /models with its body discarded, so the status
@@ -24,7 +35,7 @@ namespace {
 // "how do we call a models endpoint" rather than two that can drift.
 ProbeResult probe_over_http(const Config& cfg) {
     const auto r = models_get(cfg, /*want_body=*/false);
-    return ProbeResult{r.http_code, r.transport_ok};
+    return ProbeResult{r.http_code, r.transport_ok, {}};
 }
 
 } // namespace
@@ -36,7 +47,7 @@ AuthStatus auth_probe_blocking(const Config& cfg, ProbeFn probe) {
 
     const ProbeResult r = probe ? probe(cfg) : probe_over_http(cfg);
     status.http_code = r.http_code;
-    status.state = auth_state_from_http(r.http_code, r.transport_ok);
+    status.state = auth_state_from_probe(r, *make_dialect(cfg.flavor));
     return status;
 }
 
@@ -47,6 +58,22 @@ void auth_probe_async(const Config& cfg, std::function<void(std::function<void()
         const AuthStatus s = auth_probe_blocking(copy);
         post([done = std::move(done), s] { done(s); });
     }).detach();
+}
+
+ConnectionCheck classify_connection(const ModelsGetResult& result, const Dialect&) {
+    ConnectionCheck out;
+    if (result.transport_ok && result.http_code >= 200 && result.http_code < 300)
+        return out;
+    if (!result.transport_ok)
+        out.reason = "no answer from the endpoint";
+    else
+        out.reason = "HTTP " + std::to_string(result.http_code);
+    return out;
+}
+
+ConnectionCheck validate_connection(const Config& cfg) {
+    const auto r = models_get(cfg, /*want_body=*/false);
+    return classify_connection(r, *make_dialect(cfg.flavor));
 }
 
 char provider_mark(AuthState state, bool configured) {
