@@ -457,6 +457,10 @@ public:
 
 private:
     void add_notice(std::string text);
+    // A 400 that names a cache field means the provider (or a proxy) will not
+    // take that field. Turn the narrowest one off, leave a notice, and let the
+    // caller retry once. False means the error was not about the cache shape.
+    bool degrade_cache_for(const ApiError& error);
 
     Config cfg_;
     std::unique_ptr<Dialect> dialect_;
