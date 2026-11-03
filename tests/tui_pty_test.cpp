@@ -2780,11 +2780,16 @@ TEST(worktree_manager_round_trip) {
     if (!require(tui.wait_for("nothing to prune", 8000), "prune should have nothing to do", tui))
         return;
     run("/worktree remove feature-x");
-    // `git worktree remove` runs its own `git status` over the whole checkout.
-    // On a cold macOS runner that scan takes well past ten seconds on this
-    // repository; the action is synchronous, so the marker arrives late.
-    require(tui.wait_for("workspace removed", 30000), "remove did not delete the workspace", tui);
-    ASSERT(!fs::exists(prepared));
+    // The status line can sit below the viewport when the wrapped worktree
+    // path makes the transcript longer than the chat (macOS temp paths do).
+    // The contract is the removal itself, not that one line being on screen.
+    for (int waited = 0; waited < 30000; waited += 50) {
+        if (!fs::exists(prepared) && agent::load_worktrees(child_state_dir(repo.workspace)).empty())
+            break;
+        tui.pump(50);
+    }
+    if (!require(!fs::exists(prepared), "remove did not delete the workspace", tui))
+        return;
     ASSERT(agent::load_worktrees(child_state_dir(repo.workspace)).empty());
 }
 
