@@ -3,6 +3,7 @@
 // driven by the scripted FakeLLMClient. No network, no server.
 // Scenarios map to docs/spec/llm-client/agent-loop-reliability.md [AL-xx].
 
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -4688,7 +4689,8 @@ TEST(wire_stable_prefix_is_identical_for_every_dialect) {
                     std::move(fake));
     ag.set_prompt_registry(prompts);
 
-    for (const std::string& prompt : {"one", "two", "three"}) {
+    const std::array<std::string, 3> run_prompts{"one", "two", "three"};
+    for (const std::string& prompt : run_prompts) {
         agent::SessionBrief brief;
         brief.intent = "intent " + prompt;
         ag.session_brief_store()->merge(brief);
