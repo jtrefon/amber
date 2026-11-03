@@ -2678,7 +2678,7 @@ TEST(runtime_provider_plugin_registers_and_unwinds) {
         if (p.name == "gemini") {
             listed = true;
             ASSERT_EQ(p.flavor, std::string("gemini"));
-            ASSERT_EQ(p.default_model, std::string("gemini-2.5-pro"));
+            ASSERT_EQ(p.default_model, std::string("gemini-3.8-flash"));
         }
     ASSERT(listed);
 

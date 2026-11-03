@@ -45,8 +45,9 @@ std::string tab_label(const Tab& tab, int index, int title_cols, bool utf8) {
     const std::string title =
         truncate_cols(tab.title.empty() ? "chat" : tab.title, title_cols, utf8);
     const std::string marker = attention_glyph(tab.running, tab.attention, utf8);
-    return tab_open(utf8) + " " + std::to_string(index) + " " + title + " " + marker + " " +
-           close_glyph(utf8) + " " + tab_close(utf8);
+    // No caps on the sides: the leading space separates one tab from the next and
+    // the reverse-video block is what marks the active one.
+    return " " + std::to_string(index) + " " + title + " " + marker + " " + close_glyph(utf8);
 }
 
 Role tab_role(const Tab& tab) {
@@ -113,7 +114,7 @@ void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels,
     int x = used;
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         out.spans.push_back({labels.text[i], tab_role(tabs[i])});
-        out.hits.push_back({tabs[i].id, x, labels.width[i], x + labels.width[i] - 3});
+        out.hits.push_back({tabs[i].id, x, labels.width[i], x + labels.width[i] - 1});
         if (tabs[i].active) {
             out.active_start = x;
             out.active_width = labels.width[i];
@@ -125,9 +126,9 @@ void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels,
 void expand_active(Labels& labels, const std::vector<Tab>& tabs, std::size_t active, int available,
                    bool utf8) {
     const int digits = index_digits(static_cast<int>(active) + 1);
-    if (available < 9 + digits)
+    if (available < 6 + digits)
         return;
-    const int title_cols = std::clamp(available - 9 - digits, kTabMinTitle, kTabMaxTitle);
+    const int title_cols = std::clamp(available - 6 - digits, kTabMinTitle, kTabMaxTitle);
     labels.text[active] = tab_label(tabs[active], static_cast<int>(active) + 1, title_cols, utf8);
     labels.width[active] = text::display_cols(labels.text[active]);
 }
@@ -201,7 +202,7 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
     int x = used;
     for (std::size_t idx : shown) {
         out.spans.push_back({labels.text[idx], tab_role(tabs[idx])});
-        out.hits.push_back({tabs[idx].id, x, labels.width[idx], x + labels.width[idx] - 3});
+        out.hits.push_back({tabs[idx].id, x, labels.width[idx], x + labels.width[idx] - 1});
         if (idx == active) {
             out.active_start = x;
             out.active_width = labels.width[idx];
@@ -217,23 +218,11 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
 } // namespace
 
 int tab_width(int title_cols, int index) {
-    return 9 + index_digits(index) + std::max(0, title_cols);
+    return 6 + index_digits(index) + std::max(0, title_cols);
 }
 
 std::string app_mark(bool utf8) {
     return utf8 ? "\u25c6" : "*";
-}
-
-std::string tab_open(bool utf8) {
-    return utf8 ? "\u2590" : "[";
-}
-
-std::string tab_close(bool utf8) {
-    return utf8 ? "\u258c" : "]";
-}
-
-std::string tab_rule(bool utf8) {
-    return utf8 ? "\u2550" : "=";
 }
 
 std::string tab_overflow(int hidden, bool utf8) {
@@ -269,18 +258,20 @@ bool pulse_on(std::time_t now) noexcept {
     return now % 2 == 0;
 }
 
-std::string pulse_glyph(bool on, bool utf8) {
-    if (!utf8)
-        return on ? "*" : ".";
-    return on ? "\u25cf" : "\u00b7";
+std::string pulse_clock(std::string text, bool colon) {
+    if (colon)
+        return text;
+    std::replace(text.begin(), text.end(), ':', ' ');
+    return text;
 }
 
 Layout layout(const std::vector<Tab>& tabs, int width, bool utf8) {
     Layout out;
     if (width <= 0)
         return out;
+    out.spans.push_back({" ", Role::Separator});
     out.spans.push_back({app_mark(utf8), Role::AppMark});
-    int used = kAppMarkWidth;
+    int used = kAppLeftMargin + kAppMarkWidth;
     if (tabs.empty())
         return out;
     if (width > used + kAppGap) {

@@ -319,6 +319,15 @@ public:
         return http_code == 429 || http_code >= 500;
     }
 
+    bool is_auth_error(long http_code, const std::string& body) const override {
+        // Google reports a refused key as HTTP 400 INVALID_ARGUMENT with an
+        // API_KEY_INVALID detail, not as 401. Reading only the HTTP auth
+        // statuses called a rejected key "no answer".
+        if (http_code == 401 || http_code == 403)
+            return true;
+        return http_code == 400 && body.find("API_KEY_INVALID") != std::string::npos;
+    }
+
     int context_overflow_hint(const std::string& error_body) const override {
         // "The input token count (213456) exceeds the maximum number of
         // tokens allowed (200000)." The enforced maximum is the SECOND number;
@@ -343,7 +352,7 @@ private:
         return versioned_url(cfg.api_base, "/v1beta", "/models/" + cfg.model + action);
     }
 
-    // Listing returns "models/gemini-2.5-pro"; every other call takes the bare
+    // Listing returns "models/gemini-3.8-flash"; every other call takes the bare
     // id, so the prefix is stripped at the edge.
     static std::string strip_models_prefix(const std::string& name) {
         const std::string prefix = "models/";

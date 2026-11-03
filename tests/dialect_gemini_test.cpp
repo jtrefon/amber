@@ -312,3 +312,19 @@ TEST(gemini_error_classification) {
     ASSERT_EQ(d->context_overflow_hint(overflow), 200000);
     ASSERT_EQ(d->context_overflow_hint("no hint here"), 0);
 }
+
+// Gemini reports a refused key as HTTP 400 with API_KEY_INVALID, not 401. The
+// UI's "token rejected" verdict comes from this classification, so the
+// protocol, not a status-code table in the UI, has to know its own shape.
+TEST(gemini_classifies_api_key_invalid_as_an_auth_error) {
+    auto d = make_gemini_dialect();
+    const std::string body =
+        R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
+        R"("status":"INVALID_ARGUMENT","details":[{"reason":"API_KEY_INVALID"}]}})";
+    ASSERT(d->is_auth_error(400, body));
+    ASSERT(d->is_auth_error(401, ""));
+    ASSERT(d->is_auth_error(403, ""));
+    ASSERT_FALSE(d->is_auth_error(400, R"({"error":{"status":"INVALID_ARGUMENT"}})"));
+    ASSERT_FALSE(d->is_auth_error(429, body));
+    ASSERT_FALSE(d->is_auth_error(500, body));
+}

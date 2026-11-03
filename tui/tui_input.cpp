@@ -2303,11 +2303,13 @@ bool SlashDispatcher::seed_new_provider(const std::string& a) {
     agent::Provider existing;
     if (auto p = tui_.providers_->find(a))
         existing = *p;
-    agent::Config seed = tui_.cfg_;
-    seed.flavor = existing.flavor;
+    // The seed is the provider's own definition, never the active connection's
+    // credential: seeding the file used to write the active provider's key into
+    // the new provider's config before the form even opened.
+    agent::Config seed = agent::provider_edit_seed(tui_.cfg_, existing);
+    seed.provider_name = a;
     agent::seed_provider(a, seed);
     agent::Config prov_cfg = seed;
-    prov_cfg.provider_name = a;
     if (!edit_provider_form(prov_cfg, "Configure provider " + a)) {
         refresh_provider_feed();
         tui_.append_line(P_STATUS, "provider file created at " + agent::global_config_dir() +
@@ -2327,16 +2329,11 @@ bool SlashDispatcher::seed_new_provider(const std::string& a) {
 // edit form as /settings) so switching never strands the user on a provider that
 // cannot authenticate. Esc cancels the switch.
 bool SlashDispatcher::prompt_provider_key(const std::string& a, const agent::Provider& p) {
-    agent::Config prov_cfg;
+    // The seed is the provider's own definition. It used to start from the
+    // ACTIVE connection's key, so /provider gemini arrived pre-filled with the
+    // kilocode token and OK saved it into gemini.conf.
+    agent::Config prov_cfg = agent::provider_edit_seed(tui_.cfg_, p);
     prov_cfg.provider_name = a;
-    prov_cfg.api_base = p.api_base;
-    prov_cfg.api_key = tui_.cfg_.api_key; // keep an existing global key
-    prov_cfg.model = p.default_model;
-    if (tui_.cfg_.provider_name == a) {
-        prov_cfg.api_base = tui_.cfg_.api_base;
-        prov_cfg.api_key = tui_.cfg_.api_key;
-        prov_cfg.model = tui_.cfg_.model;
-    }
     if (!edit_provider_form(prov_cfg, "Configure: " + a))
         return false;
     tui_.providers_->save(agent::provider_from_edit(p, prov_cfg, p.builtin));
@@ -4030,8 +4027,7 @@ void Tui::show_provider_list() {
     for (const auto& p : providers_->available()) {
         const bool active = p.name == cfg_.provider_name;
         // The active provider's key may live in the global config rather than in
-        // its own definition (apply_selection keeps whatever is configured when
-        // the definition carries none).
+        // its own definition; re-selecting it keeps that live key.
         const bool has_key = !p.api_key.empty() || (active && !cfg_.api_key.empty());
 
         ProviderListRow row;
@@ -4186,19 +4182,31 @@ static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
         {"API Key", cfg.api_key, true},
         {"Model (blank = auto)", model_field, false},
     };
-    if (!form_edit(title, fields))
-        return false;
-    cfg.api_base = fields[0].value;
-    while (!cfg.api_base.empty() && cfg.api_base.back() == '/')
-        cfg.api_base.pop_back();
-    cfg.api_key = fields[1].value;
-    if (fields[2].value.empty()) {
-        cfg.model_explicit = false;
-    } else {
-        cfg.model = fields[2].value;
-        cfg.model_explicit = true;
+    std::string notice;
+    for (;;) {
+        if (!form_edit(title, fields, notice))
+            return false;
+        cfg.api_base = fields[0].value;
+        while (!cfg.api_base.empty() && cfg.api_base.back() == '/')
+            cfg.api_base.pop_back();
+        cfg.api_key = fields[1].value;
+        if (fields[2].value.empty()) {
+            cfg.model_explicit = false;
+        } else {
+            cfg.model = fields[2].value;
+            cfg.model_explicit = true;
+        }
+        // An empty key has nothing to verify (a keyless local endpoint is a
+        // valid configuration). Anything else is checked before it is saved:
+        // a rejected key keeps the form open with the reason, so it can never
+        // be written to disk and discovered later as "no answer".
+        if (cfg.api_key.empty())
+            return true;
+        const agent::ConnectionCheck check = agent::validate_connection(cfg);
+        if (!check.auth_rejected)
+            return true;
+        notice = "Rejected: " + check.reason + " - fix the key or press Esc";
     }
-    return true;
 }
 
 std::string Tui::prompt_api_key(const std::string& reason) {
@@ -4309,19 +4317,11 @@ void Tui::add_new_provider() {
 // is already the active provider, then confirm through the shared edit form.
 void Tui::activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
                                      bool is_preset) {
-    agent::Config prov_cfg;
     agent::Provider existing = sel ? *sel : agent::Provider{};
+    // The definition's own key; the live connection's values overlay it only
+    // when this IS the active provider (its key may live in the global config).
+    agent::Config prov_cfg = agent::provider_edit_seed(cfg_, existing);
     prov_cfg.provider_name = id;
-    if (sel) {
-        prov_cfg.api_base = sel->api_base;
-        prov_cfg.api_key = sel->api_key;
-        prov_cfg.model = sel->default_model;
-    }
-    if (cfg_.provider_name == id) {
-        prov_cfg.api_base = cfg_.api_base;
-        prov_cfg.api_key = cfg_.api_key;
-        prov_cfg.model = cfg_.model;
-    }
     if (!edit_provider_form(prov_cfg, "Edit: " + id))
         return;
 

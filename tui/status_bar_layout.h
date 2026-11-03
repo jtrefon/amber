@@ -16,6 +16,9 @@ struct Segment {
     int pair = 0;
     int drop = 0;
     agent::StatusAlign align = agent::StatusAlign::Left;
+    // The contribution's id. The painter uses it to treat one segment specially
+    // (the top rail blinks the clock's colon as its pulse); layout ignores it.
+    std::string id;
 };
 
 // The scroll badge's value: percent UP from the live edge, because scroll_top

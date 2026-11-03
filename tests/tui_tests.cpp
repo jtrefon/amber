@@ -2430,9 +2430,9 @@ using BarSeg = tui::status_bar_layout::Segment;
 
 TEST(status_bar_layout_splits_by_alignment) {
     std::vector<BarSeg> segs = {
-        {"left1", 0, 0, agent::StatusAlign::Left},
-        {"right1", 0, 0, agent::StatusAlign::Right},
-        {"left2", 0, 0, agent::StatusAlign::Left},
+        {"left1", 0, 0, agent::StatusAlign::Left, {}},
+        {"right1", 0, 0, agent::StatusAlign::Right, {}},
+        {"left2", 0, 0, agent::StatusAlign::Left, {}},
     };
     auto p = tui::status_bar_layout::plan(segs, 80);
     ASSERT_EQ(p.left.size(), 2u);
@@ -2443,14 +2443,14 @@ TEST(status_bar_layout_splits_by_alignment) {
 }
 
 TEST(status_bar_layout_budget_reserves_the_right_zone) {
-    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right}};
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Right, {}}};
     auto p = tui::status_bar_layout::plan(segs, 80);
     ASSERT_EQ(p.right_cols, 3);
     ASSERT_EQ(p.budget, 80 - (3 + 1)); // right zone + the separating column
 }
 
 TEST(status_bar_layout_budget_is_the_whole_bar_without_a_right_zone) {
-    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left}};
+    std::vector<BarSeg> segs = {{"abc", 0, 0, agent::StatusAlign::Left, {}}};
     auto p = tui::status_bar_layout::plan(segs, 40);
     ASSERT_EQ(p.right_cols, 0);
     ASSERT_EQ(p.budget, 40);
@@ -2460,7 +2460,7 @@ TEST(status_bar_layout_budget_never_goes_negative) {
     // A right zone wider than the terminal leaves the left zone nothing to
     // paint, rather than a negative budget the painters would have to defend
     // against.
-    std::vector<BarSeg> segs = {{"0123456789", 0, 0, agent::StatusAlign::Right}};
+    std::vector<BarSeg> segs = {{"0123456789", 0, 0, agent::StatusAlign::Right, {}}};
     auto p = tui::status_bar_layout::plan(segs, 5);
     ASSERT_EQ(p.budget, 0);
 }
@@ -2482,8 +2482,8 @@ TEST(status_bar_layout_drops_highest_priority_first) {
     // Two 10-column left segments (21 columns with the separator) in a budget
     // of 7: the drop-5 segment goes first, then the loop stops on drop 0.
     std::vector<BarSeg> segs = {
-        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left},
-        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left},
+        {"aaaaaaaaaa", 0, 5, agent::StatusAlign::Left, {}},
+        {"bbbbbbbbbb", 0, 0, agent::StatusAlign::Left, {}},
     };
     auto p = tui::status_bar_layout::plan(segs, 20);
     ASSERT_EQ(p.left.size(), 1u);
@@ -2492,7 +2492,7 @@ TEST(status_bar_layout_drops_highest_priority_first) {
 
 TEST(status_bar_layout_keeps_undroppable_segment) {
     // A segment with drop 0 is never removed, even when it overflows the budget.
-    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left}};
+    std::vector<BarSeg> segs = {{"aaaaaaaaaa", 0, 0, agent::StatusAlign::Left, {}}};
     auto p = tui::status_bar_layout::plan(segs, 20);
     ASSERT_EQ(p.left.size(), 1u);
     ASSERT_EQ(p.left[0].text, "aaaaaaaaaa");
@@ -2802,10 +2802,19 @@ TEST(form_focus_printable_inserts_and_others_do_nothing) {
     ASSERT(FF::key(300, FF::Zone::Fields, false).intent == FF::Intent::None);
 }
 
-TEST(form_focus_enter_from_fields_reaches_the_ok_button) {
+// Enter confirms from a field. The footer has always said "Enter confirm", but
+// the first Enter only moved focus to the OK button, so a key typed (or pasted)
+// and confirmed with one Enter looked like it had been dropped; the second Enter
+// saved, and Esc in between cancelled without a word.
+TEST(form_focus_enter_from_fields_submits) {
     auto d = FF::key('\n', FF::Zone::Fields, false);
+    ASSERT(d.intent == FF::Intent::Accept);
     ASSERT(d.zone == FF::Zone::Ok);
-    ASSERT_FALSE(d.done);
+    ASSERT_TRUE(d.done);
+    ASSERT_TRUE(d.result);
+    // Same from the last field: there is no newline to insert in a one-line
+    // field, so Enter means the same thing wherever the focus is.
+    ASSERT_TRUE(FF::key('\r', FF::Zone::Fields, true).result);
 }
 
 TEST(form_focus_buttons_toggle_and_return_to_the_last_field) {

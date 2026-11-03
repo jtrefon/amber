@@ -393,7 +393,7 @@ The bundled `plugins/hello/` is the worked example after migration:
 agent::ProviderCapability::Preset preset;
 preset.name = "gemini";
 preset.api_base = "https://generativelanguage.googleapis.com";
-preset.default_model = "gemini-2.5-pro";
+preset.default_model = "gemini-3.8-flash";
 preset.requires_key = true;
 
 // Own protocol: provide the dialect factory.

@@ -689,6 +689,11 @@ public:
 
     void reset_chat() { chat_calls_ = 0; }
 
+    // Answer the Gemini listing with Google's refused-key body (HTTP 400
+    // API_KEY_INVALID) instead of a catalogue, so the form's credential check
+    // sees exactly what the real endpoint says about a bad key.
+    void reject_gemini_key() { reject_gemini_ = true; }
+
     void stop() {
         stopping_ = true;
         if (thread_.joinable())
@@ -762,9 +767,15 @@ private:
             paths_.push_back(path);
         }
         bool ok = path == "/v1/models";
+        const bool rejected_gemini = reject_gemini_ && path == "/v1beta/models";
         std::string response;
         std::string content_type = "application/json";
-        if (ok) {
+        if (rejected_gemini) {
+            response =
+                R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
+                R"("status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",)"
+                R"("reason":"API_KEY_INVALID","domain":"googleapis.com"}]}})";
+        } else if (ok) {
             response =
                 R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
         } else if (path == "/v1/chat/completions") {
@@ -844,7 +855,10 @@ private:
             response =
                 R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
         }
-        const std::string http = std::string("HTTP/1.1 ") + (ok ? "200 OK" : "404 Not Found") +
+        const std::string status = rejected_gemini ? "400 Bad Request"
+                                   : ok            ? "200 OK"
+                                                   : "404 Not Found";
+        const std::string http = std::string("HTTP/1.1 ") + status +
                                  "\r\nContent-Type: application/json\r\nContent-Length: " +
                                  std::to_string(response.size()) + "\r\nConnection: close\r\n\r\n" +
                                  response;
@@ -855,6 +869,7 @@ private:
     int listen_fd_ = -1;
     int port_ = 0;
     std::atomic<bool> stopping_{false};
+    std::atomic<bool> reject_gemini_{false};
     std::atomic<int> chat_calls_{0};
     std::thread thread_;
     std::mutex mtx_;
@@ -1055,18 +1070,19 @@ private:
 // and the rule that opens under the active tab. The clock's HH:MM format is
 // pinned by the pure top_bar test, where local time is controllable. ──
 
-TEST(top_rail_shows_amber_mark_capped_tabs_and_rule) {
+TEST(top_rail_is_one_row_with_the_amber_mark_and_tabs) {
     Tui tui;
-    tui.name = "top_rail_shows_amber_mark_capped_tabs_and_rule";
+    tui.name = "top_rail_is_one_row_with_the_amber_mark_and_tabs";
     ASSERT(tui.start(fixture().binary, fixture().workspace));
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
     if (!require(tui.wait_for("\u25c6", 10000), "the amber mark is missing", tui))
         return;
-    if (!require(tui.wait_for("\u2590", 10000), "the tab caps are missing", tui))
+    if (!require(tui.wait_for("pty-beta", 10000), "the session tab is missing", tui))
         return;
-    if (!require(tui.wait_for("\u2550", 10000), "the tab rule is missing", tui))
-        return;
+    const std::string screen = tui.text();
+    require(screen.find("\u2590") == std::string::npos, "the tab caps are back", tui);
+    require(screen.find("\u2550") == std::string::npos, "the second rail row is back", tui);
 }
 
 // Output since a mark, not the whole session: a label that was painted once
@@ -1211,7 +1227,7 @@ TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
     if (!require(tabs > 0, "the window list is empty", tui))
         return;
     mark = tui.raw.size();
-    const std::string new_tab = "\u2590 " + std::to_string(tabs + 1) + " chat";
+    const std::string new_tab = " " + std::to_string(tabs + 1) + " chat   \u00d7";
     tui.send("\x0e"); // Ctrl+N
     if (!require(wait_since(tui, mark, new_tab, 8000), "Ctrl+N did not add a tab", tui))
         return;
@@ -1385,19 +1401,20 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
 
     const size_t mark = tui.raw.size();
     tui.send("\x0e"); // Ctrl+N: a second session tab
-    if (!require(wait_since(tui, mark, "\u2590 2 chat", 8000), "Ctrl+N did not add a tab", tui))
+    if (!require(wait_since(tui, mark, " 2 chat   \u00d7", 8000), "Ctrl+N did not add a tab", tui))
         return;
 
     send_click(tui, sgr, 4, 0); // inside the first tab
     if (!require(wait_for_window_list(tui, 1, 2), "clicking the first tab did not switch", tui))
         return;
 
-    // Tab 1 is "▐ 1 pty-beta <marker> × ▌": 18 columns from x=3. Tab 2 ("chat")
-    // starts at 21 and is 14 wide, so its close cell is at 21 + 14 - 3 = 32.
+    // The rail is one row with no caps: margin, mark, two spaces, then
+    // " 1 pty-beta   ×" (15 columns from x=4). Tab 2 ("chat") starts at 19 and is
+    // 11 wide, so its close cell is at 19 + 11 - 1 = 29.
     send_click(tui, sgr, 22, 0);
     if (!require(wait_for_window_list(tui, 2, 2), "clicking the second tab did not switch", tui))
         return;
-    send_click(tui, sgr, 32, 0);
+    send_click(tui, sgr, 29, 0);
     require(wait_for_window_list(tui, 0, 1), "clicking the tab close cell did not close it", tui);
 }
 
@@ -1923,9 +1940,7 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     tui.pump(300);
     tui.send("sk-ant-pty-test");
     tui.pump(300);
-    tui.send("\r"); // Enter from a field reaches the OK button
-    tui.pump(300);
-    tui.send("\r"); // OK accepts
+    tui.send("\r"); // Enter from a field confirms, as the footer says
     if (!require(tui.wait_for("provider switched to anthropic", 10000),
                  "the switch never completed", tui))
         return;
@@ -1944,6 +1959,92 @@ TEST(configuring_anthropic_keeps_its_protocol) {
     // the same provider directory and global config.
     std::error_code ec;
     fs::remove(fixture().workspace + "/xdg/amber/providers/anthropic.conf", ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── a new provider's form never starts with the active provider's key ──
+//
+// /provider gemini opened its editor pre-filled with the ACTIVE provider's
+// token, and OK wrote it into gemini.conf. The form is where a credential is
+// entered, so it starts from the definition being edited.
+TEST(provider_form_never_seeds_another_providers_key) {
+    Tui tui;
+    tui.name = "provider_form_never_seeds_another_providers_key";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    // Make a provider with a distinctive key the active one.
+    tui.send("/provider beta\r");
+    if (!require(tui.wait_for("provider switched to beta", 10000), "beta did not become active",
+                 tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    tui.send("/provider gemini\r");
+    if (!require(tui.wait_for("Configure: gemini", 10000), "the gemini form did not open", tui))
+        return;
+    // The form paints its fields, so "the key is absent" is not a blank screen:
+    // the preset's endpoint is on screen, and the active key is not.
+    require(text_since(tui, mark).find("generativelanguage.googleapis.com") != std::string::npos,
+            "the provider form did not paint the definition it edits", tui);
+    require(text_since(tui, mark).find("sk-test") == std::string::npos,
+            "the new provider's form was seeded with the active provider's key", tui);
+
+    tui.send("\x1b");
+    tui.pump(400);
+    std::error_code ec;
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// ── a rejected key keeps the form open and writes nothing ──
+//
+// A bad key used to be saved and the failure surfaced later as "no answer".
+// The form checks the credential before OK returns; a REJECTED key reopens the
+// form with the reason, and Esc leaves the file untouched.
+TEST(provider_form_rejects_a_key_the_endpoint_refuses) {
+    Tui tui;
+    tui.name = "provider_form_rejects_a_key_the_endpoint_refuses";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    endpoint.reject_gemini_key();
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/gemini.conf";
+    if (!require(write_file(conf, "provider=gemini\napi_base=" + endpoint.base() +
+                                      "\nflavor=gemini\nrequires_key=1\n"
+                                      "default_model=gemini-2.5-pro\n"),
+                 "could not seed the gemini provider", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    tui.send("/provider gemini\r");
+    if (!require(tui.wait_for("Configure: gemini", 10000), "the gemini form did not open", tui))
+        return;
+    tui.send("\t"); // Server URL -> API Key
+    tui.pump(300);
+    tui.send("AQ.bad-key");
+    tui.pump(300);
+    tui.send("\r"); // confirms: the form checks the key before saving
+    if (!require(tui.wait_for("Rejected:", 15000),
+                 "a refused key closed the form instead of explaining itself", tui))
+        return;
+
+    require(text_since(tui, mark).find("provider switched to gemini") == std::string::npos,
+            "a rejected key still switched the provider", tui);
+    tui.send("\x1b");
+    tui.pump(400);
+    std::ifstream f(conf);
+    const std::string saved((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    require(saved.find("AQ.bad-key") == std::string::npos,
+            "the rejected key reached the provider file", tui);
+    require(saved.find("api_key=") == std::string::npos,
+            "the rejected key was saved under another spelling", tui);
+
+    std::error_code ec;
+    fs::remove(conf, ec);
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
@@ -2029,9 +2130,7 @@ TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     tui.send("\r"); // "Activate & edit" -> the provider form
     if (!require(tui.wait_for("Edit: anthropic", 10000), "the provider form did not open", tui))
         return;
-    tui.send("\r"); // Enter from a field reaches the OK button
-    tui.pump(300);
-    tui.send("\r"); // OK accepts
+    tui.send("\r"); // Enter from a field confirms, as the footer says
     if (!require(tui.wait_for("provider 'anthropic' activated", 10000),
                  "the activation never completed", tui))
         return;
@@ -3499,7 +3598,7 @@ int main(int argc, char** argv) {
     up_arrow_keeps_the_first_session_selected();
     delete_arrow_opens_the_confirmation_instead_of_cancelling();
     startup_paints_before_git_returns();
-    top_rail_shows_amber_mark_capped_tabs_and_rule();
+    top_rail_is_one_row_with_the_amber_mark_and_tabs();
     shell_menu_navigates_runs_an_action_and_releases_the_prompt();
     shell_amber_mark_click_opens_the_menu();
     shell_tab_click_switches_and_the_close_cell_closes();
@@ -3511,6 +3610,8 @@ int main(int argc, char** argv) {
     get_model_list_shows_advertised_capabilities();
     get_provider_list_settles_each_row_from_a_live_probe();
     configuring_anthropic_keeps_its_protocol();
+    provider_form_never_seeds_another_providers_key();
+    provider_form_rejects_a_key_the_endpoint_refuses();
     settings_lists_the_groups_and_opens_the_provider_picker();
     settings_bare_prints_the_group_overview();
     settings_activation_switches_the_session_to_the_providers_protocol();

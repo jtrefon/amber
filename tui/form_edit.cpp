@@ -267,7 +267,8 @@ bool run_form_loop(WINDOW* w, FORM* form, int aw, int btn_row, int n, std::vecto
     return result;
 }
 
-bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
+bool form_edit(const std::string& title, std::vector<FieldSpec>& fields,
+               const std::string& notice) {
     ModalScope scope;
     const int n = static_cast<int>(fields.size());
     const int field_w = 44;
@@ -282,6 +283,11 @@ bool form_edit(const std::string& title, std::vector<FieldSpec>& fields) {
     FormParts form = build_form(fs, w);
     draw_field_labels(w, fields, label_w);
     dlg.set_footer({{"Tab/Arrows", "move"}, {"Enter", "confirm"}, {"Esc", "cancel"}});
+    if (!notice.empty()) {
+        wattron(w, COLOR_PAIR(P_STATUS) | A_BOLD);
+        mvwaddnstr(w, btn_row - 1, 2, notice.c_str(), aw - 4);
+        wattroff(w, COLOR_PAIR(P_STATUS) | A_BOLD);
+    }
 
     const bool result = run_form_loop(w, form.form, aw, btn_row, n, fs);
 

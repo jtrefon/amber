@@ -53,6 +53,10 @@ std::unique_ptr<Dialect> find_locked(const std::string& flavor) {
 
 } // namespace
 
+bool Dialect::is_auth_error(long http_code, const std::string&) const {
+    return http_code == 401 || http_code == 403;
+}
+
 std::unique_ptr<Dialect> make_dialect(const std::string& flavor) {
     std::scoped_lock lock(dialect_mutex());
     return find_locked(flavor);

@@ -1196,6 +1196,48 @@ TEST(provider_service_select_applies_connection) {
     ASSERT_EQ(cfg.api_key, "sk-alpha");
 }
 
+// A credential belongs to the provider that owns it. Switching from a keyed
+// provider to one whose definition carries no key used to KEEP the previous
+// key in the live config, which land_provider_switch() then wrote to the global
+// config under the new provider's name -- the same crossing as the form seed,
+// one layer down.
+TEST(apply_selection_never_carries_a_key_to_another_provider) {
+    agent::Config cfg;
+    cfg.provider_name = "kilocode";
+    cfg.api_base = "https://api.kilo.ai/api/gateway";
+    cfg.api_key = "sk-kilo-secret";
+
+    agent::Provider local;
+    local.name = "local";
+    local.api_base = "http://127.0.0.1:8081/v1";
+    local.requires_key = false;
+
+    agent::ProviderSelection sel;
+    sel.provider = local;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.provider_name, std::string("local"));
+    ASSERT(cfg.api_key.empty());
+}
+
+// The active provider's key may live only in the global config (its file has
+// none). Re-selecting that same provider must not throw it away.
+TEST(apply_selection_keeps_the_active_providers_global_key) {
+    agent::Config cfg;
+    cfg.provider_name = "kilocode";
+    cfg.api_base = "https://api.kilo.ai/api/gateway";
+    cfg.api_key = "sk-kilo-secret";
+
+    agent::Provider kilocode;
+    kilocode.name = "kilocode";
+    kilocode.api_base = "https://api.kilo.ai/api/gateway";
+    kilocode.requires_key = true;
+
+    agent::ProviderSelection sel;
+    sel.provider = kilocode;
+    agent::apply_selection(cfg, sel);
+    ASSERT_EQ(cfg.api_key, std::string("sk-kilo-secret"));
+}
+
 TEST(apply_selection_scopes_the_context_window) {
     auto repo = std::make_unique<FakeProviderRepo>();
     repo->items.push_back(test_provider("alpha", "https://alpha.test/v1"));
@@ -3518,6 +3560,46 @@ TEST(catalog_failure_reason_names_the_endpoint_and_status) {
 
     agent::CatalogFetchReport no_endpoint;
     ASSERT(no_endpoint.failure_reason().find("no model-listing endpoint") != std::string::npos);
+}
+
+// The protocol can call a non-401 failure a refused credential (Gemini's 400
+// API_KEY_INVALID). The report carries that verdict so the UI says the key was
+// rejected instead of printing a bare status the user cannot interpret.
+TEST(catalog_failure_reason_names_a_rejected_key_whatever_the_status) {
+    agent::CatalogFetchReport r;
+    r.url = "https://generativelanguage.googleapis.com/v1beta/models";
+    r.http_code = 400;
+    r.transport_ok = true;
+    r.auth_rejected = true;
+    ASSERT(r.failure_reason().find("rejected the key") != std::string::npos);
+    ASSERT(r.failure_reason().find("HTTP 400") != std::string::npos);
+
+    // A 400 the protocol did NOT call an auth failure keeps the neutral reading.
+    r.auth_rejected = false;
+    ASSERT(r.failure_reason().find("rejected the key") == std::string::npos);
+}
+
+// The verdict the protocol reaches about a failed fetch travels in the report.
+// fetch_models() asks the dialect, so a 401 is named as a rejected key rather
+// than as a bare status; nothing is cached, because an auth failure is not a
+// catalogue.
+TEST(catalog_fetch_marks_a_rejected_key) {
+    XdgGuard xdg("catalog_auth_rejected");
+    std::string request;
+    int srv = spawn_mock_http(8964, request, "HTTP/1.1 401 Unauthorized", "application/json",
+                              R"({"error":{"message":"Invalid API key"}})");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8964/v1";
+    agent::CatalogFetchReport report;
+    agent::model_catalog_fetch(cfg, /*force=*/true, &report);
+
+    ASSERT_FALSE(report.fetched);
+    ASSERT(report.auth_rejected);
+    ASSERT(report.failure_reason().find("rejected the key") != std::string::npos);
+    ASSERT_FALSE(agent::model_catalog_read(cfg).has_value());
 }
 
 // The background refresh writes the catalog and reports through the host's
