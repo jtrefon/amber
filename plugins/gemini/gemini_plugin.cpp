@@ -21,7 +21,7 @@ std::vector<std::unique_ptr<Capability>> GeminiPlugin::capabilities() {
     ProviderCapability::Preset preset;
     preset.name = "gemini";
     preset.api_base = "https://generativelanguage.googleapis.com";
-    preset.default_model = "gemini-2.5-pro";
+    preset.default_model = "gemini-3.8-flash";
     preset.requires_key = true;
 
     std::vector<ProviderCapability::Preset> presets{preset};

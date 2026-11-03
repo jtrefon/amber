@@ -352,7 +352,7 @@ private:
         return versioned_url(cfg.api_base, "/v1beta", "/models/" + cfg.model + action);
     }
 
-    // Listing returns "models/gemini-2.5-pro"; every other call takes the bare
+    // Listing returns "models/gemini-3.8-flash"; every other call takes the bare
     // id, so the prefix is stripped at the edge.
     static std::string strip_models_prefix(const std::string& name) {
         const std::string prefix = "models/";
