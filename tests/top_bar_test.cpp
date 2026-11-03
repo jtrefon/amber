@@ -52,9 +52,12 @@ std::tm local_tm(int hour, int minute, int second) {
 
 TEST(top_bar_marks_the_app_and_the_active_tab) {
     const Layout layout = tui::top_bar::layout(two_tabs(), 80);
-    ASSERT_FALSE(layout.spans.empty());
-    ASSERT_EQ(layout.spans.front().text, std::string("\u25c6"));
-    ASSERT(layout.spans.front().role == Role::AppMark);
+    ASSERT(layout.spans.size() >= 2u);
+    // The mark is inset from the edge by one column: flush against it the glyph
+    // reads as a rendering glitch rather than as a logo.
+    ASSERT_EQ(layout.spans.front().text, std::string(" "));
+    ASSERT_EQ(layout.spans[1].text, std::string("\u25c6"));
+    ASSERT(layout.spans[1].role == Role::AppMark);
 
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
@@ -70,27 +73,27 @@ TEST(top_bar_records_clickable_tab_hits) {
     ASSERT_EQ(layout.hits[1].id, 2u);
     ASSERT_EQ(layout.hits[0].start, layout.active_start);
     ASSERT_EQ(layout.hits[0].width, layout.active_width);
-    ASSERT_EQ(layout.hits[0].close_start, layout.hits[0].start + layout.hits[0].width - 3);
+    ASSERT_EQ(layout.hits[0].close_start, layout.hits[0].start + layout.hits[0].width - 1);
     for (const auto& hit : layout.hits) {
         ASSERT(hit.start > 0);
         ASSERT(hit.width > 0);
     }
 }
 
-TEST(top_bar_uses_caps_for_tabs) {
+TEST(top_bar_tabs_carry_no_caps) {
     const Layout layout = tui::top_bar::layout(two_tabs(), 80);
     const auto* inactive = find_role(layout, Role::InactiveTab);
     ASSERT(inactive != nullptr);
-    ASSERT(inactive->text.find("\u2590") != std::string::npos);
-    ASSERT(inactive->text.find("\u258c") != std::string::npos);
+    // The side stripes read as broken frame edges; the leading space separates
+    // tabs and reverse video marks the active one.
+    ASSERT(inactive->text.find("\u2590") == std::string::npos);
+    ASSERT(inactive->text.find("\u258c") == std::string::npos);
+    ASSERT_EQ(inactive->text.front(), ' ');
 }
 
 TEST(top_bar_ascii_fallback_is_one_column) {
     ASSERT_EQ(tui::top_bar::app_mark(false), std::string("*"));
-    ASSERT_EQ(tui::top_bar::tab_open(false), std::string("["));
-    ASSERT_EQ(tui::top_bar::tab_close(false), std::string("]"));
     ASSERT_EQ(tui::text::display_cols(tui::top_bar::app_mark(false)), 1);
-    ASSERT_EQ(tui::text::display_cols(tui::top_bar::tab_open(false)), 1);
 }
 
 TEST(top_bar_keeps_the_active_tab_visible_when_narrow) {
@@ -112,9 +115,9 @@ TEST(top_bar_keeps_the_active_tab_visible_when_narrow) {
 }
 
 TEST(top_bar_shrinks_titles_before_overflowing) {
-    const Layout layout = tui::top_bar::layout(two_tabs(), 34);
+    const Layout layout = tui::top_bar::layout(two_tabs(), 30);
     ASSERT_EQ(layout.overflow, 0);
-    ASSERT(layout_width(layout) <= 34);
+    ASSERT(layout_width(layout) <= 30);
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
     ASSERT(active->text.find("\u2026") != std::string::npos);
@@ -128,7 +131,7 @@ TEST(top_bar_truncates_long_titles) {
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
     ASSERT(active->text.find("\u2026") != std::string::npos);
-    ASSERT(tui::text::display_cols(active->text) <= 9 + 1 + tui::top_bar::kTabMaxTitle + 1);
+    ASSERT(tui::text::display_cols(active->text) <= 6 + 1 + tui::top_bar::kTabMaxTitle);
 }
 
 TEST(top_bar_shows_running_and_attention_markers) {
@@ -168,8 +171,8 @@ TEST(top_bar_marks_done_and_error_tabs) {
 
 TEST(top_bar_with_no_tabs_is_just_the_app_mark) {
     const Layout layout = tui::top_bar::layout({}, 80);
-    ASSERT_EQ(layout.spans.size(), 1u);
-    ASSERT(layout.spans.front().role == Role::AppMark);
+    ASSERT_EQ(layout.spans.size(), 2u);
+    ASSERT(layout.spans.back().role == Role::AppMark);
     ASSERT_EQ(layout.active_start, -1);
     ASSERT_EQ(layout.active_width, 0);
 }
@@ -196,10 +199,15 @@ TEST(top_bar_pulse_alternates_once_a_second) {
     ASSERT_TRUE(tui::top_bar::pulse_on(0));
     ASSERT_FALSE(tui::top_bar::pulse_on(1));
     ASSERT_TRUE(tui::top_bar::pulse_on(2));
-    ASSERT_EQ(tui::top_bar::pulse_glyph(true), std::string("\u25cf"));
-    ASSERT_EQ(tui::top_bar::pulse_glyph(false), std::string("\u00b7"));
-    ASSERT_EQ(tui::top_bar::pulse_glyph(true, false), std::string("*"));
-    ASSERT_EQ(tui::top_bar::pulse_glyph(false, false), std::string("."));
+}
+
+// The beat has no glyph of its own: it is the clock's colon blinking, so it costs
+// no columns and only moves while there is work to report.
+TEST(top_bar_pulse_blinks_the_clock_colon) {
+    ASSERT_EQ(tui::top_bar::pulse_clock("09:05", true), std::string("09:05"));
+    ASSERT_EQ(tui::top_bar::pulse_clock("09:05", false), std::string("09 05"));
+    ASSERT_EQ(tui::top_bar::pulse_clock("--:--", false), std::string("-- --"));
+    ASSERT_EQ(tui::top_bar::pulse_clock("no colon", false), std::string("no colon"));
 }
 
 TEST(top_bar_tab_width_matches_the_painted_label) {
