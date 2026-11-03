@@ -1154,6 +1154,19 @@ int active_window_in(const std::string& line) {
     return 0;
 }
 
+// A full repaint can repeat an OLD "windows:" line before the new command's
+// line lands, so one sample is not proof. Ask again, a few times.
+bool wait_for_window_list(Tui& tui, int index, int count, int attempts = 6) {
+    for (int i = 0; i < attempts; ++i) {
+        const std::string line = window_list_line(tui);
+        if ((index <= 0 || active_window_in(line) == index) &&
+            (count <= 0 || window_count_in(line) == count))
+            return true;
+        tui.pump(200);
+    }
+    return false;
+}
+
 TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
     Tui tui;
     tui.name = "shell_menu_navigates_runs_an_action_and_releases_the_prompt";
@@ -1186,14 +1199,21 @@ TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
         return;
 
     // A real submenu: View -> Tabs -> Previous tab, with one more tab open.
-    const int tabs = window_count_in(window_list_line(tui));
+    // Two agreeing samples: a repaint of an older "windows:" line must not
+    // decide how many tabs Ctrl+N is expected to produce.
+    int tabs = 0;
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const int sample = window_count_in(window_list_line(tui));
+        if (sample > 0 && sample == tabs)
+            break;
+        tabs = sample;
+    }
     if (!require(tabs > 0, "the window list is empty", tui))
         return;
+    mark = tui.raw.size();
+    const std::string new_tab = "\u2590 " + std::to_string(tabs + 1) + " chat";
     tui.send("\x0e"); // Ctrl+N
-    const std::string added = window_list_line(tui);
-    if (!require(window_count_in(added) == tabs + 1, "Ctrl+N did not add a tab", tui))
-        return;
-    if (!require(active_window_in(added) == tabs + 1, "the new tab is not active", tui))
+    if (!require(wait_since(tui, mark, new_tab, 8000), "Ctrl+N did not add a tab", tui))
         return;
 
     mark = tui.raw.size();
@@ -1207,7 +1227,7 @@ TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
         return;
     tui.send_arrow('B'); // Next tab -> Previous tab
     tui.send("\r");
-    if (!require(active_window_in(window_list_line(tui)) == tabs,
+    if (!require(wait_for_window_list(tui, tabs, tabs + 1),
                  "the submenu action did not switch tabs", tui))
         return;
 
@@ -1357,32 +1377,28 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
         tui.pump(250);
         tui.send("\x07");
         tui.pump(500);
-        const int next = window_count_in(window_list_line(tui));
-        if (!require(next < count, "a leftover tab did not close", tui))
+        const int next = count - 1;
+        if (!require(wait_for_window_list(tui, 0, next), "a leftover tab did not close", tui))
             return;
         count = next;
     }
 
+    const size_t mark = tui.raw.size();
     tui.send("\x0e"); // Ctrl+N: a second session tab
-    const std::string added = window_list_line(tui);
-    if (!require(window_count_in(added) == 2 && active_window_in(added) == 2,
-                 "Ctrl+N did not add a tab", tui))
+    if (!require(wait_since(tui, mark, "\u2590 2 chat", 8000), "Ctrl+N did not add a tab", tui))
         return;
 
     send_click(tui, sgr, 4, 0); // inside the first tab
-    if (!require(active_window_in(window_list_line(tui)) == 1,
-                 "clicking the first tab did not switch", tui))
+    if (!require(wait_for_window_list(tui, 1, 2), "clicking the first tab did not switch", tui))
         return;
 
     // Tab 1 is "▐ 1 pty-beta <marker> × ▌": 18 columns from x=3. Tab 2 ("chat")
     // starts at 21 and is 14 wide, so its close cell is at 21 + 14 - 3 = 32.
     send_click(tui, sgr, 22, 0);
-    if (!require(active_window_in(window_list_line(tui)) == 2,
-                 "clicking the second tab did not switch", tui))
+    if (!require(wait_for_window_list(tui, 2, 2), "clicking the second tab did not switch", tui))
         return;
     send_click(tui, sgr, 32, 0);
-    require(window_count_in(window_list_line(tui)) == 1,
-            "clicking the tab close cell did not close it", tui);
+    require(wait_for_window_list(tui, 0, 1), "clicking the tab close cell did not close it", tui);
 }
 
 // ── Down moves the selection; it must not cancel the browser ──
