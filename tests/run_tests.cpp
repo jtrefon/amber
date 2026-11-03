@@ -3578,6 +3578,29 @@ TEST(catalog_failure_reason_names_a_rejected_key_whatever_the_status) {
     ASSERT(r.failure_reason().find("rejected the key") == std::string::npos);
 }
 
+// The verdict the protocol reaches about a failed fetch travels in the report.
+// fetch_models() asks the dialect, so a 401 is named as a rejected key rather
+// than as a bare status; nothing is cached, because an auth failure is not a
+// catalogue.
+TEST(catalog_fetch_marks_a_rejected_key) {
+    XdgGuard xdg("catalog_auth_rejected");
+    std::string request;
+    int srv = spawn_mock_http(8964, request, "HTTP/1.1 401 Unauthorized", "application/json",
+                              R"({"error":{"message":"Invalid API key"}})");
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8964/v1";
+    agent::CatalogFetchReport report;
+    agent::model_catalog_fetch(cfg, /*force=*/true, &report);
+
+    ASSERT_FALSE(report.fetched);
+    ASSERT(report.auth_rejected);
+    ASSERT(report.failure_reason().find("rejected the key") != std::string::npos);
+    ASSERT_FALSE(agent::model_catalog_read(cfg).has_value());
+}
+
 // The background refresh writes the catalog and reports through the host's
 // post queue; the fresh entry then serves every cache-only read.
 TEST(model_catalog_refresh_async_populates_cache) {
