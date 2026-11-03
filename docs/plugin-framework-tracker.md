@@ -1,13 +1,13 @@
 # amber, Plugin Framework Tracker
 
-- **Status:** 🟢 PF-1, PF-2, PF-3.1, PF-3.2 and PF-4 complete; 713 tests green.
-  The framework runs end to end: **every** provider amber ships, custom,
-  openrouter, kilocode, anthropic, gemini, opencode_go, opencode_zen,
-  commandcode, deepseek, is a plugin, the core declares none, the status bar
-  and the panel view are composed from registries, and switching a provider
-  plugin off removes it live. Open **by decision, not by omission**: the core
-  prompt-block migration (blocked on a behaviour question with a bench harness
-  waiting) and host services (no consumer yet).
+- **Status:** 🟢 PF-1..PF-4 complete, **PF-5.2 complete** (every provider amber
+  ships — custom, openrouter, kilocode, anthropic, gemini, opencode_go,
+  opencode_zen, commandcode, deepseek — is a plugin; the core declares none;
+  switching one off removes it live), **PF-6 deferred** (runtime `dlopen`
+  loading); 1762 tests green at 0.8.8. 0.7 shipped the framework; 0.8 builds
+  background work on the same capability/ledger seam. **The single status
+  surface is the availability table in
+  `docs/spec/plugins/developer-guide.md`**; this tracker is the engineering log.
 - **Direction (stated 2026-09-10):** the long-term target is a microkernel,
   amber as orchestrator + plugin registry, with *everything else* (not just
   providers) arriving as a plugin. The phases below are the path there, and no

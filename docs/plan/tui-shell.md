@@ -1,5 +1,7 @@
 # TUI shell — full ncurses interface
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 - **Status:** Agreed 2026-11-02. Delivery plan for the ncurses shell; the
   version is assigned later by the maintainer.
 - **Epic:** tracks the seven milestones below; each milestone is one PR.

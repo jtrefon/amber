@@ -1,6 +1,8 @@
 # TUI UX Improvement Plan
 
-- **Status:** Draft (preparation phase)
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+- **Status:** historical draft — superseded by `docs/plan/tui-shell.md` and the #512 epic.
 - **PR target:** Single PR, multiple commits, no architecture changes
 - **Prerequisite research:**
   - `docs/terminal-compatibility.md` — cross-terminal rendering

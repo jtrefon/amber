@@ -1,5 +1,7 @@
 # Linux distribution and update channels
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 amber ships to macOS through a Homebrew formula and to Linux through a
 hand-attached `.deb`/`.rpm` built by `fpm`. Neither channel is complete: the
 Linux packages cannot be installed from anywhere, cannot be updated by anything,

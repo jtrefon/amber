@@ -1,7 +1,9 @@
 # Amber Architecture Refactoring Tracker & Execution Ledger
 
-> **Status:** PREPARATION & AUDIT COMPLETE — READY FOR PHASE 1  
-> **Target Architecture:** Hexagonal (Ports & Adapters) + CQRS + FSM + Pipeline Middleware  
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+> **Status:** HISTORICAL LEDGER — the port/adapter layout landed; no open phase.
+> **Target Architecture:** Hexagonal (Ports & Adapters) + CQRS + FSM + Pipeline Middleware
 > **Master Specification:** [`hexagonal-architecture-spec.md`](../architecture/hexagonal-architecture-spec.md)
 
 ---

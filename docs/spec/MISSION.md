@@ -78,52 +78,26 @@ feature compete for the same cycle, P2 wins every time.
 
 ## Phasing
 
-### Phase 1, Foundation (what works now)
-- Agent loop, LLM calls, streaming
-- Tool dispatch, approval gating
-- Read/write/search/bash tools
-- Basic TUI: scrollback, input, status bar, drawer
-- Session save/load
-- Config file + env vars
+### Phase 1, Foundation (shipped)
+The agent loop, streaming LLM client, tool dispatch with approval gating,
+read/write/search/bash/process tools, session save/load, config file + env
+resolution, and the terminal UI's scrollback, input and status bar are in
+`main` and covered by the suite.
 
-### Phase 2, UX Overhaul (next)
-- Command tree with `CommandNode`/`ArgSpec`/`FlagSpec`
-- Autosuggest shadow (always-visible completion)
-- Tab inline cycling (zsh-style)
-- Ctrl-D list-choices, Ctrl-R history search
-- Readline key bindings (Ctrl-A/E/B/F/W/U/K/Y/L/_, Alt-B/F/D)
-- `?` at any depth (typed `?` → help page)
-- Cisco IOS `/no` prefix, partial command acceptance
-- BitchX/IrcII shortcut aliases (`/q`, `/sl`, `/ss`)
-- Wire standalone `completion/` library into TUI palette
-- `/session` CRUD (list, save, load, delete, rename)
-- `/provider` CRUD (list, add, edit, delete, test)
-- `/model` management (list, set, probe)
-- `/job` management (list, start, read, kill)
-- `/files` browsing (ls, tree, open, find)
-- `/system` operations (exec, delete, rmdir, mkdir, mv, cp, info, ps, kill, df, uptime)
+### Phase 2, UX and reliability (shipped foundation, active work)
+The command tree (`completions.json`), autosuggest shadow, readline editing,
+`?`-at-depth, aliases, all CRUD namespaces (`/session`, `/provider`, `/model`,
+`/job`, `/files`, `/system`), the plugin framework (PF-1..PF-4, providers,
+tools, prompts, status segments, panels, wallets), MCP, skills and memory are
+shipped. The active work is the full ncurses shell (#512), asynchronous
+background work (#366), input ergonomics (#445), profiles (#440), git
+checkpoints (#441), and the 0.8 live benchmark gate (#371).
 
-### Phase 3, Long Haul (future)
-- `config` key-chain (unlimited depth)
-- File-path completion for commands
-- Background job notifications in status bar
-- Memory/skill promotion UI
-- Compression pipeline visibility in TUI
-- Multi-agent orchestration
-- **Plugin framework (in-process)**: typed contribution registries, typed
-  events, ledger-managed enable/disable, host services, provider plugins
-  (Gemini first, then the built-ins converted). Compiled-in bundled plugins
-  only; no loader. Phases PF-1..PF-5 in `docs/plugin-framework-tracker.md`;
-  sequenced after regressions and debt work, per the roadmap triage.
-- **Skills system**: two-tier (authored + learned), per `docs/spec/skills/`:
-  - Authored `SKILL.md` format + tolerant frontmatter parser (`skill-files.md`)
-  - `SkillCatalog` union view + persisted overrides (`skill-catalog.md`)
-  - Progressive disclosure: discovery metadata → `read_skill` activation → gated resources
-  - `read_skill` / `write_skill` / `list_skills` tools
-  - `/set skills` + `/get skills` subtree (create, delete, export, refresh, show, enable/disable/block, `interop`, `--global`)
-  - Learned-store graduation: `export` learned → global authored
-  - Opt-in interop with `.claude/skills` / `.codex/skills`
-  - Project-scoped experience store with one-time legacy migration
+### Phase 3, Long haul
+Release gates that measure the product (the live benchmark, patch coverage),
+multi-agent orchestration beyond detached workers, and the shell hardening
+that follows the component migration. These are tracked as issues, not as a
+second roadmap.
 
 ---
 
@@ -148,36 +122,44 @@ feature compete for the same cycle, P2 wins every time.
 
 ## Gap register
 
-Status: ✅ design resolved, 🔧 needs implementation, ❓ needs decision
+Status: ✅ shipped, 🔧 open, ❓ needs a decision. The GitHub issue tracker is the
+only open-work register; every open row names the issue that tracks it. A
+capability that ships moves to the shipped table rather than being deleted, so
+the history stays honest.
 
-| Gap | Layer | Phase | Status | Notes |
-|-----|-------|-------|--------|-------|
-| No `CommandNode` tree model | Implementation | P2 | 🔧 | Wire standalone `completion/` library |
-| No autosuggest shadow rendering | Implementation | P2 | 🔧 | Use existing gray `A_DIM` colour pair |
-| No `?` token interception | Implementation | P2 | 🔧 | Dual mode: no-space=inline popup, space=full page |
-| No readline key bindings | Implementation | P2 | 🔧 | Ctrl-A/E/B/F/W/U/K/Y/L/T/_, Alt-B/F/D |
-| No Ctrl-D / Ctrl-R | Implementation | P2 | 🔧 | Expected shell features |
-| No shortcut alias resolution | Implementation | P2 | 🔧 | BitchX/IrcII scheme, alias table in nested-commands |
-| Standalone `completion/` library not wired | Implementation | P2 | 🔧 | Exists, not connected to TUI |
-| `/session` CRUD incomplete | Impl | P2 | 🔧 | Missing delete, rename |
-| `/provider` CRUD incomplete | Impl | P2 | 🔧 | Missing list, add, edit, delete, test |
-| `/model` commands incomplete | Impl | P2 | 🔧 | Missing list, probe |
-| `/job` management incomplete | Impl | P2 | 🔧 | Missing list, start, kill |
-| `/files` browsing missing | Impl | P2 | 🔧 | ls, tree, open, find |
-| `/system` ops missing | Impl | P2 | 🔧 | exec, delete, rmdir, mkdir, mv, cp, info, ps, kill, df, uptime. `exec` can inject output into agent context. |
-| No file-path completion | Implementation | P2 | 🔧 | Standard shell behaviour (bash/zsh). Spec'd AC-20. |
-| Up/Down arbitration | Implementation | P2 | ✅ | zsh rule: empty=history, has matches=cycle, no matches=history-filtered |
-| `config` key-chain not implemented | Implementation | P3 | 🔧 | Unlimited depth config |
-| Memory/skill UI not wired | Implementation | P3 | ✅ | `/learn` and `/get learn` are a `completions.json` namespace with pty coverage; spec `docs/spec/memory/learn-ui.md` (#487). |
-| Skills system + acquisition | Implementation | P3 | ✅ | Authored/learned catalog, `/set skills`, and the skills.sh acquisition surface (explorer, install gate, updates, `amber-cli skills`). Spec: `docs/spec/skills/`; guide: `docs/skills-acquisition.md`. |
-| Agent loop untested (concrete LLMClient, no hermetic loop tests) | Implementation | P2 | ✅ | LLMClient is now a port with a scripted fake; hermetic loop tests landed (incl. a text-loop hard-stop fix). Spec: `docs/spec/llm-client/agent-loop-reliability.md`. Tracker: `docs/agent-loop-tracker.md`. |
-| MCP client not implemented | Implementation | P6 | 🔧 | Spec: `docs/spec/mcp/` (architecture, transport, client, ui, security). Tracker: `docs/mcp-tracker.md`. Client-only; no roots/sampling; untrusted-by-default. |
-| Learned store global-scoped (leaks across projects) | Design | P3 | ✅ | Per-project state at `$XDG_STATE_HOME/amber/projects/<slug>/experience.json` + one-time legacy adoption, per `memory/memory-store.md` |
-| Dead `Skill::steps`/`expected_outcome` fields | Design | P3 | ✅ | Dropped; learned skills are single-content entries, per `memory/extraction.md` |
-| Compression pipeline not visible in TUI | Implementation | P3 | 🔧 | Progress not shown |
-| Multi-agent orchestration | Strategy | P3 | ❓ | Future, no design yet |
-| `system exec` context enrichment | Design | P2 | ❓ | Inject captured output into agent conversation. No stdin (v1). |
-| File `open` as embedded TUI window | Design | P2 | ❓ | Scrollable window with Tab focus, not external pager. Supports context injection. |
+### Shipped
+
+| Capability | Evidence |
+|------------|----------|
+| Command tree, `?` at depth, aliases, autosuggest | `completions.json` + `SettingRegistry`; `tui/command-tree.md`; pty coverage in `tests/tui_pty_test.cpp` |
+| Readline editing (Ctrl-A/E/B/F/W/U/K/Y/T, Ctrl-D, kill/yank) | `tui/command_line.cpp`; `CommandLine` history and bracket-paste decoding |
+| `/session` CRUD (new/list/load/save/rename/remove/fork/compress) | `completions.json`; `lib/session.cpp`; session browser |
+| `/provider` list/test/delete + configuration | provider plugins; `lib/providers_repo_files.cpp`; `/get`/`/set provider` |
+| `/model` switch, list and probe | model feed under `/set model`; `lib/model_probe.cpp`; `/get model list` |
+| `/job` list/start/read/stop | `lib/job.cpp`; `completions.json`; job feed |
+| `/files` ls/tree/open/find | `completions.json`; resource-viewer windows |
+| `/system` exec/CRUD/process/disk ops | `completions.json`; `os.system.*` handlers; job-backed async execution |
+| Config key-chain (`/get`/`/set`, unlimited depth) | `SettingRegistry`; `docs/spec/tui/command-tree.md` |
+| Memory and skills UI | `/learn`, `/get learn`, `/skills`; `docs/spec/memory/learn-ui.md`, `docs/spec/skills/` |
+| Skills acquisition (explorer, install gate, updates, CLI) | #413, #414, #449, #454, #457, #458, #460; `docs/skills-acquisition.md` |
+| Hermetic agent-loop tests with a scripted LLM port | `tests/agent_loop_test.cpp`; `docs/spec/llm-client/agent-loop-reliability.md` |
+| MCP client (tools/resources/prompts, HTTP + stdio) | `plugins/mcp/`; `docs/spec/mcp/`; activation is off the startup path (#368) |
+| Plugin framework: capabilities, ledger, typed events, providers, status/panels/wallets | PF-1..PF-4; `docs/spec/plugins/plugin-framework.md`; `docs/plugin-framework-tracker.md` |
+| Per-project state and legacy adoption | `agent::config_paths()`; `docs/spec/memory/memory-store.md` |
+| Compression progress visible while it runs | `Window::compressing`; the activity verb in `tui/render_engine.cpp` |
+| Embedded file open (resource window, not a pager) | `/files open`; `tui/` resource viewer |
+
+### Open
+
+| Gap | Layer | Phase | Status | Tracking |
+|-----|-------|-------|--------|----------|
+| Ctrl-R reverse history search is still a stub | Implementation | P2 | 🔧 | #445 (input ergonomics) |
+| File-path Tab completion (bash/zsh standard) | Implementation | P2 | 🔧 | #445 |
+| Async background work: one task inventory, delivery/wake, persistence | Implementation | P3 | 🔧 | #366, #375-#383 |
+| Full ncurses component shell (cell surface, themes, screen migration) | Implementation | P3 | 🔧 | #512, #513-#519 |
+| Profiles and git-integrated checkpoints | Strategy | P3 | ❓ | #440, #441 |
+| 0.8 live benchmark baseline and a release gate | Implementation | P2 | 🔧 | #371 |
+| Multi-agent orchestration beyond `task` | Strategy | P3 | ❓ | #379 (detached workers) |
 
 ---
 

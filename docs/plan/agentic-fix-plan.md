@@ -1,6 +1,8 @@
 # Agentic Fix Plan — P1..P5 implementation guide (self-contained)
 
-Status: approved for implementation (strategy: `docs/plan/agentic-architecture-review.md`)
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+Status: **historical** — the P1..P5 items landed; kept as the implementation record.
 This document gives a fresh session everything needed to implement all five
 items. Follow the repo's TDD workflow for every item: RED test commit →
 green implementation → lint/analyze clean → **before/after live benchmark run**
@@ -322,11 +324,10 @@ store replaces it; no op-based API). Hermetic tests green, zero-warning
 build, no benchmark regression (qwen dense 913 → 911, within variance).
 **Adoption: 0** across all experiments (wiring / complexity / advertisement
 hypotheses all disproven with wire-level evidence — verdict: model training
-fit, H5). **Now feature-flagged: `plan_tool` config key / `AMBER_PLAN_TOOL`
-env, default OFF** — off means no registration, no schema, no prompt
-section (zero per-request cost); on registers the tool + appends
-`prompts/tools_planning.md`. The tool stays off until a model trained on
-the TodoWrite convention arrives or P4 lands. Reordered sequencing:
+fit, H5). **Historically feature-flagged: `plan_tool` config key /
+`AMBER_PLAN_TOOL` env, default OFF.** Both flags are now deleted; the tool is
+a bundled plugin (`plugins/tool_plan`) that ships enabled and contributes its
+prompt section through the plugin registry. Reordered sequencing:
 
 | Order | Item | Note |
 |---|---|---|
@@ -372,7 +373,7 @@ point; the model moves it ~9. Conclusion: keep the harness lean and
 correct; further agentic gains come from the model tier, not prompt
 engineering (P1/P3/P4 verdicts stand: nudges don't move weak models).
 
-## 6d. P4 status (2026-08-05, MECHANISM SHIPPED, flag-gated — adoption is framing-dependent)
+## 6d. P4 status (2026-08-05, MECHANISM SHIPPED; the flag is deleted and the plugin ships enabled)
 
 Sub-agents built and shipped: `task` tool + `SubAgentExecutor` with
 runtime-configurable serial/parallel execution (`/set subagent parallel|max`,
@@ -399,9 +400,9 @@ Two live A/B runs on the full corpus (Nemotron 550B free):
 **task usage: 0 calls in every repo scenario** — same adoption wall as P1.
 
 Verdict: default-on costs ~3 points of schema noise and buys nothing
-unprompted. **The tool is now flag-gated (`task_tool`, default off)** like
-plan_tool; the executor + serial/parallel config stay live and apply
-whenever the tool is enabled. A delegation-shaped scenario
+unprompted. **The tool was flag-gated (`task_tool`, default off) like
+plan_tool; both flags are deleted, `plugins/tool_task` ships enabled, and the
+executor + serial/parallel config stay live.** A delegation-shaped scenario
 (`d-01-two-area-survey`, suite `delegate`) invites splitting two
 independent surveys into task calls; live adoption when invited: **2/3 runs
 delegated (bullseye 1.0, 0 wasted steps)** vs 0% unprompted. Conclusion:

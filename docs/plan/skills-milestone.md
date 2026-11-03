@@ -1,5 +1,7 @@
 # Skills acquisition — completion milestone (M-skills)
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 One branch (`feat/skills-complete`), one PR when every issue below is finished.
 Commits are the tasks; nothing merges until the acceptance lists in the issues
 are met and the whole surface has been exercised by hand.
