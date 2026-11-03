@@ -949,8 +949,10 @@ TEST(anthropic_breakpoint_lands_on_the_tool_results_not_the_merged_tail) {
     ASSERT_EQ(out[2]["content"][0]["type"], "tool_result");
     ASSERT_EQ(out[2]["content"][1]["text"], "[session brief] intent: first");
 
-    // The breakpoint sits on the results, never on the brief behind them.
+    // The breakpoint sits on the results, never on the brief behind them, and
+    // it carries no `scope`: the API rejects that field on a tool_result block.
     ASSERT(out[2]["content"][0].contains("cache_control"));
+    ASSERT(!out[2]["content"][0]["cache_control"].contains("scope"));
     ASSERT(!out[2]["content"][1].contains("cache_control"));
 }
 
@@ -1011,7 +1013,11 @@ TEST(anthropic_global_scope_matches_the_claude_code_shape) {
                                         text_msg("user", "hello")};
     const agent::json body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(body["system"][0]["cache_control"]["scope"] == "global");
-    ASSERT(body["messages"].back()["content"].back()["cache_control"]["scope"] == "global");
+    // The moving breakpoint never carries a scope: on a tool_result the API
+    // rejects the whole request ("extra inputs are not permitted"). Only the
+    // stable prefix may ask for cross-identity reuse, as Claude Code does.
+    ASSERT(body["messages"].back()["content"].back().contains("cache_control"));
+    ASSERT(!body["messages"].back()["content"].back()["cache_control"].contains("scope"));
     ASSERT(!body.contains("cache_control"));
 
     const auto headers = d->auth_headers(cfg);

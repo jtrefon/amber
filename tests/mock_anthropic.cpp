@@ -154,6 +154,12 @@ std::string MockAnthropic::base() const {
     return "http://127.0.0.1:" + std::to_string(port_);
 }
 
+void MockAnthropic::reject_once(const std::string& needle, const std::string& message) {
+    std::scoped_lock lk(mtx_);
+    reject_needle_ = needle;
+    reject_message_ = message;
+}
+
 void MockAnthropic::set_cache_miss_reason(const std::string& reason) {
     std::scoped_lock lk(mtx_);
     miss_reason_ = reason;
@@ -274,11 +280,26 @@ void MockAnthropic::handle(int conn) {
 
     json body = json::parse(req.body, nullptr, false);
     const bool stream = !body.is_discarded() && body.value("stream", false);
-    const std::string response = message_json(req.body, stream);
-    const std::string head = std::string("HTTP/1.1 200 OK\r\nContent-Type: ") +
-                             (stream ? "text/event-stream" : "application/json") +
-                             "\r\nContent-Length: " + std::to_string(response.size()) +
-                             "\r\nConnection: close\r\n\r\n";
+    std::string response;
+    std::string status = "200 OK";
+    {
+        std::scoped_lock lk(mtx_);
+        if (!reject_needle_.empty() && req.body.find(reject_needle_) != std::string::npos) {
+            const std::string message = reject_message_;
+            reject_needle_.clear();
+            reject_message_.clear();
+            response = json{{"type", "error"},
+                            {"error", {{"type", "invalid_request_error"}, {"message", message}}}}
+                           .dump();
+            status = "400 Bad Request";
+        }
+    }
+    if (response.empty())
+        response = message_json(req.body, stream);
+    const std::string head =
+        std::string("HTTP/1.1 ") + status +
+        "\r\nContent-Type: " + (stream ? "text/event-stream" : "application/json") +
+        "\r\nContent-Length: " + std::to_string(response.size()) + "\r\nConnection: close\r\n\r\n";
     const std::string http = head + response;
     std::size_t sent = 0;
     while (sent < http.size()) {
