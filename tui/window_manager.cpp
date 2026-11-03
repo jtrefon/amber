@@ -157,6 +157,7 @@ void WindowManager::set_active(size_t idx) noexcept {
     if (idx >= windows_.size())
         return;
     windows_[idx]->ever_focused = true;
+    windows_[idx]->attention = Window::Attention::None;
     if (windows_[idx]->kind == Window::Kind::Chat)
         last_chat_ = idx;
 }

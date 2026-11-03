@@ -55,6 +55,9 @@ void init_pairs() {
     init_pair(P_MD_HR, COLOR_CYAN, -1);
     // The completion hint must be visible: gray on the default background.
     init_pair(P_INPUT_SHADOW, 245, -1);
+    // Idle hints are quieter than typed text, but still readable on the
+    // terminal's background. 16-colour terminals get dark green.
+    init_pair(P_HINT, COLORS >= 256 ? 240 : COLOR_GREEN, -1);
     // The working pulse. The gauge is one light shade (white on the bar, over
     // both a filled cell and the track) so the glint cannot be mistaken for a
     // pressure colour. The verb fades through the terminal's bright row (11)
@@ -64,6 +67,9 @@ void init_pairs() {
     init_pair(P_GAUGE_CRIT_HI, COLOR_WHITE, COLOR_BLUE);
     init_pair(P_TEXT_SHINE_MID, 11, -1);
     init_pair(P_TEXT_SHINE_HI, COLOR_WHITE, -1);
+    // Amber is 214 in the 256-colour palette; the 16-colour fallback is the
+    // bright yellow that reads as amber on the blue rail.
+    init_pair(P_BRAND, COLORS >= 256 ? 214 : COLOR_YELLOW, COLOR_BLUE);
 }
 
 Dialog::Dialog(int h, int w, const std::string& title) : Panel(h, w, title) {}

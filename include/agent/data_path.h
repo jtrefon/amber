@@ -17,6 +17,13 @@ namespace agent {
 // packaged installs find system data from any working directory.
 std::vector<std::string> data_file_candidates(const std::string& path, const char* argv0);
 
+// App-bundled data only: the explicit path, the binary directory, the FHS
+// sibling, the configured data dir and the conventional system dirs. User-data
+// roots are deliberately absent, so a bundled file can never be shadowed by an
+// environment-selected path. Menus and hints use this; keybindings and the
+// command tree keep the full search because users may edit those.
+std::vector<std::string> bundled_data_candidates(const std::string& path, const char* argv0);
+
 // First existing candidate, or "" when the file exists nowhere.
 inline std::string resolve_data_path(const std::string& path, const char* argv0) {
     for (const auto& c : data_file_candidates(path, argv0)) {

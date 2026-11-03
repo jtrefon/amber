@@ -7,12 +7,16 @@
 
 #include <atomic>
 #include <chrono>
+#include <ctime>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "canvas.h"
 #include "input_line_layout.h"
+#include "menu_view.h"
+#include "top_bar.h"
 #include "markdown.h"
 #include "rich.h"
 #include "palette.h"
@@ -32,6 +36,15 @@ public:
 
     int height() const;
     int width() const;
+    // The top rail is two rows (tabs + rule) on a normal terminal, one row on a
+    // short one, and absent when there is no room above the status/input pair.
+    int top_rows() const;
+    // The session tab under a screen cell, when the top rail owns that row.
+    std::optional<std::size_t> tab_at(int x, int y) const;
+    // The close cell inside a tab, when the click landed on its `×`.
+    std::optional<std::size_t> tab_close_at(int x, int y) const;
+    // The menu title/item/dropdown under a screen cell.
+    std::optional<menu::Hit> menu_hit(int x, int y) const;
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;
@@ -77,6 +90,9 @@ public:
     void draw_right_zone(int y, int w, int right_w,
                          const std::vector<status_bar_layout::Segment>& right_zone);
     void draw_status_bar();
+    // The top rail: bare amber mark, capped session tabs, health pulse, clock
+    // and the icon-only right tray. The bottom bar paints itself.
+    void draw_top_bar();
     // The row the working line occupies, when it is shown.
     int working_row() const;
     // Advance the 150 ms frame the spin glyph steps through. The sweep itself is
@@ -155,6 +171,24 @@ private:
     // (status_bar_layout) and this class only paints the plan.
     using Seg = status_bar_layout::Segment;
     std::vector<Seg> bar_segments() const;
+    std::vector<Seg> top_segments() const;
+    std::vector<top_bar::Tab> top_tabs() const;
+    int top_right_width(const std::vector<Seg>& tops, const std::string& pulse) const;
+    void draw_top_tabs(const top_bar::Layout& layout, int left_w);
+    void draw_top_right(int w, const std::vector<Seg>& tops, const std::string& pulse, bool lit);
+    void draw_top_rule(int active_start, int active_width, bool utf8);
+    void draw_menu_dropdown();
+    void draw_menu_titles(int left_w, bool utf8);
+    void draw_menu_box(const menu::Rect& box, const std::vector<menu::Item>& items,
+                       std::size_t selected, bool utf8);
+    void draw_menu_frame(const menu::Rect& box, bool utf8);
+    void draw_menu_items(const menu::Rect& box, const std::vector<menu::Item>& items,
+                         std::size_t selected, bool utf8);
+    void draw_menu_row(const menu::Rect& box, int row, const menu::Item& item, bool chosen,
+                       bool utf8);
+    void draw_menu_separator(const menu::Rect& box, int row, bool utf8);
+    void put_menu_glyph(int row, int col, const std::string& glyph, int pair);
+    void put_menu_hline(int row, int col, int n, const std::string& glyph, int pair);
     agent::StatusSnapshot build_status_snapshot() const;
     static int tone_pair(agent::StatusTone tone);
     static int display_cols(const std::string& s);
@@ -162,6 +196,8 @@ private:
     static int gauge_pair(double f);
     // Draw one input-line piece at `x`, advancing it (truncated to the width).
     void put_input(int y, int w, int& x, const std::string& text, int pair, int attrs = 0);
+    // The same for top-rail spans, which carry an attribute as well as a pair.
+    void put_span(int y, int w, int& x, const std::string& text, int pair, int attrs);
     // Draw the dim completion hint after the input, when the cursor is at the end.
     void draw_input_shadow(int y, int w, int prompt_w, int scroll_off, const std::string& input,
                            std::size_t cursor, const std::string& shadow);
@@ -209,6 +245,14 @@ private:
     bool working_row_owned_ = false;
     bool dirty_ = true;
     std::chrono::steady_clock::time_point last_status_tick_{};
+    // The top rail changes on the second (clock + pulse), not on every idle
+    // tick. Cached so the 150 ms loop does not repaint it seven times.
+    std::time_t last_top_second_ = 0;
+    // The last painted rail, kept for mouse hit-testing. Repainted whenever the
+    // tabs or the width change, so it cannot lag a click behind the screen.
+    top_bar::Layout top_layout_;
+    // The last painted menu surface, kept for mouse hit-testing.
+    menu::Layout menu_layout_;
 };
 
 } // namespace tui

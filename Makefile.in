@@ -262,6 +262,9 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/list_panel.o \
              $(BUILD_DIR)/tui/confirm_panel.o \
               $(BUILD_DIR)/tui/menu_select.o \
+             $(BUILD_DIR)/tui/menu_model.o \
+             $(BUILD_DIR)/tui/menu_view.o \
+             $(BUILD_DIR)/tui/menu_controller.o \
               $(BUILD_DIR)/tui/session_browser_core.o \
              $(BUILD_DIR)/tui/feed_manager.o \
              $(BUILD_DIR)/tui/panel_view.o \
@@ -277,6 +280,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/tui_window_ops_hooks.o \
              $(BUILD_DIR)/tui/run_registry.o \
              $(BUILD_DIR)/tui/path_confine.o \
+             $(BUILD_DIR)/tui/hints.o \
+             $(BUILD_DIR)/tui/top_bar.o \
              $(BUILD_DIR)/tui/textutil.o \
              $(BUILD_DIR)/tui/git_reads.o \
             $(BUILD_DIR)/tui/palette.o \
@@ -302,6 +307,9 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/log_retention_test.o \
                $(BUILD_DIR)/tests/skill_update_review_test.o \
                $(BUILD_DIR)/tests/skill_shelves_test.o \
+               $(BUILD_DIR)/tests/top_bar_test.o \
+               $(BUILD_DIR)/tests/menu_test.o \
+               $(BUILD_DIR)/tests/hints_test.o \
                $(BUILD_DIR)/tests/mcp_transport_test.o \
                $(BUILD_DIR)/tests/mcp_client_test.o \
                $(BUILD_DIR)/tests/mcp_config_test.o \
@@ -1087,8 +1095,8 @@ class-size-update:
 
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
 
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
@@ -1257,6 +1265,9 @@ install-runtime: all
 	# keybindings.json and the skill shelf tables are read by the TUI at startup;
 	# an install without them silently loses user bindings and the skills surface.
 	install -m 644 keybindings.json $(DESTDIR)$(datadir)/
+	# menus.json and hints.json are the shell's presentation, read like keybindings.
+	install -m 644 menus.json $(DESTDIR)$(datadir)/
+	install -m 644 hints.json $(DESTDIR)$(datadir)/
 	install -d $(DESTDIR)$(datadir)/data
 	install -m 644 data/*.json $(DESTDIR)$(datadir)/data/
 	# Plugin executables are architecture-dependent and belong in libexec, not in

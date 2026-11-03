@@ -41,6 +41,7 @@ enum Pair {
     P_MD_TABLE,     // table rows
     P_MD_HR,        // horizontal rule
     P_INPUT_SHADOW, // faded completion hint (gray on default bg)
+    P_HINT,         // idle hint after the prompt (darker than typed text)
     // The working pulse. The gauge runs solid: three cells in the one light
     // shade, so it never reads as a fourth health state or as a second signal.
     // The verb keeps the fade, whose mid step is the bright hue.
@@ -49,6 +50,7 @@ enum Pair {
     P_GAUGE_CRIT_HI,  // white on blue
     P_TEXT_SHINE_MID, // bright yellow on the transcript background
     P_TEXT_SHINE_HI,  // white on the transcript background
+    P_BRAND,          // amber mark on the top rail
     // Grayscale art pairs (24 levels, 0=black .. 23=near-white).
     P_GRAY = 100, // grayscale art base (0 + 24 levels)
 };

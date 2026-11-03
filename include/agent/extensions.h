@@ -194,6 +194,27 @@ enum class StatusAlign {
     Right // at the right edge: highest priority closest to the edge
 };
 
+// Which bar a segment belongs to. The bottom bar keeps the existing contract;
+// the top rail uses the same registry for its clock and tray, so a plugin does
+// not need a second contribution path to put an icon at the top.
+enum class StatusZone {
+    Bottom,
+    Top,
+};
+
+// Where a segment attaches. Keeping the two axes in one value keeps the
+// registry's signature inside the project's parameter cap as the top rail adds
+// a second bar.
+struct StatusPlacement {
+    StatusAlign align = StatusAlign::Left;
+    StatusZone zone = StatusZone::Bottom;
+
+    StatusPlacement() = default;
+    // A bare alignment keeps existing plugin source compiling: the old API's
+    // last argument was StatusAlign, and the bottom bar remains the default.
+    StatusPlacement(StatusAlign a, StatusZone z = StatusZone::Bottom) : align(a), zone(z) {}
+};
+
 // A rendered segment, in display order.
 struct StatusSegment {
     std::string id;
@@ -201,6 +222,7 @@ struct StatusSegment {
     StatusTone tone = StatusTone::Dim;
     int drop_priority = 0; // higher drops first when the bar is too narrow
     StatusAlign align = StatusAlign::Left;
+    StatusZone zone = StatusZone::Bottom;
 };
 
 // The status bar is composed from these, never from a hardcoded list: amber's
@@ -211,7 +233,7 @@ public:
     using Render = std::function<StatusText(const StatusSnapshot&)>;
 
     Contribution add(const std::string& owner, const std::string& id, int priority,
-                     int drop_priority, Render render, StatusAlign align = StatusAlign::Left);
+                     int drop_priority, Render render, StatusPlacement placement = {});
 
     // Segments that produced text, in (priority, registration) order.
     std::vector<StatusSegment> render(const StatusSnapshot& snapshot) const;
@@ -227,6 +249,7 @@ private:
         int drop_priority = 0;
         std::size_t seq = 0;
         StatusAlign align = StatusAlign::Left;
+        StatusZone zone = StatusZone::Bottom;
         Render render;
     };
     std::vector<Entry> entries_;
@@ -736,7 +759,7 @@ private:
 class StatusSegmentCapability : public Capability {
 public:
     StatusSegmentCapability(std::string id, int priority, int drop_priority,
-                            StatusRegistry::Render render, StatusAlign align = StatusAlign::Left);
+                            StatusRegistry::Render render, StatusPlacement placement = {});
     std::string name() const override { return id_; }
     CapabilityKind kind() const override { return CapabilityKind::StatusSegment; }
     InstallResult install(PluginServices& services) override;
@@ -745,7 +768,7 @@ private:
     std::string id_;
     int priority_;
     int drop_priority_;
-    StatusAlign align_ = StatusAlign::Left;
+    StatusPlacement placement_;
     StatusRegistry::Render render_;
 };
 

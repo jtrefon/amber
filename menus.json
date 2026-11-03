@@ -1,0 +1,58 @@
+{
+  "menus": [
+    {
+      "label": "File",
+      "items": [
+        {"label": "New session", "action": "core.window.new"},
+        {"label": "Project list", "action": "core.project.list"},
+        {"separator": true},
+        {"label": "Save session", "action": "core.session.save"},
+        {"label": "Close tab", "action": "core.window.close"},
+        {"separator": true},
+        {"label": "Quit", "action": "core.quit"}
+      ]
+    },
+    {
+      "label": "Session",
+      "items": [
+        {"label": "Next tab", "action": "ui.tab.next"},
+        {"label": "Previous tab", "action": "ui.tab.prev"},
+        {"separator": true},
+        {"label": "List tabs", "action": "core.window.list"},
+        {"label": "Close tab", "action": "core.window.close"}
+      ]
+    },
+    {
+      "label": "View",
+      "items": [
+        {"label": "Tabs", "children": [
+          {"label": "Next tab", "action": "ui.tab.next"},
+          {"label": "Previous tab", "action": "ui.tab.prev"}
+        ]},
+        {"label": "Toggle reasoning", "action": "ui.view.reasoning"},
+        {"label": "Toggle mouse", "action": "ui.mouse.toggle"},
+        {"label": "Scroll mode", "action": "ui.scroll.toggle"},
+        {"separator": true},
+        {"label": "Panels", "action": "core.panel"}
+      ]
+    },
+    {
+      "label": "Tools",
+      "items": [
+        {"label": "Settings", "action": "core.settings"},
+        {"label": "Providers", "action": "core.provider.list"},
+        {"label": "Skills", "action": "core.skills.browse"},
+        {"label": "Jobs", "action": "core.job.list"},
+        {"label": "Work board", "action": "core.work"},
+        {"label": "Learned items", "action": "core.learn.panel"}
+      ]
+    },
+    {
+      "label": "Help",
+      "items": [
+        {"label": "Keys and help", "action": "core.help"},
+        {"label": "Config paths", "action": "core.config.get.config.paths"}
+      ]
+    }
+  ]
+}

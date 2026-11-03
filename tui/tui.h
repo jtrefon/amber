@@ -70,6 +70,7 @@ enum class PromptOutcome {
 
 using palette::Command;
 class FeedManager;
+class MenuController;
 class WindowManager;
 class EventRouter;
 class RenderEngine;
@@ -92,7 +93,6 @@ struct PendingRebuild {
 
 class Tui {
     friend class FeedManager;
-    friend class WindowManager;
     friend class EventRouter;
     friend class RenderEngine;
     friend class SessionController;
@@ -239,7 +239,6 @@ private:
     // ---- slash command framework (owned by SlashDispatcher) --------------
     const std::vector<tui::Command>& commands();
     bool handle_slash(const std::string& line);
-    void refresh_completions();
     void register_action(const std::string& action,
                          std::function<void(const std::string&)> handler);
     bool busy_reject(const std::string& what);
@@ -308,6 +307,7 @@ private:
     agent::PluginRuntime& plugin_runtime_;      // v2 runtime (registries + ledger)
     std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
     std::string input_fill_;                    // /prompt result applied to the input line
+    std::unique_ptr<MenuController> menu_;
     tui::SettingRegistry settings_;
     void build_settings();
     // Provider management (the /settings screen): build the picker rows, add a
@@ -403,7 +403,8 @@ private:
     bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);
     bool cancel_active_run(int ch, CommandLine& cl);
     bool handle_ctrl_c(int ch, CommandLine& cl);
-    bool handle_mouse_wheel(int ch, CommandLine& cl);
+    bool handle_mouse(int ch, CommandLine& cl);
+    bool handle_tab_click(const MEVENT& ev);
     bool scroll_mode_nav(int ch);
     detail::PromptOutcome route_to_command_line(int ch, CommandLine& cl,
                                                 CommandLine::Result& result);

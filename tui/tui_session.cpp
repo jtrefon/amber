@@ -504,7 +504,9 @@ void Tui::switch_to(size_t idx) {
 }
 
 void Tui::close_window() {
-    window_ops_->close_window();
+    const WindowOpResult result = window_ops_->close_window();
+    if (!result.ok && !result.msg.empty())
+        append_line(P_STATUS, result.msg);
 }
 
 void SessionController::save_workspace_now() {

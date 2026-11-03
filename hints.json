@@ -1,0 +1,24 @@
+{
+  "hints": [
+    "Hint: F10 opens the top menu.",
+    "Hint: click the amber mark to open the menu.",
+    "Hint: Alt+1…9 jumps between sessions.",
+    "Hint: Ctrl+N starts a new session.",
+    "Hint: type / to browse commands; Tab completes.",
+    "Hint: ? opens help for the command you are typing.",
+    "Hint: /help lists every command.",
+    "Hint: Esc cancels the running turn.",
+    "Hint: Alt+M gives drag-select back to the terminal.",
+    "Hint: the mouse wheel scrolls the transcript.",
+    "Hint: /session list shows saved sessions.",
+    "Hint: /project list shows known projects.",
+    "Hint: /project open <path> opens another project.",
+    "Hint: /skills browse opens the skills explorer.",
+    "Hint: /panel opens plugin panels.",
+    "Hint: /usage shows token spend and cache reads.",
+    "Hint: /get config paths shows where amber keeps its files.",
+    "Hint: /window list shows the open windows.",
+    "Hint: click a tab to switch; click × to close it.",
+    "Hint: [s1/3] shows the active session among open sessions."
+  ]
+}

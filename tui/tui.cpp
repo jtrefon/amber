@@ -1,5 +1,6 @@
 #include "tui.h"
 #include "command_line.h"
+#include "menu_controller.h"
 #include "confirm_panel.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
@@ -26,6 +27,7 @@
 
 #include "plugins/watch/watch_plugin.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <memory>
@@ -125,6 +127,13 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         install_signal_handlers();
         wire_plugin_runtime();
         build_managers();
+        menu_ = std::make_unique<MenuController>(
+            [this](const std::string& action, const std::string& arg) {
+                return slash_dispatcher_->run_action(action, arg);
+            },
+            [this] { draw(); },
+            [this](const std::string& message) { append_line(P_STATUS, message); });
+        menu_->load_data();
         load_key_bindings();
         restore_workspace();
     } catch (...) {
@@ -140,10 +149,11 @@ void Tui::toggle_mouse() {
     // selection. Turning it off is the plain way to select and copy (Cmd/Ctrl+C
     // as usual, no Shift chord); the wheel then scrolls the terminal instead of
     // the chat log, which is the trade-off being made consciously.
-    mousemask(mouse_on_ ? (BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
+    mousemask(mouse_on_ ? (BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
     append_line(P_STATUS,
-                mouse_on_ ? "mouse: on — wheel scrolls, Alt+M gives selection back"
-                          : "mouse: off — drag selects and copies; Alt+M turns the wheel back on");
+                mouse_on_
+                    ? "mouse: on — wheel scrolls, tab clicks switch, Alt+M gives selection back"
+                    : "mouse: off — drag selects and copies; Alt+M turns mouse reporting back on");
 }
 
 void Tui::init_terminal() {
@@ -157,12 +167,12 @@ void Tui::init_terminal() {
     set_escdelay(25);
     curs_set(1);
     start_color();
-    // Mouse wheel events (BUTTON4/5) scroll the chat log. Enabling mouse
-    // reporting replaces terminal-level click-drag selection — the trade-off
-    // documented in docs/architecture/scroll-design.md — but keeps wheel
-    // ticks distinct from arrow keys, so Up/Down stay prompt-history
-    // navigation instead of the xterm alt-scroll aliasing.
-    mousemask(BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
+    // Wheel events scroll the chat log; button 1 clicks the top rail's tabs.
+    // Enabling mouse reporting replaces terminal-level click-drag selection —
+    // the trade-off documented in docs/architecture/scroll-design.md — but
+    // keeps wheel ticks distinct from arrow keys, so Up/Down stay
+    // prompt-history navigation instead of the xterm alt-scroll aliasing.
+    mousemask(BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
     mouseinterval(0);
     // From here the terminal has modes that outlive the process: anything that
     // exits without endwin() must undo them itself.
@@ -596,6 +606,10 @@ void Tui::run() {
             continue;
         }
 
+        menu_->note_input(std::chrono::steady_clock::now());
+        if (menu_->handle_key(ch))
+            continue;
+
         if (handle_option_key(ch, cl))
             continue;
 
@@ -603,7 +617,7 @@ void Tui::run() {
             continue;
         if (handle_ctrl_c(ch, cl))
             continue;
-        if (handle_mouse_wheel(ch, cl))
+        if (handle_mouse(ch, cl))
             continue;
 
         CommandLine::Result result;
@@ -649,7 +663,7 @@ void Tui::run_startup(CommandLine& cl) {
     // Load completion metadata from JSON (help text, choices, ranges). This is
     // the single source of truth for completion metadata — code edits cannot
     // break completion unless the JSON file is damaged.
-    refresh_completions();
+    slash_dispatcher_->refresh_completions();
 
     // CommandLine is pure logic (no ncurses) and fully tested via e2e tests.
     cl.set_history(win().prompt_history);
@@ -791,10 +805,14 @@ void Tui::poll_watch_usage() {
 // that animate (the working line and the status bar) repaint on every tick, so
 // the sweep moves in the event loop's own steps instead of jumping at 150 ms.
 void Tui::idle_tick(bool had_events, CommandLine& cl) {
+    const auto now = std::chrono::steady_clock::now();
+    const bool hint_eligible = cl.text().empty() && !runs_.busy(win().id) && !modal_open_ &&
+                               !menu_->is_open() && !render_engine_->drawer_open();
+    menu_->update_hint(now, hint_eligible && !had_events);
+
     if (had_events) {
         draw();
     } else {
-        auto now = std::chrono::steady_clock::now();
         if (runs_.busy(win().id))
             render_engine_->tick_pulse();
         if (now - render_engine_->last_status_tick() > std::chrono::milliseconds(150)) {
@@ -1001,20 +1019,56 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
 
 // Mouse wheel: scroll the chat log (never prompt history). Wheel ticks arrive
 // as KEY_MOUSE (alt-scroll is off), so this is the only place they can land;
-// Up/Down keys keep their meaning.
-bool Tui::handle_mouse_wheel(int ch, CommandLine& cl) {
+// Up/Down keys keep their meaning. Button 1 on the top rail selects a session
+// tab; the hit map is the one the last paint used, so a click cannot land on a
+// tab the user is not looking at.
+bool Tui::handle_mouse(int ch, CommandLine& cl) {
     if (ch != KEY_MOUSE)
         return false;
     MEVENT ev;
-    if (getmouse(&ev) == OK) {
-        int delta = scroll_dispatch::wheel_delta(ev.bstate);
-        if (delta != 0) {
-            win().scroll_top = scroll_dispatch::clamped_scroll_top(
-                win().scroll_top, delta, render_engine_->max_scroll(win()));
-            render_engine_->draw();
-            render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
-        }
+    if (getmouse(&ev) != OK)
+        return true;
+    const bool click = (ev.bstate & BUTTON1_PRESSED) != 0;
+    if (click && ev.y == 0 && ev.x == 0) {
+        menu_->toggle();
+        return true;
     }
+    if (menu_->is_open()) {
+        if (!click)
+            return true;
+        const auto hit = render_engine_->menu_hit(ev.x, ev.y);
+        if (!hit) {
+            menu_->close();
+            return true;
+        }
+        return menu_->handle_hit(*hit);
+    }
+    const int delta = scroll_dispatch::wheel_delta(ev.bstate);
+    if (delta != 0) {
+        win().scroll_top = scroll_dispatch::clamped_scroll_top(win().scroll_top, delta,
+                                                               render_engine_->max_scroll(win()));
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    }
+    if (!click)
+        return true;
+    return handle_tab_click(ev);
+}
+
+bool Tui::handle_tab_click(const MEVENT& ev) {
+    const auto close_id = render_engine_->tab_close_at(ev.x, ev.y);
+    const auto id = close_id ? close_id : render_engine_->tab_at(ev.x, ev.y);
+    if (!id)
+        return true;
+    const auto& all = window_manager_->all();
+    const auto it =
+        std::find_if(all.begin(), all.end(), [id](const auto& wp) { return wp && wp->id == *id; });
+    if (it == all.end())
+        return true;
+    switch_to(static_cast<std::size_t>(it - all.begin()));
+    if (close_id)
+        close_window();
     return true;
 }
 
@@ -1280,9 +1334,6 @@ void Tui::register_action(const std::string& action,
 }
 bool Tui::busy_reject(const std::string& what) {
     return slash_dispatcher_->busy_reject(what);
-}
-void Tui::refresh_completions() {
-    slash_dispatcher_->refresh_completions();
 }
 void Tui::refresh_model_list() {
     slash_dispatcher_->refresh_model_list();

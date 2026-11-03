@@ -29,6 +29,7 @@ enum : int {
     kPPage = 339,     // KEY_PPAGE
     kEnter = 343,     // KEY_ENTER
     kBtab = 353,      // KEY_BTAB (shift-Tab)
+    kF10 = 274,       // KEY_F(10) — the shell's menu key
     kMouse = 409,     // KEY_MOUSE
     kResize = 410,    // KEY_RESIZE
 };
