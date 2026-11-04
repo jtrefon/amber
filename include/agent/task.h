@@ -3,6 +3,7 @@
 
 #include "agent/process.h"
 
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -114,6 +115,19 @@ public:
     // cancelled; cancel() then records Unknown rather than lying.
     bool attach_cancel(const std::string& id, std::function<bool(const CancellationToken&)> fn);
 
+    // Create a record for an already-running backend and remember its id (a
+    // JobService job, a watch record, a worker handle). The backend-specific
+    // tool uses backend_id() to read output or map a cancel.
+    std::string adopt_job(const std::string& job_id, TaskRecord record,
+                          std::string* error = nullptr);
+    std::string backend_id(const std::string& id) const;
+
+    // Block until the task is terminal, the deadline expires, or the caller
+    // cancels. Returns nullopt on timeout/cancel. Never polls: transitions
+    // notify the condition variable.
+    std::optional<TaskRecord> wait_for_terminal(const std::string& id, int timeout_ms,
+                                                const CancellationToken& token) const;
+
     std::optional<TaskRecord> get(const std::string& id) const;
     std::vector<TaskRecord> list(const std::string& owner_id) const;
     std::vector<TaskRecord> all() const;
@@ -137,7 +151,10 @@ private:
     EventKind transition_locked(Entry& entry, TaskState to, EventKind event) noexcept;
 
     mutable std::mutex mtx_;
+    mutable std::condition_variable cv_;
     std::map<std::string, Entry> tasks_;
+    // task id -> backend handle (job id, watch id, worker handle).
+    std::map<std::string, std::string> backends_;
     EventBus* events_ = nullptr;
     TaskLimits limits_;
     std::uint64_t generation_ = 0;

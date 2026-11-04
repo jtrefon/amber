@@ -5,6 +5,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -52,8 +53,26 @@ struct JobInfo {
 // deltas are read directly off the pipe rather than polling a file.
 class Job {
 public:
+    // Called once on the reader thread after the terminal state is committed,
+    // outside every lock. The sink must not block: it is the completion edge a
+    // TaskService adapter uses to finish its record.
+    using Completion = std::function<void(const JobInfo&)>;
+
+    // One start request. The six-argument overload below is the common shape;
+    // this one carries the completion sink without growing the parameter list.
+    struct Start {
+        std::string id;
+        std::string command;
+        std::string cwd;
+        long hard_timeout_s = 0;
+        long idle_timeout_s = 0;
+        std::string* err = nullptr;
+        Completion on_complete;
+    };
+
     // Spawn `command` (via /bin/sh -c) in `cwd`; start a reader thread.
     // Returns nullptr on spawn failure (with `err` set).
+    static std::unique_ptr<Job> start(const Start& options);
     static std::unique_ptr<Job> start(const std::string& id, const std::string& command,
                                       const std::string& cwd, long hard_timeout_s,
                                       long idle_timeout_s, std::string& err);
@@ -129,6 +148,7 @@ private:
     std::chrono::steady_clock::time_point last_output_;
 
     std::thread reader_;
+    Completion on_complete_;
 };
 
 // Host-owned registry of background jobs. Thread-safe; the TUI and the
@@ -139,7 +159,8 @@ public:
     // Start a background job. `cwd` defaults to the confined workspace root.
     // `idle_timeout_s`/`hard_timeout_s` are seconds (0 disables that limit).
     std::string start(const std::string& command, const std::string& cwd = "",
-                      long hard_timeout_s = 600, long idle_timeout_s = 30, JobOrigin origin = {});
+                      long hard_timeout_s = 600, long idle_timeout_s = 30, JobOrigin origin = {},
+                      Job::Completion on_complete = {});
 
     // Kill a job by id; returns true if it existed.
     bool stop(const std::string& id);

@@ -13,23 +13,28 @@
 
 namespace agent {
 
-std::unique_ptr<Job> Job::start(const std::string& id, const std::string& command,
-                                const std::string& cwd, long hard_timeout_s, long idle_timeout_s,
-                                std::string& err) {
+std::unique_ptr<Job> Job::start(const Start& options) {
     // Private constructor, so make_unique cannot reach it (it gained that support
     // only with C++20 deducing-this). The marker must be on this line: it is
     // matched per line, not per comment block.
     auto job = std::unique_ptr<Job>(new Job); // hygiene-allow: private ctor
-    job->id_ = id;
-    job->command_ = command;
-    job->cwd_ = cwd;
-    job->hard_timeout_s_ = hard_timeout_s;
-    job->idle_timeout_s_ = idle_timeout_s;
+    job->id_ = options.id;
+    job->command_ = options.command;
+    job->cwd_ = options.cwd;
+    job->hard_timeout_s_ = options.hard_timeout_s;
+    job->idle_timeout_s_ = options.idle_timeout_s;
     job->start_ = std::chrono::steady_clock::now();
     job->last_output_ = job->start_;
-    if (!job->begin(err))
+    job->on_complete_ = options.on_complete;
+    if (!job->begin(*options.err))
         return nullptr;
     return job;
+}
+
+std::unique_ptr<Job> Job::start(const std::string& id, const std::string& command,
+                                const std::string& cwd, long hard_timeout_s, long idle_timeout_s,
+                                std::string& err) {
+    return start(Start{id, command, cwd, hard_timeout_s, idle_timeout_s, &err, {}});
 }
 
 void Job::set_origin(JobOrigin origin) {
@@ -223,9 +228,13 @@ void Job::reader_loop() {
     }
     close(read_fd_);
     read_fd_ = -1;
-    std::scoped_lock lk(mtx_);
-    if (state_ == JobState::Running || state_ == JobState::Starting)
-        state_ = JobState::Done;
+    {
+        std::scoped_lock lk(mtx_);
+        if (state_ == JobState::Running || state_ == JobState::Starting)
+            state_ = JobState::Done;
+    }
+    if (on_complete_)
+        on_complete_(info());
 }
 
 void Job::set_state(JobState s) {
@@ -241,7 +250,8 @@ long Job::sec_since(const std::chrono::steady_clock::time_point& tp) const {
 // ---- JobService -----------------------------------------------------------
 
 std::string JobService::start(const std::string& command, const std::string& cwd,
-                              long hard_timeout_s, long idle_timeout_s, JobOrigin origin) {
+                              long hard_timeout_s, long idle_timeout_s, JobOrigin origin,
+                              Job::Completion on_complete) {
     // Confine the working directory to the workspace: an unconfined cwd would
     // let the model root a background shell anywhere on disk.
     std::string dir = cwd.empty() ? Workspace::workspace_root() : cwd;
@@ -251,7 +261,8 @@ std::string JobService::start(const std::string& command, const std::string& cwd
     dir = confined;
     std::string id = std::to_string(++counter_);
     std::string spawn_err;
-    auto job = Job::start(id, command, dir, hard_timeout_s, idle_timeout_s, spawn_err);
+    auto job = Job::start(Job::Start{id, command, dir, hard_timeout_s, idle_timeout_s, &spawn_err,
+                                     std::move(on_complete)});
     if (!job)
         return ""; // spawn failed; empty id signals error
     job->set_origin(std::move(origin));

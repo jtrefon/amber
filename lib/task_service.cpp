@@ -253,6 +253,7 @@ bool TaskService::finish(const std::string& id, TaskState state, TaskResult resu
         event.summary = it->second.record.result.summary;
         event.error = it->second.record.error;
     }
+    cv_.notify_all();
     if (events_)
         Events(*events_).publish(event);
     return true;
@@ -307,6 +308,7 @@ bool TaskService::finish_cancel(const std::string& id, bool stopped, const std::
             publish_unknown = true;
         }
     }
+    cv_.notify_all();
     if (events_) {
         if (publish_cancelled)
             Events(*events_).publish(cancelled);
@@ -324,6 +326,40 @@ bool TaskService::attach_cancel(const std::string& id,
         return false;
     it->second.cancel = std::move(fn);
     return true;
+}
+
+std::string TaskService::adopt_job(const std::string& job_id, TaskRecord record,
+                                   std::string* error) {
+    std::string id = create(std::move(record), error);
+    if (id.empty())
+        return {};
+    std::scoped_lock lk(mtx_);
+    backends_[id] = job_id;
+    return id;
+}
+
+std::string TaskService::backend_id(const std::string& id) const {
+    std::scoped_lock lk(mtx_);
+    auto it = backends_.find(id);
+    return it == backends_.end() ? std::string() : it->second;
+}
+
+std::optional<TaskRecord> TaskService::wait_for_terminal(const std::string& id, int timeout_ms,
+                                                         const CancellationToken& token) const {
+    std::unique_lock lk(mtx_);
+    const auto ready = [&] {
+        auto it = tasks_.find(id);
+        return it != tasks_.end() && task_state_terminal(it->second.record.state);
+    };
+    cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+                 [&] { return ready() || token.is_requested(); });
+    if (token.is_requested() || !ready()) {
+        return std::nullopt;
+    }
+    auto it = tasks_.find(id);
+    if (it == tasks_.end())
+        return std::nullopt;
+    return it->second.record;
 }
 
 std::optional<TaskRecord> TaskService::get(const std::string& id) const {
