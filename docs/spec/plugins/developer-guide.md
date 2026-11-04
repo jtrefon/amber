@@ -592,7 +592,8 @@ sub_ = agent::Events(ctx.event_bus).intercept<agent::ToolRequestedEvent>(
 ```
 
 Catalogue. **Fire sites are in `lib/agent.cpp` (loop), `lib/dispatch.cpp`
-(tools) and `lib/plugin_runtime.cpp` (plugin lifecycle)** unless noted:
+(tools), `lib/task_service.cpp` (background tasks) and
+`lib/plugin_runtime.cpp` (plugin lifecycle)** unless noted:
 
 | Event | Fires? | Notes |
 |---|---|---|
@@ -606,6 +607,10 @@ Catalogue. **Fire sites are in `lib/agent.cpp` (loop), `lib/dispatch.cpp`
 | `CompressionCompletedEvent` | ✅ | compression finished |
 | `ErrorRaisedEvent` | ✅ | observation only; classification stays in the dialect |
 | `WatchReportEvent` | ✅ | a watch finished; carries owner/watch/report ids, state and headline. The host routes it by owner; the plugin keeps the report and never touches `Context` |
+| `TaskStartedEvent` | ✅ | `Queued -> Running` in `TaskService`; carries id, kind, owner and label. One per transition, never per token |
+| `TaskProgressEvent` | ✅ | the one-line progress field changed; the payload carries the line, not a token stream |
+| `TaskCompletedEvent` | ✅ | a terminal non-cancel state; carries the id, state and bounded summary |
+| `TaskCancelledEvent` | ✅ | `-> Cancelled` after the backend confirmed the stop; a backend that cannot stop yields `TaskCompletedEvent(Unknown)` |
 | `PluginLoadedEvent` | ✅ | after a successful install pass, so the plugin is fully active |
 | `PluginUnloadedEvent` | ✅ | only on a real deactivation — not an off-again toggle, not a failed install's rollback |
 | `PluginFailedEvent` | ✅ | after the failed activation's rollback; carries the plugin id and the reason |
