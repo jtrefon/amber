@@ -123,6 +123,8 @@ struct AgentHooks {
 //   2. if the model emits tool_calls, execute them via the registry
 //   3. feed results back and repeat until the model replies with plain text
 //      or max_tool_iterations is reached.
+class TaskInbox;
+
 class Agent {
 public:
     // A prompt block waiting to be placed, ordered by (priority, insertion).
@@ -327,6 +329,9 @@ public:
     // Events are observable; hidden internal exchanges (the confirmation
     // probe) are never published.
     void set_events(EventBus& bus) noexcept { event_bus_ = &bus; }
+    // Optional: the owner-keyed completion inbox. The agent drains it only at
+    // the top of a loop iteration, on its own worker thread.
+    void set_inbox(TaskInbox* inbox) noexcept { inbox_ = inbox; }
 
     // Attach the contribution registries. Optional, like the bus: with none
     // attached the agent builds its prompt from the core blocks alone.
@@ -452,11 +457,17 @@ private:
     // Message::harness set: they reach the model in place, and the loop knows
     // they are not the model's own reply.
     void inject_harness_note(const std::string& text);
+    // One bounded digest for the owner, pushed as a harness message and acked
+    // after it is in the context. Never called from a worker thread.
+    void drain_inbox();
 
     // The loop's own state, said once at the moment it changes: how much of the
     // iteration and wall-clock budget is spent, and whether the same call keeps
     // coming back. Nothing here intervenes — the model is told and decides.
     void note_loop_state(Turn& turn, int iter);
+    // The top-of-iteration safe point: budget notices, then any completion that
+    // arrived since the last request.
+    void prepare_iteration(Turn& turn, int iter);
 
     // The four ways one reply can fold into the turn. Each returns true when the
     // loop must stop.
@@ -565,6 +576,7 @@ private:
     ExperienceConfig experience_cfg_;
     PolicyStore policy_;
     EventBus* event_bus_ = nullptr;
+    TaskInbox* inbox_ = nullptr;
     PromptRegistry* prompt_registry_ = nullptr;
     // The system prompt is derived, not stored: its inputs include the tool
     // registry and the plugin prompt blocks, and a toggle changes both.

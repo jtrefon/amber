@@ -100,6 +100,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
             $(BUILD_DIR)/lib/task_service.o \
+            $(BUILD_DIR)/lib/task_inbox.o \
             $(BUILD_DIR)/lib/compressor.o \
             $(BUILD_DIR)/lib/compressor_scanner.o \
             $(BUILD_DIR)/lib/compressor_request.o \
@@ -326,6 +327,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
                $(BUILD_DIR)/tests/task_service_test.o \
+               $(BUILD_DIR)/tests/task_inbox_test.o \
                $(BUILD_DIR)/tests/web_test.o \
                $(BUILD_DIR)/tests/status_segments_test.o \
                $(BUILD_DIR)/tests/metrics_plugin_test.o \

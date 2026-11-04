@@ -1,5 +1,7 @@
 
 #include "agent/agent.h"
+
+#include "agent/task_inbox.h"
 #include "agent/config_paths.h"
 #include "agent/environment.h"
 #include "agent/json_read.h"
@@ -1348,6 +1350,36 @@ void Agent::inject_harness_note(const std::string& text) {
     publish_message_added(context_.get_all().back());
 }
 
+void Agent::prepare_iteration(Turn& turn, int iter) {
+    note_loop_state(turn, iter);
+    // Safe boundary: everything the environment finished since the last request
+    // enters the conversation once, before the next request.
+    drain_inbox();
+}
+
+void Agent::drain_inbox() {
+    if (!inbox_)
+        return;
+    auto completions = inbox_->take(owner_id_);
+    if (completions.empty())
+        return;
+    std::string text = format_task_digest(completions);
+    if (text.empty())
+        return;
+    Message msg;
+    msg.role = "user";
+    msg.harness = true;
+    msg.content = std::move(text);
+    context_.push(std::move(msg));
+    emit_context_event(context_events_, context_);
+    publish_message_added(context_.get_all().back());
+    std::vector<std::string> ids;
+    ids.reserve(completions.size());
+    for (const auto& completion : completions)
+        ids.push_back(completion.task_id);
+    inbox_->ack(owner_id_, ids);
+}
+
 bool Agent::recover_internal_failure(Turn& turn, const std::string& what) {
     log_.event("error", {{"reason", "internal_failure"}, {"error", what}});
     if (hooks_.on_status)
@@ -1442,7 +1474,7 @@ std::string Agent::run(const std::string& user_prompt) {
         if (hooks_.on_debug)
             hooks_.on_debug("iteration " + std::to_string(iter + 1) + "/" +
                             std::to_string(cfg_.max_tool_iterations));
-        note_loop_state(turn, iter);
+        prepare_iteration(turn, iter);
 
         Message reply;
         try {
