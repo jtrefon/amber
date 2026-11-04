@@ -1,6 +1,6 @@
 #include "tui/tui_window_ops_hooks.h"
 
-#include "agent/task_inbox.h"
+#include "tui/task_runtime.h"
 #include "tui/watch_cancel.h"
 #include "tui/tui.h"
 #include "tui/widgets.h"
@@ -37,7 +37,7 @@ void TuiWindowOpsHooks::on_close() {
     cancel_owned_watches(tui_.plugin_runtime_, tui_.win().owner_id);
     // A completion already queued for this owner must not wake a window that
     // no longer exists; the watch producer is abandoned, not acked.
-    tui_.inbox_->drop(tui_.win().owner_id);
+    tui_.task_runtime_->inbox.drop(tui_.win().owner_id);
     tui_.autosave();
     // The workspace is released while the window still exists (autosave just
     // ran, so its conversation is safe), and its notice is flushed on the next

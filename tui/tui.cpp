@@ -16,6 +16,7 @@
 #include "panel_view.h"
 #include "tui_window_ops_hooks.h"
 #include "watch_cancel.h"
+#include "task_runtime.h"
 #include "window_ops.h"
 #include "key_binder.h"
 
@@ -142,8 +143,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // left in a raw, mouse-reporting, alternate-screen shell.
     try {
         install_signal_handlers();
-        tasks_ = std::make_unique<agent::TaskService>(plugin_runtime_.events());
-        inbox_ = std::make_unique<agent::TaskInbox>(plugin_runtime_.events(), *tasks_);
+        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events());
         wire_plugin_runtime();
         build_managers();
         menu_ = std::make_unique<MenuController>(
@@ -224,14 +224,16 @@ void Tui::wire_plugin_runtime() {
     // Subscribe before activation: the watch plugin can finish a short watch
     // during startup. The handler only queues (thread-safe) and posts a
     // repaint; the idle tick starts the report's turn.
-    watch_report_sub_ = agent::Events(plugin_runtime_.events())
-                            .subscribe<agent::WatchReportEvent>(
-                                [this](const agent::WatchReportEvent& ev) { on_watch_report(ev); });
+    task_runtime_->watch_sub =
+        agent::Events(plugin_runtime_.events())
+            .subscribe<agent::WatchReportEvent>(
+                [this](const agent::WatchReportEvent& ev) { on_watch_report(ev); });
     plugin_runtime_.start();
-    watch_plugin_ = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch"));
-    inbox_->set_ack_hook([this](const agent::TaskCompletion& completion) {
-        if (completion.kind == agent::TaskKind::Watch && watch_plugin_)
-            watch_plugin_->ack(completion.task_id);
+    task_runtime_->watch_plugin =
+        dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch"));
+    task_runtime_->inbox.set_ack_hook([this](const agent::TaskCompletion& completion) {
+        if (completion.kind == agent::TaskKind::Watch && task_runtime_->watch_plugin)
+            task_runtime_->watch_plugin->ack(completion.task_id);
     });
     feed_manager_ = std::make_unique<FeedManager>(*this);
 }
@@ -316,7 +318,8 @@ void Tui::restore_workspace() {
 }
 
 Tui::~Tui() {
-    watch_report_sub_.release();
+    if (task_runtime_)
+        task_runtime_->watch_sub.release();
     // Detached catalog workers post results through ui_poster(); closing the
     // gate under the queue lock guarantees no post can interleave with the
     // member teardown below. The queue itself is shared, so a late worker
@@ -448,7 +451,7 @@ void Tui::drain_pending_prompts(bool input_empty) {
         // reports may wake them without stealing focus.
         if (!input_empty && w->id == win().id)
             continue;
-        auto completions = inbox_->take(w->owner_id);
+        auto completions = task_runtime_->inbox.take(w->owner_id);
         if (completions.empty())
             continue;
         std::vector<std::string> ids;
@@ -457,7 +460,7 @@ void Tui::drain_pending_prompts(bool input_empty) {
             ids.push_back(completion.task_id);
         // Accept before starting: the ack hook marks the durable producer
         // delivered, so a crash cannot re-emit the report after it ran.
-        inbox_->ack(w->owner_id, ids);
+        task_runtime_->inbox.ack(w->owner_id, ids);
         send_async_to(*w, agent::format_task_digest(completions), /*harness=*/true);
     }
 }
@@ -477,7 +480,7 @@ void Tui::on_watch_report(const agent::WatchReportEvent& ev) {
     completion.created_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
                                 .count();
-    inbox_->post(std::move(completion));
+    task_runtime_->inbox.post(std::move(completion));
     post_to_ui_thread([this] {
         if (render_engine_)
             render_engine_->draw();
@@ -485,8 +488,8 @@ void Tui::on_watch_report(const agent::WatchReportEvent& ev) {
 }
 
 void Tui::reemit_watch_reports() {
-    if (watch_plugin_)
-        watch_plugin_->reemit_pending();
+    if (task_runtime_ && task_runtime_->watch_plugin)
+        task_runtime_->watch_plugin->reemit_pending();
 }
 
 void Tui::run_command_async(const std::string& label, const std::string& cmd) {

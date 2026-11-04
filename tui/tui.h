@@ -43,11 +43,6 @@
 
 namespace agent {
 class ToolRegistry;
-class TaskService;
-class TaskInbox;
-namespace plugins {
-class WatchPlugin;
-} // namespace plugins
 } // namespace agent
 
 namespace tui {
@@ -59,6 +54,8 @@ struct UiPostQueue {
     std::vector<std::function<void()>> queue;
     std::atomic<bool> alive{true};
 };
+
+struct TaskRuntime;
 
 struct WatchedJob {
     std::shared_ptr<agent::Job> job;
@@ -166,7 +163,7 @@ private:
     void drain_pending_prompts(bool input_empty);
     void on_watch_report(const agent::WatchReportEvent& ev);
     void reemit_watch_reports();
-    agent::Subscription watch_report_sub_;
+    std::unique_ptr<detail::TaskRuntime> task_runtime_;
 
     // Run a shell command through the job service and report its output when it
     // finishes. The UI thread starts the job and returns; a per-tick drain
@@ -306,16 +303,11 @@ private:
     std::unique_ptr<agent::ProviderService> providers_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
-    agent::SubAgentExecutor& subagents_;   // host-owned; shared with process_* tools
-    agent::PluginManager& plugins_;        // host-owned; v1 external plugin lifecycle
-    agent::PluginRuntime& plugin_runtime_; // v2 runtime (registries + ledger)
-    // The one background-work inventory and its safe-boundary courier. The
-    // inbox is destroyed before the service it references.
-    std::unique_ptr<agent::TaskService> tasks_;
-    std::unique_ptr<agent::TaskInbox> inbox_;
-    agent::plugins::WatchPlugin* watch_plugin_ = nullptr; // resolved once at wiring
-    std::unique_ptr<FeedManager> feed_manager_;           // feed leaves for completions
-    std::string input_fill_; // /prompt result applied to the input line
+    agent::SubAgentExecutor& subagents_;        // host-owned; shared with process_* tools
+    agent::PluginManager& plugins_;             // host-owned; v1 external plugin lifecycle
+    agent::PluginRuntime& plugin_runtime_;      // v2 runtime (registries + ledger)
+    std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
+    std::string input_fill_;                    // /prompt result applied to the input line
     std::unique_ptr<MenuController> menu_;
     tui::SettingRegistry settings_;
     void build_settings();
