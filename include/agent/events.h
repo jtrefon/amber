@@ -14,6 +14,7 @@
 
 #include "agent/event_bus.h"
 #include "agent/llm.h"
+#include "agent/task.h"
 #include "agent/tool.h"
 
 #include <cstddef>
@@ -90,6 +91,33 @@ struct WatchReportEvent {
     bool needs_attention = false;
 };
 
+// One typed event per accepted task transition, published after the state is
+// committed and outside the registry lock. There is no per-token task event.
+struct TaskStartedEvent {
+    std::string id;
+    TaskKind kind = TaskKind::Command;
+    std::string owner_id;
+    std::string label;
+};
+
+struct TaskProgressEvent {
+    std::string id;
+    std::string line;
+};
+
+struct TaskCompletedEvent {
+    std::string id;
+    TaskState state = TaskState::Unknown;
+    int exit_code = -1;
+    std::string summary;
+    std::string error;
+};
+
+struct TaskCancelledEvent {
+    std::string id;
+    std::string reason;
+};
+
 struct PluginLoadedEvent {
     std::string plugin_id;
 };
@@ -138,6 +166,18 @@ template <> struct EventTraits<ErrorRaisedEvent> {
 };
 template <> struct EventTraits<WatchReportEvent> {
     static constexpr EventType type = EventType::WatchReport;
+};
+template <> struct EventTraits<TaskStartedEvent> {
+    static constexpr EventType type = EventType::TaskStarted;
+};
+template <> struct EventTraits<TaskProgressEvent> {
+    static constexpr EventType type = EventType::TaskProgress;
+};
+template <> struct EventTraits<TaskCompletedEvent> {
+    static constexpr EventType type = EventType::TaskCompleted;
+};
+template <> struct EventTraits<TaskCancelledEvent> {
+    static constexpr EventType type = EventType::TaskCancelled;
 };
 template <> struct EventTraits<PluginLoadedEvent> {
     static constexpr EventType type = EventType::PluginLoaded;

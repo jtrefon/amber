@@ -277,6 +277,9 @@ struct HostServices {
     // the next request boundary. Null means shaping is not wired on this host,
     // and the tool is not installed at all.
     class ShapeQueue* shape = nullptr;
+    // The one background-work inventory. Null on a host that has not wired
+    // tasks yet; a capability that needs it declines rather than guessing.
+    class TaskService* tasks = nullptr;
 };
 
 // ---------------------------------------------------------------------------

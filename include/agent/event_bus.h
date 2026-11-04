@@ -27,6 +27,10 @@ enum class EventType : std::uint8_t {
     CompressionCompleted,
     ErrorRaised,
     WatchReport,
+    TaskStarted,
+    TaskProgress,
+    TaskCompleted,
+    TaskCancelled,
     Count, // sentinel: number of event types
 };
 

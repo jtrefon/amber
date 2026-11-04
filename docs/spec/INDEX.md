@@ -37,6 +37,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `agent-loop/mode-system.md` | read/write/yolo, PolicyStore, AlwaysAllow/AlwaysDeny, policy_approval toggle, session grants |
 | `agent-loop/error-recovery.md` | FailStreak, loop detection, recovery steering, empty-turn fallback |
 | `agent-loop/prompt-assembly.md` | Injected prompt blocks: head/tail placement, `prompt_priority`, the after-the-gate rule, and why core blocks aren't registry entries |
+| `agent-loop/background-tasks.md` | One task inventory for commands, watches and workers: record model, state machine, ownership/cascade, admission, the two safe delivery boundaries, events, cancellation and restart invariants |
 
 ## Tools
 
