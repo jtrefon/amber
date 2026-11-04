@@ -55,6 +55,8 @@ struct UiPostQueue {
     std::atomic<bool> alive{true};
 };
 
+struct TaskRuntime;
+
 struct WatchedJob {
     std::shared_ptr<agent::Job> job;
     std::string label;
@@ -160,9 +162,8 @@ private:
     // is empty, so a report never starts a turn under a draft.
     void drain_pending_prompts(bool input_empty);
     void on_watch_report(const agent::WatchReportEvent& ev);
-    void ack_watch_report(const std::string& watch_id);
     void reemit_watch_reports();
-    agent::Subscription watch_report_sub_;
+    std::unique_ptr<detail::TaskRuntime> task_runtime_;
 
     // Run a shell command through the job service and report its output when it
     // finishes. The UI thread starts the job and returns; a per-tick drain

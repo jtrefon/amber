@@ -12,6 +12,7 @@
 #include "plugins/watch/watch_types.h"
 
 #include "agent/events.h"
+#include "agent/task_inbox.h"
 #include "agent/plugin_runtime.h"
 #include "agent/run_scope.h"
 #include "tui/run_registry.h"
@@ -1009,25 +1010,41 @@ TEST(watch_run_scope_inherits_the_host_owner) {
     ASSERT_EQ(*current_run_scope()->leaf.owner_id, std::string("window-3"));
 }
 
-TEST(watch_run_registry_prioritizes_user_prompts_over_reports) {
+TEST(watch_inbox_prioritizes_user_prompts_over_reports) {
     tui::RunRegistry registry;
-    registry.register_owner("owner-1", 1);
     registry.enqueue(1, "user prompt");
-    registry.enqueue_report("owner-1", {"[harness] watch report", "watch-1", "watch-1:1"});
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    agent::TaskInbox inbox(bus, tasks);
+    agent::TaskCompletion report;
+    report.task_id = "watch-1";
+    report.owner_id = "owner-1";
+    report.kind = agent::TaskKind::Watch;
+    report.state = agent::TaskState::Succeeded;
+    report.prompt_text = "[harness] watch report";
+    report.created_ms = 1;
+    inbox.post(std::move(report));
+
     ASSERT_TRUE(registry.has_pending(1));
-    ASSERT_TRUE(registry.has_pending_report(1));
     auto prompt = registry.pop_pending(1);
     ASSERT_TRUE(prompt.has_value());
     ASSERT_EQ(*prompt, std::string("user prompt"));
-    auto report = registry.pop_report(1);
-    ASSERT_TRUE(report.has_value());
-    ASSERT_EQ(report->prompt, std::string("[harness] watch report"));
-    ASSERT_EQ(report->watch_id, std::string("watch-1"));
-    ASSERT_FALSE(registry.has_pending_report(1));
+    auto completions = inbox.take("owner-1");
+    ASSERT_EQ(completions.size(), 1u);
+    ASSERT_EQ(completions[0].task_id, std::string("watch-1"));
+    inbox.ack("owner-1", {"watch-1"});
+    ASSERT_EQ(inbox.pending("owner-1"), 0u);
     registry.erase(1);
 
-    // A late report for a closed window must not resurrect its slot.
-    tui::RunRegistry closed;
-    closed.enqueue_report("gone", {"[harness] late report", "watch-2", "watch-2:1"});
-    ASSERT_FALSE(closed.has_pending_report(99));
+    // A completion for a closed window is dropped, not resurrected.
+    agent::TaskCompletion late;
+    late.task_id = "watch-2";
+    late.owner_id = "gone";
+    late.kind = agent::TaskKind::Watch;
+    late.state = agent::TaskState::Succeeded;
+    late.prompt_text = "[harness] late report";
+    late.created_ms = 2;
+    inbox.post(std::move(late));
+    inbox.drop("gone");
+    ASSERT_EQ(inbox.pending("gone"), 0u);
 }

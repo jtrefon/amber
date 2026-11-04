@@ -25,6 +25,7 @@
 #include "agent/dialect_gemini.h"
 #include "agent/dialect_openai.h"
 #include "agent/rate_governor.h"
+#include "agent/task_inbox.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_runtime.h"
@@ -4758,4 +4759,110 @@ TEST(wire_edge_cases_change_only_their_own_tier) {
     ASSERT_EQ(other_tools["system"].dump(), base["system"].dump());
     ASSERT_EQ(other_tools["messages"].dump(), base["messages"].dump());
     ASSERT(other_tools["tools"].dump() != base["tools"].dump());
+}
+
+namespace {
+
+// A tool that posts a completion while the batch is executing, to prove the
+// digest waits for the next boundary instead of landing inside the result.
+class InboxPostTool final : public agent::Tool {
+public:
+    explicit InboxPostTool(agent::TaskInbox* inbox) : inbox_(inbox) {}
+    std::string name() const noexcept override { return "post_completion"; }
+    std::string description() const noexcept override { return "posts a test completion"; }
+    agent::json parameters_schema() const override {
+        return {{"type", "object"}, {"properties", agent::json::object()}};
+    }
+    bool is_read_only() const noexcept override { return true; }
+    agent::ToolResult execute(const agent::json&) const override {
+        agent::TaskCompletion completion;
+        completion.task_id = "task_late";
+        completion.owner_id = "w";
+        completion.kind = agent::TaskKind::Command;
+        completion.state = agent::TaskState::Succeeded;
+        completion.prompt_text = "task_late (command) succeeded";
+        completion.created_ms = 1;
+        inbox_->post(std::move(completion));
+        return {true, "posted", "", agent::json::object()};
+    }
+
+private:
+    agent::TaskInbox* inbox_;
+};
+
+} // namespace
+
+TEST(agent_drains_inbox_before_the_first_request) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "done");
+
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    agent::TaskInbox inbox(bus, tasks);
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_owner_id("w");
+    ag.set_inbox(&inbox);
+
+    agent::TaskCompletion completion;
+    completion.task_id = "task_early";
+    completion.owner_id = "w";
+    completion.kind = agent::TaskKind::Command;
+    completion.state = agent::TaskState::Succeeded;
+    completion.prompt_text = "task_early (command) succeeded";
+    completion.created_ms = 1;
+    inbox.post(std::move(completion));
+
+    ag.run("go");
+    ASSERT_FALSE(raw->requests.empty());
+    bool saw_digest = false;
+    bool harness = false;
+    for (const auto& message : raw->requests[0]) {
+        if (message.content.find("background task report") != std::string::npos)
+            saw_digest = true;
+        if (saw_digest && message.harness)
+            harness = true;
+    }
+    ASSERT_TRUE(saw_digest);
+    ASSERT_TRUE(harness);
+    ASSERT_EQ(inbox.pending("w"), 0u);
+}
+
+TEST(agent_drains_inbox_after_a_tool_batch) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    agent::TaskInbox inbox(bus, tasks);
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<InboxPostTool>(&inbox));
+
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent_test::FakeReply first;
+    first.tool_calls =
+        agent_test::tool_call_msg("post_completion", agent::json::object(), "c1").tool_calls;
+    fake->script.push_back(std::move(first));
+    push_text(*fake, "after");
+
+    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    ag.set_owner_id("w");
+    ag.set_inbox(&inbox);
+    ag.run("go");
+
+    ASSERT_TRUE(raw->requests.size() >= 2u);
+    bool first_has_digest = false;
+    for (const auto& message : raw->requests[0])
+        if (message.content.find("background task report") != std::string::npos)
+            first_has_digest = true;
+    ASSERT_FALSE(first_has_digest);
+    bool second_has_digest = false;
+    for (const auto& message : raw->requests[1])
+        if (message.content.find("background task report") != std::string::npos)
+            second_has_digest = true;
+    ASSERT_TRUE(second_has_digest);
+    ASSERT_EQ(inbox.pending("w"), 0u);
 }

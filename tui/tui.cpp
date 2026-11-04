@@ -16,6 +16,7 @@
 #include "panel_view.h"
 #include "tui_window_ops_hooks.h"
 #include "watch_cancel.h"
+#include "task_runtime.h"
 #include "window_ops.h"
 #include "key_binder.h"
 
@@ -25,11 +26,13 @@
 #include <agent/tools.h>
 #include <agent/data_path.h>
 #include <agent/plugin.h>
+#include "agent/task_inbox.h"
 
 #include "plugins/watch/watch_plugin.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <memory>
 
@@ -77,6 +80,20 @@ std::string reference_expansion(const std::string& ref) {
     if (content.size() > 4096)
         content.resize(4096);
     return "\n[file: " + ref + "]\n" + content + "\n[/file]\n";
+}
+
+agent::TaskState watch_task_state(const std::string& state) {
+    if (state == "succeeded")
+        return agent::TaskState::Succeeded;
+    if (state == "failed")
+        return agent::TaskState::Failed;
+    if (state == "timed_out")
+        return agent::TaskState::TimedOut;
+    if (state == "cancelled")
+        return agent::TaskState::Cancelled;
+    if (state == "interrupted")
+        return agent::TaskState::Interrupted;
+    return agent::TaskState::Unknown;
 }
 } // namespace
 
@@ -126,6 +143,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // left in a raw, mouse-reporting, alternate-screen shell.
     try {
         install_signal_handlers();
+        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events());
         wire_plugin_runtime();
         build_managers();
         menu_ = std::make_unique<MenuController>(
@@ -206,10 +224,17 @@ void Tui::wire_plugin_runtime() {
     // Subscribe before activation: the watch plugin can finish a short watch
     // during startup. The handler only queues (thread-safe) and posts a
     // repaint; the idle tick starts the report's turn.
-    watch_report_sub_ = agent::Events(plugin_runtime_.events())
-                            .subscribe<agent::WatchReportEvent>(
-                                [this](const agent::WatchReportEvent& ev) { on_watch_report(ev); });
+    task_runtime_->watch_sub =
+        agent::Events(plugin_runtime_.events())
+            .subscribe<agent::WatchReportEvent>(
+                [this](const agent::WatchReportEvent& ev) { on_watch_report(ev); });
     plugin_runtime_.start();
+    task_runtime_->watch_plugin =
+        dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch"));
+    task_runtime_->inbox.set_ack_hook([this](const agent::TaskCompletion& completion) {
+        if (completion.kind == agent::TaskKind::Watch && task_runtime_->watch_plugin)
+            task_runtime_->watch_plugin->ack(completion.task_id);
+    });
     feed_manager_ = std::make_unique<FeedManager>(*this);
 }
 
@@ -269,7 +294,6 @@ void Tui::restore_workspace() {
         if (!we.owner_id.empty()) {
             w.owner_id = we.owner_id;
             w.agent->set_owner_id(w.owner_id);
-            runs_.register_owner(w.owner_id, w.id);
         }
         w.prompt_history = we.prompt_history;
         w.history_pos = w.prompt_history.size();
@@ -294,7 +318,8 @@ void Tui::restore_workspace() {
 }
 
 Tui::~Tui() {
-    watch_report_sub_.release();
+    if (task_runtime_)
+        task_runtime_->watch_sub.release();
     // Detached catalog workers post results through ui_poster(); closing the
     // gate under the queue lock guarantees no post can interleave with the
     // member teardown below. The queue itself is shared, so a late worker
@@ -323,11 +348,8 @@ Window& Tui::new_window(const std::string& title, bool prepare_workspace,
     if (project.empty() && window_manager_->count() > 0)
         project = win().project_root;
     Window& w = window_manager_->new_window(title, project);
-    // Register before the agent can start a watch: the report handler resolves
-    // an owner id through this map, not through the UI-thread window list. The
-    // slot must exist too: a re-emitted report can arrive before this window's
-    // first turn.
-    runs_.register_owner(w.owner_id, w.id);
+    // The slot must exist before the agent starts: a re-emitted completion or
+    // a cancel can arrive before this window's first turn.
     (void)runs_.slot(w.id);
     if (prepare_workspace)
         prepare_window_workspace(w, workspace_name);
@@ -429,12 +451,17 @@ void Tui::drain_pending_prompts(bool input_empty) {
         // reports may wake them without stealing focus.
         if (!input_empty && w->id == win().id)
             continue;
-        if (auto r = runs_.pop_report(w->id)) {
-            // The host has accepted the report into a turn: mark it delivered
-            // before starting, so a crash cannot re-emit it after it ran.
-            ack_watch_report(r->watch_id);
-            send_async_to(*w, r->prompt, /*harness=*/true);
-        }
+        auto completions = task_runtime_->inbox.take(w->owner_id);
+        if (completions.empty())
+            continue;
+        std::vector<std::string> ids;
+        ids.reserve(completions.size());
+        for (const auto& completion : completions)
+            ids.push_back(completion.task_id);
+        // Accept before starting: the ack hook marks the durable producer
+        // delivered, so a crash cannot re-emit the report after it ran.
+        task_runtime_->inbox.ack(w->owner_id, ids);
+        send_async_to(*w, agent::format_task_digest(completions), /*harness=*/true);
     }
 }
 
@@ -442,24 +469,27 @@ void Tui::on_watch_report(const agent::WatchReportEvent& ev) {
     // Runs on the watch worker. Only thread-safe queues and a posted repaint
     // happen here; the UI thread owns the run slot. Owner ids are stable
     // workspace identities, not the in-process window index.
-    std::string prompt = "[harness] background watch " + ev.watch_id + " " + ev.state + ": " +
-                         ev.headline + " — use `watch report " + ev.watch_id +
-                         "` for the evidence and the artifact path.";
-    runs_.enqueue_report(ev.owner_id, {std::move(prompt), ev.watch_id, ev.report_id});
+    agent::TaskCompletion completion;
+    completion.task_id = ev.watch_id;
+    completion.owner_id = ev.owner_id;
+    completion.kind = agent::TaskKind::Watch;
+    completion.state = watch_task_state(ev.state);
+    completion.prompt_text = ev.watch_id + " (watch) " + ev.state + ": " + ev.headline +
+                             " — use `watch report " + ev.watch_id +
+                             "` for the evidence and the artifact path.";
+    completion.created_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    task_runtime_->inbox.post(std::move(completion));
     post_to_ui_thread([this] {
         if (render_engine_)
             render_engine_->draw();
     });
 }
 
-void Tui::ack_watch_report(const std::string& watch_id) {
-    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch")))
-        watch->ack(watch_id);
-}
-
 void Tui::reemit_watch_reports() {
-    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch")))
-        watch->reemit_pending();
+    if (task_runtime_ && task_runtime_->watch_plugin)
+        task_runtime_->watch_plugin->reemit_pending();
 }
 
 void Tui::run_command_async(const std::string& label, const std::string& cmd) {
