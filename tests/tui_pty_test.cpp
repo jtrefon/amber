@@ -825,7 +825,11 @@ private:
                 (void)ignored;
                 return;
             }
-            const bool report = body.find("background watch") != std::string::npos;
+            // Both spellings during the transition: the TUI now delivers the
+            // generic task digest, while the legacy CLI --watch-wake path
+            // still reports a watch directly.
+            const bool report = body.find("background task report") != std::string::npos ||
+                                body.find("background watch") != std::string::npos;
             const bool first = chat_calls_ == 1 && !report;
             std::string message;
             std::string finish = "stop";
@@ -3018,14 +3022,14 @@ void watch_report_waits_for_a_draft_then_wakes() {
     // host must hold the report, not start a turn underneath the user.
     tui.send("draft");
     tui.pump(2500);
-    if (tui.text().find("background watch") != std::string::npos) {
+    if (tui.text().find("background task report") != std::string::npos) {
         std::cerr << "FAIL: the report woke the window under an unsent draft\n";
         ++failed;
         return;
     }
 
     tui.send("\x15"); // Ctrl-U clears the draft
-    if (!require(tui.wait_for("background watch", 10000),
+    if (!require(tui.wait_for("background task report", 10000),
                  "clearing the draft did not wake the report", tui))
         return;
     require(tui.wait_for("REPORT-ACK", 15000), "the report turn did not complete", tui);

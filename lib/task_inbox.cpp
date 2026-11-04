@@ -114,20 +114,50 @@ std::vector<TaskCompletion> TaskInbox::take(const std::string& owner_id) {
     return out;
 }
 
+void TaskInbox::set_ack_hook(AckHook hook) {
+    std::scoped_lock lk(mtx_);
+    ack_hook_ = std::move(hook);
+}
+
 void TaskInbox::ack(const std::string& owner_id, const std::vector<std::string>& ids) {
+    std::vector<TaskCompletion> acked;
+    AckHook hook;
+    {
+        std::scoped_lock lk(mtx_);
+        hook = ack_hook_;
+        auto owner = pending_.find(owner_id);
+        if (owner != pending_.end()) {
+            for (const auto& id : ids) {
+                auto found = owner->second.find(id);
+                if (found == owner->second.end())
+                    continue;
+                acked.push_back(found->second);
+                owner->second.erase(found);
+                taken_.erase(id);
+                acked_.insert(id);
+            }
+            if (owner->second.empty())
+                pending_.erase(owner);
+        }
+        if (acked_.size() > kAckedWindow)
+            acked_.clear(); // the idempotency window is bounded, not eternal
+    }
+    if (hook) {
+        for (const auto& completion : acked)
+            hook(completion);
+    }
+}
+
+void TaskInbox::drop(const std::string& owner_id) {
     std::scoped_lock lk(mtx_);
     auto owner = pending_.find(owner_id);
-    if (owner != pending_.end()) {
-        for (const auto& id : ids) {
-            owner->second.erase(id);
-            taken_.erase(id);
-            acked_.insert(id);
-        }
-        if (owner->second.empty())
-            pending_.erase(owner);
+    if (owner == pending_.end())
+        return;
+    for (const auto& [id, completion] : owner->second) {
+        (void)completion;
+        taken_.erase(id);
     }
-    if (acked_.size() > kAckedWindow)
-        acked_.clear(); // the idempotency window is bounded, not eternal
+    pending_.erase(owner);
 }
 
 std::size_t TaskInbox::pending(const std::string& owner_id) const {

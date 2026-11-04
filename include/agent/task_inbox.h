@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <set>
@@ -46,9 +47,18 @@ public:
     TaskInbox(const TaskInbox&) = delete;
     TaskInbox& operator=(const TaskInbox&) = delete;
 
+    // A durable producer (the watch plugin) installs this once: after the
+    // inbox accepted a completion, the hook marks the producer's own record
+    // delivered. It runs outside the inbox lock.
+    using AckHook = std::function<void(const TaskCompletion&)>;
+    void set_ack_hook(AckHook hook);
+
     void post(TaskCompletion completion);
     std::vector<TaskCompletion> take(const std::string& owner_id);
     void ack(const std::string& owner_id, const std::vector<std::string>& ids);
+    // Drop everything an owner has pending (window close); the producer is
+    // abandoned separately, so no hook runs.
+    void drop(const std::string& owner_id);
     std::size_t pending(const std::string& owner_id) const;
     std::size_t size() const;
 
@@ -63,6 +73,7 @@ private:
     std::map<std::string, std::map<std::string, TaskCompletion>> pending_;
     std::set<std::string> taken_;
     std::set<std::string> acked_;
+    AckHook ack_hook_;
 };
 
 } // namespace agent

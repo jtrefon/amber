@@ -43,6 +43,11 @@
 
 namespace agent {
 class ToolRegistry;
+class TaskService;
+class TaskInbox;
+namespace plugins {
+class WatchPlugin;
+} // namespace plugins
 } // namespace agent
 
 namespace tui {
@@ -160,7 +165,6 @@ private:
     // is empty, so a report never starts a turn under a draft.
     void drain_pending_prompts(bool input_empty);
     void on_watch_report(const agent::WatchReportEvent& ev);
-    void ack_watch_report(const std::string& watch_id);
     void reemit_watch_reports();
     agent::Subscription watch_report_sub_;
 
@@ -302,11 +306,16 @@ private:
     std::unique_ptr<agent::ProviderService> providers_;
     agent::ToolRegistry& reg_;
     agent::JobService& jobs_;
-    agent::SubAgentExecutor& subagents_;        // host-owned; shared with process_* tools
-    agent::PluginManager& plugins_;             // host-owned; v1 external plugin lifecycle
-    agent::PluginRuntime& plugin_runtime_;      // v2 runtime (registries + ledger)
-    std::unique_ptr<FeedManager> feed_manager_; // feed leaves for completions
-    std::string input_fill_;                    // /prompt result applied to the input line
+    agent::SubAgentExecutor& subagents_;   // host-owned; shared with process_* tools
+    agent::PluginManager& plugins_;        // host-owned; v1 external plugin lifecycle
+    agent::PluginRuntime& plugin_runtime_; // v2 runtime (registries + ledger)
+    // The one background-work inventory and its safe-boundary courier. The
+    // inbox is destroyed before the service it references.
+    std::unique_ptr<agent::TaskService> tasks_;
+    std::unique_ptr<agent::TaskInbox> inbox_;
+    agent::plugins::WatchPlugin* watch_plugin_ = nullptr; // resolved once at wiring
+    std::unique_ptr<FeedManager> feed_manager_;           // feed leaves for completions
+    std::string input_fill_; // /prompt result applied to the input line
     std::unique_ptr<MenuController> menu_;
     tui::SettingRegistry settings_;
     void build_settings();
