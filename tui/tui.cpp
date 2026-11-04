@@ -15,6 +15,7 @@
 #include "path_confine.h"
 #include "panel_view.h"
 #include "tui_window_ops_hooks.h"
+#include "watch_cancel.h"
 #include "window_ops.h"
 #include "key_binder.h"
 
@@ -981,7 +982,11 @@ bool Tui::cancel_active_run(int ch, CommandLine& cl) {
     if (win().agent)
         win().agent->request_cancel();
     runs_.request_cancel(win().id);
-    append_line(P_STATUS, "cancelling…");
+    // A watch is background work owned by this window, not a separate world:
+    // the same gesture that stops the run stops it, and abandoning it means
+    // the cancellation cannot wake the window with a completion turn.
+    const int watches = cancel_owned_watches(plugin_runtime_, win().owner_id);
+    append_line(P_STATUS, watches > 0 ? "cancelling run and watch…" : "cancelling…");
     render_engine_->draw();
     draw_input(cl.text(), cl.cursor(), cl.shadow());
     return true;
@@ -993,11 +998,21 @@ bool Tui::cancel_active_run(int ch, CommandLine& cl) {
 bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
     if (ch != 3)
         return false;
+    const int watches = cancel_owned_watches(plugin_runtime_, win().owner_id);
     if (runs_.busy(win().id)) {
         if (win().agent)
             win().agent->request_cancel();
         runs_.request_cancel(win().id);
-        append_line(P_STATUS, "cancelling…");
+        append_line(P_STATUS, watches > 0 ? "cancelling run and watch…" : "cancelling…");
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        return true;
+    }
+    if (watches > 0) {
+        // The window was idle, but it still had work of its own: Ctrl+C stops
+        // that work rather than quitting the session out from under it.
+        append_line(P_STATUS, "cancelled " + std::to_string(watches) +
+                                  (watches == 1 ? " watch" : " watches"));
         render_engine_->draw();
         render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
         return true;

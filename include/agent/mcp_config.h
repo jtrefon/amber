@@ -5,6 +5,7 @@
 #include <map>
 #include <mutex>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,10 @@ struct McpServerStatus {
     bool enabled = true;
     bool trusted = false;
     bool connected = false;
+    // A handshake is in flight on the plugin's worker. The UI reads this to
+    // tell "not started yet" from "trying now"; it is never true for a server
+    // that is not enabled.
+    bool connecting = false;
     int tool_count = 0;
     int resource_count = 0;
     int prompt_count = 0;
@@ -58,10 +63,6 @@ class ServerManager {
 public:
     explicit ServerManager(std::map<std::string, McpServerConfig> servers = {},
                            const CancellationToken* cancel_token = nullptr);
-
-    // Connect every enabled && auto_connect server; failures are recorded per
-    // server and never thrown.
-    void connect_all();
 
     std::string connect(const std::string& name);
     void disconnect(const std::string& name);
@@ -105,6 +106,9 @@ private:
     // Per-server connect generation: a stale handshake (started before a
     // disable/remove/re-connect) must not install its client afterwards.
     std::map<std::string, uint64_t> connect_gen_;
+    // Names whose connect() is currently in flight. Guarded by mtx_ like the
+    // rest of the state, so snapshot() can report it without a second lock.
+    std::set<std::string> connecting_;
     // What the host registered per server, in registration order.
     std::map<std::string, std::vector<std::string>> registered_;
     const CancellationToken* cancel_token_ = nullptr;

@@ -83,11 +83,11 @@ std::vector<std::unique_ptr<Capability>> McpPlugin::capabilities() {
                 return StatusText{};
             std::string text;
             for (const auto& st : mgr_->snapshot()) {
-                if (!st.connected && st.error.empty())
+                if (!st.connected && !st.connecting && st.error.empty())
                     continue;
                 if (!text.empty())
                     text += "\u00b7";
-                text += (st.connected ? "" : "!") + st.name;
+                text += (st.connected ? "" : (st.connecting ? "~" : "!")) + st.name;
             }
             return text.empty() ? StatusText{} : StatusText{"  mcp: " + text, StatusTone::Dim};
         }));
@@ -104,17 +104,31 @@ void McpPlugin::start(PluginServices& services, ToolPort& port) {
     cancel_.clear(); // a stop() request must not outlive the activation
     const std::map<std::string, McpServerConfig> servers = load_mcp_servers();
     mgr_ = std::make_unique<ServerManager>(servers, &cancel_);
+    // A slow or blackholed server must not hold the first paint. The manager
+    // and its snapshot exist now; the handshakes run on the plugin's worker and
+    // register through the thread-safe port as they land. A failed connect is
+    // recorded on the snapshot and reported by /mcp list; it never takes the
+    // plugin, or the other servers, down.
+    auto_connect_ = std::async(std::launch::async, [this, servers] { run_auto_connect(servers); });
+}
+
+void McpPlugin::run_auto_connect(const std::map<std::string, McpServerConfig>& servers) {
     for (const auto& [name, cfg] : servers) {
+        if (cancel_.is_requested())
+            return;
         if (!cfg.enabled || !cfg.auto_connect)
             continue;
-        // A failed connect is recorded on the manager's snapshot and reported
-        // by /mcp list — it never takes the plugin, or the other servers, down.
         if (mgr_->connect(name).empty())
-            register_server_tools(port, *registry_, *mgr_, name);
+            register_server_tools(*port_, *registry_, *mgr_, name);
     }
 }
 
 void McpPlugin::stop() {
+    // Abort an in-flight handshake, then join before clearing the port: a late
+    // add after deactivation would otherwise write through a dangling pointer.
+    cancel_.request();
+    if (auto_connect_.valid())
+        auto_connect_.wait();
     port_ = nullptr;
     registry_ = nullptr;
     ui_ = nullptr;

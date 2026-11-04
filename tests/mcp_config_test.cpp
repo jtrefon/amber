@@ -1,5 +1,6 @@
 
 #include <csignal>
+#include <thread>
 #include <fstream>
 #include <string>
 #include <sys/stat.h>
@@ -143,31 +144,40 @@ TEST(mcp_config_save_delete_roundtrip) {
     ASSERT_EQ(agent::load_mcp_servers().count("saved"), 0u);
 }
 
-// connect_all respects enabled + auto_connect; a real stdio server connects.
-TEST(mcp_manager_connect_all) {
-    McpEnv env("conn");
-    // Use absolute command path since cwd is now confined to the workspace.
-    std::string echo = env.cwd + "/tests/fixtures/mcp_echo";
-    write_file(env.project_mcp + "/echo.conf", "type=stdio\ncommand=" + echo +
-                                                   "\n"
-                                                   "cwd=.\nauto_connect=1\n");
-    write_file(env.project_mcp + "/off.conf", "type=stdio\ncommand=" + echo +
-                                                  "\n"
-                                                  "cwd=.\nenabled=0\n");
+// A handshake in flight is a visible state, not "disconnected": the UI has to
+// tell a server it has not tried yet from one it is trying now.
+TEST(mcp_snapshot_reports_connecting) {
+    McpEnv env("connecting");
+    const std::string slow = env.cwd + "/tests/fixtures/mcp_slow";
+    write_file(env.project_mcp + "/slow.conf",
+               "type=stdio\ncommand=" + slow + "\ncwd=.\nauto_connect=0\n");
 
     agent::ServerManager mgr(agent::load_mcp_servers());
-    mgr.connect_all();
-    auto snap = mgr.snapshot();
-    ASSERT_EQ(snap.size(), 2u);
-    for (const auto& s : snap) {
-        if (s.name == "echo") {
-            ASSERT(s.connected);
-            ASSERT_EQ(s.error, "");
-        }
-        if (s.name == "off") {
-            ASSERT_FALSE(s.connected);
-        }
+    std::thread connect_thread([&] { mgr.connect("slow"); });
+
+    bool connecting = false;
+    for (int i = 0; i < 200 && !connecting; ++i) {
+        for (const auto& status : mgr.snapshot())
+            if (status.name == "slow" && status.connecting)
+                connecting = true;
+        if (!connecting)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
+    ASSERT_TRUE(connecting);
+
+    bool list_says_connecting = false;
+    for (const auto& line : agent::mcp_list_lines(mgr))
+        if (line.find("connecting") != std::string::npos)
+            list_says_connecting = true;
+    ASSERT_TRUE(list_says_connecting);
+
+    std::string error;
+    const auto show = agent::mcp_show_lines(mgr, "slow", error);
+    ASSERT_TRUE(error.empty());
+    ASSERT_FALSE(show.empty());
+    ASSERT_TRUE(show[0].find("connecting") != std::string::npos);
+
+    connect_thread.join();
     mgr.shutdown_all();
 }
 

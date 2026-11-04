@@ -270,13 +270,6 @@ ServerManager::ServerManager(std::map<std::string, McpServerConfig> servers,
                              const CancellationToken* cancel_token)
     : configs_(std::move(servers)), cancel_token_(cancel_token) {}
 
-void ServerManager::connect_all() {
-    for (const auto& kv : configs_) {
-        if (kv.second.enabled && kv.second.auto_connect)
-            connect(kv.first);
-    }
-}
-
 std::string ServerManager::connect(const std::string& name) {
     // Copy the config under the lock; the transport spawn and handshake run
     // outside it (blocking I/O must never hold the manager mutex). The
@@ -295,6 +288,7 @@ std::string ServerManager::connect(const std::string& name) {
             return it->second.error;
         cfg = it->second;
         gen = ++connect_gen_[name];
+        connecting_.insert(name);
     }
     disconnect(name);
     auto transport = make_transport(cfg);
@@ -305,8 +299,14 @@ std::string ServerManager::connect(const std::string& name) {
         auto it = configs_.find(name);
         if (it == configs_.end() || !it->second.enabled || connect_gen_[name] != gen) {
             client->disconnect();
+            // A newer connect owns the flag now; only the generation that
+            // started this handshake may clear it.
+            if (connect_gen_[name] == gen)
+                connecting_.erase(name);
             return "server '" + name + "' was disabled or reconfigured while connecting";
         }
+        if (connect_gen_[name] == gen)
+            connecting_.erase(name);
         clients_[name] = std::move(client);
     }
     return err;
@@ -406,6 +406,7 @@ std::vector<McpServerStatus> ServerManager::snapshot() const {
         st.enabled = kv.second.enabled;
         st.trusted = kv.second.trusted;
         st.error = kv.second.error;
+        st.connecting = connecting_.count(kv.first) > 0;
         auto it = clients_.find(kv.first);
         if (it != clients_.end()) {
             if (!it->second->error().empty())

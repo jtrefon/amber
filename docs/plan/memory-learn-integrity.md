@@ -1,5 +1,7 @@
 # Memory/learn integrity — implementation proposal
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 - **Issue:** #444 (validate and close gaps in the memory/learn system)
 - **Branch:** `feat/memory-learn-integrity` from `main` @ `1da04e2e`
 - **Status:** **delivered** — PR #487

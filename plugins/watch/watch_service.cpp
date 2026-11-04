@@ -368,6 +368,19 @@ void WatchService::update(const WatchRecord& record) {
     store_.save_record(record);
 }
 
+void WatchService::merge_terminal_flags(WatchRecord& final) const {
+    // The id tombstone closes the race where finish() replaces a record between
+    // the host's ack and abandon: a write after abandon_owner() returned is
+    // still suppressed, and a new watch in the same window is not.
+    final.abandoned = final.abandoned || abandoned_records_.count(final.id) > 0;
+    auto existing = records_.find(final.id);
+    if (existing != records_.end()) {
+        final.abandoned = final.abandoned || existing->second.abandoned;
+        final.delivered = final.delivered || existing->second.delivered;
+    }
+    final.delivered = final.delivered || final.abandoned;
+}
+
 void WatchService::finish(const WatchRecord& record, const WatchReport& report) {
     WatchRecord final = record;
     final.state = report.state;
@@ -381,12 +394,7 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
     bool retained = true;
     {
         std::scoped_lock lk(mtx_);
-        auto existing = records_.find(final.id);
-        if (existing != records_.end()) {
-            final.abandoned = final.abandoned || existing->second.abandoned;
-            final.delivered = final.delivered || existing->second.delivered;
-        }
-        final.delivered = final.delivered || final.abandoned;
+        merge_terminal_flags(final);
         // Retention is part of the terminal transition: a caller that can see
         // the state must also see the retention outcome, or `list()` reports one
         // record past the policy until a later prune runs.
@@ -395,6 +403,7 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
+            abandoned_records_.erase(id);
         }
         if (retained) {
             records_[final.id] = final;
@@ -432,6 +441,7 @@ void WatchService::abandon_owner(const std::string& owner_id) {
         for (auto& [id, record] : records_) {
             if (record.owner_id != owner_id)
                 continue;
+            abandoned_records_.insert(id);
             record.abandoned = true;
             if (watch_state_terminal(record.state))
                 record.delivered = true;
@@ -451,7 +461,8 @@ std::vector<WatchReport> WatchService::pending_reports() const {
     std::vector<WatchReport> out;
     std::scoped_lock lk(mtx_);
     for (const auto& [id, record] : records_) {
-        if (!watch_state_terminal(record.state) || record.delivered || record.abandoned)
+        if (!watch_state_terminal(record.state) || record.delivered || record.abandoned ||
+            abandoned_records_.count(record.id) > 0)
             continue;
         auto it = reports_.find(id);
         if (it != reports_.end())
@@ -506,6 +517,7 @@ void WatchService::prune() {
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
+            abandoned_records_.erase(id);
         }
     }
     for (const auto& id : remove)

@@ -1,13 +1,15 @@
 # amber, Issues Register
 
-- **Status:** ✅ Historical all resolved; 🆕 Current open section below
-- **Last updated:** 2026-07-31
+- **Status:** ✅ Historical record. Open work lives in GitHub issues only.
+- **Open-work register:** <https://github.com/jtrefon/amber/issues> (milestone
+  `0.8.0`, epic #366)
+- **Last updated:** 2026-11-03
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt, every issue must be refactored, not patched
 
-> **⚠ Historical record only.** The Classification Key and severity sections
-> below document *resolved* items. Current open work is tracked in the
-> "Current Open Issues" section at the top of the register.
+> **⚠ Historical record only.** The rows below document what was found and
+> fixed; they are not a second open-work list. New findings go to GitHub, and
+> the issue tracker is the only place a gap can be open.
 
 > **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
 > agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed;
@@ -31,7 +33,7 @@
 |----|-----|-------|--------|----------|
 | R1 | 🟠 High | **RunScope does not survive the tool-dispatch thread hop (FIX-033)**: `RunScope` is thread-local and installed only on the agent thread, but every approved tool runs on a `std::async` dispatch worker (`lib/dispatch.cpp:289`) where `t_run_scope == nullptr`. In-flight tool cancellation, sub-agent cancellation via the ancestor chain (`lib/subagent.cpp:87`), skill-catalog resolution and activation bookkeeping silently fall back to the registration-bound objects / host template token. | ✅ Fixed | `docs/fix-proposal/run-scope-cross-thread-2026-09-19.md` |
 
-## 🆕 Current Open Issues, 2026-09-21 Thread Safety and Startup Hardening (T1..T5)
+## 🗄 Historical findings, 2026-09-21 Thread Safety and Startup Hardening (T1..T5, all resolved)
 
 Full proposal: `docs/fix-proposal/thread-safety-and-startup-hardening-2026-09-21.md`.
 Findings verified against source at `bf98d4d`; measurements taken on macOS.
@@ -40,9 +42,9 @@ Findings verified against source at `bf98d4d`; measurements taken on macOS.
 |----|-----|-------|--------|-----|
 | T1 | 🔴 Critical | *(line refs are pre-fix)* **`Agent::cfg_` is shared unsynchronized between the UI and the agent worker**: `Config cfg_` is a plain member (`include/agent/agent.h:377`) exposed as `const Config&` (`:206`); the UI reads it every render (`tui/render_engine.cpp:213-216`) and in feeds (`tui/tui_input.cpp:2748,2797`) / session snapshots (`tui/tui_session.cpp:74,82`), while the worker writes it in `Agent::run()` (`lib/agent.cpp:930`, cold-start model resolution) and the UI writes it via `set_model` (`lib/agent.cpp:96`). The catalog callback at `tui/tui_input.cpp:2336` calls `set_model` **without** the `runs_.busy()` guard `/set model` has (`tui_input.cpp:1321`), so on a cold start two threads write and one reads the same `std::string`s — UB (torn reads, reads of freed storage). Introduced/widened by `#142`; not covered by FIX-034 phase 1. **No TSan job existed** (`ci.yml:199-223` was ASan+UBSan only), so no gate could see this class. | ✅ Fixed: `Agent` publishes an immutable `shared_ptr<const Config>` (`config_snapshot()`), `config()` removed so every reader migrated, catalog callback skips busy windows, and a gating `tsan` job now runs the full suite under ThreadSanitizer. Red verified: 38 never-published observations before, 0 after. | FIX-035 |
 | T2 | 🟠 High | **UI-thread blocking remains in three paths**: `/system exec` polls `sleep(50ms)` × 600 on the UI thread, freezing it up to **30 s** (`tui/tui_input.cpp:1888-1893`); `git_refresh()` runs 2 × `popen` at startup *before the first paint* (`tui/render_engine.cpp:696`, `tui/tui.cpp:381`) and after **every tool result** (`tui/event_router.cpp:423`), measured ~65 ms here and unbounded on large repos; raw `popen` for `ps`/`df`/`uptime`/`uname` (`tui/tui_input.cpp:2007-2064`). Contradicts the sub-second, non-blocking startup contract established by `#142`. | ✅ Fixed: git state is published by a detached worker (`request_git_refresh()`), and all five TUI command paths go through the job service (`run_command_async` + a per-tick drain) — the 30 s poll loop and four duplicated `popen` blocks are gone. Reds verified: pre-fix paint waited on git, and a slow command blocked the UI. | FIX-036 |
-| T3 | 🟠 High | **Secret-bearing files are world-readable**: measured `-rw-r--r--` (0644) for `~/.config/amber/providers/kilocode.conf` (holds `api_key=…`), `~/.config/amber/config`, `.amber/sessions/*.json` and `.amber/logs/*.jsonl` (full conversation transcripts). No writer sets a restrictive mode (`lib/providers_repo_files.cpp:89`, `lib/config.cpp:206`, `lib/session.cpp` save, `lib/conversation_log.cpp:30`) — they inherit the umask. The right pattern already exists in-tree at `lib/mcp_config.cpp:232` (owner-only) and was never applied to these files. | 🟡 Proposed | FIX-037 |
-| T4 | 🟡 Medium | **Local logs grow without bound**: `lib/agent.cpp:613-618` opens `<workspace>/.amber/logs/{ts}.jsonl` per `Agent`; no retention code exists anywhere (`prune|retention|rotate|max_age|keep_last` matches only unrelated skill-install cleanups). Measured in this project: **11,910 files, 214 MB**. | 🟡 Proposed | FIX-038 |
-| T5 | 🟡 Medium | **MCP auto-connect blocks startup before first paint**: `tui/tui.cpp:140` calls `mcp_servers_.connect_all()` on the startup path, a blocking handshake per enabled + `auto_connect` server (`lib/mcp_config.cpp:258-260`). Inert for the current config; a startup blocker for anyone who configures MCP servers. | 🟡 Proposed | FIX-039 |
+| T3 | 🟠 High | *(resolved by #373)* **Secret-bearing files are world-readable**: measured `-rw-r--r--` (0644) for `~/.config/amber/providers/kilocode.conf` (holds `api_key=…`), `~/.config/amber/config`, `.amber/sessions/*.json` and `.amber/logs/*.jsonl` (full conversation transcripts). No writer sets a restrictive mode (`lib/providers_repo_files.cpp:89`, `lib/config.cpp:206`, `lib/session.cpp` save, `lib/conversation_log.cpp:30`) — they inherit the umask. The right pattern already exists in-tree at `lib/mcp_config.cpp:232` (owner-only) and was never applied to these files. | ✅ Fixed: owner-only modes for credentials, config, sessions and logs (#373) | FIX-037 |
+| T4 | 🟡 Medium | *(resolved by #367)* **Local logs grow without bound**: `lib/agent.cpp:613-618` opens `<workspace>/.amber/logs/{ts}.jsonl` per `Agent`; no retention code exists anywhere (`prune|retention|rotate|max_age|keep_last` matches only unrelated skill-install cleanups). Measured in this project: **11,910 files, 214 MB**. | ✅ Fixed: bounded retention with a visible policy (#367) | FIX-038 |
+| T5 | 🟡 Medium | *(resolved by #368)* **MCP auto-connect blocks startup before first paint**: `tui/tui.cpp:140` calls `mcp_servers_.connect_all()` on the startup path, a blocking handshake per enabled + `auto_connect` server (`lib/mcp_config.cpp:258-260`). Inert for the current config; a startup blocker for anyone who configures MCP servers. | ✅ Fixed: auto-connect moved off the activation path (#368) | FIX-039 |
 
 ## 🆕 Current Open Issues, 2026-09-22 Coverage Gate Scoping (CV1..CV3)
 

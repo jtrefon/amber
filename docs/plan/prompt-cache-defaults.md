@@ -1,5 +1,7 @@
 # Proposal: prompt caching on by default, with optimal parameters
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 Status: **proposal, awaiting sign-off.**
 Supersedes the opt-in surface in #521 (`AMBER_CACHE_SCOPE` / `AMBER_CACHE_DIAG`
 as enablers). #521's mechanics stay; its defaults and switch direction change.

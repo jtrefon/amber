@@ -1,6 +1,8 @@
 # Context shaping: milestones
 
-The compaction module is complete for its committed scope (epic #416, 17/18).
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+The compaction module is complete for its committed scope (epic #416, 17/18; shipped). The remaining work is tracked by #366/#380, not this plan.
 The tree shaker shipped only its two free seams: source projection for bulky bash
 output, and deterministic in-turn digesting at rebuild. This document plans the
 rest in **milestones**, each one pull request, each one independently shippable.

@@ -1,5 +1,7 @@
 # Pipeline parity: make the gates the standard, and the standard the gates
 
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
 Status: phases 0–3 implemented on `feat/pipeline-parity` (draft PR #504).
 Owner: engineering. Scope: CI, gate tooling, `AGENTS.md`. Started: 2026-11-01.
 

@@ -9,6 +9,8 @@
 #include "agent/plugin_runtime.h"
 #include "agent/workspace.h"
 #include "tui/window_manager.h"
+#include "tui/watch_cancel.h"
+#include "plugins/watch/watch_plugin.h"
 #include <csignal>
 #include "tui/action_registry.h"
 #include "tui/cache_note.h"
@@ -3179,4 +3181,67 @@ TEST(usage_ledger_does_not_restore_cache_counters_across_sessions) {
 TEST(prompt_cache_note_reports_a_provider_without_counters) {
     const std::string note = tui::prompt_cache_note("some-model", "5m", 12000, -1, -1);
     ASSERT(note.find("reports no cache counters") != std::string::npos);
+}
+
+namespace {
+
+// A watch runner that returns as soon as the token is requested, so the
+// helper's cancel path is deterministic and does not depend on killing a real
+// child process.
+class CancelRunner final : public agent::plugins::CommandRunner {
+public:
+    Result run(const std::string&, const std::string&, int,
+               const agent::CancellationToken& cancel) override {
+        for (int i = 0; i < 200 && !cancel.is_requested(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return Result{"", 0, false, cancel.is_requested()};
+    }
+};
+
+} // namespace
+
+// Ctrl+C has to reach a watch, not only the agent token. The helper acks and
+// abandons every non-terminal watch the window owns; this test pins that the
+// record reaches Cancelled, stays abandoned, and leaves no report to wake on.
+TEST(cancel_owned_watches_stops_and_abandons_a_running_watch) {
+    agent::test::XdgGuard xdg("watch_cancel_helper_" + std::to_string(getpid()));
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    agent::Workspace ws;
+    auto runner = std::make_shared<CancelRunner>();
+    auto watch = std::make_shared<agent::plugins::WatchPlugin>(runner, nullptr, "");
+    agent::PluginRuntime runtime(reg, cfg, ws);
+    runtime.add(watch);
+    runtime.start(/*use_persisted_state=*/false);
+
+    auto tool = reg.find("watch");
+    ASSERT_TRUE(tool != nullptr);
+    const auto started = tool->execute({{"action", "start"},
+                                        {"profile", "process"},
+                                        {"command", "sleep 30"},
+                                        {"label", "unit-cancel"},
+                                        {"deadline_s", 30}});
+    ASSERT_TRUE(started.ok);
+    const std::string id = started.meta.value("id", std::string());
+    ASSERT_FALSE(id.empty());
+
+    ASSERT_EQ(tui::cancel_owned_watches(runtime, "default"), 1);
+
+    bool terminal = false;
+    for (int i = 0; i < 500 && !terminal; ++i) {
+        for (const auto& record : watch->list_records()) {
+            if (record.id != id || !agent::plugins::watch_state_terminal(record.state))
+                continue;
+            terminal = true;
+            ASSERT_TRUE(record.state == agent::plugins::WatchState::Cancelled);
+        }
+        if (!terminal)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_TRUE(terminal);
+    // Cancelled is not a completion: the host has nothing to wake on for this
+    // watch. The state dir can carry another test's old report; only this
+    // record's delivery is under test.
+    for (const auto& report : watch->pending_reports())
+        ASSERT_TRUE(report.watch_id != id);
 }

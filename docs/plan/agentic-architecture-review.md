@@ -1,6 +1,8 @@
 # Agentic Architecture Review — why our tool economy is weak, and how to close the loop
 
-Status: strategy proposal (no code changes yet)
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+Status: **historical strategy proposal** — kept as the evidence base for the fixes that landed.
 Evidence base: 12 benchmark runs across 10 models, wire-level debugging, competitor
 system prompts (opencode fetched verbatim; Claude Code / Codex from their public
 documentation).

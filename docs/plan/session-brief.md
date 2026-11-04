@@ -1,6 +1,8 @@
 # Session Brief — harness-maintained narrative that survives compression
 
-Status: proposal (no code changes yet). Awaiting sign-off before RED.
+**Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
+
+Status: **delivered** — `lib/session_brief.cpp` is wired and the brief is injected on the user channel. The proposal below is the design record.
 Scope: core library (`lib/` + `include/agent/`). No UI changes in v1.
 Depends on: P5 capped compression budget (`kMaxCompressBudget = 32'000`)
 being in effect so the first compression — and thus the first brief —

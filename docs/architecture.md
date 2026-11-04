@@ -109,10 +109,12 @@ depth**. Switchable at runtime via `/mode read|write|yolo`.
 LLM → tool_call → execute → LLM → tool_call → ... → text reply
 ```
 
-Sequential, single-threaded within the agent. Tools run one at a time.
-Used in `write` mode for most interactions.
+One agent thread per window, sequential turns. A reply's tool calls are
+dispatched as one batch, so even this single-call shape goes through the
+parallel dispatcher; the "simple loop" is the one-call case of the path below,
+not a separate serial executor.
 
-### 2. Parallel Tool Dispatch
+### 2. Batch Tool Dispatch (the dispatcher every reply uses)
 
 ```
 LLM → [tool₁ ║ tool₂ ║ tool₃] → aggregate → LLM → ...
