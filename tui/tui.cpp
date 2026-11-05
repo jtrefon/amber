@@ -26,6 +26,7 @@
 #include <agent/tools.h>
 #include <agent/data_path.h>
 #include <agent/plugin.h>
+#include "agent/task_format.h"
 #include "agent/task_inbox.h"
 
 #include "plugins/watch/watch_plugin.h"
@@ -35,6 +36,7 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 
 #include "widgets.h"
@@ -144,10 +146,10 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // left in a raw, mouse-reporting, alternate-screen shell.
     try {
         install_signal_handlers();
-        agent::TaskService* tasks = plugin_runtime_.host_services().tasks;
-        if (!tasks)
+        tasks_ = plugin_runtime_.host_services().tasks;
+        if (!tasks_)
             throw std::runtime_error("the TUI requires a task inventory");
-        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events(), *tasks);
+        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events(), *tasks_);
         wire_plugin_runtime();
         build_managers();
         menu_ = std::make_unique<MenuController>(
@@ -466,6 +468,8 @@ void Tui::drain_pending_prompts(bool input_empty) {
         // Accept before starting: the ack hook marks the durable producer
         // delivered, so a crash cannot re-emit the report after it ran.
         task_runtime_->inbox.ack(w->owner_id, ids);
+        if (w->id != win().id)
+            w->attention = Window::Attention::Done;
         send_async_to(*w, agent::format_task_digest(completions), /*harness=*/true);
     }
 }
@@ -532,6 +536,38 @@ void Tui::drain_pending_jobs() {
         draw(); // the result is on screen, not merely in the scrollback
         it = watched_jobs_.erase(it);
     }
+}
+
+void Tui::drain_pending_tasks() {
+    if (!tasks_)
+        return;
+    for (auto it = watched_tasks_.begin(); it != watched_tasks_.end();) {
+        auto record = tasks_->get(*it);
+        if (!record) {
+            it = watched_tasks_.erase(it);
+            continue;
+        }
+        if (!agent::task_state_terminal(record->state)) {
+            ++it;
+            continue;
+        }
+        std::istringstream detail(agent::format_task_detail(*record));
+        for (std::string line; std::getline(detail, line);)
+            append_line(P_STATUS, line);
+        draw();
+        it = watched_tasks_.erase(it);
+    }
+}
+
+void Tui::refresh_task_feed_if_changed() {
+    if (!tasks_)
+        return;
+    const std::uint64_t generation = tasks_->generation();
+    if (generation == last_task_generation_)
+        return;
+    last_task_generation_ = generation;
+    if (slash_dispatcher_)
+        slash_dispatcher_->refresh_task_feed();
 }
 
 void Tui::cancel_all_runs() {
@@ -766,6 +802,8 @@ bool Tui::pump_io(CommandLine& cl) {
     drain_ui_posts();
     jobs_.check_timeouts();
     drain_pending_jobs();
+    drain_pending_tasks();
+    refresh_task_feed_if_changed();
     // Time-driven plugin work (a provider's balance refresh, say). The bar reads
     // what the tick cached; segments themselves never fetch.
     plugin_runtime_.tick();
@@ -1395,9 +1433,7 @@ void Tui::refresh_policy_feed() {
 void Tui::refresh_provider_feed() {
     slash_dispatcher_->refresh_provider_feed();
 }
-void Tui::refresh_job_feed() {
-    slash_dispatcher_->refresh_job_feed();
-}
+
 void Tui::refresh_plugin_feed() {
     if (feed_manager_)
         feed_manager_->refresh_plugin_feed();
@@ -1479,12 +1515,6 @@ void Tui::drain_ui_posts() {
     }
 }
 
-void Tui::job_kill(const std::string& id) {
-    slash_dispatcher_->job_kill(id);
-}
-void Tui::job_read(const std::string& id) {
-    slash_dispatcher_->job_read(id);
-}
 void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
     slash_dispatcher_->apply_policy_rule(name, lvl);
 }

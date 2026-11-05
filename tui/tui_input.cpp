@@ -42,6 +42,9 @@
 #include <thread>
 #include <unistd.h>
 #include <agent/job.h>
+#include <agent/task.h>
+#include <agent/task_format.h>
+#include <agent/task_job.h>
 #include <agent/workspace.h>
 #include <agent/worktree.h>
 
@@ -1465,7 +1468,7 @@ void SlashDispatcher::register_window_actions() {
     register_action("core.window.attach", [this](const std::string& a) {
         const std::size_t sp = a.find(' ');
         if (sp == std::string::npos) {
-            tui_.append_line(P_STATUS, "usage: /window attach <job|agent|watch> <id>");
+            tui_.append_line(P_STATUS, "usage: /window attach <task|job|agent|watch> <id>");
             return;
         }
         open_resource(a.substr(0, sp), a.substr(sp + 1));
@@ -1481,7 +1484,8 @@ void SlashDispatcher::register_window_actions() {
         if (!a.empty())
             tui_.append_line(P_STATUS,
                              "usage: /window new [name] | new noworkdir [name] | close | list | "
-                             "rename | set <number> | attach <kind> <id> | detach");
+                             "rename | set <number> | attach <task|job|agent|watch> <id> | "
+                             "detach");
         cmd_window_list();
     });
 }
@@ -1505,14 +1509,16 @@ void SlashDispatcher::register_core_session_actions() {
     });
 }
 
-// /compress, /job*, /session*, /quit.
-void SlashDispatcher::register_core_job_actions() {
+// /compress, /tasks*, /session*, /quit.
+void SlashDispatcher::register_core_task_actions() {
     register_action("core.compress", [this](const std::string&) { cmd_compress(""); });
-    register_action("core.job", [this](const std::string& a) { cmd_job(a); });
-    register_action("core.job.list", [this](const std::string&) { job_ls(); });
-    register_action("core.job.stop", [this](const std::string& a) { job_kill(a); });
-    register_action("core.job.read", [this](const std::string& a) { job_read(a); });
-    register_action("core.job.start", [this](const std::string& a) { job_start(a); });
+    register_action("core.tasks", [this](const std::string& a) { cmd_tasks(a); });
+    register_action("core.tasks.list", [this](const std::string&) { cmd_tasks_list(); });
+    register_action("core.tasks.start", [this](const std::string& a) { cmd_tasks_start(a); });
+    register_action("core.tasks.show", [this](const std::string& a) { cmd_tasks_show(a); });
+    register_action("core.tasks.output", [this](const std::string& a) { cmd_tasks_output(a); });
+    register_action("core.tasks.cancel", [this](const std::string& a) { cmd_tasks_cancel(a); });
+    register_action("core.tasks.wait", [this](const std::string& a) { cmd_tasks_wait(a); });
     register_action("core.session.save",
                     [this](const std::string&) { tui_.session_controller_->save_session(); });
     register_action("core.session.list",
@@ -1533,7 +1539,7 @@ void SlashDispatcher::register_core_job_actions() {
 
 void SlashDispatcher::register_core_actions() {
     register_core_session_actions();
-    register_core_job_actions();
+    register_core_task_actions();
     register_worktree_actions();
 }
 
@@ -2962,11 +2968,8 @@ struct WorkItem {
     std::size_t window_index = 0;
 };
 
-std::vector<WorkItem> collect_work_items(tui::WindowManager& windows, agent::JobService& jobs,
-                                         agent::SubAgentExecutor& subagents,
-                                         agent::PluginRuntime& runtime) {
+std::vector<WorkItem> collect_work_items(tui::WindowManager& windows, agent::TaskService& tasks) {
     std::vector<WorkItem> items;
-    std::map<std::string, std::string> owner_project;
     const auto& all = windows.all();
     for (std::size_t i = 0; i < all.size(); ++i) {
         const tui::Window& w = *all[i];
@@ -2974,20 +2977,14 @@ std::vector<WorkItem> collect_work_items(tui::WindowManager& windows, agent::Job
             continue;
         const std::string project =
             w.project_root.empty() ? agent::Workspace::project_root() : w.project_root;
-        owner_project[w.owner_id] = project;
         items.push_back({"session", std::to_string(w.id), w.title, project, i});
     }
-    const auto project_for = [&](const std::string& owner) {
-        const auto it = owner_project.find(owner);
-        return it == owner_project.end() ? agent::Workspace::process_project_root() : it->second;
-    };
-    for (const auto& job : jobs.list())
-        items.push_back({"job", job.id, job.label, project_for(job.owner_id), 0});
-    for (const auto& task : subagents.tasks())
-        items.push_back({"agent", task.id, task.prompt_head, project_for(task.owner_id), 0});
-    if (auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(runtime.find("watch")))
-        for (const auto& record : watch->list_records())
-            items.push_back({"watch", record.id, record.label, project_for(record.owner_id), 0});
+    for (const auto& task : tasks.list(windows.win().owner_id)) {
+        const std::string project = task.owner.project_root.empty()
+                                        ? agent::Workspace::process_project_root()
+                                        : task.owner.project_root;
+        items.push_back({"task", task.id, agent::format_task_row(task), project, 0});
+    }
     return items;
 }
 
@@ -2995,11 +2992,7 @@ std::string work_label(const WorkItem& item) {
     const std::string project = item.project.empty() ? "" : "  [" + item.project + "]";
     if (item.kind == "session")
         return "session  " + item.label + project;
-    if (item.kind == "job")
-        return "job      " + item.id + "  " + item.label + project;
-    if (item.kind == "agent")
-        return "agent    " + item.id + "  " + item.label + project;
-    return "watch    " + item.id + "  " + item.label + project;
+    return "task     " + item.label + project;
 }
 
 } // namespace
@@ -3041,11 +3034,7 @@ bool work_in_section(const WorkItem& item, int section) {
         return true;
     if (section == 1)
         return item.kind == "session";
-    if (section == 2)
-        return item.kind == "job";
-    if (section == 3)
-        return item.kind == "agent";
-    return item.kind == "watch";
+    return item.kind == "task";
 }
 
 std::vector<WorkItem> visible_work(const std::vector<WorkItem>& items, int section,
@@ -3097,7 +3086,7 @@ struct WorkBoardState {
     }
 
     void cycle(int delta) {
-        section = (section + delta + 5) % 5;
+        section = (section + delta + 3) % 3;
         sel = 0;
         selected_key.clear();
     }
@@ -3110,9 +3099,7 @@ void draw_work_board(WINDOW* w, int height, int width, const WorkBoardState& sta
     const std::string tabs = std::string(state.section == 0 ? "[" : " ") + "All" +
                              (state.section == 0 ? "]" : " ") + "  " +
                              (state.section == 1 ? "[Sessions]" : " Sessions ") + "  " +
-                             (state.section == 2 ? "[Jobs]" : " Jobs ") + "  " +
-                             (state.section == 3 ? "[Agents]" : " Agents ") + "  " +
-                             (state.section == 4 ? "[Watches]" : " Watches ");
+                             (state.section == 2 ? "[Tasks]" : " Tasks ");
     wattron(w, COLOR_PAIR(P_BANNER) | A_BOLD);
     mvwaddnstr(w, 0, 0, tabs.c_str(), width);
     wattroff(w, COLOR_PAIR(P_BANNER) | A_BOLD);
@@ -3217,7 +3204,7 @@ void SlashDispatcher::cmd_work_board() {
     Dialog dlg(std::min(26, std::max(8, LINES - 2)), std::min(120, std::max(40, COLS - 4)), "Work");
     dlg.set_footer({{"Enter", "open"},
                     {"a", "attach"},
-                    {"x", "stop"},
+                    {"x", "cancel"},
                     {"Tab", "section"},
                     {"/", "filter"},
                     {"Esc", "close"}});
@@ -3229,8 +3216,7 @@ void SlashDispatcher::cmd_work_board() {
 
     bool done = false;
     while (!done) {
-        state.sync(collect_work_items(*tui_.window_manager_, tui_.jobs_, tui_.subagents_,
-                                      tui_.plugin_runtime_));
+        state.sync(collect_work_items(*tui_.window_manager_, *tui_.tasks_));
         draw_work_board(w, height, width, state);
         update_panels();
         doupdate();
@@ -3276,7 +3262,7 @@ void SlashDispatcher::cmd_usage_reset() {
 
 void SlashDispatcher::open_resource(const std::string& kind, const std::string& id) {
     if (kind.empty() || id.empty()) {
-        tui_.append_line(P_STATUS, "usage: /window attach <job|agent|watch> <id>");
+        tui_.append_line(P_STATUS, "usage: /window attach <task|job|agent|watch> <id>");
         return;
     }
     if (!tui_.window_manager_->focus_resource(kind, id))
@@ -3291,22 +3277,13 @@ void SlashDispatcher::apply_work_item(const std::string& kind, const std::string
         tui_.switch_to(window_index);
         return;
     }
-    std::vector<std::string> actions = {"open viewer"};
-    if (kind == "job" || kind == "watch")
-        actions.emplace_back("stop");
-    const int action = menu_select(kind + " " + id, actions);
+    const int action = menu_select(kind + " " + id, {"open viewer", "cancel"});
     if (action == 0) {
         open_resource(kind, id);
-    } else if (action == 1 && kind == "job") {
-        tui_.jobs_.stop(id);
-        tui_.append_line(P_STATUS, "stopped job " + id);
-        tui_.draw();
-    } else if (action == 1 && kind == "watch") {
-        if (auto* watch =
-                dynamic_cast<agent::plugins::WatchPlugin*>(tui_.plugin_runtime_.find("watch"))) {
-            watch->stop_watch(id);
-            tui_.append_line(P_STATUS, "stopped watch " + id);
-        }
+        return;
+    }
+    if (action == 1) {
+        cmd_tasks_cancel(id);
         tui_.draw();
     }
 }
@@ -3824,37 +3801,6 @@ void SlashDispatcher::cmd_window_set(const std::string& arg) {
     }
 }
 
-namespace {
-const char* job_state_name(agent::JobState s) {
-    switch (s) {
-    case agent::JobState::Starting:
-        return "starting";
-    case agent::JobState::Running:
-        return "running";
-    case agent::JobState::Done:
-        return "done";
-    case agent::JobState::Killed:
-        return "killed";
-    case agent::JobState::Failed:
-        return "failed";
-    }
-    return "?";
-}
-std::string job_countdown(const agent::JobInfo& i) {
-    long rem = i.remaining_hard_s;
-    if (i.remaining_idle_s >= 0 && (rem < 0 || i.remaining_idle_s < rem))
-        rem = i.remaining_idle_s;
-    if (rem < 0)
-        return "";
-    return " ~" + std::to_string(rem) + "s";
-}
-std::string job_list_line(const agent::JobInfo& j) {
-    return "id " + j.id + "  " + job_state_name(j.state) + "  pid " + std::to_string(j.pid) +
-           "  age " + std::to_string(j.seconds_since_start) + "s  idle " +
-           std::to_string(j.seconds_since_output) + "s" + job_countdown(j) + "  " + j.command;
-}
-} // namespace
-
 void SlashDispatcher::cmd_compress(const std::string&) {
     auto& w = tui_.win();
     if (!w.agent) {
@@ -3872,70 +3818,140 @@ void SlashDispatcher::cmd_compress(const std::string&) {
     tui_.compress_worker(*my_win, my_id);
 }
 
-void SlashDispatcher::cmd_job(const std::string& rest) {
+void SlashDispatcher::cmd_tasks(const std::string& rest) {
     if (!rest.empty())
-        tui_.append_line(P_STATUS, "usage: /job [list|stop <id>|read <id>|start <cmd>]");
-    job_ls();
+        tui_.append_line(
+            P_STATUS,
+            "usage: /tasks [list|start <cmd>|show <id>|output <id>|cancel <id>|wait <id>]");
+    cmd_tasks_list();
 }
 
-void SlashDispatcher::job_ls() {
-    auto jobs = tui_.jobs_.list();
-    if (jobs.empty()) {
-        tui_.append_line(P_STATUS, "no background jobs");
+void SlashDispatcher::cmd_tasks_list() {
+    if (!tui_.tasks_) {
+        tui_.append_line(P_STATUS, "tasks: inventory is not wired");
         return;
     }
-    for (const auto& j : jobs)
-        tui_.append_line(P_STATUS, job_list_line(j));
+    auto records = tui_.tasks_->list(tui_.win().owner_id);
+    if (records.empty()) {
+        tui_.append_line(P_STATUS, "no background tasks");
+        return;
+    }
+    std::sort(records.begin(), records.end(),
+              [](const agent::TaskRecord& a, const agent::TaskRecord& b) {
+                  if (a.created_ms != b.created_ms)
+                      return a.created_ms < b.created_ms;
+                  return a.id < b.id;
+              });
+    for (const auto& record : records)
+        tui_.append_line(P_STATUS, agent::format_task_row(record));
 }
 
-void SlashDispatcher::refresh_job_feed() {
+void SlashDispatcher::refresh_task_feed() {
     if (tui_.feed_manager_)
-        tui_.feed_manager_->refresh_job_feed();
+        tui_.feed_manager_->refresh_task_feed();
 }
 
-void SlashDispatcher::job_kill(const std::string& id) {
-    if (id.empty()) {
-        tui_.append_line(P_STATUS, "usage: /job stop <id>");
+void SlashDispatcher::cmd_tasks_show(const std::string& id) {
+    if (!tui_.tasks_ || id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /tasks show <id>");
         return;
     }
-    bool ok = tui_.jobs_.stop(id);
-    tui_.append_line(P_STATUS, ok ? ("stopped " + id) : ("no such job: " + id));
-    refresh_job_feed();
+    auto record = tui_.tasks_->get(id);
+    if (!record || record->owner.owner_id != tui_.win().owner_id) {
+        tui_.append_line(P_STATUS, "no such task: " + id);
+        return;
+    }
+    std::istringstream detail(agent::format_task_detail(*record));
+    for (std::string line; std::getline(detail, line);)
+        tui_.append_line(P_STATUS, line);
+}
+
+void SlashDispatcher::cmd_tasks_output(const std::string& id) {
+    if (!tui_.tasks_ || id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /tasks output <id>");
+        return;
+    }
+    auto record = tui_.tasks_->get(id);
+    if (!record || record->owner.owner_id != tui_.win().owner_id) {
+        tui_.append_line(P_STATUS, "no such task: " + id);
+        return;
+    }
+    open_resource("task", id);
+}
+
+void SlashDispatcher::cmd_tasks_cancel(const std::string& id) {
+    if (!tui_.tasks_ || id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /tasks cancel <id>");
+        return;
+    }
+    auto record = tui_.tasks_->get(id);
+    if (!record || record->owner.owner_id != tui_.win().owner_id) {
+        tui_.append_line(P_STATUS, "no such task: " + id);
+        return;
+    }
+    if (agent::task_state_terminal(record->state)) {
+        tui_.append_line(P_STATUS,
+                         "task " + id + " is already " + agent::task_state_name(record->state));
+        return;
+    }
+    tui::ConfirmPanel confirm("Cancel task", "Cancel " + id + " \"" + record->label + "\"?");
+    if (!confirm.run())
+        return;
+    agent::CancellationToken token;
+    const bool ok = tui_.tasks_->cancel(id, "cancelled from /tasks", token);
+    tui_.append_line(P_STATUS, ok ? ("cancel requested for " + id) : ("could not cancel " + id));
+    refresh_task_feed();
     tui_.draw();
 }
 
-void SlashDispatcher::job_read(const std::string& id) {
-    if (id.empty()) {
-        tui_.append_line(P_STATUS, "usage: /job read <id>");
+void SlashDispatcher::cmd_tasks_wait(const std::string& id) {
+    if (!tui_.tasks_ || id.empty()) {
+        tui_.append_line(P_STATUS, "usage: /tasks wait <id>");
         return;
     }
-    std::string out = tui_.jobs_.output(id);
-    if (out.empty()) {
-        tui_.append_line(P_STATUS, "no output for " + id);
+    auto record = tui_.tasks_->get(id);
+    if (!record || record->owner.owner_id != tui_.win().owner_id) {
+        tui_.append_line(P_STATUS, "no such task: " + id);
         return;
     }
-    rich::Line body;
-    rich::Run run;
-    run.text = out;
-    run.pair = P_STATUS;
-    body.runs.push_back(run);
-    for (auto& l : rich::wrap(body, tui_.render_engine_->width()))
-        tui_.append_rich(l);
+    if (agent::task_state_terminal(record->state)) {
+        cmd_tasks_show(id);
+        return;
+    }
+    if (std::find(tui_.watched_tasks_.begin(), tui_.watched_tasks_.end(), id) ==
+        tui_.watched_tasks_.end()) {
+        tui_.watched_tasks_.push_back(id);
+        tui_.append_line(P_STATUS, "waiting for task " + id + "; the final record appears here");
+        tui_.draw();
+    }
 }
 
-void SlashDispatcher::job_start(const std::string& cmd) {
+void SlashDispatcher::cmd_tasks_start(const std::string& cmd) {
     if (cmd.empty()) {
-        tui_.append_line(P_STATUS, "usage: /job start <command>");
+        tui_.append_line(P_STATUS, "usage: /tasks start <command>");
         return;
     }
-    std::string id = tui_.jobs_.start(cmd, agent::Workspace::project_root(), 600, 30,
-                                      agent::JobOrigin{tui_.win().owner_id, cmd});
-    if (id.empty()) {
-        tui_.append_line(P_STATUS, "failed to start: " + cmd);
+    if (!tui_.tasks_) {
+        tui_.append_line(P_STATUS, "tasks: inventory is not wired");
         return;
     }
-    tui_.append_line(P_STATUS, "started " + id + ": " + cmd);
-    refresh_job_feed();
+    agent::CommandTaskStart options;
+    options.command = cmd;
+    options.cwd = tui_.win().root.empty() ? agent::Workspace::project_root() : tui_.win().root;
+    options.label = cmd;
+    options.owner.owner_id = tui_.win().owner_id;
+    options.owner.project_root = tui_.win().project_root.empty() ? agent::Workspace::project_root()
+                                                                 : tui_.win().project_root;
+    options.owner.worktree = tui_.win().root;
+    std::string error;
+    const agent::StartedCommandTask started =
+        agent::start_command_task(tui_.jobs_, *tui_.tasks_, options, &error);
+    if (started.task_id.empty()) {
+        tui_.append_line(P_STATUS, "failed to start: " + (error.empty() ? cmd : error));
+        return;
+    }
+    tui_.append_line(P_STATUS, "started task " + started.task_id + ": " + cmd);
+    refresh_task_feed();
     tui_.draw();
 }
 

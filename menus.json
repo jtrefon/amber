@@ -42,7 +42,7 @@
         {"label": "Settings", "action": "core.settings"},
         {"label": "Providers", "action": "core.provider.list"},
         {"label": "Skills", "action": "core.skills.browse"},
-        {"label": "Jobs", "action": "core.job.list"},
+        {"label": "Tasks", "action": "core.tasks.list"},
         {"label": "Work board", "action": "core.work"},
         {"label": "Learned items", "action": "core.learn.panel"}
       ]

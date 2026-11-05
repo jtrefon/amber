@@ -705,9 +705,9 @@ with the provenance line reporting a source that has moved; its tools
 `/plugin project_index show|refresh` commands arrive and leave with it),
 `plugins/clock/` (the bar's right-edge readout),
 `plugins/watch/` (category `observability`: background command/PR watches, a
-deterministic journal, a one-shot read-only observer, a status segment, a panel
-and the start-only `watch` tool; the `tasks` inventory is the inspect surface.
-Its spec is `watch-observer.md`),
+deterministic journal, a one-shot read-only observer, a panel and the start-only
+`watch` tool; the core `tasks` inventory and status segment are the inspect
+surface. Its spec is `watch-observer.md`),
 `plugins/metrics/` (an event-observing plugin with no contributions),
 `plugins/hello/` (the `/plugin hello` command example), `plugins/amber_self/` (the
 `amber-self` plugin: it contributes the `amber-config` skill, whose body is

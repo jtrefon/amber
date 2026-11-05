@@ -2,7 +2,6 @@
 
 #include "agent/job.h"
 #include "agent/json_read.h"
-#include "agent/run_scope.h"
 #include "agent/task.h"
 #include "agent/task_job.h"
 #include "agent/workspace.h"
@@ -14,26 +13,12 @@ namespace agent {
 
 namespace {
 
-std::string clip_label(const std::string& command) {
-    if (command.size() > 80)
-        return command.substr(0, 77) + "...";
-    return command;
-}
-
 TaskNotify parse_notify(const std::string& value) {
     if (value == "digest")
         return TaskNotify::Digest;
     if (value == "silent")
         return TaskNotify::Silent;
     return TaskNotify::Auto;
-}
-
-// The completion sink runs on the job's reader thread after the terminal state
-// is committed. It touches only TaskService: the job's output stays behind the
-// backend id and is read by `tasks output` when the model asks for it.
-void finish_task(TaskService& tasks, const std::string& task_id, const JobInfo& info) {
-    tasks.finish(task_id, task_state_from_job(info), task_result_from_job(info),
-                 task_error_from_job(info));
 }
 
 } // namespace
@@ -118,35 +103,20 @@ ToolResult ProcessStartTool::start_without_task(const std::string& command, long
 ToolResult ProcessStartTool::start_with_task(const std::string& command, long hard, long idle,
                                              const std::string& cwd, const std::string& label,
                                              TaskNotify notify) const {
-    TaskRecord record;
-    record.kind = TaskKind::Command;
-    record.owner = task_owner_from_scope();
-    record.label = label.empty() ? clip_label(command) : label;
-    record.command = command;
-    record.cwd = cwd.empty() ? Workspace::workspace_root() : cwd;
-    record.notify = notify;
-
+    CommandTaskStart options;
+    options.command = command;
+    options.cwd = cwd.empty() ? Workspace::workspace_root() : cwd;
+    options.label = label;
+    options.owner = task_owner_from_scope();
+    options.notify = notify;
+    options.hard_timeout_s = hard;
+    options.idle_timeout_s = idle;
     std::string error;
-    const std::string task_id = tasks_->create(std::move(record), &error);
-    if (task_id.empty())
-        return {false, "", error.empty() ? "task limit reached; do not retry" : error};
-    tasks_->started(task_id, 0);
-
-    JobOrigin origin;
-    origin.owner_id = run_owner_id();
-    origin.label = label.empty() ? clip_label(command) : label;
-    TaskService* tasks = tasks_;
-    const std::string job_id =
-        jobs_.start(command, cwd, hard, idle, std::move(origin),
-                    [tasks, task_id](const JobInfo& info) { finish_task(*tasks, task_id, info); });
-    if (job_id.empty()) {
-        tasks_->finish(task_id, TaskState::Failed, {}, "failed to start background process");
-        return {false, "", "failed to start background process"};
-    }
-    tasks_->bind_backend(task_id, job_id);
-    tasks_->attach_cancel(
-        task_id, [&jobs = jobs_, job_id](const CancellationToken&) { return jobs.stop(job_id); });
-    return {true, task_id, "", {{"task_id", task_id}, {"job_id", job_id}}};
+    const StartedCommandTask started = start_command_task(jobs_, *tasks_, options, &error);
+    if (started.task_id.empty())
+        return {false, "", error.empty() ? "failed to start background process" : error};
+    return {
+        true, started.task_id, "", {{"task_id", started.task_id}, {"job_id", started.backend_id}}};
 }
 
 ToolResult ProcessStartTool::execute(const json& args) const {

@@ -34,7 +34,7 @@ not roots.
 |---|---|---|
 | `session` | conversations | `list`, `new`, `load`, `save`, `remove`, `fork`, `rename`, `compress` |
 | `window` | screens and attachment | `list`, `new`, `close`, `switch`, `rename`, `attach`, `detach` |
-| `job` | background processes | `list`, `start`, `show`, `read`, `stop` |
+| `tasks` | background work (commands, watches, workers) | `list`, `start`, `show`, `output`, `cancel`, `wait` |
 | `agent` | background model workers (subagents) | `list`, `show`, `stop` |
 | `watch` | long-running command/PR/URL polls (plugin) | `list`, `show`, `report`, `stop` |
 | `project` | project roots and project sessions | `list`, `open`, `show`, `close` |
@@ -64,7 +64,7 @@ host-owned alias if the allowlist grants one. There is no plugin root by default
 | `attach` | bind a resource to a viewing surface |
 | `detach` | unbind a viewing surface; the resource continues |
 | `start` | launch asynchronous work |
-| `stop` | terminate asynchronous work (job/watch/agent/turn) |
+| `stop` | terminate asynchronous work (task/agent/turn); `cancel` is the task verb |
 | `close` | close a surface/session; not kill a resource |
 | `save` | persist a conversation/session |
 | `remove` | remove a saved object or registry entry |
@@ -74,7 +74,8 @@ host-owned alias if the allowlist grants one. There is no plugin root by default
 | `fork` | duplicate a conversation |
 | `prune` | maintenance of registry/artifacts |
 
-Use `stop` for jobs and watches. `kill` and `cancel` are compatibility aliases.
+Use `cancel` for tasks; `stop` and `kill` are compatibility aliases. `/job` is a
+visible alias of `/tasks`.
 Use `remove` for saved sessions/worktrees; `delete` is a compatibility alias.
 Use `show` for detail; `status` is a compatibility alias.
 
@@ -96,18 +97,16 @@ Examples:
 /get subagent active
 /get subagent max
 /set subagent parallel
-/get job count
-/job list
-/agent list
-/work list
-/work show job 3
-/window attach job 3
+/tasks list
+/work
+/tasks output 3
+/window attach task 3
 /window detach
-/job stop 3
+/tasks cancel 3
 ```
 
-`/get job` and `/get subagent` are not management aliases. The canonical
-instance lists are `/job list` and `/agent list`.
+The canonical instance list is `/tasks list`; `/job` resolves there as a visible
+alias, not a second namespace.
 
 ## 4. Plugin placement: settings first, workspace second, root last
 

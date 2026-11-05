@@ -16,7 +16,7 @@ namespace {
 // without renumbering them.
 enum Priority {
     kWindow = 100,
-    kJobs = 150,
+    kTasks = 150,
     kAgents = 175,
     kModel = 200,
     kMode = 300,
@@ -39,7 +39,7 @@ enum Priority {
 enum Drop {
     kScrollDrop = 0,
     kActivityDrop = 1,
-    kJobsDrop = 2,
+    kTasksDrop = 2,
     kAgentsDrop = 2,
     kModeDrop = 2,
     kWindowDrop = 3,
@@ -66,10 +66,14 @@ StatusText render_window(const StatusSnapshot& s) {
                       StatusTone::Banner};
 }
 
-StatusText render_jobs(const StatusSnapshot& s) {
-    if (s.running_jobs <= 0)
+StatusText render_tasks(const StatusSnapshot& s) {
+    if (s.running_tasks <= 0 && s.undelivered_tasks <= 0)
         return StatusText{};
-    return StatusText{"[j" + compact::count(s.running_jobs) + "]", StatusTone::Warn};
+    std::string text = "[t" + compact::count(s.running_tasks);
+    if (s.undelivered_tasks > 0)
+        text += "!" + compact::count(s.undelivered_tasks);
+    text += "]";
+    return StatusText{std::move(text), StatusTone::Warn};
 }
 
 StatusText render_agents(const StatusSnapshot& s) {
@@ -171,7 +175,7 @@ StatusText render_activity(const StatusSnapshot& s) {
 std::vector<std::unique_ptr<Capability>> core_status_capabilities() {
     std::vector<std::unique_ptr<Capability>> caps;
     caps.push_back(segment("window", kWindow, kWindowDrop, render_window));
-    caps.push_back(segment("jobs", kJobs, kJobsDrop, render_jobs));
+    caps.push_back(segment("tasks", kTasks, kTasksDrop, render_tasks));
     caps.push_back(segment("agents", kAgents, kAgentsDrop, render_agents));
     caps.push_back(segment("model", kModel, kModelDrop, render_model));
     caps.push_back(segment("mode", kMode, kModeDrop, render_mode));

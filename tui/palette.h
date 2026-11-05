@@ -16,7 +16,7 @@ namespace tui::palette {
 
 struct Command {
     std::string name;
-    std::string action; // JSON tree action path (core.job.kill, ...)
+    std::string action; // JSON tree action path (core.tasks.cancel, ...)
     std::vector<std::string> aliases;
     std::string args;
     std::string help;

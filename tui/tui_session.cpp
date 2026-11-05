@@ -11,6 +11,9 @@
 #include "tui/widgets.h"
 #include "plugins/watch/watch_plugin.h"
 
+#include "agent/task.h"
+#include "agent/task_format.h"
+
 #include <algorithm>
 #include <ctime>
 #include <cstdlib>
@@ -606,6 +609,33 @@ std::vector<std::string> job_resource_lines(agent::JobService& jobs, const std::
     return lines;
 }
 
+std::vector<std::string> task_resource_lines(agent::TaskService& tasks, agent::JobService& jobs,
+                                             const std::string& id) {
+    auto record = tasks.get(id);
+    if (!record)
+        return {"task " + id + " is no longer available"};
+    std::vector<std::string> lines;
+    std::istringstream detail(agent::format_task_detail(*record));
+    for (std::string line; std::getline(detail, line);)
+        lines.push_back(line);
+    std::string body;
+    if (record->kind == agent::TaskKind::Command) {
+        const std::string backend = tasks.backend_id(id);
+        if (!backend.empty())
+            body = jobs.output(backend);
+    }
+    if (body.empty())
+        body = record->result.output_tail;
+    if (body.size() > std::size_t{64} * 1024)
+        body.resize(std::size_t{64} * 1024);
+    lines.emplace_back();
+    if (body.empty())
+        lines.emplace_back("(no output)");
+    else
+        split_lines(body, lines, 400);
+    return lines;
+}
+
 std::vector<std::string> agent_resource_lines(agent::SubAgentExecutor& subagents,
                                               const std::string& id) {
     std::vector<std::string> lines;
@@ -647,7 +677,9 @@ void Tui::refresh_active_resource() {
         return;
 
     std::vector<std::string> lines;
-    if (w.resource_kind == "job")
+    if (w.resource_kind == "task")
+        lines = task_resource_lines(*tasks_, jobs_, w.resource_id);
+    else if (w.resource_kind == "job")
         lines = job_resource_lines(jobs_, w.resource_id);
     else if (w.resource_kind == "agent")
         lines = agent_resource_lines(subagents_, w.resource_id);

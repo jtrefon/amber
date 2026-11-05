@@ -5,8 +5,10 @@
 #include "tui.h"
 #include "welcome.h"
 #include "tool_display.h"
+#include "task_runtime.h"
 
 #include "agent/compact.h"
+#include "agent/task.h"
 #include "tui/drawer_rows.h"
 
 #include <algorithm>
@@ -268,8 +270,16 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     snapshot.latency_ms = static_cast<long>(w.stats.latency_ms);
     snapshot.tps = w.stats.tps;
     snapshot.usage = w.usage;
-    snapshot.running_jobs = tui_.jobs_.running_count();
-    snapshot.job_seconds_left = tui_.jobs_.min_timeout_remaining();
+    snapshot.running_tasks = 0;
+    snapshot.undelivered_tasks = 0;
+    if (tui_.tasks_) {
+        for (const auto& record : tui_.tasks_->list(w.owner_id)) {
+            if (!agent::task_state_terminal(record.state))
+                ++snapshot.running_tasks;
+        }
+        snapshot.undelivered_tasks =
+            static_cast<int>(tui_.task_runtime_->inbox.pending(w.owner_id));
+    }
     if (tui_.reg_.find("task")) {
         snapshot.subagents_available = true;
         snapshot.active_agents = tui_.subagents_.active();

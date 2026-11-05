@@ -92,7 +92,7 @@ void SlashDispatcher::refresh_completions() {
     // connect — until the next restart.
     refresh_model_list();
     refresh_policy_feed();
-    refresh_job_feed();
+    refresh_task_feed();
     refresh_provider_feed();
     if (tui_.feed_manager_) {
         tui_.feed_manager_->refresh_plugin_feed();

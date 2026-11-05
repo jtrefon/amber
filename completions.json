@@ -228,8 +228,8 @@
     },
     "attach": {
      "action": "core.window.attach",
-     "help": "Open a read-only viewer for a job, agent or watch.",
-     "man": "Usage: /window attach <job|agent|watch> <id>. Closing the viewer detaches it; the resource keeps running. Use the resource command (/job stop, /plugin watch stop) to stop it.",
+     "help": "Open a read-only viewer for a task, job, agent or watch.",
+     "man": "Usage: /window attach <task|job|agent|watch> <id>. Closing the viewer detaches it; the resource keeps running. Use '/tasks cancel <id>' to stop background work.",
      "short": "a"
     },
     "detach": {
@@ -1099,41 +1099,56 @@
    ],
    "short": "p"
   },
-  "job": {
-   "action": "core.job",
-   "help": "Manage background jobs.",
-   "man": "The job command manages long-running background processes started by the agent (e.g. dev servers, builds). Jobs run independently of the agent and can be monitored via '/job read'. Use '/job stop' to stop a running job and '/job list' to see all jobs.",
+  "tasks": {
+   "action": "core.tasks",
+   "help": "One inventory for background work.",
+   "man": "Commands, watches and workers share one task record. Use '/tasks list' for the active window's inventory, '/tasks show <id>' for the state and times, '/tasks output <id>' for the bounded output and viewer, '/tasks wait <id>' to be told when it finishes, '/tasks cancel <id>' to stop it, and '/tasks start <command>' to start a command from here. '/job' is an alias for this namespace.",
    "children": {
     "list": {
-     "action": "core.job.list",
-     "help": "List all running and finished background jobs.",
-     "man": "Lists all jobs with their ID, command, state (running/done/killed/failed), and timeout information.",
+     "action": "core.tasks.list",
+     "help": "List this window's background tasks.",
+     "man": "Lists commands, watches and workers owned by the active window with their id, kind, state, elapsed time, label and last progress line. The Work board shows the same rows.",
      "short": "l"
     },
     "start": {
-     "action": "core.job.start",
-     "help": "Start a new background job with a shell command.",
-     "man": "Starts a new background process from a shell command. The job runs independently with configurable hard and idle timeouts.",
+     "action": "core.tasks.start",
+     "help": "Start a background command.",
+     "man": "Starts a shell command as a task owned by the active window. The command runs in the window's workspace with a hard timeout and an idle timeout; use '/tasks output <id>' to follow it and '/tasks cancel <id>' to stop its process group.",
      "short": "st"
     },
-    "read": {
-     "action": "core.job.read",
-     "help": "Read a job's output (all output or since last read).",
-     "man": "Reads the output of a running or finished job. Returns all output since the last read call.",
-     "short": "rd"
+    "show": {
+     "action": "core.tasks.show",
+     "help": "Show one task's state and result.",
+     "man": "Prints the task's kind, state, owner, elapsed time, last progress line, exit code or signal, error and artifact path.",
+     "short": "sh"
     },
-    "stop": {
-     "action": "core.job.stop",
-     "help": "Stop a running job by ID.",
-     "man": "Sends SIGKILL to a running job's process group and cleans up its resources.",
+    "output": {
+     "action": "core.tasks.output",
+     "help": "Open a task's bounded output.",
+     "man": "Opens the resource viewer for the task, showing the full record and the bounded output tail. Closing the viewer detaches; it does not cancel the task.",
      "aliases": [
-      "kill",
-      "cancel"
+      "read"
      ],
-     "short": "sp"
+     "short": "o"
+    },
+    "cancel": {
+     "action": "core.tasks.cancel",
+     "help": "Cancel a running task.",
+     "man": "Asks for confirmation, then stops the task. A command loses its process group; a watch is asked to stop. Cancelling a finished task is a clear error, not a state change.",
+     "aliases": [
+      "stop",
+      "kill"
+     ],
+     "short": "c"
+    },
+    "wait": {
+     "action": "core.tasks.wait",
+     "help": "Report when a task finishes.",
+     "man": "Waits without blocking the UI: the task's final record is appended when it reaches a terminal state. The model-facing tasks tool has the blocking, bounded wait.",
+     "short": "w"
     }
    },
-   "short": "j"
+   "short": "t"
   },
   "project": {
    "action": "core.project",
@@ -1169,8 +1184,8 @@
   },
   "work": {
    "action": "core.work",
-   "help": "Show sessions, jobs, agents and watches in one board.",
-   "man": "Opens the Work board. Enter focuses a session or opens a resource viewer; stop is explicit and confirmed by selection.",
+   "help": "Show sessions and background tasks in one board.",
+   "man": "Opens the Work board. Enter focuses a session or opens a task viewer; cancel is explicit and confirmed by selection. The task rows are the same inventory as /tasks list.",
    "short": "wk"
   },
   "plugin": {
@@ -1204,7 +1219,8 @@
   "clear": "session new",
   "save": "session save",
   "sessions": "session list",
-  "mcp": "plugin mcp"
+  "mcp": "plugin mcp",
+  "job": "tasks"
  },
  "legacy": {
   "new": "session new",

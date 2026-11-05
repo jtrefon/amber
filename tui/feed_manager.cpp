@@ -4,6 +4,7 @@
 
 #include <agent/job.h>
 #include <agent/plugin_runtime.h>
+#include <agent/task_format.h>
 #include <agent/model_probe.h>
 #include <agent/policy.h>
 #include <agent/providers.h>
@@ -19,23 +20,6 @@
 #include <set>
 
 namespace tui {
-namespace {
-const char* job_state_name(agent::JobState s) {
-    switch (s) {
-    case agent::JobState::Starting:
-        return "starting";
-    case agent::JobState::Running:
-        return "running";
-    case agent::JobState::Done:
-        return "done";
-    case agent::JobState::Killed:
-        return "killed";
-    case agent::JobState::Failed:
-        return "failed";
-    }
-    return "?";
-}
-} // namespace
 
 FeedManager::FeedManager(Tui& tui) : tui_(tui) {}
 
@@ -254,20 +238,32 @@ void FeedManager::refresh_worktree_feed() {
     tui_.settings_.merge_completions_json(subtree);
 }
 
-void FeedManager::refresh_job_feed() {
+void FeedManager::refresh_task_feed() {
+    if (!tui_.tasks_ || !tui_.window_manager_ || tui_.window_manager_->count() == 0)
+        return;
     nlohmann::json subtree = nlohmann::json::object();
-    for (const auto& j : tui_.jobs_.list()) {
-        std::string id = j.id;
-        nlohmann::json& stop_leaf = subtree["job"]["children"]["stop"]["children"][id];
-        stop_leaf["action"] = "core.job.stop." + id;
-        stop_leaf["help"] = tui::job_state_name(j.state);
-        nlohmann::json& read_leaf = subtree["job"]["children"]["read"]["children"][id];
-        read_leaf["action"] = "core.job.read." + id;
-        read_leaf["help"] = tui::job_state_name(j.state);
-        tui_.register_action("core.job.stop." + id,
-                             [this, id](const std::string&) { tui_.job_kill(id); });
-        tui_.register_action("core.job.read." + id,
-                             [this, id](const std::string&) { tui_.job_read(id); });
+    using Handler = void (SlashDispatcher::*)(const std::string&);
+    const std::pair<const char*, Handler> verbs[] = {
+        {"show", &SlashDispatcher::cmd_tasks_show},
+        {"output", &SlashDispatcher::cmd_tasks_output},
+        {"cancel", &SlashDispatcher::cmd_tasks_cancel},
+        {"wait", &SlashDispatcher::cmd_tasks_wait},
+    };
+    for (const auto& task : tui_.tasks_->list(tui_.win().owner_id)) {
+        const std::string row = agent::format_task_row(task);
+        for (const auto& entry : verbs) {
+            // Copy out of the pair before the lambda: capturing a structured
+            // binding is a C++20 extension, and this tree builds as C++17.
+            const std::string verb = entry.first;
+            const Handler handler = entry.second;
+            const std::string action = "core.tasks." + verb + "." + task.id;
+            nlohmann::json& leaf = subtree["tasks"]["children"][verb]["children"][task.id];
+            leaf["action"] = action;
+            leaf["help"] = row;
+            tui_.register_action(action, [this, id = task.id, handler](const std::string&) {
+                (tui_.slash_dispatcher_.get()->*handler)(id);
+            });
+        }
     }
     tui_.settings_.merge_completions_json(subtree);
 }

@@ -458,38 +458,38 @@ TEST(test_policy_rule_feed_leaves) {
     ASSERT_EQ(get_kids.front(), "bash");
 }
 
-// ── Test: job kill/read complete from feed leaves (FIX-015 P4) ──
-// Job ids become value leaves under job.kill and job.read (state as help),
-// replacing the last hardcoded complete_arg lambda.
+// ── Test: task cancel/output complete from feed leaves (FIX-015 P4) ──
+// Task ids become value leaves under tasks.cancel and tasks.output (state as
+// help), replacing the last hardcoded complete_arg lambda.
 
-TEST(test_job_feed_leaves) {
+TEST(test_task_feed_leaves) {
     tui::SettingRegistry reg;
     bool ok = reg.load_completions_json("completions.json");
     ASSERT(ok);
     nlohmann::json subtree = nlohmann::json::object();
-    subtree["job"]["children"]["kill"]["children"]["42"]["action"] = "core.job.kill.42";
-    subtree["job"]["children"]["kill"]["children"]["42"]["help"] = "running";
-    subtree["job"]["children"]["kill"]["children"]["43"]["action"] = "core.job.kill.43";
-    subtree["job"]["children"]["read"]["children"]["42"]["action"] = "core.job.read.42";
+    subtree["tasks"]["children"]["cancel"]["children"]["42"]["action"] = "core.tasks.cancel.42";
+    subtree["tasks"]["children"]["cancel"]["children"]["42"]["help"] = "running";
+    subtree["tasks"]["children"]["cancel"]["children"]["43"]["action"] = "core.tasks.cancel.43";
+    subtree["tasks"]["children"]["output"]["children"]["42"]["action"] = "core.tasks.output.42";
     reg.merge_completions_json(subtree);
 
-    // /job kill <Tab> completes running jobs...
-    auto kill_kids = reg.complete("job.kill");
-    REQUIRE_NONEMPTY(kill_kids);
-    ASSERT_EQ(kill_kids.size(), 2u);
+    // /tasks cancel <Tab> completes running tasks...
+    auto cancel_kids = reg.complete("tasks.cancel");
+    REQUIRE_NONEMPTY(cancel_kids);
+    ASSERT_EQ(cancel_kids.size(), 2u);
     bool has_42 = false, has_43 = false;
-    for (const auto& k : kill_kids) {
-        if (k == "job.kill.42")
+    for (const auto& k : cancel_kids) {
+        if (k == "tasks.cancel.42")
             has_42 = true;
-        if (k == "job.kill.43")
+        if (k == "tasks.cancel.43")
             has_43 = true;
     }
     ASSERT(has_42 && has_43);
-    ASSERT_EQ(reg.help_for("job.kill.42"), "running");
-    // ...and /job read offers the same job ids.
-    auto read_kids = reg.children_of("job.read");
-    REQUIRE_NONEMPTY(read_kids);
-    ASSERT_EQ(read_kids.front(), "42");
+    ASSERT_EQ(reg.help_for("tasks.cancel.42"), "running");
+    // ...and /tasks output offers the same task ids.
+    auto output_kids = reg.children_of("tasks.output");
+    REQUIRE_NONEMPTY(output_kids);
+    ASSERT_EQ(output_kids.front(), "42");
 }
 
 // ── Test: get/set namespaces are indexed by FULL path (FIX-015 P1) ──
@@ -1416,13 +1416,13 @@ TEST(test_feeds_never_clobber_documented_verbs) {
     REQUIRE_NONEMPTY(documented);
 
     nlohmann::json feeds = nlohmann::json::object();
-    // refresh_model_list / refresh_policy_feed / refresh_job_feed /
+    // refresh_model_list / refresh_policy_feed / refresh_task_feed /
     // refresh_plugin_feed / refresh_provider_feed, in one subtree each.
     feeds["set"]["children"]["model"]["children"]["alpha::large"]["action"] =
         "core.config.set.model.alpha::large";
     feeds["set"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] = "b";
     feeds["get"]["children"]["policy"]["children"]["rule"]["children"]["bash"]["action"] = "b";
-    feeds["job"]["children"]["kill"]["children"]["7"]["action"] = "c";
+    feeds["tasks"]["children"]["cancel"]["children"]["7"]["action"] = "c";
     feeds["set"]["children"]["plugin"]["children"]["on"]["children"]["mcp"]["action"] = "d";
     feeds["get"]["children"]["plugin"]["children"]["info"]["children"]["mcp"]["action"] = "d";
     feeds["set"]["children"]["provider"]["children"]["kilocode"]["action"] = "e";
@@ -1574,7 +1574,7 @@ TEST(test_command_tree_has_domain_roots_not_action_roots) {
          {"model", "compress", "compact", "stop", "clear", "save", "sessions", "mcp"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(alias)) != top.end());
     }
-    for (const char* present : {"session", "window", "job", "worktree"}) {
+    for (const char* present : {"session", "window", "tasks", "job", "worktree"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(present)) != top.end());
     }
 }
@@ -1631,7 +1631,7 @@ TEST(test_resolver_glued_shorts_and_path_aliases) {
     m = reg.resolve_command({"job", "kill", "7"});
     ASSERT(m.node);
     ASSERT_EQ(m.consumed, 2u);
-    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.job.stop"));
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.tasks.cancel"));
 
     m = reg.resolve_command({"session", "delete", "id"});
     ASSERT(m.node);
@@ -1721,7 +1721,7 @@ TEST(test_visible_alias_rows_surface_at_the_drawer) {
     ASSERT(reg.load_completions_json("completions.json"));
     const auto top = reg.complete("");
     for (const char* alias :
-         {"model", "compress", "compact", "stop", "clear", "save", "sessions", "mcp"}) {
+         {"model", "compress", "compact", "stop", "clear", "save", "sessions", "mcp", "job"}) {
         const std::string key(alias);
         if (std::find(top.begin(), top.end(), key) == top.end()) {
             std::cerr << "FAIL: alias /" << alias << " is not a drawer row\n";
@@ -1732,6 +1732,31 @@ TEST(test_visible_alias_rows_surface_at_the_drawer) {
                                "prompt", "index", "sl"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(hidden)) == top.end());
     }
+}
+
+// /job is the old spelling of the task inventory, not a second namespace.
+TEST(test_job_alias_resolves_to_the_task_tree) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    ASSERT_EQ(reg.alias_target_path("job"), std::string("tasks"));
+    const auto top = reg.complete("");
+    ASSERT(std::find(top.begin(), top.end(), std::string("job")) != top.end());
+
+    auto m = reg.resolve_command({"job", "list"});
+    ASSERT(m.node);
+    ASSERT_EQ(m.consumed, 2u);
+    ASSERT_EQ(m.node->at("action").get<std::string>(), std::string("core.tasks.list"));
+}
+
+// The old namespace is gone, not deprecated: no handler and no documented
+// action may still name it.
+TEST(test_no_core_job_actions_remain) {
+    std::ifstream in("completions.json");
+    ASSERT(in.good());
+    std::string text;
+    for (std::string line; std::getline(in, line);)
+        text += line;
+    ASSERT(text.find("core.job") == std::string::npos);
 }
 
 // Everything the target namespace offers, the alias view offers under the
@@ -1968,7 +1993,7 @@ int main() {
         test_set_model_feed_leaves_complete();
         test_policy_rule_branches_documented();
         test_policy_rule_feed_leaves();
-        test_job_feed_leaves();
+        test_task_feed_leaves();
         test_full_path_namespaces_are_distinct();
         test_merge_preserves_static_tree_children();
         test_merge_never_rewrites_documented_fields();
@@ -2032,6 +2057,8 @@ int main() {
         test_command_tree_has_domain_roots_not_action_roots();
         test_alias_dispatch_reaches_the_canonical_action();
         test_visible_alias_rows_surface_at_the_drawer();
+        test_job_alias_resolves_to_the_task_tree();
+        test_no_core_job_actions_remain();
         test_alias_view_mirrors_the_target();
         test_alias_help_and_man_are_inherited_from_the_target();
         test_alias_target_hint_is_available_to_the_drawer();
