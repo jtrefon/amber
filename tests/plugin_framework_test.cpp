@@ -319,6 +319,7 @@ struct TestHarness {
     WalletRegistry wallets;
     EventBus bus;
     CommandRegistry commands;
+    KeybindingRegistry keybindings;
     SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> search_backends =
         std::make_shared<SearchBackendRegistry>();
@@ -327,6 +328,7 @@ struct TestHarness {
     TestHarness()
         : services(tools, prompts, status, panels, wallets, search_backends, bus, commands) {
         services.set_settings(settings);
+        services.set_keybindings(&keybindings);
     }
 };
 
@@ -338,6 +340,51 @@ TEST(capability_install_reports_the_contribution) {
     InstallResult r = cap.install(h.services);
     ASSERT_TRUE(r.ok);
     ASSERT_EQ(r.contribution.name, std::string("greet"));
+}
+
+TEST(keybinding_capability_installs_and_unwinds) {
+    TestHarness h;
+    KeybindingCapability cap(KeyBinding{"ctrl+j", "plugin.demo.greet", "", "input", "always", ""});
+    InstallResult r = cap.install(h.services);
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(h.keybindings.size(), 1u);
+    ASSERT_EQ(h.keybindings.all().front().binding.action, std::string("plugin.demo.greet"));
+    r.contribution.remove();
+    ASSERT_EQ(h.keybindings.size(), 0u);
+}
+
+TEST(keybinding_registry_counts_collisions) {
+    KeybindingRegistry registry;
+    registry.add("a", KeyBinding{"ctrl+j", "a.one", "", "global", "always", ""});
+    registry.add("b", KeyBinding{"ctrl+j", "b.two", "", "global", "always", ""});
+    ASSERT_EQ(registry.size(), 2u);
+    ASSERT_EQ(registry.collisions(), 1u);
+}
+
+TEST(keybinding_services_without_a_registry_answer_empty) {
+    TestHarness h;
+    PluginServices bare(h.tools, h.prompts, h.status, h.panels, h.wallets, h.search_backends, h.bus,
+                        h.commands);
+    ASSERT_EQ(bare.keybindings().size(), 0u);
+}
+
+TEST(keybinding_registry_items_describe_the_contribution) {
+    KeybindingRegistry registry;
+    registry.add("hello", KeyBinding{"ctrl+y", "plugin.hello.greet", "", "global", "always", ""});
+    const auto items = registry.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT(items.front().kind == CapabilityKind::Keybinding);
+    ASSERT_EQ(items.front().owner, std::string("hello"));
+    ASSERT_EQ(items.front().name, std::string("ctrl+y"));
+    ASSERT(items.front().detail.find("plugin.hello.greet") != std::string::npos);
+}
+
+TEST(keybinding_capability_rejects_an_empty_action) {
+    TestHarness h;
+    KeybindingCapability cap(KeyBinding{"ctrl+j", "", "", "global", "always", ""});
+    InstallResult r = cap.install(h.services);
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(h.keybindings.size(), 0u);
 }
 
 TEST(settings_registry_validates_lists_and_unwinds) {

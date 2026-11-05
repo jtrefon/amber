@@ -1,20 +1,24 @@
 #ifndef AMBER_TUI_KEY_BINDER_H
 #define AMBER_TUI_KEY_BINDER_H
 
+#include <cstddef>
 #include <cstdint>
+#include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
+
+#include "agent/keybinding.h"
 #include "tui/input_state.h"
-#include "tui/key_action.h"
 #include "tui/key_read.h"
 
 namespace tui {
 
 // macOS terminals with default Option-key settings send the literal Option
-// characters instead of an ESC prefix: Option+1 = U+00A1 '¡', Option+2 =
-// U+2122 '™', and so on. Map such a codepoint to its digit (0-9) so
-// Option+digit switches windows with no terminal configuration. Returns -1
-// for codepoints outside the Option digit row.
+// characters instead of an ESC prefix: Option+1 = U+00A1 '¡', Option+2 = U+2122
+// '™', and so on. Map such a codepoint to its digit (0-9) so Option+digit
+// switches windows with no terminal configuration. Returns -1 for codepoints
+// outside the Option digit row.
 int macos_option_digit(uint32_t codepoint);
 
 // Option+B = U+222B '∫' on the same keyboards — the macOS spelling of
@@ -27,21 +31,32 @@ inline constexpr uint32_t kMacosOptionB = 0x222B;
 // prefix read swallow it — a Ctrl+C queued behind ESC still quits.
 bool esc_prefix_key(int ch) noexcept;
 
-// Pure key-to-action mapping. Translates raw terminal keys (meta-encoded
-// digits, ESC+digit followups, Ctrl+keys) into typed KeyActions using a
-// JSON-loaded binding table for simple mappings and coded logic for the
-// stateful ESC key. Never performs I/O or side effects — fully testable.
+// Pure key-to-action mapping. v2 bindings are data: key -> action ID + scope +
+// optional state predicate. The binder never dispatches; it returns the
+// agent::KeyBinding whose action the host runs through the one ActionRegistry.
 class KeyBinder {
 public:
-    explicit KeyBinder(nlohmann::json bindings);
-    KeyAction dispatch(const KeyRead& key, const InputState& state) const;
+    explicit KeyBinder(nlohmann::json bindings, std::vector<agent::KeyBinding> extra = {});
+
+    // Empty action means no binding for this key/state.
+    agent::KeyBinding dispatch(const KeyRead& key, const InputState& state) const;
+
+    // Core entries first; a plugin binding that repeats a key/scope/when is
+    // refused and counted rather than silently replacing the core mapping.
+    std::size_t collisions() const noexcept { return collisions_; }
+    const std::vector<agent::KeyBinding>& bindings() const noexcept { return bindings_; }
 
 private:
-    KeyAction dispatch_esc(const KeyRead& key, const InputState& state) const;
-    KeyAction lookup_simple(const std::string& key_name) const;
-    static std::string meta_digit_name(int ch);
+    void load(nlohmann::json bindings);
+    void load_v2(const nlohmann::json& bindings);
+    void load_v1(const nlohmann::json& bindings);
+    static bool prepared(agent::KeyBinding& binding);
+    void add(agent::KeyBinding binding);
+    void add_legacy_defaults();
+    agent::KeyBinding find(const std::string& key, const InputState& state) const;
 
-    nlohmann::json bindings_;
+    std::vector<agent::KeyBinding> bindings_;
+    std::size_t collisions_ = 0;
 };
 
 } // namespace tui

@@ -26,6 +26,9 @@
 #include "plugins/opencode_go/opencode_go_plugin.h"
 #include "plugins/openrouter/openrouter_plugin.h"
 #include "test_util.h"
+#include "tui/action_registry.h"
+#include "tui/plugin_commands.h"
+#include "tui/setting_registry.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -3655,6 +3658,44 @@ TEST(runtime_tool_capability_returns_after_reenable) {
     ASSERT_FALSE((bool)f.tools.find("alpha_tool"));
     ASSERT_TRUE(runtime.set_state("alpha", true));
     ASSERT_TRUE((bool)f.tools.find("alpha_tool"));
+}
+
+// A plugin keybinding is only useful if its action is the handler the plugin
+// already contributed. The hello example binds Ctrl+Y to the same
+// plugin.hello.greet action its /hello command installs, and disabling the
+// plugin takes both away.
+TEST(bundled_hello_keybinding_resolves_through_its_command) {
+    ScratchConfig scratch("hello-keybinding");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    const auto& bindings = runtime.keybindings().all();
+    const auto hello =
+        std::find_if(bindings.begin(), bindings.end(),
+                     [](const agent::KeybindingRegistry::Entry& e) { return e.owner == "hello"; });
+    ASSERT(hello != bindings.end());
+    ASSERT_EQ(hello->binding.key, std::string("ctrl+y"));
+    ASSERT_EQ(hello->binding.action, std::string("plugin.hello.greet"));
+    ASSERT_EQ(hello->binding.scope, std::string("global"));
+
+    tui::SettingRegistry settings;
+    ASSERT(settings.load_completions_json("completions.json"));
+    tui::ActionRegistry actions;
+    std::string printed;
+    tui::install_plugin_commands(
+        [&runtime]() -> const std::vector<agent::CommandRegistry::Entry>& {
+            return runtime.commands().all();
+        },
+        settings, actions, [&printed](const std::string& text) { printed = text; });
+    ASSERT_TRUE(actions.has("plugin.hello.greet"));
+    ASSERT_TRUE(actions.dispatch("plugin.hello.greet", "amber"));
+    ASSERT_EQ(printed, std::string("Hello, amber!"));
+
+    ASSERT_TRUE(runtime.set_state("hello", false));
+    for (const auto& entry : runtime.keybindings().all())
+        ASSERT(entry.owner != "hello");
 }
 
 TEST(bundled_hello_plugin_contributes_the_hello_command) {

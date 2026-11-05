@@ -81,6 +81,7 @@ bug.
 | Search backend contribution | ✅ Available | `SearchBackendCapability` |
 | Skill contribution (a skill the harness ships, no file) | ✅ Available | `SkillCapability` |
 | Command contribution (slash workspace) | ✅ Available | `CommandCapability`; mounted at `/plugin/<id>`, `CommandSpec.name` is workspace-relative |
+| Keybinding contribution | ✅ Available | `KeybindingCapability`; key -> action ID + scope, and the core binding wins a collision |
 | Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`, `fill_input`) | ✅ Available | `PluginServices::ui` |
 | Per-plugin settings | ✅ Available (bundled) | `SettingsCapability`, generated as `/get plugin settings` and `/set plugin settings`; external plugins keep the manifest store until they adopt it |
 | Log sinks | – | Deferred (no consumer) |
@@ -164,9 +165,9 @@ public:
 };
 ```
 
-`CapabilityKind` has nine values: `Tool`, `PromptBlock`, `StatusSegment`,
-`Panel`, `Provider`, `Wallet`, `Command`, `SearchBackend`, `Skill`. Each has a
-concrete base class in `include/agent/extensions.h`.
+`CapabilityKind` has ten values: `Tool`, `PromptBlock`, `StatusSegment`,
+`Panel`, `Provider`, `Wallet`, `Command`, `Keybinding`, `SearchBackend`, `Skill`.
+Each has a concrete base class in `include/agent/extensions.h`.
 
 `InstallResult` distinguishes a **decline** from a **failure**:
 `ok == false && declined == true` means "nothing to install" and the plugin
@@ -386,6 +387,29 @@ caps.push_back(std::make_unique<agent::CommandCapability>(std::move(spec)));
 
 The bundled `plugins/hello/` is the worked example after migration:
 `/plugin hello greet amber` returns `Hello, amber!`.
+
+### Keybinding
+
+`KeybindingCapability` contribution: one key -> action ID. The action is the same
+ID the plugin's commands install (`plugin.<id>.<path>`); the host refuses a
+binding with no handler, so a key can never point at a second, invisible action
+surface.
+
+```cpp
+caps.push_back(std::make_unique<agent::KeybindingCapability>(
+    agent::KeyBinding{"ctrl+y", "plugin.hello.greet", /*arg=*/"", "global", "always"}));
+```
+
+- `scope`: `global`, `input`, `menu`, `dialog` or `list`. A `global` binding
+  matches every surface; a scoped one only that surface.
+- `when`: `always`, `drawer`, `busy` or `idle`; the binder evaluates it against
+  the input snapshot.
+- A core `keybindings.json` entry wins a collision with the same key, scope and
+  predicate; the collision is counted, never silently replaced.
+- Disabling the plugin unwinds the binding with the rest of its ledger, so the
+  key returns to whatever the core table says (usually nothing).
+- Key names are the terminal-level spelling the core table uses: `ctrl+<letter>`,
+  `alt+<digit>`, `alt+<letter>`, `esc+<letter>` or `esc`.
 
 ### Provider
 

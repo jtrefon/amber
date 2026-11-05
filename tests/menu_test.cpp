@@ -2,6 +2,7 @@
 // the renderer and the mouse handler both use the same layout.
 
 #include "agent/data_path.h"
+#include "tui/key_binder.h"
 #include "tui/menu_controller.h"
 #include "tui/menu_model.h"
 #include "tui/menu_view.h"
@@ -701,7 +702,8 @@ TEST(menu_actions_resolve_against_the_command_tree) {
     std::set<std::string> known;
     collect_actions(completions_json, known);
     for (const char* ui :
-         {"ui.tab.next", "ui.tab.prev", "ui.view.reasoning", "ui.mouse.toggle", "ui.scroll.toggle"})
+         {"ui.tab.next", "ui.tab.prev", "ui.view.reasoning", "ui.mouse.toggle", "ui.scroll.toggle",
+          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit"})
         known.insert(ui);
 
     std::function<void(const std::vector<Item>&)> check = [&](const std::vector<Item>& items) {
@@ -713,4 +715,42 @@ TEST(menu_actions_resolve_against_the_command_tree) {
     };
     for (const auto& menu : model.menus)
         check(menu.items);
+}
+
+// Keybindings are data too, and they obey the same rule: every action either
+// exists in the command tree or is an internal ui.* handler. A plugin binding
+// is merged at runtime (checked beside the plugin that contributes it), so the
+// shipped table must not name one — that would be an action with no handler on
+// a host that disabled the plugin.
+TEST(keybindings_resolve_and_have_no_collisions) {
+    std::ifstream bindings_file("keybindings.json");
+    ASSERT(bindings_file.is_open());
+    nlohmann::json bindings_json;
+    bindings_file >> bindings_json;
+
+    std::ifstream completions_file("completions.json");
+    ASSERT(completions_file.is_open());
+    nlohmann::json completions_json;
+    completions_file >> completions_json;
+
+    std::set<std::string> known;
+    collect_actions(completions_json, known);
+    for (const char* ui :
+         {"ui.tab.next", "ui.tab.prev", "ui.view.reasoning", "ui.mouse.toggle", "ui.scroll.toggle",
+          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit"})
+        known.insert(ui);
+
+    const tui::KeyBinder binder(bindings_json);
+    ASSERT_EQ(binder.collisions(), 0u);
+    ASSERT(!binder.bindings().empty());
+
+    std::set<std::string> triples;
+    for (const auto& binding : binder.bindings()) {
+        ASSERT(known.count(binding.action) != 0);
+        ASSERT(binding.scope == "global" || binding.scope == "input" || binding.scope == "menu" ||
+               binding.scope == "dialog" || binding.scope == "list");
+        ASSERT(binding.when == "always" || binding.when == "drawer" || binding.when == "busy" ||
+               binding.when == "idle");
+        ASSERT(triples.insert(binding.key + "|" + binding.scope + "|" + binding.when).second);
+    }
 }

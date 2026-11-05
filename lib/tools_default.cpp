@@ -34,6 +34,7 @@ struct BareHost {
     WalletRegistry wallets;
     EventBus events;
     CommandRegistry commands;
+    KeybindingRegistry keybindings;
     SettingsRegistry settings;
     std::shared_ptr<SearchBackendRegistry> search_backends =
         std::make_shared<SearchBackendRegistry>();
@@ -45,6 +46,7 @@ struct BareHost {
         : services(tools, prompt_sink ? *prompt_sink : prompts, status, panels, wallets,
                    search_backends, events, commands) {
         services.set_settings(settings);
+        services.set_keybindings(&keybindings);
     }
 };
 

@@ -44,7 +44,6 @@
 #include "tui/path_confine.h"
 #include "tui/key_read.h"
 #include "tui/input_state.h"
-#include "tui/key_action.h"
 #include "tui/key_source_port.h"
 #include "tui/window_ops_port.h"
 #include "tui/key_binder.h"
@@ -1561,49 +1560,40 @@ nlohmann::json load_test_keybindings() {
 
 } // namespace
 
-// --- KeyBinder tests (10) ---
+// --- KeyBinder tests (v2 action IDs) ---
 
-TEST(keybinder_meta_digit_maps_to_switch_window) {
+TEST(keybinder_meta_digit_maps_to_window_set) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.window_count = 3;
-    // 0xB1 = meta-encoded Alt+1 → SwitchWindow{0}
-    auto act = kb.dispatch({0xB1, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
-    ASSERT_EQ(act.arg, 0);
+    // 0xB1 = meta-encoded Alt+1 -> the /window set action with arg "1".
+    auto binding = kb.dispatch({0xB1, std::nullopt}, state);
+    ASSERT_EQ(binding.action, std::string("core.window.set"));
+    ASSERT_EQ(binding.arg, std::string("1"));
 }
 
-TEST(keybinder_esc_digit_maps_to_switch_window) {
+TEST(keybinder_esc_digit_maps_to_window_set) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.window_count = 5;
-    // ESC + '3' → SwitchWindow{2} (zero-based)
-    auto act = kb.dispatch({27, '3'}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
-    ASSERT_EQ(act.arg, 2);
+    auto binding = kb.dispatch({27, '3'}, state);
+    ASSERT_EQ(binding.action, std::string("core.window.set"));
+    ASSERT_EQ(binding.arg, std::string("3"));
 }
 
-TEST(keybinder_esc_no_followup_drawer_open) {
+TEST(keybinder_esc_states_use_the_same_escape_action) {
     auto kb = tui::KeyBinder(load_test_keybindings());
-    tui::InputState state;
-    state.drawer_open = true;
-    auto act = kb.dispatch({27, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::CloseDrawer);
-}
+    tui::InputState drawer;
+    drawer.drawer_open = true;
+    ASSERT_EQ(kb.dispatch({27, std::nullopt}, drawer).arg, std::string("drawer"));
 
-TEST(keybinder_esc_no_followup_busy) {
-    auto kb = tui::KeyBinder(load_test_keybindings());
-    tui::InputState state;
-    state.busy = true;
-    auto act = kb.dispatch({27, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::CancelOrQuit);
-}
+    tui::InputState busy;
+    busy.busy = true;
+    ASSERT_EQ(kb.dispatch({27, std::nullopt}, busy).arg, std::string("busy"));
 
-TEST(keybinder_esc_no_followup_idle) {
-    auto kb = tui::KeyBinder(load_test_keybindings());
-    tui::InputState state;
-    auto act = kb.dispatch({27, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::ToggleScrollMode);
+    tui::InputState idle;
+    ASSERT_EQ(kb.dispatch({27, std::nullopt}, idle).arg, std::string("idle"));
+    ASSERT_EQ(kb.dispatch({27, std::nullopt}, idle).action, std::string("ui.escape"));
 }
 
 // ESC is a prefix over a closed vocabulary only. The input loop reads one byte
@@ -1629,28 +1619,25 @@ TEST(keybinder_esc_prefix_vocabulary_is_closed) {
 TEST(keybinder_ctrl_n_maps_to_new_window) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
-    // Ctrl+N = 14
-    auto act = kb.dispatch({14, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::NewWindow);
+    auto binding = kb.dispatch({14, std::nullopt}, state); // Ctrl+N
+    ASSERT_EQ(binding.action, std::string("core.window.new"));
 }
 
 TEST(keybinder_busy_does_not_block_window_switch) {
-    // Multi-session: a running agent must never block window switching.
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.busy = true;
     state.window_count = 3;
-    auto act = kb.dispatch({0xB1, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
-    ASSERT_EQ(act.arg, 0);
+    auto binding = kb.dispatch({0xB1, std::nullopt}, state);
+    ASSERT_EQ(binding.action, std::string("core.window.set"));
+    ASSERT_EQ(binding.arg, std::string("1"));
 }
 
 TEST(keybinder_busy_does_not_block_new_window) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.busy = true;
-    auto act = kb.dispatch({14, std::nullopt}, state); // Ctrl+N
-    ASSERT_EQ(act.type, tui::KeyAction::NewWindow);
+    ASSERT_EQ(kb.dispatch({14, std::nullopt}, state).action, std::string("core.window.new"));
 }
 
 TEST(keybinder_esc_digit_switches_while_busy) {
@@ -1658,74 +1645,131 @@ TEST(keybinder_esc_digit_switches_while_busy) {
     tui::InputState state;
     state.busy = true;
     state.window_count = 5;
-    auto act = kb.dispatch({27, '3'}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
-    ASSERT_EQ(act.arg, 2);
+    ASSERT_EQ(kb.dispatch({27, '3'}, state).action, std::string("core.window.set"));
 }
 
-// The key-binding protocol is a vocabulary: every variant must be reachable from a real
-// key, or it is dead weight that misleads the next reader. Four variants (CloseWindow,
-// Quit, Scroll, RouteToCommandLine) survived a refactor with no producer and no consumer,
-// which is exactly the state a compiler cannot report and only a test can.
-//
-// Each case is driven through the real KeyBinder, so this asserts reachability rather
-// than merely that a name appears in a switch somewhere.
-TEST(keyaction_every_variant_is_reachable_from_a_key) {
+TEST(keybinder_alt_and_ctrl_bindings_are_action_ids) {
     auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
 
-    struct Case {
-        const char* name = nullptr;
-        tui::KeyAction::Type expected = tui::KeyAction::None;
-        int key = 0;
-        std::optional<int> followup;
-        bool drawer_open = false;
-        bool busy = false;
-    };
-    const std::vector<Case> cases = {
-        {"alt+1", tui::KeyAction::SwitchWindow, 0xB1, std::nullopt, false, false},
-        {"ctrl+n", tui::KeyAction::NewWindow, 14, std::nullopt, false, false},
-        {"ctrl+w", tui::KeyAction::DeleteWord, 23, std::nullopt, false, false},
-        {"ctrl+c", tui::KeyAction::CancelOrQuit, 3, std::nullopt, false, true},
-        {"esc idle", tui::KeyAction::ToggleScrollMode, 27, std::nullopt, false, false},
-        {"esc drawer", tui::KeyAction::CloseDrawer, 27, std::nullopt, true, false},
-        {"alt+b", tui::KeyAction::DeleteWord, 27, static_cast<int>('b'), false, false},
-        {"alt+0", tui::KeyAction::OpenPanels, 0xB0, std::nullopt, false, false},
-        {"alt+m", tui::KeyAction::ToggleMouse, 27, static_cast<int>('m'), false, false},
-    };
-
-    std::string unreachable;
-    for (const Case& c : cases) {
-        tui::InputState state;
-        state.drawer_open = c.drawer_open;
-        state.busy = c.busy;
-        state.window_count = 3;
-        const auto action =
-            kb.dispatch({c.key, c.followup ? std::optional<int>(c.followup) : std::nullopt}, state);
-        if (action.type != c.expected)
-            unreachable += std::string(c.name) + " -> type " + std::to_string(action.type) +
-                           " (wanted " + std::to_string(c.expected) + "); ";
-    }
-    ASSERT_EQ(unreachable, std::string());
+    ASSERT_EQ(kb.dispatch({0xB0, std::nullopt}, state).action, std::string("core.panel"));
+    ASSERT_EQ(kb.dispatch({23, std::nullopt}, state).action,
+              std::string("ui.input.delete_word")); // Ctrl+W
+    ASSERT_EQ(kb.dispatch({27, 'b'}, state).action, std::string("ui.input.delete_word"));
+    ASSERT_EQ(kb.dispatch({27, 'm'}, state).action, std::string("ui.mouse.toggle"));
 }
 
-// The completeness half: a variant added to the enum without a binding and without a
-// test case must fail here. Without a sentinel there is no way to count the enum, so
-// KeyAction::Count exists solely to make the table above exhaustive-checkable.
-TEST(keyaction_no_variant_is_left_unaccounted_for) {
-    static_assert(static_cast<int>(tui::KeyAction::ToggleMouse) + 1 ==
-                      static_cast<int>(tui::KeyAction::Count),
-                  "a KeyAction variant was added; add a reachability case for it above, "
-                  "and a binding, or it is dead code");
+TEST(keybinder_scope_filters_the_binding) {
+    const auto json = nlohmann::json::parse(R"({
+        "version": 2,
+        "bindings": [
+            {"key": "ctrl+n", "action": "ui.test", "scope": "menu"}
+        ]
+    })");
+    auto kb = tui::KeyBinder(json);
+    tui::InputState input;
+    input.scope = "input";
+    ASSERT_TRUE(kb.dispatch({14, std::nullopt}, input).action.empty());
+    tui::InputState menu;
+    menu.scope = "menu";
+    ASSERT_EQ(kb.dispatch({14, std::nullopt}, menu).action, std::string("ui.test"));
+}
+
+// A table that cannot be used installs nothing rather than guessing: a v2
+// entry missing its key or action is skipped, and a non-object file leaves the
+// binder empty.
+TEST(keybinder_ignores_an_unusable_table) {
+    auto empty = tui::KeyBinder(nlohmann::json::array());
+    ASSERT(empty.bindings().empty());
+
+    const auto json = nlohmann::json::parse(R"({
+        "version": 2,
+        "bindings": [
+            {"key": "", "action": "ui.test"},
+            {"key": "ctrl+x", "action": ""},
+            {"key": "ctrl+x", "action": "ui.test", "when": "sometimes"},
+            {"key": "ctrl+x", "action": "ui.test"}
+        ]
+    })");
+    auto kb = tui::KeyBinder(json);
+    ASSERT_EQ(kb.bindings().size(), 1u);
+    tui::InputState state;
+    ASSERT_EQ(kb.dispatch({24, std::nullopt}, state).action, std::string("ui.test"));
+}
+
+TEST(keybinder_plugin_collision_loses_to_core) {
+    auto kb = tui::KeyBinder(
+        load_test_keybindings(),
+        {agent::KeyBinding{"ctrl+n", "plugin.demo.other", "", "global", "always", "demo"}});
+    tui::InputState state;
+    ASSERT_EQ(kb.dispatch({14, std::nullopt}, state).action, std::string("core.window.new"));
+    ASSERT_EQ(kb.collisions(), 1u);
+}
+
+// A v1 file is a map of internal intents, not action IDs. It keeps working:
+// the intents translate, and the coded ESC behaviour stays because v1 never
+// expressed it in the table.
+// ESC is the drawer's close key while the drawer owns the screen, even when
+// the terminal already delivered the ESC followup byte. Switching windows out
+// from under an open completion list is the regression this pins.
+TEST(keybinder_drawer_esc_beats_a_followup) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
+    state.drawer_open = true;
+    state.window_count = 5;
+    auto binding = kb.dispatch({27, '3'}, state);
+    ASSERT_EQ(binding.action, std::string("ui.escape"));
+    ASSERT_EQ(binding.arg, std::string("drawer"));
+}
+
+TEST(keybinder_v1_map_translates_intents) {
+    const auto json = nlohmann::json::parse(R"({
+        "alt+0": {"action": "open_panels"},
+        "alt+1": {"action": "switch_window", "arg": 0},
+        "ctrl+n": {"action": "new_window"},
+        "ctrl+c": {"action": "cancel_or_quit"},
+        "ctrl+w": {"action": "delete_word"},
+        "alt+m": {"action": "toggle_mouse"},
+        "esc+digit": {"action": "switch_window_by_digit"},
+        "esc+b": {"action": "delete_word"}
+    })");
+    auto kb = tui::KeyBinder(json);
+    ASSERT_EQ(kb.collisions(), 0u);
+    tui::InputState state;
+    ASSERT_EQ(kb.dispatch({0xB0, std::nullopt}, state).action, std::string("core.panel"));
+    auto one = kb.dispatch({0xB1, std::nullopt}, state);
+    ASSERT_EQ(one.action, std::string("core.window.set"));
+    ASSERT_EQ(one.arg, std::string("1"));
+    ASSERT_EQ(kb.dispatch({14, std::nullopt}, state).action, std::string("core.window.new"));
+    ASSERT_EQ(kb.dispatch({3, std::nullopt}, state).action, std::string("ui.cancel_or_quit"));
+    ASSERT_EQ(kb.dispatch({23, std::nullopt}, state).action, std::string("ui.input.delete_word"));
+    ASSERT_EQ(kb.dispatch({27, 'm'}, state).action, std::string("ui.mouse.toggle"));
+    ASSERT_EQ(kb.dispatch({27, 'b'}, state).action, std::string("ui.input.delete_word"));
+    ASSERT_EQ(kb.dispatch({27, '4'}, state).action, std::string("core.window.set"));
+    ASSERT_EQ(kb.dispatch({27, std::nullopt}, state).arg, std::string("idle"));
+}
+
+TEST(keybinder_shipped_table_is_complete_and_collision_free) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    ASSERT_EQ(kb.collisions(), 0u);
+    for (const auto& binding : kb.bindings()) {
+        ASSERT_FALSE(binding.key.empty());
+        ASSERT_FALSE(binding.action.empty());
+        ASSERT(binding.scope == "global" || binding.scope == "input" || binding.scope == "menu" ||
+               binding.scope == "dialog" || binding.scope == "list");
+        ASSERT(binding.when == "always" || binding.when == "drawer" || binding.when == "busy" ||
+               binding.when == "idle");
+    }
 }
 
 TEST(keybinder_loads_bindings_from_json) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
     state.window_count = 9;
-    // Alt+9 = 0xB9 → SwitchWindow{8}
-    auto act = kb.dispatch({0xB9, std::nullopt}, state);
-    ASSERT_EQ(act.type, tui::KeyAction::SwitchWindow);
-    ASSERT_EQ(act.arg, 8);
+    // Alt+9 = 0xB9 -> /window set 9
+    auto binding = kb.dispatch({0xB9, std::nullopt}, state);
+    ASSERT_EQ(binding.action, std::string("core.window.set"));
+    ASSERT_EQ(binding.arg, std::string("9"));
 }
 
 TEST(macos_option_digit_maps_digit_row) {

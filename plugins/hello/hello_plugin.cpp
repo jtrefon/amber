@@ -33,6 +33,10 @@ std::vector<std::unique_ptr<Capability>> HelloPlugin::capabilities() {
 
     std::vector<std::unique_ptr<Capability>> caps;
     caps.push_back(std::make_unique<CommandCapability>(std::move(spec)));
+    // A plugin keybinding points at the command action the same plugin
+    // contributes; the host refuses an ID with no handler.
+    caps.push_back(std::make_unique<KeybindingCapability>(
+        KeyBinding{"ctrl+y", "plugin.hello.greet", "", "global", "always", ""}));
     return caps;
 }
 
