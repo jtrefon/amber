@@ -880,10 +880,12 @@ TEST(watch_plugin_contributes_prompt_and_tool_then_unwinds) {
     for (const auto& entry : runtime.commands().all())
         has_watch_command = has_watch_command || entry.spec.name == "watch";
     ASSERT_FALSE(has_watch_command);
+    // The watch counter is gone: the core task segment is the one status
+    // surface for every kind.
     bool has_watch_segment = false;
     for (const auto& item : runtime.status().items())
         has_watch_segment = has_watch_segment || item.name == "watch";
-    ASSERT_TRUE(has_watch_segment);
+    ASSERT_FALSE(has_watch_segment);
     ASSERT_TRUE(runtime.panels().find("watch") != nullptr);
 
     ASSERT_TRUE(runtime.set_state("watch", false));

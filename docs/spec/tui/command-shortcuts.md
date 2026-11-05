@@ -106,7 +106,7 @@ Examples:
 | `/w` | ambiguous `window` / `work` / `worktree` | drawer, no dispatch |
 | `/w c` | `/window close` | readable spaced path |
 | `/wc 3` | no action; `close` takes no id | argument is passed to the handler |
-| `/jk 3` | `/job stop 3` | argument after space |
+| `/jk 3` | `/tasks cancel 3` | `/job stop` remains the visible alias |
 
 Prefix acceptance is Cisco-style but must be **unique**. It never guesses.
 

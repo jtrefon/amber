@@ -663,6 +663,7 @@ namespace {
 struct LegacyExpansion {
     std::vector<std::string> tokens;
     bool applied = false;
+    bool visible = false; // host-granted alias, not a hidden legacy spelling
     std::size_t target_len = 0;
 };
 
@@ -677,6 +678,7 @@ LegacyExpansion expand_alias(const std::map<std::string, std::vector<std::string
         if (it == m->end())
             continue;
         out.applied = true;
+        out.visible = (m == &visible);
         out.target_len = it->second.size();
         out.tokens = it->second;
         out.tokens.insert(out.tokens.end(), tokens.begin() + 1, tokens.end());
@@ -722,8 +724,16 @@ SettingRegistry::resolve_command(const std::vector<std::string>& tokens) const {
     const std::size_t walked = walk_command(tree_, expanded.tokens, out);
     if (expanded.applied && walked < expanded.target_len)
         out.node = nullptr; // the alias target is not installed
-    if (out.node && !out.ambiguous)
-        out.consumed = expanded.applied ? 1 : walked;
+    if (out.node && !out.ambiguous) {
+        // A visible alias behaves like a root replacement, so its target may be
+        // a namespace: /job kill 7 expands job -> tasks and walks the target's
+        // children. A hidden legacy spelling keeps its one-release contract:
+        // only the legacy head is consumed and the rest stays an argument.
+        if (expanded.applied && expanded.visible && walked >= expanded.target_len)
+            out.consumed = walked - expanded.target_len + 1;
+        else
+            out.consumed = expanded.applied ? 1 : walked;
+    }
     return out;
 }
 

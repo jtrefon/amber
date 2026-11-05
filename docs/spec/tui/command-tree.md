@@ -66,9 +66,10 @@ implements it.
 | First-class daily domain | host-owned root allowlist; never plugin-chosen |
 | Core feature/action | child of its domain, never a new root |
 
-Roots such as `session`, `window`, `job`, `agent`, `watch`, `project`,
-`worktree`, `work`, `plugin`, `get`, `set`, `settings`, `provider`, `files`,
-`system`, `panel`, `help` and `quit` are the closed domain set. Root spellings
+Roots such as `session`, `window`, `tasks`, `project`, `worktree`, `work`,
+`plugin`, `get`, `set`, `settings`, `provider`, `files`, `system`, `panel`,
+`help` and `quit` are the closed domain set; `job` is a visible alias of
+`tasks`, not a second root. Root spellings
 that point at the domains they dispatch into (`model`, `compress`, `compact`,
 `stop`, `clear`, `save`, `sessions`, `mcp`) are **host-granted visible
 aliases**: drawer and completion rows beside the domains, resolved and
@@ -81,7 +82,7 @@ dispatch-only, never drawer or completion rows.
 
 ### Dynamic namespaces
 
-Runtime content (models, providers, policy rules, jobs, plugins, MCP servers,
+Runtime content (models, providers, policy rules, tasks, plugins, MCP servers,
 and the worktree registry's names) is injected as **completions.json-shaped
 JSON subtrees**:
 
@@ -117,9 +118,9 @@ and `/worktree list`, so a startup feed never forks git.
    `merge_collisions()`.
 2. **Children are concatenated.** A documented node may gain new children; a
    documented command may also be a namespace (`/set model` is the switch and
-   the model list, `/job kill` gains job ids). A new child path is dynamic.
+   the model list, `/tasks cancel` gains task ids). A new child path is dynamic.
 3. **Dynamic nodes refresh.** Fields on a node that was introduced by a merge
-   (the provider rows, job ids, plugin ids) may be updated by a later merge, so
+   (the provider rows, task ids, plugin ids) may be updated by a later merge, so
    state text stays current.
 4. **The index is rebuilt from the merged tree** after every merge. A blocked
    overwrite cannot leak into `help_for`, `choices_for` or `range_for`.
@@ -167,7 +168,7 @@ non-zero when a contribution tried to rewrite documented material.
 
 - **CT-01**: loading `completions.json` makes every documented namespace and
   leaf completable, with help/man/choices/ranges.
-- **CT-02**: a feed adds model/provider/policy/job/plugin leaves under
+- **CT-02**: a feed adds model/provider/policy/task/plugin leaves under
   documented namespaces; the rows are reachable and their actions dispatch.
 - **CT-03**: a hostile subtree overwrites `set.model` action/help/man → the
   documented fields survive, its new child is added, `merge_collisions()`

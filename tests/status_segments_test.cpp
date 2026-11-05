@@ -189,7 +189,7 @@ TEST(core_segments_drop_the_transients_before_the_token_meter) {
     StatusSnapshot s = base_snapshot();
     s.scroll_mode = true;
     s.scroll_pct = 42;
-    s.running_jobs = 1;
+    s.running_tasks = 1;
     s.running_tool = "search";
     auto out = registry.render(s);
     ASSERT(drop_of(out, "lag") > drop_of(out, "tps"));
@@ -312,26 +312,27 @@ TEST(core_segments_omit_what_is_not_known) {
     ASSERT_TRUE(text_of(out, "mcp").empty());
 }
 
-TEST(core_segments_show_jobs_and_agents_as_separate_cells) {
+TEST(core_segments_show_tasks_and_agents_as_separate_cells) {
     auto registry = core_registry();
     StatusSnapshot one = base_snapshot();
-    one.running_jobs = 1;
+    one.running_tasks = 1;
+    one.undelivered_tasks = 1;
     one.subagents_available = true;
     one.active_agents = 1;
     one.max_agents = 2;
     auto out = registry.render(one);
-    ASSERT_EQ(text_of(out, "jobs"), std::string("[j1]"));
+    ASSERT_EQ(text_of(out, "tasks"), std::string("[t1!1]"));
     ASSERT_EQ(text_of(out, "agents"), std::string("[a1/2]"));
     ASSERT_TRUE(text_of(out, "activity").empty());
 
     StatusSnapshot many = base_snapshot();
-    many.running_jobs = 3;
+    many.running_tasks = 3;
     many.subagents_available = true;
     many.active_agents = 1;
     many.max_agents = 4;
     many.waiting_agents = 2;
     out = registry.render(many);
-    ASSERT_EQ(text_of(out, "jobs"), std::string("[j3]"));
+    ASSERT_EQ(text_of(out, "tasks"), std::string("[t3]"));
     ASSERT_EQ(text_of(out, "agents"), std::string("[a1/4+2]"));
 }
 

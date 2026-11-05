@@ -176,8 +176,9 @@ struct StatusSnapshot {
     long latency_ms = -1; // < 0: not measured yet
     double tps = -1.0;    // < 0: not measured yet
     UsageTotals usage;    // session spend; `measured` false until reported
-    int running_jobs = 0;
-    int job_seconds_left = -1;
+    int running_tasks = 0;
+    int task_seconds_left = -1;
+    int undelivered_tasks = 0;
     int active_agents = 0;
     int waiting_agents = 0;
     int max_agents = 0;

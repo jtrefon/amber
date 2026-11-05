@@ -118,7 +118,7 @@ The plugin touches no `lib/` implementation, no `tui/`, and no other plugin.
 
 ```
 plugins/watch/
-  watch_plugin.h/.cpp        IPlugin; capabilities; `/plugin watch`; status segment
+  watch_plugin.h/.cpp        IPlugin; capabilities; the start-only watch tool; panel
   watch_service.h/.cpp       registry, worker threads, observer queue, cancellation
   watch_types.h/.cpp         WatchRecord, WatchState, WatchReport, WatchStart
   watch_runner.h/.cpp        CommandRunner port; JobService-backed implementation
@@ -288,8 +288,8 @@ caps.push_back(std::make_unique<PromptBlockCapability>(
   block; `ensure_system_prompt()` rebuilds the system prompt in the same
   action.
 - The block contains **no live watch ids, counts, or state**. Those live in the
-  status segment, the tool, and the report message. A block that changes per
-  turn would invalidate the KV prefix.
+  tool and the report message. A block that changes per turn would invalidate
+  the KV prefix.
 - The tool's own documentation is a second `System` block via
   `make_tool_doc_capability("watch_doc", 590, "prompts/tools/watch.md")`. The
   tool doc is reference; the policy block is when/why. Both are removed when
@@ -330,7 +330,7 @@ on the local model.
 - The observer's output schema and the observer role. Those are in
   `prompts/watch/observer.md`, loaded only for the observer call. The main
   agent sees the report, not the observer's instructions.
-- Live watch state. The status segment, `tasks list`, and the report carry it.
+- Live watch state. `tasks list` and the report carry it.
 - The full log. It is an artifact; the report carries a bounded excerpt and a
   path.
 - A second copy of the tool schema. The tool description/schema is sent as the
@@ -391,20 +391,17 @@ return text, print via the host. This is the human surface; it does not start a
 watch (the model starts through the tool). The root shows usage and the current
 watches.
 
-**Namespace:** the commands mount at `/plugin watch`. `/watch` is a one-release
-host-owned legacy alias, not a plugin root. The watch tool, status segment,
-panel and prompts are unaffected. `stop` is canonical; `cancel` remains a
-compatibility alias.
+**Namespace:** the watch plugin no longer contributes a command workspace. The
+old `/watch` inspect verbs and the `/plugin watch` namespace are removed; the
+`tasks` tool and `/tasks` command namespace are the one inspect surface. The
+watch tool, panel and prompts remain.
 
-### 6.3 Status segment
+### 6.3 Status
 
-`StatusSegmentCapability("watch", priority 600, drop 8)`:
-
-- `[w2]` while two are running; `[w2!]` when one needs attention; empty when
-  none. Observer queue: `[w2+o1]`.
-- The status cell is cyan (`Dim`) normally and yellow (`Warn`) on attention.
-- Pure read of an atomic snapshot; no I/O.
-- The segment is removed when the plugin is disabled.
+The watch plugin no longer contributes a status segment. The core `tasks`
+segment counts every non-terminal task and carries the undelivered badge; a
+second watch counter would be two numbers for one set. The watch panel still
+lists the watch records for the host.
 
 ### 6.4 Panel
 
@@ -635,7 +632,7 @@ TUI (primary):
 - If the window is busy, the report waits for the next turn boundary. A pending
   user prompt wins; the report follows.
 - If the window is not active, the report wakes in that window without
-  switching focus; the status segment/footer shows the badge.
+  switching focus; the top-rail attention badge and the `tasks` segment show it.
 - If the window has an unsent draft, the host does not start a turn underneath
   the user; it shows the badge and delivers when the input is empty or after
   the user's next turn.

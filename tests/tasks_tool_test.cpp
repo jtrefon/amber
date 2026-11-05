@@ -5,6 +5,7 @@
 #include "agent/job.h"
 #include "agent/run_scope.h"
 #include "agent/task.h"
+#include "agent/task_format.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
@@ -104,6 +105,27 @@ TEST(bash_inactive_handoff_finishes_the_task) {
     auto output = tool->execute({{"action", "output"}, {"id", id}});
     ASSERT(output.ok);
     ASSERT(output.output.find("finished") != std::string::npos);
+}
+
+// /tasks list and the Work board both render through format_task_row, so one
+// row vocabulary covers every kind.
+TEST(task_rows_cover_every_kind) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    for (agent::TaskKind kind :
+         {agent::TaskKind::Command, agent::TaskKind::Watch, agent::TaskKind::Worker}) {
+        agent::TaskRecord record;
+        record.kind = kind;
+        record.owner.owner_id = "window-a";
+        record.label = "row label";
+        const std::string id = tasks.create(record);
+        ASSERT_TRUE(tasks.started(id, 1));
+        const std::string row = agent::format_task_row(*tasks.get(id));
+        ASSERT(row.find(id) != std::string::npos);
+        ASSERT(row.find(agent::task_kind_name(kind)) != std::string::npos);
+        ASSERT(row.find("running") != std::string::npos);
+        ASSERT(row.find("row label") != std::string::npos);
+    }
 }
 
 TEST(tasks_list_scopes_by_owner) {

@@ -60,7 +60,7 @@ public:
     void refresh_model_list();
     void refresh_policy_feed();
     void refresh_provider_feed();
-    void refresh_job_feed();
+    void refresh_task_feed();
     void refresh_settings_feed();
     void cmd_settings(const std::string& group = "");
     double compression_threshold_effective() const;
@@ -89,8 +89,10 @@ public:
     // models). Returns false, with a message, when the saved definition is
     // unusable.
     bool adopt_provider(const std::string& id);
-    void job_kill(const std::string& id);
-    void job_read(const std::string& id);
+    void cmd_tasks_show(const std::string& id);
+    void cmd_tasks_output(const std::string& id);
+    void cmd_tasks_cancel(const std::string& id);
+    void cmd_tasks_wait(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
     void show_policy_rule(const std::string& name);
 
@@ -193,7 +195,7 @@ public:
     void cmd_project_close();
     void open_resource(const std::string& kind, const std::string& id);
     void apply_work_item(const std::string& kind, const std::string& id, std::size_t window_index);
-    void cmd_job(const std::string& rest);
+    void cmd_tasks(const std::string& rest);
     void cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_set_policy_usage();
@@ -204,8 +206,8 @@ public:
     void apply_compression_keep_last_prompts(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
-    void job_ls();
-    void job_start(const std::string& cmd);
+    void cmd_tasks_list();
+    void cmd_tasks_start(const std::string& cmd);
     void build_settings();
     void set_model_info(std::vector<agent::ModelInfo> v) { model_info_ = std::move(v); }
 
@@ -222,7 +224,7 @@ private:
     // domain's actions are registered in one place.
     void register_core_session_actions();
     void register_window_actions();
-    void register_core_job_actions();
+    void register_core_task_actions();
     void register_set_engine_actions();
     void register_set_policy_actions();
     void register_set_feature_actions();

@@ -16,7 +16,7 @@ public:
     void refresh_model_list();
     void refresh_policy_feed();
     void refresh_provider_feed();
-    void refresh_job_feed();
+    void refresh_task_feed();
     void refresh_plugin_feed();
     // The worktree registry as JSON leaves: every workspace name hangs under
     // /worktree attach and /worktree remove with a host-derived action. No

@@ -1781,7 +1781,8 @@ TEST(input_scroll_keeps_tail_visible) {
 }
 
 // The resource viewer is a real window, not a modal: it attaches to a live
-// job, detaches without killing it, and the explicit stop still works.
+// task, detaches without cancelling it, and /tasks cancel still works. The
+// /job spelling reaches the same namespace through the visible alias.
 TEST(work_board_resource_viewer_round_trip) {
     Tui tui;
     tui.name = "work_board_resource_viewer_round_trip";
@@ -1795,26 +1796,48 @@ TEST(work_board_resource_viewer_round_trip) {
         tui.send("\x07");
         tui.pump(300);
     };
+    const auto task_id = [&tui]() {
+        const std::string text = tui.text();
+        const std::size_t at = text.find("started task ");
+        if (at == std::string::npos)
+            return std::string();
+        const std::size_t begin = at + 13;
+        const std::size_t end = text.find_first_of(": \n", begin);
+        return text.substr(begin, end - begin);
+    };
 
     run("/window new noworkdir");
     tui.pump(500);
-    run("/job start sleep 30");
-    if (!require(tui.wait_for("started 1", 10000), "the background job did not start", tui))
+    run("/tasks start sleep 30");
+    if (!require(tui.wait_for("started task ", 10000), "the background task did not start", tui))
+        return;
+    const std::string id = task_id();
+    if (!require(!id.empty() && id.rfind("task_", 0) == 0, "the task id was not shown", tui))
         return;
 
-    run("/window attach job 1");
-    if (!require(tui.wait_for("[job 1]", 10000), "the job viewer did not open", tui))
+    // The old spelling is a visible alias over the same inventory.
+    run("/job list");
+    require(tui.wait_for("sleep 30", 8000), "/job list did not reach /tasks", tui);
+
+    run("/tasks output " + id);
+    if (!require(tui.wait_for("id: " + id, 10000), "the task viewer did not open", tui))
         return;
-    require(tui.text().find("sleep 30") != std::string::npos, "the viewer has no job label", tui);
+    require(tui.text().find("sleep 30") != std::string::npos, "the viewer has no task label", tui);
 
     run("/window detach");
     tui.pump(500);
-    run("/job stop 1");
-    if (!require(tui.wait_for("stopped 1", 10000), "detach stopped the job or stop failed", tui))
+    run("/tasks cancel " + id);
+    if (!require(tui.wait_for("Cancel task", 10000), "the cancel confirmation did not open", tui))
+        return;
+    tui.send("\t"); // select Yes
+    tui.pump(200);
+    tui.send("\r");
+    tui.pump(500);
+    if (!require(tui.wait_for("cancel requested", 10000), "the task was not cancelled", tui))
         return;
 
     run("/work");
-    require(tui.wait_for("Work", 8000), "the Work board did not open", tui);
+    require(tui.wait_for("Tasks", 8000), "the Work board did not open", tui);
     tui.send("\x1b"); // close the board
     tui.pump(500);
 }

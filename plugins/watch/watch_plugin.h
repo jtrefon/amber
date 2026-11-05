@@ -58,7 +58,6 @@ private:
     std::string policy_block() const;
     std::unique_ptr<agent::Capability> make_tool_capability();
     std::unique_ptr<agent::Capability> make_policy_capability();
-    std::unique_ptr<agent::Capability> make_status_capability();
     std::unique_ptr<agent::Capability> make_panel_capability();
     std::unique_ptr<agent::Capability> make_settings_capability();
 

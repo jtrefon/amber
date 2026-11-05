@@ -23,6 +23,9 @@ void TuiWindowOpsHooks::on_switch() {
     // background window's spinner must close in place when its result
     // lands, not be dropped because the user looked at another window.
     tui_.lazy_load_active();
+    // The task feed is per-window: switching owners changes which ids are
+    // worth completing under /tasks.
+    tui_.refresh_task_feed();
 }
 
 void TuiWindowOpsHooks::on_close() {
@@ -32,8 +35,17 @@ void TuiWindowOpsHooks::on_close() {
         return;
     }
     size_t closing_id = tui_.win().id;
-    // A watch belongs to the window that started it; stop it before the
-    // workspace it runs in is released.
+    // A task belongs to the window that started it; stop its non-terminal work
+    // before the workspace it runs in is released.
+    if (tui_.tasks_) {
+        const std::string owner = tui_.win().owner_id;
+        for (const auto& record : tui_.tasks_->list(owner)) {
+            if (agent::task_state_terminal(record.state))
+                continue;
+            agent::CancellationToken token;
+            tui_.tasks_->cancel(record.id, "window closed", token);
+        }
+    }
     cancel_owned_watches(tui_.plugin_runtime_, tui_.win().owner_id);
     // A completion already queued for this owner must not wake a window that
     // no longer exists; the watch producer is abandoned, not acked.

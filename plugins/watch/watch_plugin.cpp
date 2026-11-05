@@ -151,25 +151,6 @@ std::unique_ptr<agent::Capability> WatchPlugin::make_policy_capability() {
         "watch_policy", 600, [this] { return policy_block(); }, agent::PromptPlacement::System);
 }
 
-std::unique_ptr<agent::Capability> WatchPlugin::make_status_capability() {
-    return std::make_unique<agent::StatusSegmentCapability>(
-        "watch", 600, 8, [this](const agent::StatusSnapshot&) -> agent::StatusText {
-            if (!service_)
-                return {};
-            const WatchCounts counts = service_->counts();
-            if (counts.running == 0 && counts.attention == 0 && counts.observers == 0)
-                return {};
-            std::string text = "[w" + std::to_string(counts.running);
-            if (counts.attention > 0)
-                text += "!";
-            if (counts.observers > 0)
-                text += "+o" + std::to_string(counts.observers);
-            text += "]";
-            return {std::move(text),
-                    counts.attention > 0 ? agent::StatusTone::Warn : agent::StatusTone::Dim};
-        });
-}
-
 std::unique_ptr<agent::Capability> WatchPlugin::make_panel_capability() {
     agent::PanelSpec spec;
     spec.id = "watch";
@@ -255,7 +236,6 @@ std::vector<std::unique_ptr<agent::Capability>> WatchPlugin::capabilities() {
     caps.push_back(agent::make_tool_doc_capability("watch_doc", agent::tool_doc_priority::kWatch,
                                                    "prompts/tools/watch.md"));
     caps.push_back(make_policy_capability());
-    caps.push_back(make_status_capability());
     caps.push_back(make_panel_capability());
     caps.push_back(make_settings_capability());
     return caps;
