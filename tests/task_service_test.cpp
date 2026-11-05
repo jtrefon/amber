@@ -182,6 +182,25 @@ TEST(task_service_cancel_running_reaches_backend) {
     ASSERT_EQ(tasks.get(id)->cancel_reason, std::string("user"));
 }
 
+// A backend's stop() joins its reader, and that reader may publish a terminal
+// completion while the cancel handler is still running. The cancel owns the
+// terminal transition; the racing completion is a duplicate, not a second
+// opinion, so the record must end Cancelled rather than Interrupted.
+TEST(task_service_cancel_wins_over_a_racing_completion) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "x"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    ASSERT_TRUE(tasks.attach_cancel(id, [&](const agent::CancellationToken&) {
+        // The job's completion sink: it runs while stop() waits for the reader.
+        tasks.finish(id, agent::TaskState::Interrupted, {});
+        return true;
+    }));
+    agent::CancellationToken token;
+    ASSERT_TRUE(tasks.cancel(id, "stop", token));
+    ASSERT_EQ(tasks.get(id)->state, agent::TaskState::Cancelled);
+}
+
 TEST(task_service_cancel_unknown_backend_marks_unknown) {
     agent::EventBus bus;
     agent::TaskService tasks(bus);

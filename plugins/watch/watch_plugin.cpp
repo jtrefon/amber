@@ -8,31 +8,10 @@
 #include "agent/tools.h"
 #include "agent/workspace.h"
 
-#include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
-#include <nlohmann/json.hpp>
 
 namespace agent::plugins {
-
-namespace {
-
-std::string join(const std::vector<std::string>& lines) {
-    std::string out;
-    for (const auto& line : lines) {
-        if (!out.empty())
-            out += "\n";
-        out += line;
-    }
-    return out;
-}
-
-std::string root_usage() {
-    return "usage: /plugin watch list | show <id> | report <id> | stop <id> | wait <id>";
-}
-
-} // namespace
 
 WatchPlugin::WatchPlugin(std::shared_ptr<CommandRunner> runner,
                          std::shared_ptr<ObserverModel> observer, std::string state_dir)
@@ -93,7 +72,14 @@ std::map<std::string, agent::UsageTotals> WatchPlugin::take_usage() {
 }
 
 std::string WatchPlugin::show_text(const std::string& id) const {
-    return service_ ? command_text("show", id) : "watch plugin is inactive";
+    if (!service_)
+        return "watch plugin is inactive";
+    auto record = service_->get(id);
+    return record ? format_watch_record(*record) : "no watch " + id;
+}
+
+std::string WatchPlugin::task_id(const std::string& watch_id) const {
+    return service_ ? service_->task_id(watch_id) : std::string();
 }
 
 bool WatchPlugin::stop_watch(const std::string& id) {
@@ -127,6 +113,8 @@ WatchService* WatchPlugin::ensure_service(agent::PluginServices& services) {
     service_ =
         std::make_unique<WatchService>(std::move(runner), std::move(observer), WatchStore(root),
                                        prompt, &services.events(), settings_);
+    if (services.host)
+        service_->set_tasks(services.host->tasks);
     return service_.get();
 }
 
@@ -144,36 +132,6 @@ std::string WatchPlugin::policy_block() const {
             out += "\n\n" + delegation;
     }
     return out;
-}
-
-std::string WatchPlugin::command_text(const std::string& verb, const std::string& arg) const {
-    if (!service_)
-        return "watch plugin is not active (no job service)";
-    if (verb.empty() || verb == "list") {
-        auto records = service_->list();
-        if (records.empty())
-            return "(no watches)\n" + root_usage();
-        std::vector<std::string> lines;
-        lines.reserve(records.size());
-        std::transform(records.begin(), records.end(), std::back_inserter(lines),
-                       [](const WatchRecord& record) { return format_watch_record(record); });
-        return join(lines);
-    }
-    if (arg.empty())
-        return "usage: /watch " + verb + " <id>";
-    if (verb == "show") {
-        auto record = service_->get(arg);
-        return record ? format_watch_record(*record) : "no watch " + arg;
-    }
-    if (verb == "report") {
-        auto report = service_->report(arg);
-        return report ? format_watch_report(*report, true) : "no report yet for " + arg;
-    }
-    if (verb == "cancel")
-        return service_->cancel(arg) ? "cancel requested for " + arg : "no watch " + arg;
-    if (verb == "wait")
-        return "use the watch tool's wait action; the command surface does not block the UI";
-    return root_usage();
 }
 
 std::unique_ptr<agent::Capability> WatchPlugin::make_tool_capability() {
@@ -252,31 +210,6 @@ std::unique_ptr<agent::Capability> WatchPlugin::make_panel_capability() {
     return std::make_unique<agent::PanelCapability>(std::move(spec));
 }
 
-std::unique_ptr<agent::Capability> WatchPlugin::make_command_capability() const {
-    agent::CommandSpec spec;
-    spec.name = "watch"; // legacy field; the host mounts at /plugin/watch
-    spec.help = "Background watches and their reports.";
-    spec.man = "Usage: /plugin watch list | show <id> | report <id> | stop <id> | wait <id>. "
-               "The model starts watches with the watch tool; these commands inspect and "
-               "manage them.";
-    spec.subtree = nlohmann::json::parse(R"({
-        "list": {"help": "List watches"},
-        "show": {"help": "Show one watch"},
-        "report": {"help": "Show a watch report"},
-        "stop": {"help": "Stop a watch", "aliases": ["cancel"]},
-        "wait": {"help": "Wait for a watch to finish"}
-    })");
-    spec.handlers[""] = [this](const std::string&) { return command_text("", ""); };
-    spec.handlers["list"] = [this](const std::string&) { return command_text("list", ""); };
-    spec.handlers["show"] = [this](const std::string& arg) { return command_text("show", arg); };
-    spec.handlers["report"] = [this](const std::string& arg) {
-        return command_text("report", arg);
-    };
-    spec.handlers["stop"] = [this](const std::string& arg) { return command_text("cancel", arg); };
-    spec.handlers["wait"] = [this](const std::string& arg) { return command_text("wait", arg); };
-    return std::make_unique<agent::CommandCapability>(std::move(spec));
-}
-
 std::unique_ptr<agent::Capability> WatchPlugin::make_settings_capability() {
     const std::string path = agent::global_config_dir() + "/plugins/watch/watch.conf";
     std::vector<agent::PluginSettingSpec> specs;
@@ -325,7 +258,6 @@ std::vector<std::unique_ptr<agent::Capability>> WatchPlugin::capabilities() {
     caps.push_back(make_status_capability());
     caps.push_back(make_panel_capability());
     caps.push_back(make_settings_capability());
-    caps.push_back(make_command_capability());
     return caps;
 }
 

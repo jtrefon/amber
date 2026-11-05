@@ -1215,7 +1215,6 @@
   "load": "session list",
   "open": "session list",
   "sl": "session list",
-  "watch": "plugin watch",
   "prompt": "plugin mcp prompt",
   "index": "plugin project_index index",
   "hello": "plugin hello"

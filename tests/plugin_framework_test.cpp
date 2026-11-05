@@ -587,8 +587,8 @@ TEST(tool_capability_installs_and_removes_a_group) {
     ToolCapability cap("process", [](PluginServices&) {
         std::vector<std::unique_ptr<Tool>> tools;
         tools.push_back(std::make_unique<SilentTool>("process_start"));
-        tools.push_back(std::make_unique<SilentTool>("process_read"));
-        tools.push_back(std::make_unique<SilentTool>("process_stop"));
+        tools.push_back(std::make_unique<SilentTool>("tasks"));
+        tools.push_back(std::make_unique<SilentTool>("watch"));
         return tools;
     });
     h.services.set_owner("plug");
@@ -599,6 +599,6 @@ TEST(tool_capability_installs_and_removes_a_group) {
     r.contribution.remove();
     ASSERT((bool)h.tools.find("host.tool"));
     ASSERT_FALSE((bool)h.tools.find("process_start"));
-    ASSERT_FALSE((bool)h.tools.find("process_read"));
-    ASSERT_FALSE((bool)h.tools.find("process_stop"));
+    ASSERT_FALSE((bool)h.tools.find("tasks"));
+    ASSERT_FALSE((bool)h.tools.find("watch"));
 }

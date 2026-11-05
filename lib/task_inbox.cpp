@@ -1,5 +1,7 @@
 #include "agent/task_inbox.h"
 
+#include "agent/task_format.h"
+
 #include <algorithm>
 #include <utility>
 
@@ -17,22 +19,13 @@ std::string clip(std::string text, std::size_t cap) {
     return text;
 }
 
-std::string duration_text(const TaskRecord& record) {
-    if (record.started_ms <= 0 || record.ended_ms < record.started_ms)
-        return {};
-    const long long seconds = (record.ended_ms - record.started_ms) / 1000;
-    if (seconds < 60)
-        return std::to_string(seconds) + "s";
-    return std::to_string(seconds / 60) + "m" + std::to_string(seconds % 60) + "s";
-}
-
 std::string one_line(const TaskRecord& record) {
     std::string line = record.id + " (" + task_kind_name(record.kind);
     if (!record.label.empty())
         line += ", \"" + clip(record.label, 64) + "\"";
     line += ") ";
     line += task_state_name(record.state);
-    const std::string took = duration_text(record);
+    const std::string took = format_task_duration(record.started_ms, record.ended_ms);
     if (!took.empty())
         line += " in " + took;
     if (record.state == TaskState::Succeeded || record.state == TaskState::Failed)
@@ -78,6 +71,7 @@ void TaskInbox::on_completed(const TaskCompletedEvent& event) {
         return;
     TaskCompletion completion;
     completion.task_id = record->id;
+    completion.backend_id = tasks_.backend_id(record->id);
     completion.owner_id = record->owner.owner_id;
     completion.kind = record->kind;
     completion.state = record->state;

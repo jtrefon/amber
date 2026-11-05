@@ -107,7 +107,6 @@ Examples:
 | `/w c` | `/window close` | readable spaced path |
 | `/wc 3` | no action; `close` takes no id | argument is passed to the handler |
 | `/jk 3` | `/job stop 3` | argument after space |
-| `/pl wl` | `/plugin watch list` | plugin workspace after migration |
 
 Prefix acceptance is Cisco-style but must be **unique**. It never guesses.
 

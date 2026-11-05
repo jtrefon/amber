@@ -308,9 +308,9 @@ The block is the agent's operating policy, not the schema. It covers:
 3. **When not to use it** — a quick command that belongs in `bash`; a reasoning
    task that belongs in `delegate` (if present); work whose next step needs the
    result immediately (use foreground or `wait` deliberately).
-4. **How to manage it** — `watch list/status/report/cancel/wait`; the report
-   arrives as a `[harness]` message with a headline and id; `watch report <id>`
-   gives evidence and the log path. No polling loop.
+4. **How to manage it** — `tasks list/status/output/cancel/wait`; the report
+   arrives as a `[harness]` message with a headline and task id; `tasks output
+   <id>` gives evidence and the log path. No polling loop.
 5. **PR profile** — the common recipe; it polls checks, keeps attempt history,
    fetches the failed log, and asks the observer for a failure explanation.
 6. **Observer vs worker** — the observer is a small read-only interpreter, not
@@ -330,7 +330,7 @@ on the local model.
 - The observer's output schema and the observer role. Those are in
   `prompts/watch/observer.md`, loaded only for the observer call. The main
   agent sees the report, not the observer's instructions.
-- Live watch state. The status segment, `watch list`, and the report carry it.
+- Live watch state. The status segment, `tasks list`, and the report carry it.
 - The full log. It is an artifact; the report carries a bounded excerpt and a
   path.
 - A second copy of the tool schema. The tool description/schema is sent as the
@@ -457,7 +457,7 @@ profile=pr pr=312 repo=. interval_s=20 deadline_s=1800 observe=auto
 - The journal records the head SHA. A new SHA while the watch is still polling
   starts the next attempt, retains the previous check summary, and the report
   carries the attempt number. After a terminal report, a re-run is a new watch;
-  the previous report remains available through `watch report`.
+  the previous report remains available through `tasks output`.
 - The observer gets the check names/states/links, the failed-check log excerpt,
   the changed-file list (`gh pr diff --name-only`, with its own artifact), and
   the journal summary.
@@ -568,7 +568,7 @@ One JSON object:
 - Same configured provider/model as the main agent; no separate service.
 - `Config` copy with `max_tokens=700` (configurable), `stream=false`,
   `temperature=0`, `thinking="off"`, `reasoning_effort="off"` where supported.
-- A fresh `CancellationToken`; `watch cancel` cancels it.
+- A fresh `CancellationToken`; `tasks cancel` cancels it.
 - One observer call in flight per plugin (local default); a small queue.
 - Observer calls are not `subagent_max` slots and do not consume the worker
   pool.
@@ -631,7 +631,7 @@ TUI (primary):
   the UI thread.
 - If the owner window's run slot is idle and the user has no unsent draft, the
   host starts a turn with a `[harness]` message:
-  `watch <id> finished: <headline>. Use watch report <id> for evidence.`
+  `watch <id> finished: <headline>. Use tasks output <id> for evidence.`
 - If the window is busy, the report waits for the next turn boundary. A pending
   user prompt wins; the report follows.
 - If the window is not active, the report wakes in that window without
@@ -643,7 +643,7 @@ TUI (primary):
   session. The plugin marks the report published; a restart may re-emit
   undelivered reports, and the host de-dupes.
 - The full report is not injected automatically; the agent calls
-  `watch report <id>` when it needs details. The headline is the context-safe
+  `tasks output <id>` when it needs details. The headline is the context-safe
   summary. If a report is under a small cap (e.g. 1 KiB) and `needs_attention`,
   the host may include the summary/observed lines; the tool remains the source
   of the full report.
@@ -863,7 +863,7 @@ names + log path). P2/P3 make it a sentry.
 - [ ] **PR dependency**: require `gh` for `profile=pr` (recommended); no HTML
       scraping.
 - [ ] **Report delivery**: headline + id by default; full report via
-      `watch report` (recommended); optional small inline report on failure.
+      `tasks output` (recommended); optional small inline report on failure.
 - [ ] **P1 scope**: process watch first (recommended), PR profile in P2.
 
 ---

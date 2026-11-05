@@ -18,10 +18,10 @@ std::vector<std::unique_ptr<Capability>> make_process_tool_capabilities();
 class ToolProcessPlugin : public IPlugin {
 public:
     std::string id() const override { return "tool_process"; }
-    std::string version() const override { return "0.4.0"; }
+    std::string version() const override { return "0.5.0"; }
     std::string name() const override { return "Process tools"; }
     std::string description() const override {
-        return "Background jobs: start a long-running command, read it, stop it.";
+        return "Background commands: start a long-running command and return a task id.";
     }
     std::string category() const override { return plugin_category::kTools; }
 

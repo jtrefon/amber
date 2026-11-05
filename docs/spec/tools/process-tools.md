@@ -1,126 +1,76 @@
-## Spec: Process Tools (Background Jobs)
+# Background commands — `process_start` and `tasks`
 
-### Purpose
-Start, read, and stop long-running background processes that outlive individual
-LLM turns. Three tools (`process_start`, `process_read`, `process_stop`) share
-a single `JobService` instance so started jobs are visible to all three tools
-and the TUI status bar.
+`process_start` is the one spawn tool for a shell command. It returns a task id
+immediately; the process keeps running across turns. `tasks` is the one
+inventory and lifecycle surface for every kind of background work, so a command,
+a watch and a worker share one id, one state machine and one output path.
 
-### Ownership
-- **Source files**: `tools/process_tool.cpp` (3 classes, 240 lines), `lib/job.cpp` (`Job`, `JobService`, reader loop), `lib/process.cpp` (`spawn_shell`, `kill_process_group`)
-- **Factory**: `include/agent/tools.h` → `make_process_tools(JobService&)` returns `vector<unique_ptr<Tool>>`
-- **Test files**: `tests/run_tests.cpp` — 3 process-tool tests (lines 1320–1362)
+## `process_start`
 
----
+- **Factory**: `include/agent/tools.h` → `make_process_start_tool(JobService&, TaskService*)`
+- **Source**: `tools/process_tool.cpp`
+- **Approval**: required (it starts a process group)
+- **Read-only**: no
 
-### Contract
+| Field | Meaning |
+|---|---|
+| `command` | shell command, run through `/bin/sh -c` in its own process group |
+| `timeout` | hard lifetime in seconds (default 600, 0 disables) |
+| `idle_timeout` | seconds without output before auto-kill (default 30, 0 disables) |
+| `cwd` | confined working directory; defaults to the workspace root |
+| `label` | short label for `tasks list`; defaults to the command head |
+| `notify` | `auto`, `digest` or `silent` |
 
-| Dimension | Detail |
-|-----------|--------|
-| **Input** | `process_start`: `{"command":<string>, "timeout":<optional hard timeout, default 600>, "idle_timeout":<optional idle timeout, default 30>, "cwd":<optional string>}`. `process_read`: `{"id":<string>, "all":<optional bool>}`. `process_stop`: `{"id":<string>}`. |
-| **Output** | `process_start`: job ID string. `process_read`: status line + buffered output. `process_stop`: final output before kill. All via `ToolResult`. |
-| **Error states** | Missing command/id, job not found, spawn failure. |
-| **Invariants** | See below. |
-| **Thread safety** | `JobService` is internally synchronised (mutex for job map). `Job::reader_loop` runs on a background thread. Tool execution blocks the agent thread. |
+**Output**: the task id as a bare string. **Meta**: `task_id` and the backend
+`job_id`.
 
-### Invariants
+The tool creates the task record before it starts the job, so a command that
+exits immediately cannot outrun its completion. The job's reader thread invokes
+the completion sink once; the sink finishes the task record with the exit state
+and exit code. `tasks output` reads the job's bounded output through the backend
+id, so the completion path never holds the job service lock.
 
-1. All three tools share the same `JobService` instance — started processes are visible to all.
-2. `process_start` requires approval (`requires_approval() = true`).
-3. `process_read` is read-only (`is_read_only() = true`) and never needs approval.
-4. `process_stop` requires approval (`requires_approval() = true`).
-5. Job output is capped at 1 MiB per job. Excess is discarded (not returned).
-6. `process_read` with `all=true` returns full output; `all=false` returns only new output since last read (delta).
-7. Stopped/killed jobs are removed from `JobService` after `process_stop` or when `stop()` is called.
+## `tasks`
 
----
+- **Factory**: `include/agent/tools.h` → `make_tasks_tool(TaskService&, JobService&, CancellationToken)`
+- **Source**: `tools/tasks_tool.cpp`
+- **Approval**: `cancel` only
+- **Read-only**: no (the tool owns one mutating action)
 
-### Scenarios
+| Action | Behaviour |
+|---|---|
+| `list` | the owner's tasks: id, kind, state, elapsed, label, progress |
+| `status` | one record: state, elapsed, owner, progress, exit, error, artifact |
+| `output` | a bounded tail from `since`; returns `next_since` when more remains |
+| `cancel` | asks the backend to stop; a finished task is an error, not a no-op |
+| `wait` | condition-variable wait bounded by `timeout_s` and the run token |
 
-#### [PT-01] Start a background process
+`list` uses the run scope's owner id; there is no all-owners action on the tool
+surface. `status`, `output`, `cancel` and `wait` reject a task owned by another
+window. `output` is capped at 8 KiB per call; a 1 MiB job is paged, never
+pasted whole into the conversation.
 
-- **Given**: A valid command
-- **Input**: `process_start` with `{"command": "sleep 10"}`
-- **Expected**: `ok=true`. Output is job ID string (e.g., `"job_1"`). Meta: `{"job_id": "job_1"}`. Job registered in shared JobService.
-- **Approval**: Requires user approval (tagged as a side-effect operation).
+## Backends
 
-#### [PT-02] Start with custom timeouts
+`JobService` remains the command engine. `TaskService` owns the record, the
+state machine and the owner scope; `backend_id` maps a task to its job, watch or
+worker handle. Cancellation reaches the backend through the handler attached at
+creation, so `tasks cancel` kills the command's process group rather than only
+recording an intention.
 
-- **Given**: A command that may run long
-- **Input**: `{"command": "slow-build.sh", "timeout": 1200, "idle_timeout": 60}`
-- **Expected**: Hard timeout = 1200s, idle timeout = 60s. Job runs within these limits.
-- **Defaults**: hard=600s, idle=30s if not specified.
+## Invariants
 
-#### [PT-03] Read a running job's output
+1. A task record is created before its backend can complete.
+2. The completion sink publishes outside every lock and calls only
+   `TaskService::finish`.
+3. Output is bounded by `tasks`; the full log stays in the backend.
+4. `cancel` is approval-gated; `list`, `status`, `output` and `wait` are not.
+5. A terminal task is immutable; a second finish or cancel is rejected.
+6. Owner scoping is checked on every id-taking action, not only `list`.
 
-- **Given**: Job started, has produced some output
-- **Input**: `process_read` with `{"id": "job_1"}`
-- **Expected**: `ok=true`. Status line: `"[job job_1 running idle 30s hard 600s]"`. Body: buffered output since last read (delta) or full output if `all=true`.
-- **No new output**: Body: `"(no new output)\n"`.
+## Tests
 
-#### [PT-04] Read finished job
-
-- **Given**: Job completed with exit code 0
-- **Input**: `process_read` with `{"id": "job_1"}`
-- **Expected**: Status line: `"[job job_1 done exit 0]"`. Body: full output.
-- **On failure**: Status wrong or missing.
-
-#### [PT-05] Read killed job
-
-- **Given**: Job was killed (timeout or process_stop)
-- **Input**: `process_read` with `{"id": "job_1"}`
-- **Expected**: Status line: `"[job job_1 killed]"`. Body: captured output before kill.
-
-#### [PT-06] Stop a running job
-
-- **Given**: Job running with PID
-- **Input**: `process_stop` with `{"id": "job_1"}`
-- **Expected**: `ok=true`. Output: `"[job job_1 stopped]\n<full output before kill>"`. Job removed from service. The process group is asked to stop (`SIGTERM`), gets a 2s grace, and is escalated to `SIGKILL` if it ignores the ask.
-- **Approval**: Requires user approval.
-
-#### [PT-07] Stop a finished job
-
-- **Given**: Job already completed
-- **Input**: `process_stop` with `{"id": "job_1"}`
-- **Expected**: `stop()` returns true (job removed). Output captured. Subsequent `stop()` returns false (`"no such job: job_1"`).
-- **Regression guard**: `job_service_stop_finished_returns_true` test.
-
-#### [PT-08] Job not found
-
-- **Given**: Invalid job ID
-- **Input**: `process_read` or `process_stop` with `{"id": "nonexistent"}`
-- **Expected**: `ok=false`, `error="no such job: nonexistent"`.
-
-#### [PT-09] Output cap at 1 MiB
-
-- **Given**: Job produces more than 1 MiB of output
-- **Input**: Long-running output-heavy command
-- **Expected**: Output capped, `truncated_ = true`. Reader loop continues (drains pipe to prevent zombie) but doesn't buffer beyond cap.
-- **Regression guard**: `job_service_caps_output_at_one_mib` test.
-
-#### [PT-10] Full lifecycle: start → read → stop
-
-- **Given**: A short-lived command
-- **Input**: Start ping → read output → stop
-- **Expected**: `start` returns ID. `read` returns output with status. `stop` returns final output and removes job.
-- **Regression guard**: `process_tools_share_service` test.
-
-#### [PT-11] Start without command
-
-- **Input**: `{}` or `{"command": ""}`
-- **Expected**: `ok=false`, `error="missing 'command'"`.
-
----
-
-### Cross-references
-
-- **Depends on**: `tools/bash-tool.md` (shared `spawn_shell` / `kill_process_group` implementation)
-- **Depended on by**: `agent-loop/tool-dispatch.md`, `tui/event-loop.md` (status bar shows running jobs)
-- **Test coverage**: `tests/run_tests.cpp`: `process_tools_share_service` (1320), `process_stop_returns_captured_output` (1341), `job_service_stop_finished_returns_true` (1353), `job_service_caps_output_at_one_mib` (1362)
-
-### Known gaps
-
-1. **No workspace confinement on command** — Process runs with user's full privileges. The `cwd` defaults to workspace root but the command can `cd` anywhere.
-2. **No output streaming during execution** — The model must poll via `process_read`. No push mechanism for real-time output.
-3. **Job reader thread never interrupts** — Once started, the reader thread runs until the pipe closes, even if the agent/calling code no longer needs it.
-4. **`all` vs delta mode** — If the model never reads with `all=true` and only reads delta, the full output is still retained in the Job's internal buffer (until the 1 MiB cap).
+`tests/tasks_tool_test.cpp`: owner scoping, status, bounded paging with `since`,
+process-group cancellation, unknown id, bounded wait, cancellable wait, and
+`process_start` registering its task. `tests/task_service_test.cpp` covers the
+state machine and the completion edge.

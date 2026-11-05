@@ -70,7 +70,7 @@ host-owned alias if the allowlist grants one. There is no plugin root by default
 | `remove` | remove a saved object or registry entry |
 | `rename` | change a human label |
 | `read` | read a resource's output |
-| `report` | read a bounded watch report |
+| `report` | read a bounded background-task report |
 | `fork` | duplicate a conversation |
 | `prune` | maintenance of registry/artifacts |
 
@@ -199,10 +199,10 @@ either map is refused (it cannot author alias material).
 | `/sessions`, `/load`, `/open` | `/session list` |
 | `/session delete` | `/session remove` |
 | `/job kill` | `/job stop` |
-| `/watch cancel` | `/watch stop` (or `/plugin watch stop` after plugin migration) |
+| `/watch cancel` | `/tasks cancel` (the `/watch` inspect commands are removed) |
 | `/worktree status` | `/worktree show` |
 | `/panel` | `/panel` (view domain; keep) |
-| `/watch`, `/mcp`, `/prompt`, `/index`, `/hello` | `/plugin <id>` |
+| `/mcp`, `/prompt`, `/index`, `/hello` | `/plugin <id>` |
 
 A compatibility alias never appears as a documented peer in the drawer; it is
 accepted, with a one-line notice when appropriate, and removed after the

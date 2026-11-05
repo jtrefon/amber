@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -86,6 +87,11 @@ bool task_state_terminal(TaskState state) noexcept;
 const char* task_state_name(TaskState state) noexcept;
 const char* task_kind_name(TaskKind kind) noexcept;
 
+// Capture the running tool call's owner, project and worktree for a new record.
+// Outside a host run scope the owner is "default" and the project is the
+// process workspace, so a bare test still has one usable inventory.
+TaskOwner task_owner_from_scope();
+
 // The registry. It owns records and transitions; it never executes work.
 // Thread safety: one mutex for the map, event publication and backend calls
 // outside it, a generation counter for pull-based consumers.
@@ -120,6 +126,10 @@ public:
     // tool uses backend_id() to read output or map a cancel.
     std::string adopt_job(const std::string& job_id, TaskRecord record,
                           std::string* error = nullptr);
+    // Name the backend of a record that was created before its backend id was
+    // known (process_start creates the record first so a fast exit cannot race
+    // the completion sink). False for an unknown or already-terminal record.
+    bool bind_backend(const std::string& id, const std::string& backend_id);
     std::string backend_id(const std::string& id) const;
 
     // Block until the task is terminal, the deadline expires, or the caller
@@ -153,6 +163,10 @@ private:
     mutable std::mutex mtx_;
     mutable std::condition_variable cv_;
     std::map<std::string, Entry> tasks_;
+    // A cancel owns the terminal transition while its backend handler runs. A
+    // completion that races the handler is a duplicate, not a second opinion,
+    // so finish() ignores it and cancel() records the confirmed outcome.
+    std::set<std::string> cancelling_;
     // task id -> backend handle (job id, watch id, worker handle).
     std::map<std::string, std::string> backends_;
     EventBus* events_ = nullptr;

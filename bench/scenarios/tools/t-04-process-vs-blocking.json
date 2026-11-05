@@ -12,13 +12,13 @@
       "slow.sh": "#!/bin/sh\nsleep 4\necho done > result.txt\n"
     }
   },
-  "prompt": "Run slow.sh in the background with the process tool, wait for it, then read result.txt and report its contents. Reply with the word done when finished.",
+  "prompt": "Run slow.sh in the background with process_start, wait for it with tasks, then read result.txt and report its contents. Reply with the word done when finished.",
   "oracle": [
     {
       "tool": "process_start"
     },
     {
-      "tool": "process_read"
+      "tool": "tasks"
     }
   ],
   "checks": {

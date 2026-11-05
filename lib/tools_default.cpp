@@ -10,6 +10,7 @@
 #include "plugins/tool_bash/tool_bash_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
+#include "plugins/tool_tasks/tool_tasks_plugin.h"
 #include "plugins/tool_rate/tool_rate_plugin.h"
 #include "plugins/tool_read/tool_read_plugin.h"
 #include "plugins/tool_search/tool_search_plugin.h"
@@ -80,10 +81,10 @@ std::vector<std::unique_ptr<Tool>> wrap_tool(std::unique_ptr<Tool> tool) {
 // pass their registry so a tool and its prose always arrive together.
 void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todos,
                             const CancellationToken& cancel_token, SubAgentExecutor& subagents,
-                            PromptRegistry* prompts) {
+                            ToolHostOptions options) {
     Config cfg;
-    HostServices host{&jobs, &todos, &subagents, &cancel_token};
-    BareHost bare(reg, prompts);
+    HostServices host{&jobs, &todos, &subagents, &cancel_token, nullptr, options.tasks};
+    BareHost bare(reg, options.prompts);
     bare.services.config = &cfg;
     bare.services.host = &host;
 
@@ -93,6 +94,7 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
     install_capabilities(bare, plugins::make_write_tool_capabilities());
     install_capabilities(bare, plugins::make_bash_tool_capabilities());
     install_capabilities(bare, plugins::make_process_tool_capabilities());
+    install_capabilities(bare, plugins::make_tasks_tool_capabilities());
     install_capabilities(bare, plugins::make_plan_tool_capabilities());
     install_capabilities(bare, plugins::make_task_tool_capabilities());
     install_capabilities(bare, plugins::make_skill_tool_capabilities());

@@ -25,6 +25,8 @@
 #include "agent/dialect_gemini.h"
 #include "agent/dialect_openai.h"
 #include "agent/rate_governor.h"
+#include "agent/event_bus.h"
+#include "agent/task.h"
 #include "agent/task_inbox.h"
 #include "agent/tools.h"
 #include "agent/plugins_bundled.h"
@@ -3752,11 +3754,14 @@ TEST(tool_doc_blocks_reproduce_the_prompt_they_replaced) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
     agent::ToolRegistry reg;
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::PromptRegistry prompts;
-    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents, &prompts);
+    agent::register_default_tools(reg, jobs, todos, cfg.cancel_token, subagents,
+                                  {&prompts, &tasks});
 
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();

@@ -68,6 +68,16 @@ inline const std::string* scoped_workspace_root() noexcept {
     return s->leaf.workspace_root;
 }
 
+// The host's stable identity for the running tool call. Tools that create work
+// outliving the turn (a command, a watch) use it as the task owner; outside a
+// host session there is one local owner, so the inventory is still usable.
+inline std::string run_owner_id() {
+    const RunScopeChain* s = t_run_scope;
+    if (s && s->leaf.owner_id && !s->leaf.owner_id->empty())
+        return *s->leaf.owner_id;
+    return "default";
+}
+
 // Snapshot the calling thread's chain. Empty when no scope is installed.
 inline RunScopeChain capture_run_scope() {
     return t_run_scope ? *t_run_scope : RunScopeChain{};

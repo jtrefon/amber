@@ -16,11 +16,9 @@ std::vector<std::unique_ptr<Capability>> make_process_tool_capabilities() {
         [](PluginServices& services) -> std::vector<std::unique_ptr<Tool>> {
             if (!services.host || !services.host->jobs)
                 return {};
-            return make_process_tools(*services.host->jobs);
+            return wrap_tool(make_process_start_tool(*services.host->jobs, services.host->tasks));
         },
-        ToolCapability::Meta{{{"process_start", {"spawning", ToolRole::Execute}},
-                              {"process_read", {"reading", ToolRole::Execute}},
-                              {"process_stop", {"stopping", ToolRole::Execute}}}}));
+        ToolCapability::Meta{{{"process_start", {"spawning", ToolRole::Execute}}}}));
     caps.push_back(make_tool_doc_capability("process_doc", tool_doc_priority::kProcess,
                                             "prompts/tools/process.md"));
     return caps;

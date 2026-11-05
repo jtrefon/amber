@@ -8,6 +8,7 @@
 #include "agent/context_shape.h"
 #include "agent/global_config.h"
 #include "agent/plugin_runtime.h"
+#include "agent/task.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
 
@@ -160,18 +161,21 @@ void resolve_prompt_paths(agent::Config& cfg, const char* argv0) {
 // where the live config lands.
 struct TuiHost {
     agent::ToolRegistry registry;
+    agent::Workspace workspace;
+    agent::PluginRuntime plugin_runtime;
+    // Declared before the job service so a completion sink can finish its task
+    // while the jobs are still being torn down.
+    agent::TaskService tasks;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::ShapeQueue shapes;
     agent::SubAgentExecutor subagents;
     agent::PluginManager plugins;
-    agent::Workspace workspace;
-    agent::PluginRuntime plugin_runtime;
     agent::HostServices host_services;
 
     explicit TuiHost(agent::Config& cfg)
-        : plugin_runtime(registry, cfg, workspace),
-          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes} {
+        : plugin_runtime(registry, cfg, workspace), tasks(plugin_runtime.events()),
+          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes, &tasks} {
         subagents.set_config(cfg);
         subagents.set_parallel(cfg.subagent_parallel);
         subagents.set_max(cfg.subagent_max);

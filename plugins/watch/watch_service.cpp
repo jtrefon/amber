@@ -1,8 +1,10 @@
 #include "watch_service.h"
 
 #include "watch_profiles.h"
+#include "watch_tools.h"
 
 #include "agent/events.h"
+#include "agent/task.h"
 
 #include <algorithm>
 #include <atomic>
@@ -62,6 +64,33 @@ std::string clip(std::string s, std::size_t cap) {
     if (s.size() > cap)
         s.resize(cap);
     return s;
+}
+
+TaskState task_state_from_watch(WatchState state) {
+    switch (state) {
+    case WatchState::Succeeded:
+        return TaskState::Succeeded;
+    case WatchState::Failed:
+        return TaskState::Failed;
+    case WatchState::TimedOut:
+        return TaskState::TimedOut;
+    case WatchState::Cancelled:
+        return TaskState::Cancelled;
+    case WatchState::Unknown:
+    case WatchState::Queued:
+    case WatchState::Running:
+        return TaskState::Unknown;
+    }
+    return TaskState::Unknown;
+}
+
+TaskResult task_result_from_watch(const WatchReport& report) {
+    TaskResult result;
+    result.exit_code = report.state == WatchState::Succeeded ? 0 : 1;
+    result.summary = report.headline;
+    result.output_tail = format_watch_report(report, false);
+    result.artifact_path = report.artifact_path;
+    return result;
 }
 
 std::string brief_json(const WatchRecord& record, const WatchReport& report) {
@@ -225,6 +254,33 @@ void WatchService::launch(const WatchRecord& record) {
     }
 }
 
+std::string WatchService::register_task(const WatchRecord& record, std::string& error) {
+    if (!tasks_)
+        return {};
+    TaskRecord task;
+    task.kind = TaskKind::Watch;
+    task.owner.owner_id = record.owner_id;
+    task.label = record.label;
+    task.command = record.command.empty() ? record.pr + record.url : record.command;
+    task.goal = record.label;
+    task.cwd = record.cwd;
+    task.created_ms = record.created_ms;
+    task.notify = TaskNotify::Auto;
+    std::string id = tasks_->create(std::move(task), &error);
+    if (id.empty())
+        return {};
+    tasks_->started(id, record.created_ms);
+    tasks_->bind_backend(id, record.id);
+    tasks_->attach_cancel(id, [this, watch_id = record.id](const CancellationToken&) {
+        return request_cancel(watch_id);
+    });
+    {
+        std::scoped_lock lk(mtx_);
+        task_ids_[record.id] = id;
+    }
+    return id;
+}
+
 std::string WatchService::start(const WatchStart& options, std::string& error) {
     error.clear();
     if (!validate_start(options, error))
@@ -239,8 +295,21 @@ std::string WatchService::start(const WatchStart& options, std::string& error) {
         error = "watch start: could not persist the watch record";
         return {};
     }
+    std::string task_error;
+    const std::string task_id = register_task(record, task_error);
+    if (tasks_ && task_id.empty()) {
+        store_.remove(record.id);
+        error = task_error.empty() ? "watch start: task inventory unavailable" : task_error;
+        return {};
+    }
     launch(record);
     return record.id;
+}
+
+std::string WatchService::task_id(const std::string& watch_id) const {
+    std::scoped_lock lk(mtx_);
+    auto it = task_ids_.find(watch_id);
+    return it == task_ids_.end() ? std::string() : it->second;
 }
 
 std::vector<WatchRecord> WatchService::list() const {
@@ -275,7 +344,7 @@ std::optional<WatchReport> WatchService::report(const std::string& id) const {
     return std::nullopt;
 }
 
-bool WatchService::cancel(const std::string& id) {
+bool WatchService::request_cancel(const std::string& id) {
     std::shared_ptr<WatchWorker> worker;
     {
         std::scoped_lock lk(mtx_);
@@ -288,20 +357,27 @@ bool WatchService::cancel(const std::string& id) {
     return true;
 }
 
+bool WatchService::cancel(const std::string& id) {
+    if (tasks_) {
+        const std::string task = task_id(id);
+        CancellationToken token;
+        if (!task.empty() && tasks_->cancel(task, "cancelled", token))
+            return true;
+    }
+    return request_cancel(id);
+}
+
 void WatchService::cancel_owner(const std::string& owner_id) {
-    std::vector<std::shared_ptr<WatchWorker>> workers;
+    std::vector<std::string> ids;
     {
         std::scoped_lock lk(mtx_);
         for (const auto& [id, record] : records_) {
-            if (record.owner_id != owner_id || watch_state_terminal(record.state))
-                continue;
-            auto it = workers_.find(id);
-            if (it != workers_.end())
-                workers.push_back(it->second);
+            if (record.owner_id == owner_id && !watch_state_terminal(record.state))
+                ids.push_back(id);
         }
     }
-    for (auto& worker : workers)
-        worker->cancel();
+    for (const auto& id : ids)
+        cancel(id);
 }
 
 std::optional<WatchRecord> WatchService::wait(const std::string& id, int timeout_s) const {
@@ -403,6 +479,7 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
+            task_ids_.erase(id);
             abandoned_records_.erase(id);
         }
         if (retained) {
@@ -412,12 +489,34 @@ void WatchService::finish(const WatchRecord& record, const WatchReport& report) 
     }
     for (const auto& id : remove)
         store_.remove(id);
+    // The task record is independent of retention: a pruned watch still ends
+    // its one inventory row.
+    finish_task_record(final, report);
     if (!retained)
         return;
     store_.save_record(final);
     store_.save_report(report);
     if (!final.abandoned)
         publish_report(final, report);
+}
+
+void WatchService::finish_task_record(const WatchRecord& record, const WatchReport& report) {
+    std::string task_id;
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = task_ids_.find(record.id);
+        if (it != task_ids_.end())
+            task_id = it->second;
+    }
+    if (task_id.empty() || !tasks_ || shutting_down_.load())
+        return;
+    if (record.state == WatchState::Cancelled) {
+        CancellationToken token;
+        tasks_->cancel(task_id, "watch cancelled", token);
+    } else {
+        tasks_->finish(task_id, task_state_from_watch(record.state), task_result_from_watch(report),
+                       record.state == WatchState::Unknown ? report.headline : std::string());
+    }
 }
 
 void WatchService::ack(const std::string& watch_id) {
@@ -517,6 +616,7 @@ void WatchService::prune() {
         for (const auto& id : remove) {
             records_.erase(id);
             reports_.erase(id);
+            task_ids_.erase(id);
             abandoned_records_.erase(id);
         }
     }
@@ -530,6 +630,7 @@ void WatchService::publish_report(const WatchRecord& record, const WatchReport& 
     WatchReportEvent event;
     event.owner_id = record.owner_id;
     event.watch_id = record.id;
+    event.task_id = task_id(record.id);
     event.report_id = report.report_id;
     event.state = watch_state_name(report.state);
     event.headline = report.headline;

@@ -3665,10 +3665,21 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);
-    // The bundled set contributes seven namespaces: hello, the project index's
-    // index, the coding library's library, the mcp plugin's mcp / prompt / get,
-    // and watch.
-    ASSERT_EQ(runtime.commands().size(), 7u);
+    // The bundled set contributes six namespaces: hello, the project index's
+    // index, the coding library's library, and the mcp plugin's mcp / prompt /
+    // get. The watch plugin's inspect commands moved to the `tasks` inventory.
+    // Assert the names, not the count: mcp discovery can add or remove its
+    // command workspace on a background thread, so take one snapshot.
+    const auto entries = runtime.commands().all();
+    for (const char* name : {"hello", "index", "library", "mcp", "prompt", "get"}) {
+        ASSERT(std::find_if(entries.begin(), entries.end(),
+                            [&](const agent::CommandRegistry::Entry& e) {
+                                return e.spec.name == name;
+                            }) != entries.end());
+    }
+    ASSERT(std::none_of(entries.begin(), entries.end(), [](const agent::CommandRegistry::Entry& e) {
+        return e.spec.name == "watch";
+    }));
     const auto& all = runtime.commands().all();
     const auto hello =
         std::find_if(all.begin(), all.end(),
@@ -3677,14 +3688,22 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     ASSERT_EQ(hello->spec.handlers.at("greet")("amber"), std::string("Hello, amber!"));
 
     // A command-contributing plugin survives a disable/re-enable cycle: the
-    // capability must come back with the same binding.
+    // capability must come back with the same binding. Assert the names rather
+    // than a count, because mcp discovery can change its workspace in between.
+    const auto has_command = [&](const char* name) {
+        const auto all = runtime.commands().all();
+        return std::any_of(all.begin(), all.end(), [&](const agent::CommandRegistry::Entry& e) {
+            return e.spec.name == name;
+        });
+    };
     ASSERT_TRUE(runtime.set_state("hello", false));
     ASSERT_FALSE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(),
-              6u); // the library, the mcp plugin's three, watch and the index survive
+    ASSERT_FALSE(has_command("hello"));
+    ASSERT_TRUE(has_command("library"));
+    ASSERT_TRUE(has_command("index"));
     ASSERT_TRUE(runtime.set_state("hello", true));
     ASSERT_TRUE(runtime.status("hello").enabled);
-    ASSERT_EQ(runtime.commands().size(), 7u);
+    ASSERT_TRUE(has_command("hello"));
 }
 
 // The registry console groups contributions by kind, so every kind needs a

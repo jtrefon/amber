@@ -16,8 +16,7 @@ namespace tui::detail {
 // watch producer and the watch subscription. One owned component keeps the Tui
 // class inside the size cap.
 struct TaskRuntime {
-    explicit TaskRuntime(agent::EventBus& bus) : tasks(bus), inbox(bus, tasks) {}
-    agent::TaskService tasks;
+    TaskRuntime(agent::EventBus& bus, agent::TaskService& tasks) : inbox(bus, tasks) {}
     agent::TaskInbox inbox;
     agent::plugins::WatchPlugin* watch_plugin = nullptr;
     agent::Subscription watch_sub;

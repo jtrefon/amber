@@ -25,7 +25,8 @@ confinement, and approval gating for side-effect operations.
 1. Read mode blocks ALL non-read-only tools — no file modifications, no bash.
 2. Path confinement is enforced before any file I/O in read and write tools.
 3. Bash commands are classified by `shell_classify` into read-only / benign in-workspace write / destructive / outside. Read-only and benign writes run free in Write mode; destructive commands (curated list: `rm`, `dd`, `git reset`, ...) and writes outside the workspace prompt for approval once per scope (command kind / target folder) unless a stored or session rule grants them.
-4. Background processes (`process_start`, `process_stop`) require approval.
+4. Background processes (`process_start`) and task cancellation (`tasks cancel`)
+   require approval.
 5. Fail-safe: no `on_approval` handler → tool denied.
 6. Fail-safe: non-TTY CLI with no `--yes` → tool denied.
 7. All child processes run in a separate process group — `kill_process_group()` stops the entire subtree (SIGTERM, a 2s grace, then SIGKILL for a group that ignores the ask).

@@ -930,8 +930,7 @@ struct DisplayRegistry {
         add("search", "searching");
         add("bash", "hacking");
         add("process_start", "spawning");
-        add("process_read", "reading");
-        add("process_stop", "stopping");
+        add("tasks", "tasks");
         add("todowrite", "planning");
         add("task", "delegating");
     }

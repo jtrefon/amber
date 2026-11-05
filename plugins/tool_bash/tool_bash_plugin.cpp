@@ -16,7 +16,8 @@ std::vector<std::unique_ptr<Capability>> make_bash_tool_capabilities() {
             const CancellationToken token = (services.host && services.host->cancel_token)
                                                 ? *services.host->cancel_token
                                                 : CancellationToken{};
-            return wrap_tool(make_bash_tool(jobs, token));
+            TaskService* tasks = services.host ? services.host->tasks : nullptr;
+            return wrap_tool(make_bash_tool(jobs, token, tasks));
         },
         ToolCapability::Meta{{{"bash", {"hacking", ToolRole::Execute}}}}));
     caps.push_back(

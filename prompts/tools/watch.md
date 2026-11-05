@@ -2,14 +2,11 @@
 
 `watch` runs a process or polls a PR/URL in the background, keeps a journal, and returns a report later. It is the tool for work that would otherwise hold the turn or make you poll.
 
-### Actions
+### Action
 
-- `action=start` — start a watch and return its id at once.
-- `action=list` — compact rows: id, profile, state, label, last status.
-- `action=status id=...` — the current state and the last journal lines.
-- `action=report id=... [detail=summary|full]` — the bounded report, evidence excerpts, and artifact paths.
-- `action=cancel id=...` — stop the process group/poll and record partial output.
-- `action=wait id=... timeout_s=...` — a bounded, cancellable wait; use it when the next step genuinely needs the result.
+- `action=start` — start a watch and return its task id at once. Use `tasks
+  list/status/output/cancel/wait` for every later step; the watch keeps its
+  journal and the report is the task's output.
 
 ### `start` arguments
 
@@ -36,7 +33,7 @@
 
 ### Reports
 
-A report has a headline, state (`succeeded`, `failed`, `timed_out`, `cancelled`, `unknown`), observed facts, an optional likely cause, an optional next action, confidence, an attention flag, and a compact journal update. The main agent receives the headline and id; `watch report` returns the evidence and artifact path. The full log stays in an artifact and out of the main context.
+A report has a headline, state (`succeeded`, `failed`, `timed_out`, `cancelled`, `unknown`), observed facts, an optional likely cause, an optional next action, confidence, an attention flag, and a compact journal update. The main agent receives the headline and task id; `tasks output` returns the evidence and artifact path. The full log stays in an artifact and out of the main context.
 
 The observer is a small read-only interpreter: no tools, no shell, no writes, no policy changes. It is not a subagent and does not use the worker slots. It runs on a terminal state or a failure, not on every poll.
 

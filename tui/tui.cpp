@@ -35,6 +35,7 @@
 #include <chrono>
 #include <cstdio>
 #include <memory>
+#include <stdexcept>
 
 #include "widgets.h"
 #include "textutil.h"
@@ -143,7 +144,10 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
     // left in a raw, mouse-reporting, alternate-screen shell.
     try {
         install_signal_handlers();
-        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events());
+        agent::TaskService* tasks = plugin_runtime_.host_services().tasks;
+        if (!tasks)
+            throw std::runtime_error("the TUI requires a task inventory");
+        task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events(), *tasks);
         wire_plugin_runtime();
         build_managers();
         menu_ = std::make_unique<MenuController>(
@@ -233,7 +237,8 @@ void Tui::wire_plugin_runtime() {
         dynamic_cast<agent::plugins::WatchPlugin*>(plugin_runtime_.find("watch"));
     task_runtime_->inbox.set_ack_hook([this](const agent::TaskCompletion& completion) {
         if (completion.kind == agent::TaskKind::Watch && task_runtime_->watch_plugin)
-            task_runtime_->watch_plugin->ack(completion.task_id);
+            task_runtime_->watch_plugin->ack(completion.backend_id.empty() ? completion.task_id
+                                                                           : completion.backend_id);
     });
     feed_manager_ = std::make_unique<FeedManager>(*this);
 }
@@ -470,12 +475,13 @@ void Tui::on_watch_report(const agent::WatchReportEvent& ev) {
     // happen here; the UI thread owns the run slot. Owner ids are stable
     // workspace identities, not the in-process window index.
     agent::TaskCompletion completion;
-    completion.task_id = ev.watch_id;
+    completion.task_id = ev.task_id.empty() ? ev.watch_id : ev.task_id;
+    completion.backend_id = ev.watch_id;
     completion.owner_id = ev.owner_id;
     completion.kind = agent::TaskKind::Watch;
     completion.state = watch_task_state(ev.state);
-    completion.prompt_text = ev.watch_id + " (watch) " + ev.state + ": " + ev.headline +
-                             " — use `watch report " + ev.watch_id +
+    completion.prompt_text = completion.task_id + " (watch) " + ev.state + ": " + ev.headline +
+                             " — use `tasks output " + completion.task_id +
                              "` for the evidence and the artifact path.";
     completion.created_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::system_clock::now().time_since_epoch())
