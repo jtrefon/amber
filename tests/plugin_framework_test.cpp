@@ -361,6 +361,24 @@ TEST(keybinding_registry_counts_collisions) {
     ASSERT_EQ(registry.collisions(), 1u);
 }
 
+TEST(keybinding_services_without_a_registry_answer_empty) {
+    TestHarness h;
+    PluginServices bare(h.tools, h.prompts, h.status, h.panels, h.wallets, h.search_backends, h.bus,
+                        h.commands);
+    ASSERT_EQ(bare.keybindings().size(), 0u);
+}
+
+TEST(keybinding_registry_items_describe_the_contribution) {
+    KeybindingRegistry registry;
+    registry.add("hello", KeyBinding{"ctrl+y", "plugin.hello.greet", "", "global", "always", ""});
+    const auto items = registry.items();
+    ASSERT_EQ(items.size(), 1u);
+    ASSERT(items.front().kind == CapabilityKind::Keybinding);
+    ASSERT_EQ(items.front().owner, std::string("hello"));
+    ASSERT_EQ(items.front().name, std::string("ctrl+y"));
+    ASSERT(items.front().detail.find("plugin.hello.greet") != std::string::npos);
+}
+
 TEST(keybinding_capability_rejects_an_empty_action) {
     TestHarness h;
     KeybindingCapability cap(KeyBinding{"ctrl+j", "", "", "global", "always", ""});

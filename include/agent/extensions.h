@@ -614,7 +614,7 @@ private:
     std::shared_ptr<SearchBackendRegistry> search_backends_;
     EventBus* events_;
     CommandRegistry* commands_;
-    KeybindingRegistry* keybindings_;
+    KeybindingRegistry* keybindings_ = nullptr;
     SettingsRegistry* settings_ = nullptr;
     std::string owner_;
     ToolPort* tool_port_ = nullptr;

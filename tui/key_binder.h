@@ -50,6 +50,7 @@ private:
     void load(nlohmann::json bindings);
     void load_v2(const nlohmann::json& bindings);
     void load_v1(const nlohmann::json& bindings);
+    static bool prepared(agent::KeyBinding& binding);
     void add(agent::KeyBinding binding);
     void add_legacy_defaults();
     agent::KeyBinding find(const std::string& key, const InputState& state) const;

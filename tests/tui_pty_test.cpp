@@ -1793,9 +1793,38 @@ TEST(input_scroll_keeps_tail_visible) {
     require(tui.wait_for("ZZZ", 4000), "the input tail stayed clipped off screen", tui);
 }
 
+// The binder's ui.* actions reach the same handlers in the running app:
+// Ctrl+W edits the prompt, ESC+m toggles mouse reporting, and a bare ESC on an
+// idle prompt toggles scroll mode. None of them may insert their bytes.
+TEST(keybinding_actions_edit_and_toggle_the_shell) {
+    Tui tui;
+    tui.name = "keybinding_actions_edit_and_toggle_the_shell";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("one two");
+    tui.pump(300);
+    tui.send("\x17"); // Ctrl+W
+    tui.pump(500);
+    const std::string edited = tui.text();
+    if (!require(edited.find("one ") != std::string::npos, "Ctrl+W lost the prefix", tui))
+        return;
+    require(edited.find("one two") == std::string::npos, "Ctrl+W did not delete the word", tui);
+
+    tui.send("\x1bm"); // ESC+m
+    require(tui.wait_for("mouse: off", 5000), "ESC+m did not toggle mouse reporting", tui);
+
+    tui.send("\x1b"); // bare ESC on an idle prompt
+    require(tui.wait_for("scroll mode", 5000), "ESC did not toggle scroll mode", tui);
+    tui.send("\x1b");
+    tui.pump(500);
+}
+
 // The resource viewer is a real window, not a modal: it attaches to a live
-// task, detaches without cancelling it, and /tasks cancel still works. The
-// /job spelling reaches the same namespace through the visible alias.
+// task, detaches without cancelling it, and /tasks cancel still works.// The resource viewer is a
+// real window, not a modal: it attaches to a live task, detaches without cancelling it, and /tasks
+// cancel still works. The /job spelling reaches the same namespace through the visible alias.
 TEST(work_board_resource_viewer_round_trip) {
     Tui tui;
     tui.name = "work_board_resource_viewer_round_trip";

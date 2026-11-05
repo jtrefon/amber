@@ -1675,6 +1675,28 @@ TEST(keybinder_scope_filters_the_binding) {
     ASSERT_EQ(kb.dispatch({14, std::nullopt}, menu).action, std::string("ui.test"));
 }
 
+// A table that cannot be used installs nothing rather than guessing: a v2
+// entry missing its key or action is skipped, and a non-object file leaves the
+// binder empty.
+TEST(keybinder_ignores_an_unusable_table) {
+    auto empty = tui::KeyBinder(nlohmann::json::array());
+    ASSERT(empty.bindings().empty());
+
+    const auto json = nlohmann::json::parse(R"({
+        "version": 2,
+        "bindings": [
+            {"key": "", "action": "ui.test"},
+            {"key": "ctrl+x", "action": ""},
+            {"key": "ctrl+x", "action": "ui.test", "when": "sometimes"},
+            {"key": "ctrl+x", "action": "ui.test"}
+        ]
+    })");
+    auto kb = tui::KeyBinder(json);
+    ASSERT_EQ(kb.bindings().size(), 1u);
+    tui::InputState state;
+    ASSERT_EQ(kb.dispatch({24, std::nullopt}, state).action, std::string("ui.test"));
+}
+
 TEST(keybinder_plugin_collision_loses_to_core) {
     auto kb = tui::KeyBinder(
         load_test_keybindings(),

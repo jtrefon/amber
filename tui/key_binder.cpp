@@ -64,13 +64,26 @@ KeyBinder::KeyBinder(nlohmann::json bindings, std::vector<agent::KeyBinding> ext
         add(std::move(binding));
 }
 
-void KeyBinder::add(agent::KeyBinding binding) {
+// Fill defaults and refuse a binding that could never fire. A typo in scope or
+// predicate is otherwise a key that silently does nothing.
+bool KeyBinder::prepared(agent::KeyBinding& binding) {
     if (binding.key.empty() || binding.action.empty())
-        return;
+        return false;
     if (binding.scope.empty())
         binding.scope = "global";
     if (binding.when.empty())
         binding.when = "always";
+    const bool known_scope = binding.scope == "global" || binding.scope == "input" ||
+                             binding.scope == "menu" || binding.scope == "dialog" ||
+                             binding.scope == "list";
+    const bool known_when = binding.when == "always" || binding.when == "drawer" ||
+                            binding.when == "busy" || binding.when == "idle";
+    return known_scope && known_when;
+}
+
+void KeyBinder::add(agent::KeyBinding binding) {
+    if (!prepared(binding))
+        return;
     for (const auto& existing : bindings_) {
         if (existing.key == binding.key && existing.scope == binding.scope &&
             existing.when == binding.when) {
