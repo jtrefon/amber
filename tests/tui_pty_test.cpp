@@ -1808,6 +1808,23 @@ TEST(work_board_resource_viewer_round_trip) {
 
     run("/window new noworkdir");
     tui.pump(500);
+
+    // Empty and malformed forms have explicit, non-crashing answers.
+    run("/tasks list");
+    require(tui.wait_for("no background tasks", 8000), "empty task list was not reported", tui);
+    run("/tasks bogus");
+    require(tui.wait_for("usage: /tasks", 8000), "bare /tasks has no usage", tui);
+    run("/tasks show");
+    require(tui.wait_for("usage: /tasks show", 8000), "show usage missing", tui);
+    run("/tasks output");
+    require(tui.wait_for("usage: /tasks output", 8000), "output usage missing", tui);
+    run("/tasks cancel");
+    require(tui.wait_for("usage: /tasks cancel", 8000), "cancel usage missing", tui);
+    run("/tasks wait");
+    require(tui.wait_for("usage: /tasks wait", 8000), "wait usage missing", tui);
+    run("/tasks start");
+    require(tui.wait_for("usage: /tasks start", 8000), "start usage missing", tui);
+
     run("/tasks start sleep 30");
     if (!require(tui.wait_for("started task ", 10000), "the background task did not start", tui))
         return;
@@ -1818,6 +1835,16 @@ TEST(work_board_resource_viewer_round_trip) {
     // The old spelling is a visible alias over the same inventory.
     run("/job list");
     require(tui.wait_for("sleep 30", 8000), "/job list did not reach /tasks", tui);
+    run("/tasks show " + id);
+    require(tui.wait_for("state: running", 8000), "/tasks show did not print the record", tui);
+    run("/tasks wait " + id);
+    require(tui.wait_for("waiting for task", 8000), "/tasks wait did not register", tui);
+    for (const char* missing : {"/tasks show task_missing", "/tasks output task_missing",
+                                "/tasks cancel task_missing", "/tasks wait task_missing"}) {
+        run(missing);
+        require(tui.wait_for("no such task: task_missing", 8000), "missing task was not named",
+                tui);
+    }
 
     run("/tasks output " + id);
     if (!require(tui.wait_for("id: " + id, 10000), "the task viewer did not open", tui))
@@ -1826,8 +1853,15 @@ TEST(work_board_resource_viewer_round_trip) {
 
     run("/window detach");
     tui.pump(500);
+
+    // Esc leaves the task running; the second confirmation accepts.
     run("/tasks cancel " + id);
     if (!require(tui.wait_for("Cancel task", 10000), "the cancel confirmation did not open", tui))
+        return;
+    tui.send("\x1b");
+    tui.pump(500);
+    run("/tasks cancel " + id);
+    if (!require(tui.wait_for("Cancel task", 10000), "the second cancel did not confirm", tui))
         return;
     tui.send("\t"); // select Yes
     tui.pump(200);
@@ -1835,6 +1869,18 @@ TEST(work_board_resource_viewer_round_trip) {
     tui.pump(500);
     if (!require(tui.wait_for("cancel requested", 10000), "the task was not cancelled", tui))
         return;
+    require(tui.wait_for("state: cancelled", 10000), "the watched task never reported terminal",
+            tui);
+
+    run("/tasks cancel " + id);
+    require(tui.wait_for("already cancelled", 8000), "a terminal cancel was not an error", tui);
+    run("/tasks wait " + id);
+    require(tui.wait_for("state: cancelled", 8000), "wait on a terminal task did not show it", tui);
+
+    run("/window attach task task_missing");
+    require(tui.wait_for("no longer available", 8000), "missing task viewer did not report", tui);
+    run("/window detach");
+    tui.pump(500);
 
     run("/work");
     require(tui.wait_for("Tasks", 8000), "the Work board did not open", tui);

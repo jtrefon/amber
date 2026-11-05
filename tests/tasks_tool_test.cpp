@@ -6,6 +6,7 @@
 #include "agent/run_scope.h"
 #include "agent/task.h"
 #include "agent/task_format.h"
+#include "agent/task_job.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
@@ -109,6 +110,63 @@ TEST(bash_inactive_handoff_finishes_the_task) {
 
 // /tasks list and the Work board both render through format_task_row, so one
 // row vocabulary covers every kind.
+TEST(start_command_task_reports_refusal_and_spawn_failure) {
+    const fs::path root = tasks_workspace();
+    WorkspaceGuard guard_root(root.string());
+    agent::EventBus bus;
+    agent::TaskLimits limits;
+    limits.command_per_owner = 1;
+    limits.command_global = 1;
+    limits.total_per_owner = 1;
+    limits.total_global = 1;
+    agent::TaskService tasks(bus, limits);
+    agent::JobService jobs;
+
+    agent::CommandTaskStart options;
+    options.command = "sleep 30 # " + std::string(80, 'x');
+    options.cwd = root.string();
+    options.owner.owner_id = "window-a";
+    options.hard_timeout_s = 600;
+    options.idle_timeout_s = 600;
+    const agent::StartedCommandTask first = agent::start_command_task(jobs, tasks, options);
+    ASSERT_FALSE(first.task_id.empty());
+    ASSERT_FALSE(tasks.get(first.task_id)->label.empty());
+
+    std::string error;
+    const agent::StartedCommandTask refused =
+        agent::start_command_task(jobs, tasks, options, &error);
+    ASSERT_TRUE(refused.task_id.empty());
+    ASSERT(error.find("do not retry") != std::string::npos);
+
+    agent::TaskService roomy(bus);
+    agent::CommandTaskStart bad;
+    bad.command = "true";
+    bad.cwd = "/definitely/not/a/real/directory";
+    bad.owner.owner_id = "window-a";
+    std::string bad_error;
+    const agent::StartedCommandTask failed =
+        agent::start_command_task(jobs, roomy, bad, &bad_error);
+    ASSERT_TRUE(failed.task_id.empty());
+    ASSERT_FALSE(bad_error.empty());
+}
+
+TEST(process_start_reports_a_full_inventory) {
+    agent::EventBus bus;
+    agent::TaskLimits limits;
+    limits.command_per_owner = 1;
+    limits.command_global = 1;
+    limits.total_per_owner = 1;
+    limits.total_global = 1;
+    agent::TaskService tasks(bus, limits);
+    agent::JobService jobs;
+    auto start = agent::make_process_start_tool(jobs, &tasks);
+    auto first = start->execute({{"command", "sleep 30"}, {"idle_timeout", 30}});
+    ASSERT(first.ok);
+    auto second = start->execute({{"command", "true"}});
+    ASSERT_FALSE(second.ok);
+    ASSERT(second.error.find("do not retry") != std::string::npos);
+}
+
 TEST(task_rows_cover_every_kind) {
     agent::EventBus bus;
     agent::TaskService tasks(bus);
