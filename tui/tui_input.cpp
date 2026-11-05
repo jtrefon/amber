@@ -3918,7 +3918,12 @@ void SlashDispatcher::cmd_tasks_wait(const std::string& id) {
         cmd_tasks_show(id);
         return;
     }
-    tui_.wait_task(id);
+    if (std::find(tui_.watched_tasks_.begin(), tui_.watched_tasks_.end(), id) ==
+        tui_.watched_tasks_.end()) {
+        tui_.watched_tasks_.push_back(id);
+        tui_.append_line(P_STATUS, "waiting for task " + id + "; the final record appears here");
+        tui_.draw();
+    }
 }
 
 void SlashDispatcher::cmd_tasks_start(const std::string& cmd) {

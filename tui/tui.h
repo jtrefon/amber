@@ -172,8 +172,7 @@ private:
     // reports the result. (The UI thread never polls or forks.)
     void run_command_async(const std::string& label, const std::string& cmd);
     void drain_pending_jobs();
-    void drain_pending_tasks();
-    void refresh_task_feed_if_changed();
+    void drain_pending_tasks(), refresh_task_feed_if_changed();
     std::vector<std::string> watched_tasks_;
     std::uint64_t last_task_generation_ = 0;
     // Cancel every window's run: per-agent tokens + per-slot flags.
@@ -284,7 +283,6 @@ private:
     std::function<void(std::function<void()>)> ui_poster();
     void refresh_policy_feed();
     void refresh_provider_feed();
-    void refresh_task_feed();
     void refresh_plugin_feed();
     void cmd_model_set(const std::string& arg);
     void cmd_provider(const std::string& arg);
@@ -298,9 +296,6 @@ private:
     // selection — copy without Shift — at the cost of wheel scrolling, which is
     // the trade-off the mouse was turned on for in the first place.
     void toggle_mouse();
-    // Non-blocking: the id joins the per-tick list and the final record is
-    // appended when it reaches a terminal state.
-    void wait_task(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
     void show_policy_rule(const std::string& name);
     std::unique_ptr<SlashDispatcher> slash_dispatcher_;

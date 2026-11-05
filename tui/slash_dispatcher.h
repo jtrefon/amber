@@ -89,10 +89,8 @@ public:
     // models). Returns false, with a message, when the saved definition is
     // unusable.
     bool adopt_provider(const std::string& id);
-    void cmd_tasks_show(const std::string& id);
-    void cmd_tasks_output(const std::string& id);
-    void cmd_tasks_cancel(const std::string& id);
-    void cmd_tasks_wait(const std::string& id);
+    void cmd_tasks_show(const std::string& id), cmd_tasks_output(const std::string& id);
+    void cmd_tasks_cancel(const std::string& id), cmd_tasks_wait(const std::string& id);
     void apply_policy_rule(const std::string& name, const std::string& lvl);
     void show_policy_rule(const std::string& name);
 

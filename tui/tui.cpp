@@ -1433,9 +1433,7 @@ void Tui::refresh_policy_feed() {
 void Tui::refresh_provider_feed() {
     slash_dispatcher_->refresh_provider_feed();
 }
-void Tui::refresh_task_feed() {
-    slash_dispatcher_->refresh_task_feed();
-}
+
 void Tui::refresh_plugin_feed() {
     if (feed_manager_)
         feed_manager_->refresh_plugin_feed();
@@ -1517,15 +1515,6 @@ void Tui::drain_ui_posts() {
     }
 }
 
-void Tui::wait_task(const std::string& id) {
-    if (id.empty())
-        return;
-    if (std::find(watched_tasks_.begin(), watched_tasks_.end(), id) != watched_tasks_.end())
-        return;
-    watched_tasks_.push_back(id);
-    append_line(P_STATUS, "waiting for task " + id + "; the final record appears here");
-    draw();
-}
 void Tui::apply_policy_rule(const std::string& name, const std::string& lvl) {
     slash_dispatcher_->apply_policy_rule(name, lvl);
 }

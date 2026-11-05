@@ -251,8 +251,12 @@ void FeedManager::refresh_task_feed() {
     };
     for (const auto& task : tui_.tasks_->list(tui_.win().owner_id)) {
         const std::string row = agent::format_task_row(task);
-        for (const auto& [verb, handler] : verbs) {
-            const std::string action = "core.tasks." + std::string(verb) + "." + task.id;
+        for (const auto& entry : verbs) {
+            // Copy out of the pair before the lambda: capturing a structured
+            // binding is a C++20 extension, and this tree builds as C++17.
+            const std::string verb = entry.first;
+            const Handler handler = entry.second;
+            const std::string action = "core.tasks." + verb + "." + task.id;
             nlohmann::json& leaf = subtree["tasks"]["children"][verb]["children"][task.id];
             leaf["action"] = action;
             leaf["help"] = row;

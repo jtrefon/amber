@@ -25,7 +25,7 @@ void TuiWindowOpsHooks::on_switch() {
     tui_.lazy_load_active();
     // The task feed is per-window: switching owners changes which ids are
     // worth completing under /tasks.
-    tui_.refresh_task_feed();
+    tui_.slash_dispatcher_->refresh_task_feed();
 }
 
 void TuiWindowOpsHooks::on_close() {
