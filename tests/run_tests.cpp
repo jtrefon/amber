@@ -5,6 +5,8 @@
 #include <future>
 #include <thread>
 #include "agent.h"
+#include "agent/event_bus.h"
+#include "agent/task.h"
 #include "agent/tools.h"
 #include "agent/artifacts.h"
 #include "agent/search_backend.h"
@@ -699,9 +701,12 @@ TEST(config_global_save_roundtrip_kilo_balance_token) {
 // exactly why it is asserted here against the real set.
 TEST(tool_plugins_declare_their_display_verbs) {
     agent::ToolRegistry reg;
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{},
+                                  agent::g_empty_subagents, {nullptr, &tasks});
 
     ASSERT_EQ(reg.meta_for("read").verb, std::string("reading"));
     ASSERT_EQ(reg.meta_for("write").verb, std::string("writing"));
@@ -709,10 +714,9 @@ TEST(tool_plugins_declare_their_display_verbs) {
     ASSERT_EQ(reg.meta_for("bash").verb, std::string("hacking"));
     ASSERT_EQ(reg.meta_for("todowrite").verb, std::string("planning"));
 
-    // The process set shares one contribution but names each tool.
+    // The spawn tool and the inventory it feeds are separate contributions.
     ASSERT_EQ(reg.meta_for("process_start").verb, std::string("spawning"));
-    ASSERT_EQ(reg.meta_for("process_read").verb, std::string("reading"));
-    ASSERT_EQ(reg.meta_for("process_stop").verb, std::string("stopping"));
+    ASSERT_EQ(reg.meta_for("tasks").verb, std::string("tasks"));
 
     // Unknown tools are not an error: the display falls back, the registry
     // reports nothing rather than inventing a word.
@@ -1108,20 +1112,22 @@ TEST(message_from_completion_sanitizes_tool_calls) {
 
 TEST(registry_register_and_find) {
     agent::ToolRegistry r;
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::JobService jobs;
     agent::TodoStore todos;
-    agent::register_default_tools(r, jobs, todos);
+    agent::register_default_tools(r, jobs, todos, agent::CancellationToken{},
+                                  agent::g_empty_subagents, {nullptr, &tasks});
     ASSERT_FALSE(r.empty());
     // The tool-plugin tools plus the three skill tools, which arrive
     // through the same install path (one definition, two paths).
-    ASSERT_EQ(r.snapshot_tools().size(), 15u);
+    ASSERT_EQ(r.snapshot_tools().size(), 14u);
     ASSERT(r.find("read") != nullptr);
     ASSERT(r.find("write") != nullptr);
     ASSERT(r.find("search") != nullptr);
     ASSERT(r.find("bash") != nullptr);
     ASSERT(r.find("process_start") != nullptr);
-    ASSERT(r.find("process_read") != nullptr);
-    ASSERT(r.find("process_stop") != nullptr);
+    ASSERT(r.find("tasks") != nullptr);
     ASSERT(r.find("nonexistent") == nullptr);
 }
 
@@ -1570,7 +1576,7 @@ TEST(dialect_openai_builds_tool_payload) {
         agent::make_dialect("openai")->build_chat_body(cfg, msgs, r.snapshot_tools(), false);
     const agent::json& s = body["tools"];
     ASSERT(s.is_array());
-    ASSERT_EQ(s.size(), 15u);
+    ASSERT_EQ(s.size(), 13u);
     for (const auto& t : s) {
         ASSERT(t.contains("type"));
         ASSERT_EQ(t["type"], "function");
@@ -4303,8 +4309,10 @@ TEST(llm_cancel_mid_stream_aborts_with_cancelled_error) {
 // nothing is killed on a timer, and the agent chooses to wait again or stop it.
 TEST(bash_inactivity_returns_and_leaves_the_process_alive) {
     agent::JobService jobs;
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::CancellationToken token;
-    auto tool = agent::make_bash_tool(&jobs, token);
+    auto tool = agent::make_bash_tool(&jobs, token, &tasks);
 
     agent::json a = {{"command", "echo hello-from-bash; sleep 30"}, {"timeout", 1}};
     agent::ToolResult r = tool->execute(a);
@@ -4314,14 +4322,19 @@ TEST(bash_inactivity_returns_and_leaves_the_process_alive) {
     ASSERT(r.output.find("still running") != std::string::npos);
     ASSERT(r.output.find("hello-from-bash") != std::string::npos);
 
-    const std::string id = r.meta.value("job", std::string(""));
-    ASSERT(!id.empty());
-    std::shared_ptr<agent::Job> j = jobs.get(id);
+    const std::string job_id = r.meta.value("job", std::string(""));
+    const std::string task_id = r.meta.value("task", std::string(""));
+    ASSERT(!job_id.empty());
+    ASSERT(!task_id.empty());
+    std::shared_ptr<agent::Job> j = jobs.get(job_id);
     ASSERT(j != nullptr);
     ASSERT(!j->is_done()); // alive: silence returned control, it did not kill
+    ASSERT(tasks.get(task_id).has_value());
+    ASSERT(tasks.get(task_id)->state == agent::TaskState::Running);
 
-    jobs.stop(id);
-    ASSERT(jobs.get(id) == nullptr); // killed, reaped, erased
+    ASSERT_TRUE(tasks.cancel(task_id, "test", token));
+    ASSERT(tasks.get(task_id)->state == agent::TaskState::Cancelled);
+    ASSERT(jobs.get(job_id) == nullptr); // killed, reaped, erased
 }
 
 // ---------------------------------------------------------------------------
@@ -4494,7 +4507,10 @@ TEST(bash_tool_truncates_large_output) {
 // path, and the job must be cleaned up (erased) once the command finishes.
 TEST(bash_tool_tracked_by_job_service) {
     agent::JobService jobs;
-    auto tool = agent::make_bash_tool(&jobs);
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    agent::CancellationToken token;
+    auto tool = agent::make_bash_tool(&jobs, token, &tasks);
 
     auto ok = tool->execute({{"command", "echo tracked"}});
     ASSERT_TRUE(ok.ok);
@@ -4508,14 +4524,18 @@ TEST(bash_tool_tracked_by_job_service) {
     ASSERT(jobs.list().empty());
 
     // Silence is not a kill on this path: control returns to the agent, the
-    // process stays registered, and ending it is the agent's call.
+    // process stays registered as a task, and ending it is the agent's call.
     auto to = tool->execute({{"command", "sleep 5"}, {"timeout", 1}});
     ASSERT_TRUE(to.ok);
     ASSERT_EQ(to.meta.value("stop", std::string("none")), "inactive");
-    const std::string id = to.meta.value("job", std::string(""));
-    ASSERT(!id.empty());
+    const std::string job_id = to.meta.value("job", std::string(""));
+    const std::string task_id = to.meta.value("task", std::string(""));
+    ASSERT(!job_id.empty());
+    ASSERT(!task_id.empty());
     ASSERT_EQ(jobs.list().size(), 1u); // still running, visible in /job
-    jobs.stop(id);
+    ASSERT(tasks.get(task_id).has_value());
+    ASSERT(tasks.get(task_id)->state == agent::TaskState::Running);
+    ASSERT_TRUE(tasks.cancel(task_id, "test", token));
     ASSERT(jobs.list().empty()); // stopped and reaped on request
 }
 
@@ -5553,62 +5573,6 @@ TEST(job_service_hard_timeout_kills) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1500));
     jobs.check_timeouts();
     ASSERT_EQ(jobs.running_count(), 0);
-}
-
-TEST(process_tools_share_service) {
-    agent::JobService jobs;
-    auto tools = agent::make_process_tools(jobs);
-    ASSERT_EQ(tools.size(), 3u);
-    // Drive the tools through one background cycle.
-    auto* st = tools[0].get();
-    auto r = st->execute({{"command", "printf 'bg\\n'"}});
-    ASSERT(r.ok);
-    std::string id = r.output;
-    ASSERT_FALSE(id.empty());
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto* rd = tools[1].get();
-    auto out = rd->execute({{"id", id}, {"all", true}});
-    ASSERT(out.ok);
-    ASSERT(out.output.find("bg") != std::string::npos);
-    auto* stop = tools[2].get();
-    auto killed = stop->execute({{"id", id}});
-    ASSERT(killed.ok);
-    ASSERT_EQ(jobs.running_count(), 0);
-}
-
-TEST(process_stop_returns_captured_output) {
-    agent::JobService jobs;
-    auto tools = agent::make_process_tools(jobs);
-    std::string id = tools[0]->execute({{"command", "printf 'held\\n'"}}).output;
-    ASSERT_FALSE(id.empty());
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto stopped = tools[2]->execute({{"id", id}});
-    ASSERT(stopped.ok);
-    ASSERT(stopped.output.find("held") != std::string::npos);
-    ASSERT_EQ(jobs.running_count(), 0);
-}
-
-// The wait budget is silence, not a deadline: it returns after the silence it
-// asked for, kills nothing, and leaves the job for the agent to read or stop.
-TEST(process_read_wait_is_inactivity_and_kills_nothing) {
-    agent::JobService jobs;
-    auto tools = agent::make_process_tools(jobs);
-    std::string id = tools[0]->execute({{"command", "echo hi; sleep 30"}}).output;
-    ASSERT_FALSE(id.empty());
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-
-    const auto began = std::chrono::steady_clock::now();
-    auto read = tools[1]->execute({{"id", id}, {"wait", 1}});
-    const auto waited = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::steady_clock::now() - began)
-                            .count();
-
-    ASSERT(read.ok);
-    ASSERT(waited >= 900);              // it honoured the silence it was given
-    ASSERT(waited < 5000);              // and nothing kept it there longer
-    ASSERT_EQ(jobs.running_count(), 1); // nothing was killed
-    tools[2]->execute({{"id", id}});
-    ASSERT_EQ(jobs.running_count(), 0); // stop is the agent's call, and it works
 }
 
 TEST(job_service_stop_finished_returns_true) {

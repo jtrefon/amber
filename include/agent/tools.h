@@ -12,11 +12,22 @@
 
 namespace agent {
 
-class JobService; // process_* tools bind to the host-owned job service
+class JobService;  // process_* tools bind to the host-owned job service
+class TaskService; // tasks binds to the one background-work inventory
+class PromptRegistry;
 class SkillCatalog;
 class ShapeQueue;       // context tool binds to the host-owned shaping queue
 class TodoStore;        // todowrite tool binds to the host-owned task list
 class SubAgentExecutor; // task tool binds to the host-owned sub-agent executor
+
+// Optional host collaborators for the built-in tool set. One struct keeps the
+// registration signature narrow as hosts grow services.
+struct ToolHostOptions {
+    // Where tool documentation blocks go; null installs the tools undocumented.
+    PromptRegistry* prompts = nullptr;
+    // The one background-work inventory; null omits the tasks tool.
+    TaskService* tasks = nullptr;
+};
 
 // Built-in tool factories. Definitions live in tools/*.cpp, compiled and linked
 // into libagent. Kept as factories so the registry owns unique instances.
@@ -34,11 +45,19 @@ std::unique_ptr<Tool> make_todowrite_tool(TodoStore& todos);
 std::unique_ptr<Tool> make_context_tool(ShapeQueue& shapes);
 std::unique_ptr<Tool> make_task_tool(SubAgentExecutor& executor, ToolRegistry& registry);
 std::unique_ptr<Tool> make_bash_tool(JobService* jobs = nullptr,
-                                     const CancellationToken& cancel_token = {});
+                                     const CancellationToken& cancel_token = {},
+                                     TaskService* tasks = nullptr);
 
-// Process (background job) tool factories. They all share the caller-owned
-// JobService so model-started jobs are visible and killable from the host.
-std::vector<std::unique_ptr<Tool>> make_process_tools(JobService& jobs);
+// The one spawn tool for a command. It binds to the caller-owned JobService and,
+// when a TaskService is supplied, registers the job in the one task inventory
+// and returns the task id. Without a task service it still returns a job id.
+std::unique_ptr<Tool> make_process_start_tool(JobService& jobs, TaskService* tasks = nullptr);
+
+// The one lifecycle surface for background work. It reads the caller-owned
+// TaskService; `jobs` is the command backend used by output/cancel, and
+// `fallback_token` cancels a wait outside a host run scope.
+std::unique_ptr<Tool> make_tasks_tool(TaskService& tasks, JobService& jobs,
+                                      const CancellationToken& fallback_token = {});
 
 // A capability factory returns a list; most tools are one. Empty in, empty out,
 // so a factory that declines still reads as "no tools" rather than a null

@@ -66,7 +66,7 @@ The content is always followed by `[end]` on its own line.
 | Category | Tools | Behaviour |
 |----------|-------|-----------|
 | **Query** | `search`, `read` | Read-only. Return data in content. Safe, no side effects. |
-| **Command** | `write`, `bash`, `process_*` | Side effects. Return status summary in content. May require approval. |
+| **Command** | `write`, `bash`, `process_start`, `tasks` | Side effects. Return status summary in content. May require approval. |
 
 ---
 
@@ -168,7 +168,7 @@ unnecessary and the directory does not carry over between calls.
 
 ## process_start
 
-Launch a command in the background. Returns immediately with a `job_id`.
+Launch a command in the background. Returns immediately with a task id.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -176,30 +176,44 @@ Launch a command in the background. Returns immediately with a `job_id`.
 | `timeout` | integer | no | 600 | Hard lifetime in seconds (0 = no limit) |
 | `idle_timeout` | integer | no | 30 | Seconds idle before auto-kill |
 | `cwd` | string | no | workspace root | Working directory |
+| `label` | string | no | command head | Short human label for task lists |
+| `notify` | string | no | `auto` | `auto`, `digest` or `silent` |
 
-**Content**: bare `job_id` string — pass this to `process_read` / `process_stop`.
-**Meta**: `{"job_id": "<id>"}`
+**Content**: the task id as a bare string.
+**Meta**: `{"task_id": "<id>", "job_id": "<id>"}`
 
-## process_read
+The process keeps running across turns. Use `tasks output <id>` to follow it,
+`tasks status <id>` for the record, `tasks wait <id>` when the next step needs
+the result, and `tasks cancel <id>` to stop the process group.
 
-Fetch new output from a background job since the last read.
+## tasks
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `id` | string | yes | — | Job id from `process_start` |
-| `all` | boolean | no | false | Return full captured output instead of delta |
+One inventory for background work. Commands started with `process_start`, a
+`bash` timeout handoff and a `watch start` all appear here with a stable task id.
 
-**Content**: status line + delta output.
-**Meta**: `{"job_id": "<id>", "state": <int>, "delta": <true|false>}`
+### Actions
 
-## process_stop
+- `action=list` — this window's tasks: id, kind, state, elapsed, label and the
+  last progress line.
+- `action=status id=...` — one record: state, elapsed, owner, progress, exit,
+  error and artifact path.
+- `action=output id=... [since=...]` — a bounded tail of the output, starting at
+  the byte offset `since`. The response names the next offset when more remains,
+  so a long log is paged rather than pasted into the conversation.
+- `action=cancel id=...` — stop the task. Commands lose their process group;
+  watches and workers are asked to stop. Cancelling a finished task is a clear
+  error, not a state change.
+- `action=wait id=... [timeout_s=...]` — a bounded, cancellable wait. It returns
+  the final record, or says the task is still running after the bound.
 
-Terminate a background job and return its captured output.
+### When to use it
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `id` | string | yes | — | Job id from `process_start` |
+`process_start` returns a task id and the process keeps running across turns;
+`tasks output` follows it without blocking, and `tasks wait` is for the moment
+the next step genuinely needs the result. A `bash` command that goes inactive
+hands back a task id for the same inventory. A watch reports through the same
+record, so one list answers "what is running?" for every kind.
 
-**Content**: "stopped" notice + captured output.
-**Meta**: `{"job_id": "<id>"}`
+`list`, `status`, `output` and `wait` are read-only. `cancel` changes state and
+asks for approval.
 

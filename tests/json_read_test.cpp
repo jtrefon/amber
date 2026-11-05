@@ -19,8 +19,10 @@
 #include <unistd.h>
 
 #include "agent/agent_helpers.h"
+#include "agent/events.h"
 #include "agent/experience.h"
 #include "agent/job.h"
+#include "agent/task.h"
 #include "agent/mcp_client.h"
 #include "agent/plugin.h"
 #include "agent/search_backend.h"
@@ -186,29 +188,22 @@ TEST(json_read_bash_timeout_records_a_flag_not_the_seconds) {
 // Model tool arguments.
 // ---------------------------------------------------------------------------
 
-TEST(json_read_process_read_adopts_a_numeric_all_flag) {
+TEST(json_read_tasks_output_adopts_a_numeric_since) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::JobService jobs;
-    auto tools = agent::make_process_tools(jobs);
-    const agent::Tool* start = nullptr;
-    const agent::Tool* read = nullptr;
-    for (const auto& t : tools) {
-        if (t->name() == "process_start")
-            start = t.get();
-        if (t->name() == "process_read")
-            read = t.get();
-    }
-    ASSERT(start != nullptr);
-    ASSERT(read != nullptr);
+    auto start = agent::make_process_start_tool(jobs, &tasks);
+    auto tool = agent::make_tasks_tool(tasks, jobs);
 
     const auto started =
         start->execute({{"command", "printf 'one\\ntwo\\n'"}, {"idle_timeout", 5}});
     ASSERT(started.ok);
 
-    // 1 stands for true: the whole output, not the delta. The job's output is
-    // read asynchronously, so poll rather than assume it has landed.
+    // A numeric 0 is a valid byte offset. The job's output is read
+    // asynchronously, so poll rather than assume it has landed.
     agent::ToolResult r;
     for (int i = 0; i < 100; ++i) {
-        r = read->execute({{"id", started.output}, {"all", 1}});
+        r = tool->execute({{"action", "output"}, {"id", started.output}, {"since", 0}});
         if (r.output.find("one") != std::string::npos)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -216,10 +211,7 @@ TEST(json_read_process_read_adopts_a_numeric_all_flag) {
     ASSERT(r.ok);
     ASSERT(r.output.find("one") != std::string::npos);
     ASSERT(r.output.find("two") != std::string::npos);
-
-    // The real flag still selects the full output.
-    const auto full = read->execute({{"id", started.output}, {"all", true}});
-    ASSERT(full.ok);
+    ASSERT_EQ(r.meta["next_since"], 8);
 }
 
 // A model that spells its limits as text ("3", "1") used to lose the call: the

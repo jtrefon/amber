@@ -2,6 +2,8 @@
 
 #include "agent/event_bus.h"
 #include "agent/events.h"
+#include "agent/run_scope.h"
+#include "agent/workspace.h"
 
 #include <algorithm>
 #include <atomic>
@@ -99,6 +101,18 @@ const char* task_state_name(TaskState state) noexcept {
         return "unknown";
     }
     return "unknown";
+}
+
+TaskOwner task_owner_from_scope() {
+    TaskOwner owner;
+    owner.owner_id = run_owner_id();
+    if (const RunScopeChain* scope = current_run_scope(); scope && scope->leaf.project_root)
+        owner.project_root = *scope->leaf.project_root;
+    else
+        owner.project_root = Workspace::workspace_root();
+    if (const std::string* root = scoped_workspace_root())
+        owner.worktree = *root;
+    return owner;
 }
 
 const char* task_kind_name(TaskKind kind) noexcept {
@@ -236,7 +250,7 @@ bool TaskService::finish(const std::string& id, TaskState state, TaskResult resu
     {
         std::scoped_lock lk(mtx_);
         auto it = tasks_.find(id);
-        if (it == tasks_.end())
+        if (it == tasks_.end() || cancelling_.count(id) > 0)
             return false;
         if (transition_locked(it->second, state, EventKind::Completed) == EventKind::None)
             return false;
@@ -253,6 +267,7 @@ bool TaskService::finish(const std::string& id, TaskState state, TaskResult resu
         event.summary = it->second.record.result.summary;
         event.error = it->second.record.error;
     }
+    cv_.notify_all();
     if (events_)
         Events(*events_).publish(event);
     return true;
@@ -266,6 +281,7 @@ bool TaskService::cancel(const std::string& id, std::string reason,
         auto it = tasks_.find(id);
         if (it == tasks_.end() || task_state_terminal(it->second.record.state))
             return false;
+        cancelling_.insert(id);
         handler = it->second.cancel;
     }
 
@@ -283,34 +299,36 @@ bool TaskService::cancel(const std::string& id, std::string reason,
 bool TaskService::finish_cancel(const std::string& id, bool stopped, const std::string& reason) {
     TaskCancelledEvent cancelled;
     TaskCompletedEvent unknown;
-    bool publish_cancelled = false;
-    bool publish_unknown = false;
     {
         std::scoped_lock lk(mtx_);
         auto it = tasks_.find(id);
-        if (it == tasks_.end() || task_state_terminal(it->second.record.state))
+        if (it == tasks_.end() || task_state_terminal(it->second.record.state)) {
+            cancelling_.erase(id);
             return false;
+        }
         const TaskState to = stopped ? TaskState::Cancelled : TaskState::Unknown;
-        if (transition_locked(it->second, to, EventKind::Cancelled) == EventKind::None)
+        const bool moved =
+            transition_locked(it->second, to, EventKind::Cancelled) != EventKind::None;
+        cancelling_.erase(id);
+        if (!moved)
             return false;
         it->second.record.ended_ms = now_ms();
         it->second.record.cancel_reason = reason;
         if (stopped) {
             cancelled.id = id;
             cancelled.reason = reason;
-            publish_cancelled = true;
         } else {
             it->second.record.error = reason;
             unknown.id = id;
             unknown.state = TaskState::Unknown;
             unknown.error = reason;
-            publish_unknown = true;
         }
     }
+    cv_.notify_all();
     if (events_) {
-        if (publish_cancelled)
+        if (stopped)
             Events(*events_).publish(cancelled);
-        if (publish_unknown)
+        else
             Events(*events_).publish(unknown);
     }
     return true;
@@ -324,6 +342,49 @@ bool TaskService::attach_cancel(const std::string& id,
         return false;
     it->second.cancel = std::move(fn);
     return true;
+}
+
+std::string TaskService::adopt_job(const std::string& job_id, TaskRecord record,
+                                   std::string* error) {
+    std::string id = create(std::move(record), error);
+    if (id.empty())
+        return {};
+    std::scoped_lock lk(mtx_);
+    backends_[id] = job_id;
+    return id;
+}
+
+bool TaskService::bind_backend(const std::string& id, const std::string& backend_id) {
+    std::scoped_lock lk(mtx_);
+    auto it = tasks_.find(id);
+    if (it == tasks_.end() || task_state_terminal(it->second.record.state))
+        return false;
+    backends_[id] = backend_id;
+    return true;
+}
+
+std::string TaskService::backend_id(const std::string& id) const {
+    std::scoped_lock lk(mtx_);
+    auto it = backends_.find(id);
+    return it == backends_.end() ? std::string() : it->second;
+}
+
+std::optional<TaskRecord> TaskService::wait_for_terminal(const std::string& id, int timeout_ms,
+                                                         const CancellationToken& token) const {
+    std::unique_lock lk(mtx_);
+    const auto ready = [&] {
+        auto it = tasks_.find(id);
+        return it != tasks_.end() && task_state_terminal(it->second.record.state);
+    };
+    cv_.wait_for(lk, std::chrono::milliseconds(timeout_ms),
+                 [&] { return ready() || token.is_requested(); });
+    if (token.is_requested() || !ready()) {
+        return std::nullopt;
+    }
+    auto it = tasks_.find(id);
+    if (it == tasks_.end())
+        return std::nullopt;
+    return it->second.record;
 }
 
 std::optional<TaskRecord> TaskService::get(const std::string& id) const {

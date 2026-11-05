@@ -72,7 +72,7 @@ Predefined outcome = the scenario's `checks` assert the exact observable result
 | t-01 | `search-vs-bash-grep` | Does the agent use `search` (advertised for this) instead of `bash grep`? | oracle allows only search |
 | t-02 | `read-vs-cat` | Use `read` (paginated, confined) not `bash cat` | read only |
 | t-03 | `write-vs-rewrite` | Patch-style `write` for a small edit, not full rewrite via bash heredoc | write only |
-| t-04 | `process-vs-blocking-bash` | Long-running task → `process_start` rather than a blocking bash call that would time out | process_start, then process_read |
+| t-04 | `process-vs-blocking-bash` | Long-running task → `process_start` rather than a blocking bash call that would time out | process_start, then tasks |
 | t-05 | `tools-dropped-4xx` | Hermetic: server rejects tool schema → adapter drops tools → agent still completes via plain text | success + tool_counts sequence |
 
 ## `prompt` — system-prompt adherence

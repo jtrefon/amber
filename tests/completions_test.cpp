@@ -1729,7 +1729,7 @@ TEST(test_visible_alias_rows_surface_at_the_drawer) {
         }
     }
     for (const char* hidden : {"new", "reset", "close", "kill", "cancel", "open", "load", "hello",
-                               "watch", "prompt", "index", "sl"}) {
+                               "prompt", "index", "sl"}) {
         ASSERT(std::find(top.begin(), top.end(), std::string(hidden)) == top.end());
     }
 }

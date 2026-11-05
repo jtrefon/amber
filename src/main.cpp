@@ -1,6 +1,7 @@
 
 #include <agent.h>
 #include <agent/model_probe.h>
+#include <agent/task.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
 #include <agent/global_config.h>
@@ -447,13 +448,16 @@ std::function<std::string(const std::string&)> make_api_key_hook(agent::Config& 
 // and the compression pipeline from the config.
 struct CliHost {
     agent::ToolRegistry registry;
+    agent::Workspace workspace;
+    agent::PluginRuntime plugin_runtime;
+    // Declared before the job service so a completion sink can finish its task
+    // while the jobs are still being torn down.
+    agent::TaskService tasks;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::ShapeQueue shapes;
     agent::SubAgentExecutor subagents;
-    agent::Workspace workspace;
     agent::PluginManager plugins;
-    agent::PluginRuntime plugin_runtime;
     agent::HostServices host_services;
     CliUiServices cli_ui;
     // True once a token reached stdout this run: the reply was already shown as
@@ -467,8 +471,8 @@ struct CliHost {
     std::unique_ptr<agent::MemoryRetriever> retriever;
 
     CliHost(agent::Config& cfg, bool tty)
-        : plugin_runtime(registry, cfg, workspace),
-          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes}, cli_ui(tty),
+        : plugin_runtime(registry, cfg, workspace), tasks(plugin_runtime.events()),
+          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes, &tasks}, cli_ui(tty),
           comp_cfg(agent::load_compression_config(cfg)),
           gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
           exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
@@ -504,7 +508,7 @@ void start_plugin_runtime(CliHost& host, agent::Config& cfg, bool no_plugins) {
     // leave the agent with no tools at all. --no-plugins is meant to skip the
     // plugin tier, not to strip the harness of its built-ins.
     agent::register_default_tools(host.registry, host.jobs, host.todos, cfg.cancel_token,
-                                  host.subagents, &host.plugin_runtime.prompts());
+                                  host.subagents, {&host.plugin_runtime.prompts(), &host.tasks});
 }
 
 // The one-shot MCP surfaces read the same plugin a session uses, brought up the
@@ -586,14 +590,17 @@ void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
         std::cout << "\n" << reply << "\n";
 }
 
-std::string report_prompt(const std::vector<agent::plugins::WatchReport>& reports) {
+std::string report_prompt(agent::plugins::WatchPlugin& watch,
+                          const std::vector<agent::plugins::WatchReport>& reports) {
     std::string prompt;
     for (const auto& report : reports) {
+        const std::string task = watch.task_id(report.watch_id);
+        const std::string handle = task.empty() ? report.watch_id : task;
         if (!prompt.empty())
             prompt += "\n";
         prompt += "[harness] background watch " + report.watch_id + " " +
                   agent::plugins::watch_state_name(report.state) + ": " + report.headline +
-                  ". Use watch report " + report.watch_id + " for evidence and the artifact.";
+                  ". Use tasks output " + handle + " for evidence and the artifact.";
     }
     return prompt;
 }
@@ -628,7 +635,7 @@ int finish_watches(CliHost& host, agent::Agent& agent, bool wake) {
         return 0;
     }
     try {
-        run_turn(agent, host, report_prompt(pending));
+        run_turn(agent, host, report_prompt(*watch, pending));
     } catch (const std::exception& e) {
         std::cerr << "error: watch follow-up: " << e.what() << "\n";
         return 1;

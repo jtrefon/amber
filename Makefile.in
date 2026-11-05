@@ -100,6 +100,8 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
             $(BUILD_DIR)/lib/task_service.o \
+            $(BUILD_DIR)/lib/task_job.o \
+            $(BUILD_DIR)/lib/task_format.o \
             $(BUILD_DIR)/lib/task_inbox.o \
             $(BUILD_DIR)/lib/compressor.o \
             $(BUILD_DIR)/lib/compressor_scanner.o \
@@ -155,6 +157,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/tool_write/tool_write_plugin.o \
               $(BUILD_DIR)/plugins/tool_bash/tool_bash_plugin.o \
               $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
+              $(BUILD_DIR)/plugins/tool_tasks/tool_tasks_plugin.o \
               $(BUILD_DIR)/plugins/tool_context/tool_context_plugin.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
@@ -217,6 +220,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/lib/providers_repo_files.o \
              $(BUILD_DIR)/lib/providers_catalog_http.o \
              $(BUILD_DIR)/tools/process_tool.o \
+             $(BUILD_DIR)/tools/tasks_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
@@ -327,6 +331,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
                $(BUILD_DIR)/tests/task_service_test.o \
+               $(BUILD_DIR)/tests/tasks_tool_test.o \
                $(BUILD_DIR)/tests/task_inbox_test.o \
                $(BUILD_DIR)/tests/web_test.o \
                $(BUILD_DIR)/tests/status_segments_test.o \

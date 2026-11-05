@@ -1,6 +1,6 @@
 ## process_start
 
-Launch a command in the background. Returns immediately with a `job_id`.
+Launch a command in the background. Returns immediately with a task id.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -8,29 +8,12 @@ Launch a command in the background. Returns immediately with a `job_id`.
 | `timeout` | integer | no | 600 | Hard lifetime in seconds (0 = no limit) |
 | `idle_timeout` | integer | no | 30 | Seconds idle before auto-kill |
 | `cwd` | string | no | workspace root | Working directory |
+| `label` | string | no | command head | Short human label for task lists |
+| `notify` | string | no | `auto` | `auto`, `digest` or `silent` |
 
-**Content**: bare `job_id` string — pass this to `process_read` / `process_stop`.
-**Meta**: `{"job_id": "<id>"}`
+**Content**: the task id as a bare string.
+**Meta**: `{"task_id": "<id>", "job_id": "<id>"}`
 
-## process_read
-
-Fetch new output from a background job since the last read.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `id` | string | yes | — | Job id from `process_start` |
-| `all` | boolean | no | false | Return full captured output instead of delta |
-
-**Content**: status line + delta output.
-**Meta**: `{"job_id": "<id>", "state": <int>, "delta": <true|false>}`
-
-## process_stop
-
-Terminate a background job and return its captured output.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `id` | string | yes | — | Job id from `process_start` |
-
-**Content**: "stopped" notice + captured output.
-**Meta**: `{"job_id": "<id>"}`
+The process keeps running across turns. Use `tasks output <id>` to follow it,
+`tasks status <id>` for the record, `tasks wait <id>` when the next step needs
+the result, and `tasks cancel <id>` to stop the process group.

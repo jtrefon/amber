@@ -85,6 +85,9 @@ struct ErrorRaisedEvent {
 struct WatchReportEvent {
     std::string owner_id;
     std::string watch_id;
+    // The task record the watch registered; empty when the host has no task
+    // inventory. The watch id remains the producer's own handle.
+    std::string task_id;
     std::string report_id;
     std::string state;    // succeeded, failed, timed_out, unknown
     std::string headline; // one line, safe to show in a prompt

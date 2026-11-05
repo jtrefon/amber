@@ -1,9 +1,13 @@
 #include "agent/events.h"
+#include "agent/job.h"
 #include "agent/task.h"
 #include "tests/test_util.h"
 
+#include <atomic>
+#include <chrono>
 #include <set>
 #include <string>
+#include <thread>
 
 // The failure message prints the record's enums by name.
 namespace agent {
@@ -178,6 +182,25 @@ TEST(task_service_cancel_running_reaches_backend) {
     ASSERT_EQ(tasks.get(id)->cancel_reason, std::string("user"));
 }
 
+// A backend's stop() joins its reader, and that reader may publish a terminal
+// completion while the cancel handler is still running. The cancel owns the
+// terminal transition; the racing completion is a duplicate, not a second
+// opinion, so the record must end Cancelled rather than Interrupted.
+TEST(task_service_cancel_wins_over_a_racing_completion) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "x"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    ASSERT_TRUE(tasks.attach_cancel(id, [&](const agent::CancellationToken&) {
+        // The job's completion sink: it runs while stop() waits for the reader.
+        tasks.finish(id, agent::TaskState::Interrupted, {});
+        return true;
+    }));
+    agent::CancellationToken token;
+    ASSERT_TRUE(tasks.cancel(id, "stop", token));
+    ASSERT_EQ(tasks.get(id)->state, agent::TaskState::Cancelled);
+}
+
 TEST(task_service_cancel_unknown_backend_marks_unknown) {
     agent::EventBus bus;
     agent::TaskService tasks(bus);
@@ -242,4 +265,56 @@ TEST(task_service_bounds_record_fields) {
     ASSERT_TRUE(stored->label.size() <= 128u);
     ASSERT_TRUE(stored->result.summary.size() <= 2048u);
     ASSERT_TRUE(stored->result.output_tail.size() <= 8192u);
+}
+
+TEST(task_service_wait_returns_a_terminal_record) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "x"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    std::thread finish([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        tasks.finish(id, agent::TaskState::Succeeded, {});
+    });
+    agent::CancellationToken token;
+    const auto record = tasks.wait_for_terminal(id, 1000, token);
+    finish.join();
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->state, agent::TaskState::Succeeded);
+}
+
+TEST(task_service_wait_times_out_without_a_transition) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "x"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    agent::CancellationToken token;
+    ASSERT_FALSE(tasks.wait_for_terminal(id, 20, token).has_value());
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
+}
+
+TEST(task_service_adopt_job_remembers_the_backend) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id =
+        tasks.adopt_job("job-7", make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_FALSE(id.empty());
+    ASSERT_EQ(tasks.backend_id(id), std::string("job-7"));
+    ASSERT_EQ(tasks.backend_id("missing"), std::string());
+}
+
+TEST(job_completion_sink_fires_once_on_exit) {
+    agent::JobService jobs;
+    std::atomic<int> calls{0};
+    std::atomic<int> code{-1};
+    const std::string id =
+        jobs.start("sh -c 'exit 3'", "", 5, 5, {}, [&](const agent::JobInfo& info) {
+            ++calls;
+            code = info.exit_code;
+        });
+    ASSERT_FALSE(id.empty());
+    for (int i = 0; i < 500 && calls.load() == 0; ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    ASSERT_EQ(calls.load(), 1);
+    ASSERT_EQ(code.load(), 3);
 }

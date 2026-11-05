@@ -17,8 +17,10 @@
 #include "agent/experience.h"
 #include "agent/context_shape.h"
 #include "agent/global_config.h"
+#include "agent/event_bus.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
+#include "agent/task.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
 #include "bench/fake.h"
@@ -122,6 +124,10 @@ struct WorkspaceGuard {
 // is built from the registry, config and workspace, so it comes last.
 struct RunHost {
     agent::Config cfg;
+    agent::EventBus bus;
+    // Declared before the job service so a completion sink can finish its task
+    // while the jobs are still being torn down.
+    agent::TaskService tasks;
     agent::ToolRegistry registry;
     agent::JobService jobs;
     agent::TodoStore todos;
@@ -132,7 +138,8 @@ struct RunHost {
     agent::PluginRuntime plugins;
 
     explicit RunHost(agent::Config c)
-        : cfg(std::move(c)), host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes},
+        : cfg(std::move(c)), tasks(bus),
+          host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes, &tasks},
           plugins(registry, cfg, workspace) {}
 };
 

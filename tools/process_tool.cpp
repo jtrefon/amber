@@ -1,282 +1,172 @@
-
-#include "agent/tool.h"
 #include "agent/tools.h"
-#include "agent/job.h"
-#include "agent/run_scope.h"
 
-#include <sstream>
-#include <string>
+#include "agent/job.h"
 #include "agent/json_read.h"
-#include <unistd.h>
+#include "agent/run_scope.h"
+#include "agent/task.h"
+#include "agent/task_job.h"
+#include "agent/workspace.h"
+
+#include <chrono>
+#include <string>
 
 namespace agent {
 
 namespace {
 
-// Wait for the job to speak: return as soon as output arrives, or after
-// `idle_s` seconds of silence, or when the job ends. Nothing is killed — the
-// budget is inactivity, and whether to wait again stays the agent's call.
-void wait_for_output(const std::shared_ptr<Job>& job, int idle_s) {
-    long prev = job->info().seconds_since_output;
-    long silent_ms = 0;
-    while (!job->is_done() && silent_ms < idle_s * 1000L) {
-        usleep(50 * 1000);
-        silent_ms += 50;
-        const long now = job->info().seconds_since_output;
-        if (prev > 0 && now == 0)
-            return; // it spoke: the counter reset
-        prev = now;
-    }
+std::string clip_label(const std::string& command) {
+    if (command.size() > 80)
+        return command.substr(0, 77) + "...";
+    return command;
 }
 
-// Shared helper: render a one-line status prefix for a job snapshot so the
-// model always knows whether a process is still alive.
-std::string status_line(const JobInfo& i) {
-    std::ostringstream s;
-    s << "[job " << i.id << " ";
-    switch (i.state) {
-    case JobState::Running:
-    case JobState::Starting:
-        s << "running";
-        break;
-    case JobState::Done:
-        s << "done exit " << i.exit_code;
-        break;
-    case JobState::Killed:
-        s << "killed";
-        break;
-    case JobState::Failed:
-        s << "failed to start";
-        break;
-    }
-    if (i.remaining_idle_s >= 0)
-        s << " idle " << i.remaining_idle_s << "s";
-    if (i.remaining_hard_s >= 0)
-        s << " hard " << i.remaining_hard_s << "s";
-    s << "]";
-    return s.str();
+TaskNotify parse_notify(const std::string& value) {
+    if (value == "digest")
+        return TaskNotify::Digest;
+    if (value == "silent")
+        return TaskNotify::Silent;
+    return TaskNotify::Auto;
 }
 
-class ProcessStartTool : public Tool {
-public:
-    explicit ProcessStartTool(JobService& jobs) : jobs_(jobs) {}
-
-    std::string name() const noexcept override { return "process_start"; }
-    std::string description() const noexcept override {
-        return "Start a shell command in the BACKGROUND and return a job id "
-               "immediately (non-blocking). Use this for long-running commands "
-               "such as servers, watchers, or builds (e.g. 'npm run dev'). The "
-               "process keeps running across turns. Poll its output with "
-               "process_read <id> and stop it with process_stop <id>. Arguments: "
-               "command (required), timeout (hard seconds, default 600), "
-               "idle_timeout (seconds of no output before auto-kill, default "
-               "30), cwd (optional, defaults to workspace root).";
-    }
-    json parameters_schema() const override {
-        json p = json::object();
-        p["type"] = "object";
-        json props = json::object();
-        props["command"] = json::object(
-            {{"type", "string"}, {"description", "Shell command to run in the background."}});
-        props["timeout"] = json::object(
-            {{"type", "integer"}, {"description", "Hard lifetime in seconds (default 600)."}});
-        props["idle_timeout"] =
-            json::object({{"type", "integer"},
-                          {"description", "Seconds of no output before auto-kill (default 30)."}});
-        props["cwd"] = json::object(
-            {{"type", "string"}, {"description", "Working directory (default: workspace root)."}});
-        p["properties"] = props;
-        p["required"] = json::array({"command"});
-        return p;
-    }
-    bool requires_approval(const json&) const noexcept override { return true; }
-    bool is_read_only() const noexcept override { return false; }
-    std::string summarize(const json& a) const override {
-        std::string c = a.contains("command") && a["command"].is_string()
-                            ? a["command"].get<std::string>()
-                            : "";
-        if (c.size() > 200) {
-            c.resize(197);
-            c += "...";
-        }
-        return "bg start: " + c;
-    }
-    ToolResult execute(const json& a) const override {
-        ToolResult r;
-        if (!a.contains("command") || !a["command"].is_string() ||
-            a["command"].get<std::string>().empty()) {
-            r.ok = false;
-            r.error = "missing 'command'";
-            return r;
-        }
-        std::string cmd = a["command"].get<std::string>();
-        long hard = static_cast<long>(read_int(a, "timeout", 600));
-        long idle = static_cast<long>(read_int(a, "idle_timeout", 30));
-        std::string cwd = read_string(a, "cwd", "");
-        std::string owner;
-        if (const auto* scope = current_run_scope();
-            scope && scope->leaf.owner_id && !scope->leaf.owner_id->empty())
-            owner = *scope->leaf.owner_id;
-        std::string label = cmd.size() > 80 ? cmd.substr(0, 77) + "..." : cmd;
-        JobOrigin origin;
-        origin.owner_id = std::move(owner);
-        origin.label = std::move(label);
-        std::string id = jobs_.start(cmd, cwd, hard, idle, std::move(origin));
-        if (id.empty()) {
-            r.ok = false;
-            r.error = "failed to start background process";
-            return r;
-        }
-        r.ok = true;
-        r.meta = {{"job_id", id}};
-        r.output = id;
-        return r;
-    }
-
-private:
-    JobService& jobs_;
-};
-
-class ProcessReadTool : public Tool {
-public:
-    explicit ProcessReadTool(JobService& jobs) : jobs_(jobs) {}
-
-    std::string name() const noexcept override { return "process_read"; }
-    std::string description() const noexcept override {
-        return "Read new output from a background job started with "
-               "process_start. Returns only the output produced since the "
-               "previous call (delta), plus a status line. Poll this in a loop "
-               "to follow a running process. Arguments: id (required), all "
-               "(optional bool: return the full output instead of the delta), "
-               "wait (optional int: seconds of silence to wait for before "
-               "answering; returns early when the job speaks, kills nothing).";
-    }
-    json parameters_schema() const override {
-        json p = json::object();
-        p["type"] = "object";
-        json props = json::object();
-        props["id"] = json::object({{"type", "string"}, {"description", "Job id."}});
-        props["all"] = json::object(
-            {{"type", "boolean"},
-             {"description", "Return full output instead of the delta (default false)."}});
-        props["wait"] =
-            json::object({{"type", "integer"},
-                          {"description", "Seconds of silence to wait for before answering "
-                                          "(default 0: answer now). Returns early when the job "
-                                          "speaks. Nothing is killed."}});
-        p["properties"] = props;
-        p["required"] = json::array({"id"});
-        return p;
-    }
-    bool requires_approval(const json&) const noexcept override { return false; }
-    bool is_read_only() const noexcept override { return true; }
-    std::string summarize(const json& a) const override {
-        std::string id = a.contains("id") && a["id"].is_string() ? a["id"].get<std::string>() : "";
-        return "bg read: " + id;
-    }
-    ToolResult execute(const json& a) const override {
-        ToolResult r;
-        if (!a.contains("id") || !a["id"].is_string()) {
-            r.ok = false;
-            r.error = "missing 'id'";
-            return r;
-        }
-        std::string id = a["id"].get<std::string>();
-        std::shared_ptr<Job> job = jobs_.get(id);
-        if (!job) {
-            r.ok = false;
-            r.error = "no such job: " + id;
-            return r;
-        }
-        bool all = read_bool(a, "all", false);
-        const auto wait_raw = read_int(a, "wait", 0);
-        const int wait_s =
-            static_cast<int>(wait_raw > 86400 ? 86400 : (wait_raw > 0 ? wait_raw : 0));
-        if (wait_s > 0)
-            wait_for_output(job, wait_s);
-        // Read from the held reference (the service map entry may already be
-        // gone via a concurrent stop).
-        std::string body = all ? job->output() : job->read_delta();
-        JobInfo info = job->info();
-        std::ostringstream out;
-        out << status_line(info) << "\n";
-        if (body.empty())
-            out << "(no new output)\n";
-        else
-            out << body;
-        r.meta = {{"job_id", id},
-                  {"state", static_cast<int>(info.state)},
-                  {"delta", !body.empty()},
-                  {"duration_ms", info.seconds_since_start * 1000}};
-        r.ok = true;
-        r.output = out.str();
-        return r;
-    }
-
-private:
-    JobService& jobs_;
-};
-
-class ProcessStopTool : public Tool {
-public:
-    explicit ProcessStopTool(JobService& jobs) : jobs_(jobs) {}
-
-    std::string name() const noexcept override { return "process_stop"; }
-    std::string description() const noexcept override {
-        return "Stop a background job started with process_start, killing its "
-               "whole process group, and return the output captured so far. "
-               "Arguments: id (required).";
-    }
-    json parameters_schema() const override {
-        json p = json::object();
-        p["type"] = "object";
-        json props = json::object();
-        props["id"] = json::object({{"type", "string"}, {"description", "Job id."}});
-        p["properties"] = props;
-        p["required"] = json::array({"id"});
-        return p;
-    }
-    bool requires_approval(const json&) const noexcept override { return true; }
-    bool is_read_only() const noexcept override { return false; }
-    std::string summarize(const json& a) const override {
-        std::string id = a.contains("id") && a["id"].is_string() ? a["id"].get<std::string>() : "";
-        return "bg stop: " + id;
-    }
-    ToolResult execute(const json& a) const override {
-        ToolResult r;
-        if (!a.contains("id") || !a["id"].is_string()) {
-            r.ok = false;
-            r.error = "missing 'id'";
-            return r;
-        }
-        std::string id = a["id"].get<std::string>();
-        std::string tail = jobs_.output(id);
-        if (!jobs_.stop(id)) {
-            r.ok = false;
-            r.error = "no such job: " + id;
-            return r;
-        }
-        std::ostringstream out;
-        out << "[job " << id << " stopped]\n";
-        out << (tail.empty() ? "(no output captured)\n" : tail);
-        r.meta = {{"job_id", id}};
-        r.ok = true;
-        r.output = out.str();
-        return r;
-    }
-
-private:
-    JobService& jobs_;
-};
+// The completion sink runs on the job's reader thread after the terminal state
+// is committed. It touches only TaskService: the job's output stays behind the
+// backend id and is read by `tasks output` when the model asks for it.
+void finish_task(TaskService& tasks, const std::string& task_id, const JobInfo& info) {
+    tasks.finish(task_id, task_state_from_job(info), task_result_from_job(info),
+                 task_error_from_job(info));
+}
 
 } // namespace
 
-std::vector<std::unique_ptr<Tool>> make_process_tools(JobService& jobs) {
-    std::vector<std::unique_ptr<Tool>> v;
-    v.push_back(std::make_unique<ProcessStartTool>(jobs));
-    v.push_back(std::make_unique<ProcessReadTool>(jobs));
-    v.push_back(std::make_unique<ProcessStopTool>(jobs));
-    return v;
+class ProcessStartTool final : public Tool {
+public:
+    explicit ProcessStartTool(JobService& jobs, TaskService* tasks = nullptr)
+        : jobs_(jobs), tasks_(tasks) {}
+
+    std::string name() const noexcept override { return "process_start"; }
+    std::string description() const noexcept override;
+    json parameters_schema() const override;
+    bool requires_approval(const json&) const noexcept override { return true; }
+    bool is_read_only() const noexcept override { return false; }
+    std::string summarize(const json& args) const override;
+    ToolResult execute(const json& args) const override;
+
+private:
+    ToolResult start_with_task(const std::string& command, long hard, long idle,
+                               const std::string& cwd, const std::string& label,
+                               TaskNotify notify) const;
+    ToolResult start_without_task(const std::string& command, long hard, long idle,
+                                  const std::string& cwd) const;
+
+    JobService& jobs_;
+    TaskService* tasks_ = nullptr;
+};
+
+std::string ProcessStartTool::description() const noexcept {
+    return "Start a shell command in the BACKGROUND and return a task id immediately "
+           "(non-blocking). Use this for long-running commands such as servers, watchers, "
+           "or builds. The process keeps running across turns. Inspect or stop it with "
+           "tasks status/output/cancel/wait. Arguments: command (required), timeout (hard "
+           "seconds, default 600), idle_timeout (seconds of no output before auto-kill, "
+           "default 30), cwd (optional, defaults to workspace root), label (optional), "
+           "notify (auto|digest|silent).";
+}
+
+json ProcessStartTool::parameters_schema() const {
+    json p = json::object();
+    p["type"] = "object";
+    json props = json::object();
+    props["command"] = json::object(
+        {{"type", "string"}, {"description", "Shell command to run in the background."}});
+    props["timeout"] = json::object(
+        {{"type", "integer"}, {"description", "Hard lifetime in seconds (default 600)."}});
+    props["idle_timeout"] =
+        json::object({{"type", "integer"},
+                      {"description", "Seconds of no output before auto-kill (default 30)."}});
+    props["cwd"] = json::object(
+        {{"type", "string"}, {"description", "Working directory (default: workspace root)."}});
+    props["label"] =
+        json::object({{"type", "string"}, {"description", "Short human label for task lists."}});
+    props["notify"] =
+        json::object({{"type", "string"},
+                      {"enum", json::array({"auto", "digest", "silent"})},
+                      {"description", "When a completion may wake the owner (default auto)."}});
+    p["properties"] = props;
+    p["required"] = json::array({"command"});
+    return p;
+}
+
+std::string ProcessStartTool::summarize(const json& args) const {
+    std::string command = args.contains("command") && args["command"].is_string()
+                              ? args["command"].get<std::string>()
+                              : "";
+    if (command.size() > 200) {
+        command.resize(197);
+        command += "...";
+    }
+    return "bg start: " + command;
+}
+
+ToolResult ProcessStartTool::start_without_task(const std::string& command, long hard, long idle,
+                                                const std::string& cwd) const {
+    const std::string job_id = jobs_.start(command, cwd, hard, idle);
+    if (job_id.empty())
+        return {false, "", "failed to start background process"};
+    return {true, job_id, "", {{"job_id", job_id}}};
+}
+
+ToolResult ProcessStartTool::start_with_task(const std::string& command, long hard, long idle,
+                                             const std::string& cwd, const std::string& label,
+                                             TaskNotify notify) const {
+    TaskRecord record;
+    record.kind = TaskKind::Command;
+    record.owner = task_owner_from_scope();
+    record.label = label.empty() ? clip_label(command) : label;
+    record.command = command;
+    record.cwd = cwd.empty() ? Workspace::workspace_root() : cwd;
+    record.notify = notify;
+
+    std::string error;
+    const std::string task_id = tasks_->create(std::move(record), &error);
+    if (task_id.empty())
+        return {false, "", error.empty() ? "task limit reached; do not retry" : error};
+    tasks_->started(task_id, 0);
+
+    JobOrigin origin;
+    origin.owner_id = run_owner_id();
+    origin.label = label.empty() ? clip_label(command) : label;
+    TaskService* tasks = tasks_;
+    const std::string job_id =
+        jobs_.start(command, cwd, hard, idle, std::move(origin),
+                    [tasks, task_id](const JobInfo& info) { finish_task(*tasks, task_id, info); });
+    if (job_id.empty()) {
+        tasks_->finish(task_id, TaskState::Failed, {}, "failed to start background process");
+        return {false, "", "failed to start background process"};
+    }
+    tasks_->bind_backend(task_id, job_id);
+    tasks_->attach_cancel(
+        task_id, [&jobs = jobs_, job_id](const CancellationToken&) { return jobs.stop(job_id); });
+    return {true, task_id, "", {{"task_id", task_id}, {"job_id", job_id}}};
+}
+
+ToolResult ProcessStartTool::execute(const json& args) const {
+    if (!args.contains("command") || !args["command"].is_string() ||
+        args["command"].get<std::string>().empty()) {
+        return {false, "", "missing 'command'"};
+    }
+    const std::string command = args["command"].get<std::string>();
+    const long hard = static_cast<long>(read_int(args, "timeout", 600));
+    const long idle = static_cast<long>(read_int(args, "idle_timeout", 30));
+    const std::string cwd = read_string(args, "cwd", "");
+    const std::string label = read_string(args, "label", "");
+    const TaskNotify notify = parse_notify(read_string(args, "notify", "auto"));
+    if (!tasks_)
+        return start_without_task(command, hard, idle, cwd);
+    return start_with_task(command, hard, idle, cwd, label, notify);
+}
+
+std::unique_ptr<Tool> make_process_start_tool(JobService& jobs, TaskService* tasks) {
+    return std::make_unique<ProcessStartTool>(jobs, tasks);
 }
 
 } // namespace agent

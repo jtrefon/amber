@@ -34,15 +34,10 @@ inline SubAgentExecutor g_empty_subagents;
 // `todos` is the host-owned task list for the todowrite tool; `cancel_token`
 // is passed to tools that need cooperative cancellation (bash). Defined in
 // lib/tools_default.cpp, linked into libagent.
-class PromptRegistry;
-
-// `prompts` receives the tool documentation blocks. Pass the host's registry
-// when there is one, so a tool and the prose describing it always arrive
-// together; a bare test can leave it null and get the tools alone.
 void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todos,
                             const CancellationToken& cancel_token = {},
                             SubAgentExecutor& subagents = g_empty_subagents,
-                            PromptRegistry* prompts = nullptr);
+                            ToolHostOptions options = {});
 } // namespace agent
 
 #endif // AGENT_AGENT_H_ALL

@@ -874,10 +874,12 @@ TEST(watch_plugin_contributes_prompt_and_tool_then_unwinds) {
     ASSERT_TRUE(system.find("Background watches") != std::string::npos);
     ASSERT_TRUE(system.find("watch") != std::string::npos);
     ASSERT_TRUE(system.find("full worker path") == std::string::npos);
+    // The inspect verbs moved to `tasks`; the watch plugin no longer contributes
+    // a separate command workspace.
     bool has_watch_command = false;
     for (const auto& entry : runtime.commands().all())
         has_watch_command = has_watch_command || entry.spec.name == "watch";
-    ASSERT_TRUE(has_watch_command);
+    ASSERT_FALSE(has_watch_command);
     bool has_watch_segment = false;
     for (const auto& item : runtime.status().items())
         has_watch_segment = has_watch_segment || item.name == "watch";
@@ -890,10 +892,6 @@ TEST(watch_plugin_contributes_prompt_and_tool_then_unwinds) {
     for (const auto& block : runtime.prompts().render_all(PromptPlacement::System))
         after += block + "\n";
     ASSERT_TRUE(after.find("Background watches") == std::string::npos);
-    bool watch_command_after = false;
-    for (const auto& entry : runtime.commands().all())
-        watch_command_after = watch_command_after || entry.spec.name == "watch";
-    ASSERT_FALSE(watch_command_after);
     ASSERT_TRUE(runtime.panels().find("watch") == nullptr);
 }
 
@@ -919,7 +917,7 @@ TEST(watch_plugin_delegation_fragment_follows_the_task_tool) {
     ASSERT_TRUE(runtime.set_state("watch", false));
 }
 
-TEST(watch_command_and_panel_read_live_state) {
+TEST(watch_panel_reads_live_state) {
     ScratchEnv env("commands");
     ToolRegistry tools;
     Config cfg;
@@ -930,6 +928,11 @@ TEST(watch_command_and_panel_read_live_state) {
         return CommandRunner::Result{"ok", 0, false, false};
     };
     auto observer = std::make_shared<FakeObserver>();
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    agent::HostServices host;
+    host.tasks = &tasks;
+    runtime.attach_host_services(host);
     runtime.add(std::make_shared<WatchPlugin>(runner, observer, env.path("watch")));
     runtime.start();
 
@@ -944,58 +947,61 @@ TEST(watch_command_and_panel_read_live_state) {
                                             {"command", "true"},
                                             {"label", "command watch"}});
     ASSERT_TRUE(started.ok);
-    const std::string id = started.meta.value("id", std::string());
-    ASSERT_TRUE(!id.empty());
-    ASSERT_TRUE(tool->execute(json{{"action", "wait"}, {"id", id}, {"timeout_s", 5}}).ok);
-
-    const agent::CommandRegistry::Entry* watch = nullptr;
-    for (const auto& entry : runtime.commands().all())
-        if (entry.spec.name == "watch")
-            watch = &entry;
-    ASSERT_TRUE(watch != nullptr);
-    ASSERT_TRUE(watch->spec.handlers.at("list")("").find(id) != std::string::npos);
-    ASSERT_TRUE(watch->spec.handlers.at("show")(id).find("command watch") != std::string::npos);
-    ASSERT_TRUE(watch->spec.handlers.at("report")(id).find("command watch") != std::string::npos);
-    ASSERT_TRUE(watch->spec.handlers.at("stop")(id).find("cancel") != std::string::npos);
+    const std::string watch_id = started.meta.value("watch_id", std::string());
+    const std::string task_id = started.meta.value("task_id", std::string());
+    ASSERT_TRUE(!watch_id.empty());
+    ASSERT_TRUE(!task_id.empty());
+    const auto final = tasks.wait_for_terminal(task_id, 5000, CancellationToken{});
+    ASSERT_TRUE(final.has_value());
+    ASSERT(final->state == TaskState::Succeeded);
 
     const agent::PanelSpec* panel = runtime.panels().find("watch");
     ASSERT_TRUE(panel != nullptr);
     const auto lines = panel->lines(80);
     bool saw_id = false;
     for (const auto& line : lines)
-        saw_id = saw_id || line.find(id) != std::string::npos;
+        saw_id = saw_id || line.find(watch_id) != std::string::npos;
     ASSERT_TRUE(saw_id);
 
     ASSERT_TRUE(runtime.set_state("watch", false));
     ASSERT_TRUE(runtime.panels().find("watch") == nullptr);
 }
 
-TEST(watch_tool_starts_reports_and_cancels) {
+TEST(watch_tool_starts_and_registers_a_task) {
     ScratchEnv env("tool");
     auto runner = std::make_shared<FakeRunner>();
     runner->handler = [](const std::string&, const std::string&, int, const CancellationToken&) {
         return CommandRunner::Result{"tool output", 0, false, false};
     };
     auto observer = std::make_shared<FakeObserver>();
-    WatchService service(runner, observer, WatchStore(env.path("watch")), "observer", nullptr);
+    agent::EventBus bus;
+    TaskService tasks(bus);
+    WatchService service(runner, observer, WatchStore(env.path("watch")), "observer", &bus);
+    service.set_tasks(&tasks);
     auto tool = make_watch_tool(service);
 
     ASSERT_TRUE(tool->requires_approval(json{{"action", "start"}}));
-    ASSERT_FALSE(tool->requires_approval(json{{"action", "list"}}));
+    ASSERT_EQ(tool->parameters_schema()["properties"]["action"]["enum"].size(), 1u);
     const auto started = tool->execute(json{
         {"action", "start"}, {"profile", "process"}, {"command", "true"}, {"label", "tool watch"}});
     ASSERT_TRUE(started.ok);
-    const std::string id = started.meta.value("id", std::string());
-    ASSERT_TRUE(!id.empty());
-    const auto waited = tool->execute(json{{"action", "wait"}, {"id", id}, {"timeout_s", 5}});
-    ASSERT_TRUE(waited.ok);
-    ASSERT_EQ(waited.meta.value("state", std::string()), std::string("succeeded"));
-    const auto report = tool->execute(json{{"action", "report"}, {"id", id}, {"detail", "full"}});
-    ASSERT_TRUE(report.ok);
-    ASSERT_TRUE(report.output.find("tool output") != std::string::npos);
-    const auto listed = tool->execute(json{{"action", "list"}});
-    ASSERT_TRUE(listed.ok);
-    ASSERT_TRUE(listed.output.find(id) != std::string::npos);
+    const std::string task_id = started.meta.value("task_id", std::string());
+    const std::string watch_id = started.meta.value("watch_id", std::string());
+    ASSERT_FALSE(task_id.empty());
+    ASSERT_FALSE(watch_id.empty());
+    ASSERT_EQ(tasks.backend_id(task_id), watch_id);
+
+    const auto final = tasks.wait_for_terminal(task_id, 5000, CancellationToken{});
+    ASSERT(final.has_value());
+    ASSERT(final->state == TaskState::Succeeded);
+    ASSERT_EQ(final->label, std::string("tool watch"));
+
+    auto report = service.report(watch_id);
+    ASSERT(report.has_value());
+    ASSERT(format_watch_report(*report, true).find("tool output") != std::string::npos);
+    const auto records = service.list();
+    ASSERT_EQ(records.size(), 1u);
+    ASSERT_EQ(records.front().id, watch_id);
 }
 
 TEST(watch_run_scope_inherits_the_host_owner) {
@@ -1021,7 +1027,7 @@ TEST(watch_inbox_prioritizes_user_prompts_over_reports) {
     report.owner_id = "owner-1";
     report.kind = agent::TaskKind::Watch;
     report.state = agent::TaskState::Succeeded;
-    report.prompt_text = "[harness] watch report";
+    report.prompt_text = "[harness] tasks output";
     report.created_ms = 1;
     inbox.post(std::move(report));
 

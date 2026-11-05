@@ -44,6 +44,9 @@ public:
     std::vector<WatchReport> pending_reports() const;
     std::vector<WatchRecord> list_records() const;
     std::string show_text(const std::string& id) const;
+    // The task record a watch registered, or empty when the host has no task
+    // inventory. Used by the one-shot CLI delivery text.
+    std::string task_id(const std::string& watch_id) const;
     // Observer usage per owner window, drained for the host's usage ledger.
     std::map<std::string, agent::UsageTotals> take_usage();
     bool stop_watch(const std::string& id);
@@ -53,12 +56,10 @@ public:
 private:
     WatchService* ensure_service(agent::PluginServices& services);
     std::string policy_block() const;
-    std::string command_text(const std::string& verb, const std::string& arg) const;
     std::unique_ptr<agent::Capability> make_tool_capability();
     std::unique_ptr<agent::Capability> make_policy_capability();
     std::unique_ptr<agent::Capability> make_status_capability();
     std::unique_ptr<agent::Capability> make_panel_capability();
-    std::unique_ptr<agent::Capability> make_command_capability() const;
     std::unique_ptr<agent::Capability> make_settings_capability();
 
     const agent::ToolRegistry* tools_ = nullptr;

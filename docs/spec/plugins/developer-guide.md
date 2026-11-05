@@ -354,8 +354,8 @@ that workspace. The host derives every leaf action as
 **Root last.** A root is a host-owned UI decision for a daily-use domain, not a
 plugin deployment convenience. A plugin may request an alias; the host grants it
 only through the documented root allowlist. **0.6.0 starts with no plugin
-roots.** Existing roots (`/hello`, `/index`, `/mcp`, `/prompt`, `/watch`) migrate
-under `/plugin/<id>`; a host alias may be added later if usage proves it.
+roots.** Existing roots (`/hello`, `/index`, `/mcp`, `/prompt`) migrate under
+`/plugin/<id>`; a host alias may be added later if usage proves it.
 
 ```cpp
 // The plugin supplies a workspace-relative subtree, never a root.
@@ -606,7 +606,7 @@ Catalogue. **Fire sites are in `lib/agent.cpp` (loop), `lib/dispatch.cpp`
 | `CompressionEvent` | ✅ | compression triggered |
 | `CompressionCompletedEvent` | ✅ | compression finished |
 | `ErrorRaisedEvent` | ✅ | observation only; classification stays in the dialect |
-| `WatchReportEvent` | ✅ | a watch finished; carries owner/watch/report ids, state and headline. The host routes it by owner; the plugin keeps the report and never touches `Context` |
+| `WatchReportEvent` | ✅ | a watch finished; carries owner/watch/task/report ids, state and headline. The host routes it by owner; the plugin keeps the report and never touches `Context` |
 | `TaskStartedEvent` | ✅ | `Queued -> Running` in `TaskService`; carries id, kind, owner and label. One per transition, never per token |
 | `TaskProgressEvent` | ✅ | the one-line progress field changed; the payload carries the line, not a token stream |
 | `TaskCompletedEvent` | ✅ | a terminal non-cancel state; carries the id, state and bounded summary |
@@ -672,7 +672,9 @@ in one sitting and each a template for the next:
 The other bundled plugins are not providers. The tool set is one plugin per
 tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
-`plugins/tool_bash/`, `plugins/tool_process/`, `plugins/tool_context/` (the
+`plugins/tool_bash/`, `plugins/tool_process/` (the one command spawn tool),
+`plugins/tool_tasks/` (the one inventory: list, status, output, cancel and
+wait), `plugins/tool_context/` (the
 `context` tool, which lets the model name tool results the conversation has
 stopped needing and leaves the plan on the host's shaping queue for the agent
 to apply at its next request boundary), `plugins/tool_plan/`,
@@ -703,9 +705,9 @@ with the provenance line reporting a source that has moved; its tools
 `/plugin project_index show|refresh` commands arrive and leave with it),
 `plugins/clock/` (the bar's right-edge readout),
 `plugins/watch/` (category `observability`: background command/PR watches, a
-deterministic journal, a one-shot read-only observer, a `/plugin watch` command
-workspace, a status segment and the `watch` tool; its spec is
-`watch-observer.md`),
+deterministic journal, a one-shot read-only observer, a status segment, a panel
+and the start-only `watch` tool; the `tasks` inventory is the inspect surface.
+Its spec is `watch-observer.md`),
 `plugins/metrics/` (an event-observing plugin with no contributions),
 `plugins/hello/` (the `/plugin hello` command example), `plugins/amber_self/` (the
 `amber-self` plugin: it contributes the `amber-config` skill, whose body is

@@ -7,6 +7,8 @@
 #include "agent/shell_classify.h" // approval classification for the gate
 #include "agent/run_scope.h"      // run_cancelled: the calling agent's token
 #include "agent/json_read.h"
+#include "agent/task.h"
+#include "agent/task_job.h"
 
 #include <algorithm>
 #include <array>
@@ -14,6 +16,10 @@
 #include <chrono>
 #include <csignal>
 #include <cstring>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -38,6 +44,53 @@ void drain_output(int fd, std::string& out) {
             out.append(buf.data(), static_cast<size_t>(n));
     }
 }
+
+// The two backends one bash call may touch: the job service that owns the
+// process and the inventory the inactive handoff registers it in.
+struct JobBackends {
+    JobService* jobs = nullptr;
+    TaskService* tasks = nullptr;
+};
+
+// A job may finish before or after the bash tool decides to hand it back as a
+// task. The relay stores the one terminal snapshot and invokes the callback
+// exactly once, whether the callback was installed first or last.
+struct JobCompletionRelay {
+    std::mutex mtx;
+    std::optional<JobInfo> info;
+    std::function<void(const JobInfo&)> callback;
+    bool delivered = false;
+
+    void on_job(const JobInfo& snapshot) {
+        std::function<void(const JobInfo&)> ready;
+        {
+            std::scoped_lock lk(mtx);
+            info = snapshot;
+            if (callback && !delivered) {
+                delivered = true;
+                ready = callback;
+            }
+        }
+        if (ready)
+            ready(snapshot);
+    }
+
+    void set_callback(std::function<void(const JobInfo&)> cb) {
+        std::optional<JobInfo> ready;
+        {
+            std::scoped_lock lk(mtx);
+            if (delivered)
+                return;
+            callback = std::move(cb);
+            if (info) {
+                delivered = true;
+                ready = info;
+            }
+        }
+        if (ready)
+            callback(*ready);
+    }
+};
 
 // Parent-side read loop for hosts without a job service: copy pipe output until
 // EOF or the child exits, and kill the group after `timeout_s` of NO output.
@@ -128,19 +181,33 @@ struct Stop {
     long elapsed_ms = 0;
     std::size_t bytes = 0;
     std::string job_id;
+    std::string task_id;
 };
 
-// An inactive command is handed back, not killed: name the job, the silence and
-// the three ways forward, so the decision stays the agent's.
+// An inactive command is handed back, not killed: name the task, the silence
+// and the ways forward, so the decision stays the agent's.
 void format_inactive(std::ostringstream& out, const Stop& s, ToolResult& r) {
-    out << "[inactive " << s.idle_s << "s] still running"
-        << (s.job_id.empty() ? "" : " — job " + s.job_id) << ", " << s.elapsed_ms / 1000
-        << "s elapsed, " << s.bytes << " bytes of output so far. Nothing was killed.\n"
-        << "Decide: process_read wait=" << s.idle_s
-        << " (same budget again), process_read with another wait, or process_stop to end it.";
+    out << "[inactive " << s.idle_s << "s] still running";
+    if (!s.task_id.empty())
+        out << " — task " << s.task_id;
+    else if (!s.job_id.empty())
+        out << " — job " << s.job_id;
+    out << ", " << s.elapsed_ms / 1000 << "s elapsed, " << s.bytes
+        << " bytes of output so far. Nothing was killed.\n";
+    if (!s.task_id.empty()) {
+        out << "Decide: tasks output " << s.task_id << " to read it, tasks wait " << s.task_id
+            << " timeout_s=" << s.idle_s << " to wait, or tasks cancel " << s.task_id
+            << " to end it.";
+        r.meta["task"] = s.task_id;
+    } else {
+        out << "No task inventory is wired on this host; the process remains job " << s.job_id
+            << ".";
+    }
     r.ok = true;
     r.output = out.str();
-    r.meta = {{"stop", "inactive"}, {"idle_s", s.idle_s}, {"duration_ms", s.elapsed_ms}};
+    r.meta["stop"] = "inactive";
+    r.meta["idle_s"] = s.idle_s;
+    r.meta["duration_ms"] = s.elapsed_ms;
     if (!s.job_id.empty())
         r.meta["job"] = s.job_id;
 }
@@ -213,36 +280,78 @@ StopKind wait_for_job(JobService* jobs, const CancellationToken& cancel_token,
 // Run through the host JobService so the process is visible in /job and on the
 // status bar while it runs, and can be killed. The result is still returned
 // synchronously to the model, exactly as the direct path does.
-void run_via_jobs(JobService* jobs, const CancellationToken& cancel_token,
+// Register an inactive job as a task and arrange for its completion to finish
+// the record. An empty task id with an error means the inventory refused the
+// record; the caller then stops the job rather than leaving it invisible.
+std::string register_inactive_task(const JobBackends& backends, const std::string& job_id,
+                                   const std::string& command,
+                                   const std::shared_ptr<JobCompletionRelay>& relay,
+                                   std::string& error) {
+    if (!backends.tasks)
+        return {};
+    TaskRecord record;
+    record.kind = TaskKind::Command;
+    record.owner = task_owner_from_scope();
+    record.label = command.size() > 80 ? command.substr(0, 77) + "..." : command;
+    record.command = command;
+    record.cwd = Workspace::workspace_root();
+    record.notify = TaskNotify::Auto;
+    std::string task_id = backends.tasks->create(std::move(record), &error);
+    if (task_id.empty())
+        return {};
+    backends.tasks->started(task_id, 0);
+    backends.tasks->bind_backend(task_id, job_id);
+    backends.tasks->attach_cancel(
+        task_id,
+        [jobs = backends.jobs, job_id](const CancellationToken&) { return jobs->stop(job_id); });
+    const std::string task = task_id;
+    relay->set_callback([tasks = backends.tasks, task](const JobInfo& info) {
+        tasks->finish(task, task_state_from_job(info), task_result_from_job(info),
+                      task_error_from_job(info));
+    });
+    return task_id;
+}
+
+void run_via_jobs(const JobBackends& backends, const CancellationToken& cancel_token,
                   const std::string& command, int timeout,
                   const std::chrono::steady_clock::time_point& t0, ToolResult& r) {
+    auto relay = std::make_shared<JobCompletionRelay>();
     // Neither budget is a kill: 0 disables the service's own timers, so it
     // watches and reports and the agent stays in charge of ending the process.
-    const std::string id = jobs->start(command, Workspace::workspace_root(),
-                                       /*hard_timeout_s=*/0, /*idle_timeout_s=*/0);
+    const std::string id = backends.jobs->start(
+        command, Workspace::workspace_root(), /*hard_timeout_s=*/0, /*idle_timeout_s=*/0, {},
+        [relay](const JobInfo& info) { relay->on_job(info); });
     if (id.empty()) {
         r.ok = false;
         r.error = "spawn failed";
         return;
     }
-    const StopKind kind = wait_for_job(jobs, cancel_token, id, timeout);
+    const StopKind kind = wait_for_job(backends.jobs, cancel_token, id, timeout);
     // Re-acquire the lease (a concurrent stop may have erased the entry).
-    std::shared_ptr<Job> j = jobs->get(id);
+    std::shared_ptr<Job> j = backends.jobs->get(id);
     const long idle_s = j ? j->info().seconds_since_output : 0;
     std::string output = j ? j->output() : std::string();
     const int code = j ? j->exit_code() : 0;
-    if (kind != StopKind::Inactive)
-        jobs->stop(id); // erase: bash returns output inline, not via /job
-    // Inactive: the job stays registered — /job lists it, the status bar shows
-    // it, and process_read / process_stop act on it.
     Stop stop;
     stop.kind = kind;
     stop.code = code;
     stop.idle_s = idle_s;
     stop.elapsed_ms = elapsed_ms(t0);
     stop.bytes = output.size();
-    if (kind == StopKind::Inactive)
+    if (kind == StopKind::Inactive) {
         stop.job_id = id;
+        std::string task_error;
+        stop.task_id = register_inactive_task(backends, id, command, relay, task_error);
+        if (stop.task_id.empty() && !task_error.empty()) {
+            backends.jobs->stop(id);
+            r.ok = false;
+            r.error = task_error;
+            r.output = "the task inventory is full; the command was stopped";
+            return;
+        }
+    } else {
+        backends.jobs->stop(id); // erase: bash returns output inline, not via the task list
+    }
     format_result(std::move(output), stop, r);
 }
 
@@ -305,14 +414,16 @@ void run_direct(const std::string& command, int timeout,
 // when the agent asks.
 class BashTool : public Tool {
 public:
-    explicit BashTool(JobService* jobs = nullptr, const CancellationToken& cancel_token = {})
-        : jobs_(jobs), cancel_token_(cancel_token) {}
+    explicit BashTool(JobService* jobs = nullptr, const CancellationToken& cancel_token = {},
+                      TaskService* tasks = nullptr)
+        : jobs_(jobs), cancel_token_(cancel_token), tasks_(tasks) {}
 
     std::string name() const noexcept override { return "bash"; }
 
 private:
     JobService* jobs_ = nullptr;
     CancellationToken cancel_token_;
+    TaskService* tasks_ = nullptr;
 
     std::string description() const noexcept override {
         return "Run a shell command in the workspace directory and return "
@@ -337,7 +448,7 @@ private:
                     {"description", "Seconds of no output after which control "
                                     "returns to you (default 60). Nothing is "
                                     "killed: the command keeps running as a "
-                                    "job you can process_read or process_stop."}}}}},
+                                    "task you can inspect with tasks."}}}}},
                 {"required", {"command"}}};
     }
 
@@ -375,15 +486,16 @@ private:
         // process is visible in /job and on the status bar while it runs, and
         // can be killed; otherwise spawn and supervise it directly.
         if (jobs_)
-            run_via_jobs(jobs_, cancel_token_, command, timeout, t0, r);
+            run_via_jobs({jobs_, tasks_}, cancel_token_, command, timeout, t0, r);
         else
             run_direct(command, timeout, t0, r);
         return r;
     }
 };
 
-std::unique_ptr<Tool> make_bash_tool(JobService* jobs, const CancellationToken& cancel_token) {
-    return std::make_unique<BashTool>(jobs, cancel_token);
+std::unique_ptr<Tool> make_bash_tool(JobService* jobs, const CancellationToken& cancel_token,
+                                     TaskService* tasks) {
+    return std::make_unique<BashTool>(jobs, cancel_token, tasks);
 }
 
 } // namespace agent

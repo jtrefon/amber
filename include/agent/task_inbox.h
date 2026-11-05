@@ -22,6 +22,9 @@ class TaskService;
 // one bounded line; the caller's digest adds the harness header.
 struct TaskCompletion {
     std::string task_id;
+    // The producer's own handle (a watch id, a job id); the inbox's producer
+    // ack hook uses it, while task_id names the shared inventory record.
+    std::string backend_id;
     std::string owner_id;
     TaskKind kind = TaskKind::Command;
     TaskState state = TaskState::Unknown;

@@ -20,6 +20,10 @@
 #include <thread>
 #include <vector>
 
+namespace agent {
+class TaskService;
+} // namespace agent
+
 namespace agent::plugins {
 
 class WatchWorker;
@@ -34,10 +38,18 @@ public:
                  WatchSettings settings = {});
     ~WatchService();
 
+    // The host attaches its task inventory after construction, so the
+    // constructor stays within the parameter budget and a bare host can run
+    // watches without one.
+    void set_tasks(agent::TaskService* tasks) noexcept { tasks_ = tasks; }
+
     WatchService(const WatchService&) = delete;
     WatchService& operator=(const WatchService&) = delete;
 
     std::string start(const WatchStart& options, std::string& error);
+    // The task record this watch registered, or empty when the host has no
+    // task inventory. The watch id remains the backend handle.
+    std::string task_id(const std::string& watch_id) const;
     std::vector<WatchRecord> list() const;
     std::optional<WatchRecord> get(const std::string& id) const;
     std::optional<WatchReport> report(const std::string& id) const;
@@ -72,7 +84,14 @@ private:
     std::string make_id();
     static bool validate_start(const WatchStart& options, std::string& error);
     WatchRecord make_record(const WatchStart& options);
+    // Create the task record before the worker can finish. Empty with an error
+    // when the inventory refuses the record.
+    std::string register_task(const WatchRecord& record, std::string& error);
+    void finish_task_record(const WatchRecord& record, const WatchReport& report);
     void launch(const WatchRecord& record);
+    // The backend half of cancel: request the worker stop without going back
+    // through TaskService (the task handler calls this).
+    bool request_cancel(const std::string& id);
     void mark_restarted_records();
     // Caller holds mtx_. `extra` is included in the terminal set so a finishing
     // watch can apply retention in the same critical section that publishes it.
@@ -89,10 +108,13 @@ private:
     WatchStore store_;
     std::string observer_prompt_;
     EventBus* events_ = nullptr;
+    agent::TaskService* tasks_ = nullptr;
 
     mutable std::mutex mtx_;
     std::map<std::string, WatchRecord> records_;
     std::map<std::string, WatchReport> reports_;
+    // watch id -> task id, so a terminal watch can finish its one record.
+    std::map<std::string, std::string> task_ids_;
     std::map<std::string, agent::UsageTotals> usage_by_owner_;
     std::map<std::string, std::shared_ptr<WatchWorker>> workers_;
     // Cancelled record ids. The per-record flag in `records_` can be replaced

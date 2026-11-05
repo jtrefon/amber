@@ -11,52 +11,15 @@ namespace agent::plugins {
 
 namespace {
 
-std::string join(const std::vector<std::string>& lines) {
-    std::string out;
-    for (const auto& line : lines) {
-        if (!out.empty())
-            out += "\n";
-        out += line;
-    }
-    return out;
-}
-
 std::string clip(std::string s, std::size_t cap) {
     if (s.size() > cap)
         s.resize(cap);
     return s;
 }
 
-std::string owner_id() {
-    const RunScopeChain* scope = current_run_scope();
-    if (scope && scope->leaf.owner_id && !scope->leaf.owner_id->empty())
-        return *scope->leaf.owner_id;
-    return "default";
-}
-
 bool observe_enabled(const json& a) {
     const std::string mode = a.value("observe", std::string("auto"));
     return mode != "off" && mode != "false" && mode != "0";
-}
-
-std::string format_list(const std::vector<WatchRecord>& records) {
-    if (records.empty())
-        return "(no watches)";
-    std::vector<std::string> lines;
-    lines.reserve(records.size());
-    std::transform(records.begin(), records.end(), std::back_inserter(lines),
-                   [](const WatchRecord& record) { return format_watch_record(record); });
-    return join(lines);
-}
-
-std::string status_text(const WatchRecord& record) {
-    std::ostringstream out;
-    out << record.id << " " << record.profile << " " << watch_state_name(record.state) << "\n"
-        << "label: " << record.label << "\n"
-        << "last: " << record.last_status;
-    if (!record.journal.empty())
-        out << "\njournal: " << record.journal.back();
-    return out.str();
 }
 
 } // namespace
@@ -97,19 +60,18 @@ public:
     std::string name() const noexcept override { return "watch"; }
 
     std::string description() const noexcept override {
-        return "Run a command, PR-check or URL watch in the background. Returns an id at once; "
-               "the watch keeps a journal and produces a bounded report later. Use it for "
-               "long builds, CI/PR checks, deploys and URL/process watches; use bash for quick "
-               "commands and delegate (when available) for reasoning work.";
+        return "Run a command, PR-check or URL watch in the background. Returns a task id at "
+               "once; the watch keeps a journal and produces a bounded report later. Use it for "
+               "long builds, CI/PR checks, deploys and URL/process watches. Inspect or stop it "
+               "with tasks status/output/cancel/wait; use bash for quick commands and delegate "
+               "(when available) for reasoning work.";
     }
 
     json parameters_schema() const override {
         return {
             {"type", "object"},
             {"properties",
-             {{"action",
-               {{"type", "string"},
-                {"enum", json::array({"start", "list", "status", "report", "cancel", "wait"})}}},
+             {{"action", {{"type", "string"}, {"enum", json::array({"start"})}}},
               {"profile", {{"type", "string"}, {"enum", json::array({"process", "pr", "url"})}}},
               {"command", {{"type", "string"}}},
               {"pr", {{"type", "string"}}},
@@ -120,20 +82,14 @@ public:
               {"interval_s", {{"type", "integer"}, {"minimum", 1}, {"maximum", 3600}}},
               {"deadline_s", {{"type", "integer"}, {"minimum", 1}, {"maximum", 86400}}},
               {"success_exit", {{"type", "integer"}}},
-              {"observe", {{"type", "string"}, {"enum", json::array({"auto", "failure", "off"})}}},
-              {"id", {{"type", "string"}}},
-              {"timeout_s", {{"type", "integer"}, {"minimum", 1}, {"maximum", 3600}}},
-              {"detail", {{"type", "string"}, {"enum", json::array({"summary", "full"})}}}}},
+              {"observe",
+               {{"type", "string"}, {"enum", json::array({"auto", "failure", "off"})}}}}},
             {"required", json::array({"action"})}};
     }
 
-    bool requires_approval(const json& a) const noexcept override {
-        return a.value("action", std::string()) == "start";
-    }
+    bool requires_approval(const json&) const noexcept override { return true; }
 
     std::string summarize(const json& a) const override {
-        if (a.value("action", std::string()) != "start")
-            return "inspect background watches";
         const std::string profile = a.value("profile", std::string("process"));
         const std::string what = profile == "pr"
                                      ? "PR " + a.value("pr", std::string())
@@ -143,26 +99,15 @@ public:
     }
 
     ToolResult execute(const json& a) const override {
-        const std::string action = a.value("action", std::string());
-        if (action == "start")
-            return start(a);
-        if (action == "list")
-            return list();
-        if (action == "status")
-            return status(a);
-        if (action == "report")
-            return report(a);
-        if (action == "cancel")
-            return cancel(a);
-        if (action == "wait")
-            return wait(a);
-        return {false, "", "watch: action must be start, list, status, report, cancel or wait"};
+        if (a.value("action", std::string()) != "start")
+            return {false, "", "watch: action must be start; use tasks to inspect a watch"};
+        return start(a);
     }
 
 private:
     ToolResult start(const json& a) const {
         WatchStart options;
-        options.owner_id = owner_id();
+        options.owner_id = run_owner_id();
         options.profile = a.value("profile", std::string("process"));
         options.command = a.value("command", std::string());
         options.pr = a.value("pr", std::string());
@@ -182,66 +127,13 @@ private:
         const std::string id = service_.start(options, error);
         if (id.empty())
             return {false, "", error.empty() ? "watch: start failed" : error};
-        return {true,
-                "started " + id + " (" + options.profile + "): " + options.label + "\n" +
-                    "Use watch status/report " + id + ".",
-                "",
-                {{"id", id}, {"profile", options.profile}}};
-    }
-
-    ToolResult list() const {
-        const auto records = service_.list();
-        return {true, format_list(records), "", {{"count", records.size()}}};
-    }
-
-    ToolResult status(const json& a) const {
-        const std::string id = a.value("id", std::string());
-        if (id.empty())
-            return {false, "", "watch status: missing id"};
-        auto record = service_.get(id);
-        if (!record)
-            return {false, "", "watch status: unknown id " + id};
-        return {true,
-                status_text(*record),
-                "",
-                {{"id", id}, {"state", watch_state_name(record->state)}}};
-    }
-
-    ToolResult report(const json& a) const {
-        const std::string id = a.value("id", std::string());
-        if (id.empty())
-            return {false, "", "watch report: missing id"};
-        auto report = service_.report(id);
-        if (!report)
-            return {false, "", "watch report: no report yet for " + id};
-        const bool full = a.value("detail", std::string("summary")) == "full";
-        return {true,
-                format_watch_report(*report, full),
-                "",
-                {{"id", id}, {"state", watch_state_name(report->state)}}};
-    }
-
-    ToolResult cancel(const json& a) const {
-        const std::string id = a.value("id", std::string());
-        if (id.empty())
-            return {false, "", "watch cancel: missing id"};
-        if (!service_.cancel(id))
-            return {false, "", "watch cancel: unknown id " + id};
-        return {true, "cancel requested for " + id, "", json::object()};
-    }
-
-    ToolResult wait(const json& a) const {
-        const std::string id = a.value("id", std::string());
-        if (id.empty())
-            return {false, "", "watch wait: missing id"};
-        const int timeout = std::max(1, std::min(a.value("timeout_s", 60), 3600));
-        auto record = service_.wait(id, timeout);
-        if (!record)
-            return {false, "", "watch wait: unknown id " + id};
-        return {true,
-                status_text(*record),
-                "",
-                {{"id", id}, {"state", watch_state_name(record->state)}}};
+        const std::string task = service_.task_id(id);
+        json meta = {{"id", id}, {"watch_id", id}, {"profile", options.profile}};
+        if (!task.empty())
+            meta["task_id"] = task;
+        // A host without a task inventory still gets the watch id; the shipped
+        // hosts wire TaskService, so the task id is the normal answer.
+        return {true, task.empty() ? id : task, "", std::move(meta)};
     }
 
     WatchService& service_;

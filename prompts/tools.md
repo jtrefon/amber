@@ -66,6 +66,6 @@ The content is always followed by `[end]` on its own line.
 | Category | Tools | Behaviour |
 |----------|-------|-----------|
 | **Query** | `search`, `read` | Read-only. Return data in content. Safe, no side effects. |
-| **Command** | `write`, `bash`, `process_*` | Side effects. Return status summary in content. May require approval. |
+| **Command** | `write`, `bash`, `process_start`, `tasks` | Side effects. Return status summary in content. May require approval. |
 
 ---

@@ -205,7 +205,6 @@ std::vector<PolicyRule> PolicyStore::default_harmful_patterns() {
     for (const std::string& pat : destructive_command_patterns())
         add("bash", pat);
     add("process_start", "");
-    add("process_stop", "");
     return list;
 }
 
