@@ -2,7 +2,9 @@
 // warnings, never a gate. Hermetic - a registry and some stub tools.
 
 #include "agent.h"
+#include "agent/event_bus.h"
 #include "agent/registry.h"
+#include "agent/task.h"
 #include "agent/toolset_audit.h"
 #include "test_util.h"
 
@@ -125,10 +127,12 @@ TEST(audit_ignores_shared_role_where_the_category_is_open) {
 // is noise, and noise is what teaches people to ignore warnings.
 TEST(audit_the_shipped_tool_set_is_clean) {
     ToolRegistry reg;
+    EventBus bus;
+    TaskService tasks(bus);
     JobService jobs;
     TodoStore todos;
     SubAgentExecutor subagents;
-    register_default_tools(reg, jobs, todos, CancellationToken{}, subagents);
+    register_default_tools(reg, jobs, todos, CancellationToken{}, subagents, {nullptr, &tasks});
 
     auto findings = audit_toolset(reg);
     std::string joined;
@@ -154,10 +158,12 @@ TEST(audit_exposes_a_real_disabling_consequence) {
     // Four tools carry the Read role (read, read_result, read_skill,
     // list_skills), so the role empties only when all four are gone.
     ToolRegistry reg;
+    EventBus bus;
+    TaskService tasks(bus);
     JobService jobs;
     TodoStore todos;
     SubAgentExecutor subagents;
-    register_default_tools(reg, jobs, todos, CancellationToken{}, subagents);
+    register_default_tools(reg, jobs, todos, CancellationToken{}, subagents, {nullptr, &tasks});
     ASSERT_TRUE(audit_toolset(reg).empty());
 
     ASSERT_TRUE(reg.remove_tool("read"));

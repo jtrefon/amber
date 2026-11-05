@@ -12,6 +12,8 @@
 #include "agent.h"
 #include "agent/context.h"
 #include "agent/dispatch.h"
+#include "agent/event_bus.h"
+#include "agent/task.h"
 #include "agent/dialect.h"
 #include "agent/tool_call_parser.h"
 #include "agent/tools.h"
@@ -1021,11 +1023,14 @@ bool oracle_tools_registered(const Scenario& s, const agent::ToolRegistry& reg,
 
 bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     r.expected = "every oracle step names a registered tool";
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::SubAgentExecutor subagents;
     agent::ToolRegistry reg;
-    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents);
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents,
+                                  {nullptr, &tasks});
 
     const fs::path root = fs::current_path() / "bench" / "scenarios";
     if (!fs::is_directory(root))
