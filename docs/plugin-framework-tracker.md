@@ -1273,8 +1273,9 @@ What a plugin author can rely on today. Update with every landed task.
 | CommandCode provider (presets + wallet) | ✅ | PF-3.5 |
 | DeepSeek provider (presets + wallet) | ✅ | PF-3.5 |
 | Host services — `UiServices` ask/ask_secret/choose/confirm/notify/post_to_ui | ✅ | 2026-09-12 |
+| Keybinding contribution (`KeybindingCapability`: key -> own action ID + scope) | ✅ | #515 |
 | Log sinks | – | Deferred (no consumer) |
-| Theme, key interception, geometry, hot reload | – | Deferred Register |
+| Theme, raw key interception, geometry, hot reload | – | Deferred Register |
 | External (process) tier | – | PF-6 (deferred, shaped for) |
 | `dlopen` loadable library | ❌ rejected | D16 |
 

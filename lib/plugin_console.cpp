@@ -22,6 +22,8 @@ const char* capability_kind_name(CapabilityKind kind) {
         return "wallet";
     case CapabilityKind::Command:
         return "command";
+    case CapabilityKind::Keybinding:
+        return "keybinding";
     case CapabilityKind::SearchBackend:
         return "search";
     case CapabilityKind::Skill:

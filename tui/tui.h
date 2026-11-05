@@ -404,7 +404,6 @@ private:
     void poll_watch_usage();
     bool handle_option_key(int& ch, CommandLine& cl);
     bool handle_key_binding(int ch, CommandLine& cl);
-    bool apply_key_action(const KeyAction& act, int ch, CommandLine& cl);
     bool cancel_active_run(int ch, CommandLine& cl);
     bool handle_ctrl_c(int ch, CommandLine& cl);
     bool handle_mouse(int ch, CommandLine& cl);

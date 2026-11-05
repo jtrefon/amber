@@ -2,6 +2,7 @@
 #define AMBER_TUI_INPUT_STATE_H
 
 #include <cstddef>
+#include <string>
 
 namespace tui {
 
@@ -14,6 +15,9 @@ struct InputState {
     bool scroll_mode = false;
     size_t window_count = 0;
     bool has_pending_prompt = false;
+    // The input surface the key arrived on: `input`, `menu`, `dialog` or
+    // `list`. A global binding matches every surface; a scoped one only this.
+    std::string scope = "input";
 };
 
 } // namespace tui

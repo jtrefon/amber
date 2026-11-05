@@ -11,6 +11,7 @@
 
 #include "agent/config.h"
 #include "agent/event_bus.h"
+#include "agent/keybinding.h"
 #include "agent/plugin_capability.h"
 #include "agent/search_backend.h"
 #include "agent/skill_catalog.h"
@@ -519,6 +520,28 @@ private:
     std::vector<Entry> entries_;
 };
 
+// Plugin-contributed keybindings. The host merges these after the core
+// keybindings.json entries and keeps the core mapping on a collision; the
+// count is exposed for the conformance test and /plugin.
+class KeybindingRegistry {
+public:
+    struct Entry {
+        std::string owner; // plugin id
+        KeyBinding binding;
+    };
+
+    Contribution add(const std::string& owner, KeyBinding binding);
+
+    const std::vector<Entry>& all() const noexcept { return entries_; }
+    std::vector<ExtensionItem> items() const;
+    std::size_t size() const noexcept { return entries_.size(); }
+    std::size_t collisions() const noexcept { return collisions_; }
+
+private:
+    std::vector<Entry> entries_;
+    std::size_t collisions_ = 0;
+};
+
 // ---------------------------------------------------------------------------
 // The services a capability installs into
 // ---------------------------------------------------------------------------
@@ -535,6 +558,9 @@ public:
                    PanelRegistry& panels, WalletRegistry& wallets,
                    std::shared_ptr<SearchBackendRegistry> search_backends, EventBus& events,
                    CommandRegistry& commands) noexcept;
+    // The host attaches its keybinding registry after construction, so the
+    // service keeps the constructor within the parameter budget.
+    void set_keybindings(KeybindingRegistry* keybindings) noexcept { keybindings_ = keybindings; }
 
     ToolRegistry& tools() noexcept { return *tools_; }
     PromptRegistry& prompts() noexcept { return *prompts_; }
@@ -544,6 +570,7 @@ public:
     SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     EventBus& events() noexcept { return *events_; }
     CommandRegistry& commands() noexcept { return *commands_; }
+    KeybindingRegistry& keybindings() noexcept;
     void set_settings(SettingsRegistry& settings) noexcept { settings_ = &settings; }
     SettingsRegistry& settings() noexcept { return *settings_; }
 
@@ -587,6 +614,7 @@ private:
     std::shared_ptr<SearchBackendRegistry> search_backends_;
     EventBus* events_;
     CommandRegistry* commands_;
+    KeybindingRegistry* keybindings_;
     SettingsRegistry* settings_ = nullptr;
     std::string owner_;
     ToolPort* tool_port_ = nullptr;
@@ -832,6 +860,20 @@ public:
 
 private:
     CommandSpec spec_;
+};
+
+// Contributes one key -> action mapping. The action must be an ID the plugin
+// already contributes through a command or another capability; the host's
+// conformance check refuses an unbound ID.
+class KeybindingCapability : public Capability {
+public:
+    explicit KeybindingCapability(KeyBinding binding);
+    std::string name() const override { return binding_.key; }
+    CapabilityKind kind() const override { return CapabilityKind::Keybinding; }
+    InstallResult install(PluginServices& services) override;
+
+private:
+    KeyBinding binding_;
 };
 
 // Contributes typed settings. The host generates /get plugin settings,

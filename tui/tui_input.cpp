@@ -1415,6 +1415,14 @@ bool SlashDispatcher::run_action(const std::string& action, const std::string& a
     return action_registry_.dispatch(action, arg);
 }
 
+bool SlashDispatcher::dispatch_key_action(const std::string& action, const std::string& arg,
+                                          int key, CommandLine& cl, const InputState& state) {
+    active_input_ = ActiveInput{&cl, key, state};
+    const bool handled = run_action(action, arg);
+    active_input_ = ActiveInput{};
+    return handled;
+}
+
 void SlashDispatcher::register_builtin_actions() {
     register_core_actions();
     register_provider_actions();
@@ -1422,6 +1430,12 @@ void SlashDispatcher::register_builtin_actions() {
     register_config_set_actions();
     register_config_get_actions();
     register_actions(*this);
+    register_tab_actions();
+    register_view_actions();
+    register_input_actions();
+}
+
+void SlashDispatcher::register_tab_actions() {
     auto cycle = [this](int delta) {
         const auto& all = tui_.window_manager_->all();
         if (all.empty())
@@ -1438,6 +1452,9 @@ void SlashDispatcher::register_builtin_actions() {
     };
     register_action("ui.tab.next", [cycle](const std::string&) { cycle(1); });
     register_action("ui.tab.prev", [cycle](const std::string&) { cycle(-1); });
+}
+
+void SlashDispatcher::register_view_actions() {
     register_action("ui.view.reasoning", [this](const std::string&) {
         auto& engine = *tui_.render_engine_;
         engine.set_show_reasoning(!engine.show_reasoning());
@@ -1445,7 +1462,10 @@ void SlashDispatcher::register_builtin_actions() {
                          engine.show_reasoning() ? "reasoning: shown" : "reasoning: hidden");
         engine.draw();
     });
-    register_action("ui.mouse.toggle", [this](const std::string&) { tui_.toggle_mouse(); });
+    register_action("ui.mouse.toggle", [this](const std::string&) {
+        tui_.toggle_mouse();
+        tui_.render_engine_->draw();
+    });
     register_action("ui.scroll.toggle", [this](const std::string&) {
         auto& engine = *tui_.render_engine_;
         engine.set_scroll_mode(!engine.scroll_mode());
@@ -1453,6 +1473,32 @@ void SlashDispatcher::register_builtin_actions() {
                                        ? "scroll mode — arrows/PgUp/PgDn navigate window"
                                        : "scroll mode: off");
         engine.draw();
+    });
+}
+
+void SlashDispatcher::register_input_actions() {
+    register_action("ui.input.delete_word", [this](const std::string&) {
+        if (!active_input_.cl)
+            return;
+        active_input_.cl->on_ctrl_w();
+        tui_.draw_input(active_input_.cl->text(), active_input_.cl->cursor(),
+                        active_input_.cl->shadow());
+    });
+    register_action("ui.escape", [this](const std::string& arg) {
+        if (!active_input_.cl)
+            return;
+        if (arg == "drawer") {
+            active_input_.cl->on_escape();
+            tui_.draw();
+        } else if (arg == "busy") {
+            tui_.cancel_active_run(active_input_.key, *active_input_.cl);
+        } else {
+            run_action("ui.scroll.toggle", "");
+        }
+    });
+    register_action("ui.cancel_or_quit", [this](const std::string&) {
+        if (active_input_.cl)
+            tui_.handle_ctrl_c(active_input_.key, *active_input_.cl);
     });
 }
 

@@ -1765,6 +1765,19 @@ TEST(system_commands_do_not_freeze_the_ui) {
     require(tui.wait_for("ps: exit 0", 20000), "the job result never arrived", tui);
 }
 
+// A plugin keybinding is a data contribution, not a second input path: the
+// hello plugin binds Ctrl+G to the same action its /hello greet command runs.
+TEST(plugin_keybinding_runs_the_command_action) {
+    Tui tui;
+    tui.name = "plugin_keybinding_runs_the_command_action";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("\x19"); // Ctrl+Y
+    tui.pump(500);
+    require(tui.wait_for("Hello, world!", 5000), "the plugin keybinding did not run", tui);
+}
+
 // Typing past the right edge must scroll the input at the first clipped
 // column. The old layout kept the offset at zero until the cursor had moved a
 // whole prompt-width past the edge, so this tail was never painted.

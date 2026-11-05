@@ -209,6 +209,7 @@ public:
     const WalletRegistry& wallets() const noexcept { return wallets_; }
     SearchBackendRegistry& search_backends() noexcept { return *search_backends_; }
     CommandRegistry& commands() noexcept { return commands_; }
+    KeybindingRegistry& keybindings() noexcept { return keybindings_; }
     const CommandRegistry& commands() const noexcept { return commands_; }
     SettingsRegistry& settings() noexcept { return settings_; }
     const SettingsRegistry& settings() const noexcept { return settings_; }
@@ -258,6 +259,7 @@ private:
     StatusRegistry status_;
     PanelRegistry panels_;
     CommandRegistry commands_;
+    KeybindingRegistry keybindings_;
     SettingsRegistry settings_;
     WalletRegistry wallets_;
     // Shared with every search tool a plugin builds, so the tool's resolver

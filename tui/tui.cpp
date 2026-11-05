@@ -269,7 +269,10 @@ void Tui::load_key_bindings() {
             break;
         }
     }
-    key_binder_ = std::make_unique<KeyBinder>(std::move(kj));
+    std::vector<agent::KeyBinding> plugin_bindings;
+    for (const auto& entry : plugin_runtime_.keybindings().all())
+        plugin_bindings.push_back(entry.binding);
+    key_binder_ = std::make_unique<KeyBinder>(std::move(kj), std::move(plugin_bindings));
 }
 
 // Restore the previous workspace: open saved sessions in their own windows. On
@@ -943,7 +946,9 @@ bool Tui::handle_option_key(int& ch, CommandLine& cl) {
         return false;
     }
     if (cp == kMacosOptionB) {
-        cl.on_ctrl_w();
+        InputState state;
+        state.scope = "input";
+        slash_dispatcher_->dispatch_key_action("ui.input.delete_word", "", 'b', cl, state);
         draw_input(cl.text(), cl.cursor(), cl.shadow());
         return true;
     }
@@ -954,14 +959,6 @@ bool Tui::handle_option_key(int& ch, CommandLine& cl) {
 // stateful). The KeyBinder is pure (no ncurses); the ESC followup read is
 // terminal I/O and stays here.
 bool Tui::handle_key_binding(int ch, CommandLine& cl) {
-    // The keys the binder owns: Alt+0..9, Ctrl+N, ESC, Ctrl+C, Ctrl+W. Alt+0 used to
-    // be special-cased in run() and excluded here, which meant the panel view had two
-    // sources of truth -- a binding for some keys, a branch in the loop for others.
-    const bool binder_owns =
-        (ch >= 0xB0 && ch <= 0xB9) || ch == 14 || ch == 27 || ch == 3 || ch == 23;
-    if (!binder_owns)
-        return false;
-
     InputState state;
     state.drawer_open = cl.drawer_open();
     // "busy" to the key layer means THE ACTIVE window's agent is running — it
@@ -970,6 +967,7 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
     state.scroll_mode = render_engine_->scroll_mode();
     state.window_count = window_manager_->count();
     state.has_pending_prompt = runs_.has_pending(win().id);
+    state.scope = "input";
 
     KeyRead kr{ch, std::nullopt};
     if (ch == 27) {
@@ -986,61 +984,14 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
             ungetch(n);
     }
 
-    return apply_key_action(key_binder_->dispatch(kr, state), ch, cl);
-}
-
-// Act on what the binder decided. Returns true when the key was consumed.
-bool Tui::apply_key_action(const KeyAction& act, int ch, CommandLine& cl) {
-    switch (act.type) {
-    case KeyAction::SwitchWindow:
-        switch_to(static_cast<size_t>(act.arg));
-        break;
-    case KeyAction::NewWindow:
-        new_window("chat");
-        render_engine_->draw();
-        break;
-    case KeyAction::CloseDrawer:
-        // The command line owns drawer_open_; redrawing alone left it set, so
-        // the next Enter dispatched the highlighted row instead of the line
-        // the user had actually typed (arguments were silently dropped).
-        cl.on_escape();
-        render_engine_->draw();
-        break;
-    case KeyAction::DeleteWord:
-        cl.on_ctrl_w();
-        break;
-    case KeyAction::CancelOrQuit:
-        return cancel_active_run(ch, cl);
-    case KeyAction::ToggleScrollMode:
-        render_engine_->set_scroll_mode(!render_engine_->scroll_mode());
-        if (render_engine_->scroll_mode())
-            append_line(P_STATUS, "scroll mode — arrows/PgUp/PgDn navigate window");
-        render_engine_->draw();
-        break;
-    case KeyAction::OpenPanels:
-        // The panel view (registry console, status). Panels own their content; the host
-        // only opens them. Alt+0 reaches here as an intent rather than as a branch in
-        // run(), so the next panel entry point is additive.
-        open_panels("");
-        render_engine_->draw();
-        break;
-    case KeyAction::ToggleMouse:
-        toggle_mouse();
-        render_engine_->draw();
-        break;
-    case KeyAction::None:
-    default:
-        // No binding for this key: fall through to the later layers (ESC handling, then
-        // CommandLine routing). This used to special-case ESC+0 to open panels, but
-        // dispatch_esc never returns None for it -- it returns ToggleScrollMode -- so
-        // the branch was unreachable and the comment above it described a behaviour the
-        // code did not have.
+    const agent::KeyBinding binding = key_binder_->dispatch(kr, state);
+    if (binding.action.empty())
         return false;
-    }
-    // Every action this layer handles repaints the input line; it used to be
-    // repeated in each case.
-    draw_input(cl.text(), cl.cursor(), cl.shadow());
-    return true;
+    const bool handled =
+        slash_dispatcher_->dispatch_key_action(binding.action, binding.arg, ch, cl, state);
+    if (handled)
+        draw_input(cl.text(), cl.cursor(), cl.shadow());
+    return handled;
 }
 
 // Ctrl+C cancels the active window's run; ESC only reaches this action when the
@@ -1452,6 +1403,7 @@ void Tui::report_toolset_audit() {
 }
 void Tui::set_plugin(const std::string& id, bool on) {
     slash_dispatcher_->set_plugin(id, on);
+    load_key_bindings();
 }
 void Tui::open_panels(const std::string& id) {
     const std::string shown = panel_view(plugin_runtime_.panels(), id);

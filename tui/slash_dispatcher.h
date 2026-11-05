@@ -12,6 +12,8 @@
 #include <agent/worktree.h>
 
 #include "action_registry.h"
+#include "command_line.h"
+#include "input_state.h"
 #include "palette.h"
 #include "setting_registry.h"
 
@@ -49,7 +51,11 @@ public:
     void register_action(const std::string& action,
                          std::function<void(const std::string&)> handler);
     // The menu runs the same action IDs as the slash commands and the feeds.
-    bool run_action(const std::string& action, const std::string& arg);
+    // A keybinding action runs through the same registry; the input context is
+    // set only for the duration of the call so ui.* handlers can reach it.
+    bool run_action(const std::string& action, const std::string& arg),
+        dispatch_key_action(const std::string& action, const std::string& arg, int key,
+                            CommandLine& cl, const InputState& state);
     void register_builtin_actions();
     bool busy_reject(const std::string& what);
     void request_quit();
@@ -58,10 +64,8 @@ public:
     // Plugin command output: one status row per line.
     void append_output(const std::string& text);
     void refresh_model_list();
-    void refresh_policy_feed();
-    void refresh_provider_feed();
-    void refresh_task_feed();
-    void refresh_settings_feed();
+    void refresh_policy_feed(), refresh_provider_feed(), refresh_task_feed(),
+        refresh_settings_feed();
     void cmd_settings(const std::string& group = "");
     double compression_threshold_effective() const;
     void cmd_model_set(const std::string& arg);
@@ -91,12 +95,11 @@ public:
     bool adopt_provider(const std::string& id);
     void cmd_tasks_show(const std::string& id), cmd_tasks_output(const std::string& id);
     void cmd_tasks_cancel(const std::string& id), cmd_tasks_wait(const std::string& id);
-    void apply_policy_rule(const std::string& name, const std::string& lvl);
-    void show_policy_rule(const std::string& name);
+    void apply_policy_rule(const std::string& name, const std::string& lvl),
+        show_policy_rule(const std::string& name);
 
     void cmd_set_detection_toggle(const std::string& key, const std::string& val);
-    void set_debug(const std::string& val);
-    void show_debug_status();
+    void set_debug(const std::string& val), show_debug_status();
     void cmd_set_worktree(const std::string& val);
     void cmd_set_work_auto_attach(const std::string& val);
     void cmd_usage_show();
@@ -162,8 +165,7 @@ public:
     void cmd_logs_set(const std::string& verb, const std::string& value);
     void cmd_get_model();
     void cmd_get_model_list();
-    void cmd_get_model_context();
-    void cmd_get_provider();
+    void cmd_get_model_context(), cmd_get_provider();
     void cmd_get_policy(const std::string& arg);
     void cmd_get_policy_rule(const std::string& arg);
     void cmd_set_policy_rule(const std::string& arg);
@@ -174,10 +176,8 @@ public:
     void cmd_get_think();
     void cmd_get_detection(const std::string& sub);
     void cmd_get_compression();
-    void cmd_window_new(bool noworkdir, const std::string& name);
-    void cmd_window_list();
-    void cmd_window_rename(const std::string& name);
-    void cmd_window_set(const std::string& arg);
+    void cmd_window_new(bool noworkdir, const std::string& name), cmd_window_list();
+    void cmd_window_rename(const std::string& name), cmd_window_set(const std::string& arg);
     void cmd_plugin_settings_get(const std::string& args);
     void cmd_plugin_settings_set(const std::string& args);
     void cmd_plugin_install(const std::string& source);
@@ -193,8 +193,7 @@ public:
     void cmd_project_close();
     void open_resource(const std::string& kind, const std::string& id);
     void apply_work_item(const std::string& kind, const std::string& id, std::size_t window_index);
-    void cmd_tasks(const std::string& rest);
-    void cmd_compress(const std::string& arg);
+    void cmd_tasks(const std::string& rest), cmd_compress(const std::string& arg);
     void cmd_set(const std::string& arg);
     void cmd_set_policy_usage();
     void cmd_get(const std::string& arg);
@@ -204,8 +203,7 @@ public:
     void apply_compression_keep_last_prompts(const std::string& v);
     void cmd_skills_set(const std::string& rest);
     void cmd_skills_get(const std::string& sub);
-    void cmd_tasks_list();
-    void cmd_tasks_start(const std::string& cmd);
+    void cmd_tasks_list(), cmd_tasks_start(const std::string& cmd);
     void build_settings();
     void set_model_info(std::vector<agent::ModelInfo> v) { model_info_ = std::move(v); }
 
@@ -223,6 +221,7 @@ private:
     void register_core_session_actions();
     void register_window_actions();
     void register_core_task_actions();
+    void register_tab_actions(), register_view_actions(), register_input_actions();
     void register_set_engine_actions();
     void register_set_policy_actions();
     void register_set_feature_actions();
@@ -267,14 +266,18 @@ private:
     void add_subagent_settings();
     void add_work_settings();
     void add_display_settings();
-    void add_policy_settings();
-    void add_think_settings();
+    void add_policy_settings(), add_think_settings();
     void add_compression_settings();
 
     Tui& tui_;
     std::vector<palette::Command> commands_;
     tui::ActionRegistry action_registry_;
     std::vector<agent::ModelInfo> model_info_;
+    struct ActiveInput {
+        CommandLine* cl = nullptr;
+        int key = 0;
+        InputState state;
+    } active_input_;
 };
 
 } // namespace tui

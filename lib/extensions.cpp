@@ -465,6 +465,43 @@ std::vector<ExtensionItem> CommandRegistry::items() const {
 }
 
 // ---------------------------------------------------------------------------
+// Keybindings
+// ---------------------------------------------------------------------------
+
+Contribution KeybindingRegistry::add(const std::string& owner, KeyBinding binding) {
+    for (const auto& entry : entries_) {
+        if (entry.binding.key == binding.key && entry.binding.scope == binding.scope &&
+            entry.binding.when == binding.when) {
+            ++collisions_;
+            break;
+        }
+    }
+    const std::string key = binding.key;
+    binding.owner = owner;
+    entries_.push_back(Entry{owner, std::move(binding)});
+    Contribution c;
+    c.kind = CapabilityKind::Keybinding;
+    c.name = key;
+    c.remove = [this, owner, key] {
+        entries_.erase(std::remove_if(entries_.begin(), entries_.end(),
+                                      [&](const Entry& e) {
+                                          return e.owner == owner && e.binding.key == key;
+                                      }),
+                       entries_.end());
+    };
+    return c;
+}
+
+std::vector<ExtensionItem> KeybindingRegistry::items() const {
+    std::vector<ExtensionItem> out;
+    out.reserve(entries_.size());
+    for (const auto& entry : entries_)
+        out.push_back({CapabilityKind::Keybinding, entry.owner, entry.binding.key,
+                       entry.binding.action + "  [" + entry.binding.scope + "]"});
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // PluginServices
 // ---------------------------------------------------------------------------
 
@@ -474,6 +511,13 @@ PluginServices::PluginServices(ToolRegistry& tools, PromptRegistry& prompts, Sta
                                EventBus& events, CommandRegistry& commands) noexcept
     : tools_(&tools), prompts_(&prompts), status_(&status), panels_(&panels), wallets_(&wallets),
       search_backends_(std::move(search_backends)), events_(&events), commands_(&commands) {}
+
+KeybindingRegistry& PluginServices::keybindings() noexcept {
+    // A bare host that never declared bindings gets a stable empty registry,
+    // so a capability can install without a null check.
+    static KeybindingRegistry empty;
+    return keybindings_ ? *keybindings_ : empty;
+}
 
 SearchBackendProvider PluginServices::search_backend_provider() const {
     return make_search_backend_provider(search_backends_);
@@ -739,6 +783,19 @@ InstallResult SettingsCapability::install(PluginServices& services) {
 }
 
 CommandCapability::CommandCapability(CommandSpec spec) : spec_(std::move(spec)) {}
+
+KeybindingCapability::KeybindingCapability(KeyBinding binding) : binding_(std::move(binding)) {}
+
+InstallResult KeybindingCapability::install(PluginServices& services) {
+    InstallResult r;
+    if (binding_.key.empty() || binding_.action.empty()) {
+        r.error = "keybinding capability needs a key and an action";
+        return r;
+    }
+    r.contribution = services.keybindings().add(services.owner(), binding_);
+    r.ok = true;
+    return r;
+}
 
 InstallResult CommandCapability::install(PluginServices& services) {
     InstallResult r;

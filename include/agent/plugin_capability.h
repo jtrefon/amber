@@ -35,6 +35,7 @@ enum class CapabilityKind : std::uint8_t {
     Provider,
     Wallet,
     Command,
+    Keybinding,
     SearchBackend,
     Skill,
     Settings,
