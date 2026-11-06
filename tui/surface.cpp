@@ -251,13 +251,10 @@ std::vector<Damage> Surface::diff() const {
                 continue;
             if (next.continuation)
                 continue; // the lead cell repaints both columns
-            if (shown.continuation) {
-                // The old glyph was wide, its replacement is not: blank the
-                // orphaned second column instead of leaving half a glyph.
-                damage.push_back(Damage{x, y, Cell{" ", next.style, false}});
-            } else {
-                damage.push_back(Damage{x, y, next});
-            }
+            // A cell that used to be the second half of a wide glyph is
+            // reported too: writing the new value erases the old tail. A blank
+            // here would drop whatever new glyph sits in that column.
+            damage.push_back(Damage{x, y, next});
         }
     }
     return damage;
