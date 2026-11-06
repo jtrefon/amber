@@ -828,12 +828,24 @@ private:
             // Both spellings during the transition: the TUI now delivers the
             // generic task digest, while the legacy CLI --watch-wake path
             // still reports a watch directly.
+            const bool approval_probe = body.find("approval probe") != std::string::npos;
             const bool report = body.find("background task report") != std::string::npos ||
                                 body.find("background watch") != std::string::npos;
-            const bool first = chat_calls_ == 1 && !report;
+            const bool first = chat_calls_ == 1 && !report && !approval_probe;
             std::string message;
             std::string finish = "stop";
-            if (report) {
+            if (approval_probe) {
+                // Give the user time to leave the window, so the approval is a
+                // background event rather than the active tab's dialog.
+                std::this_thread::sleep_for(std::chrono::milliseconds(800));
+                if (chat_calls_ == 1) {
+                    finish = "tool_calls";
+                    message =
+                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo approved > /tmp/amber-pty-approval\"}"}}]})";
+                } else {
+                    message = R"({"role":"assistant","content":"APPROVAL-DONE"})";
+                }
+            } else if (report) {
                 message = R"({"role":"assistant","content":"REPORT-ACK"})";
             } else if (first) {
                 const std::string args =
@@ -3109,6 +3121,62 @@ TEST(worktree_off_survives_a_restart_and_parks_instead_of_reattaching) {
 
 // The working row joins the tool verb to the model's own last sentence. The
 // narration is already streamed; the row must show it before the tool finishes.
+// Approval is a background event: the worker window's tool call raises the
+// dialog while another window is active, the dialog names that window, and the
+// approved turn continues. The host never changes the active window, so focus
+// stays where the user left it.
+TEST(approval_in_a_background_window_names_its_session) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    Tui tui;
+    tui.name = "approval_in_a_background_window_names_its_session";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/window new noworkdir\r");
+    tui.pump(500);
+    tui.send("/window rename worker\r");
+    tui.pump(500);
+    tui.send("approval probe\r");
+    tui.pump(200);
+    // Leave the window before the endpoint answers (it waits 800 ms), so the
+    // approval is raised for a tab the user is not looking at.
+    tui.send("/window set 1\r");
+    tui.pump(300);
+
+    if (!require(tui.wait_for("Approve action?", 20000), "the approval dialog never opened", tui))
+        return;
+    require(tui.text().find("[worker]") != std::string::npos,
+            "the approval did not name the originating session", tui);
+    const std::string marker_file = "/tmp/amber-pty-approval";
+    std::error_code ec;
+    fs::remove(marker_file, ec);
+    tui.send("1"); // Allow once
+    if (!require(tui.wait_for("approval: allowed once", 10000), "the approval was not accepted",
+                 tui))
+        return;
+    tui.send("/window list\r");
+    if (!require(tui.wait_for("1:pty-beta*", 8000), "the approval stole the active window", tui))
+        return;
+    require(tui.text().find("2:worker") != std::string::npos, "the worker window disappeared", tui);
+
+    // The approved command must actually have run. The tool wrote this file, so
+    // a denial would leave it absent.
+    bool ran = false;
+    for (int waited = 0; waited < 8000 && !ran; waited += 50) {
+        ran = fs::exists(marker_file);
+        if (!ran)
+            tui.pump(50);
+    }
+    fs::remove(marker_file, ec);
+    require(ran, "the approved command did not run", tui);
+}
+
 TEST(working_row_shows_the_narrated_intent) {
     RestoreFile restore_settings(agent::Workspace::settings_path());
     FakeModelsEndpoint api;
@@ -3780,6 +3848,7 @@ int main(int argc, char** argv) {
     gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();
     working_row_shows_the_narrated_intent();
+    approval_in_a_background_window_names_its_session();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();

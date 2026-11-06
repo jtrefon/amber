@@ -2,9 +2,6 @@
   "_comment": "Files allowed to include ncurses; regenerate with tools/ncurses_ratchet.py --update.",
   "files": [
     "tui/canvas.h",
-    "tui/confirm_panel.cpp",
-    "tui/form_edit.cpp",
-    "tui/info_dialog.cpp",
     "tui/keys_ncurses.h",
     "tui/panel.h",
     "tui/panel_view.cpp",
@@ -14,7 +11,6 @@
     "tui/skills_explorer.cpp",
     "tui/skills_sheet_view.cpp",
     "tui/terminal.cpp",
-    "tui/welcome.h",
-    "tui/widgets.h"
+    "tui/welcome.h"
   ]
 }

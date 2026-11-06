@@ -6,6 +6,7 @@
 
 #include <ncurses.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -73,10 +74,15 @@ int attr_for(const Style& style, const Theme& theme) {
 struct Terminal::Impl {
     Theme theme = Theme::amber(GlyphMode::Unicode);
     bool started = false;
+    bool pairs_registered = false;
+    WINDOW* overlay = nullptr;
+    int overlay_w = 0;
+    int overlay_h = 0;
 
     void register_pairs() {
-        if (!has_colors())
+        if (!has_colors() || pairs_registered)
             return;
+        pairs_registered = true;
         start_color();
         use_default_colors();
         for (int i = 0; i < static_cast<int>(Role::Count); ++i) {
@@ -113,8 +119,24 @@ void Terminal::start() {
 void Terminal::stop() {
     if (!impl_ || !impl_->started)
         return;
+    close_overlay();
     endwin();
     impl_->started = false;
+}
+
+void Terminal::adopt() {
+    impl_->register_pairs();
+}
+
+void Terminal::set_timeout(int milliseconds) {
+    timeout(milliseconds);
+}
+
+int Terminal::read_key_now() {
+    timeout(0);
+    const int key = getch();
+    timeout(-1);
+    return key == ERR ? keys::kNone : key;
 }
 
 Size Terminal::size() const {
@@ -144,6 +166,59 @@ void Terminal::clear_screen() {
 int Terminal::read_key() {
     const int key = getch();
     return key == ERR ? keys::kNone : key;
+}
+
+void Terminal::overlay(const Surface& surface, int x, int y, int cursor_x, int cursor_y) {
+    const Size screen = size();
+    const int left = std::max(0, x);
+    const int top = std::max(0, y);
+    const int width = std::min(surface.width() + x - left, screen.w - left);
+    const int height = std::min(surface.height() + y - top, screen.h - top);
+    if (width <= 0 || height <= 0)
+        return;
+    if (!impl_->overlay || impl_->overlay_w != width || impl_->overlay_h != height) {
+        if (impl_->overlay)
+            delwin(impl_->overlay);
+        impl_->overlay = newwin(height, width, top, left);
+        impl_->overlay_w = width;
+        impl_->overlay_h = height;
+    }
+    WINDOW* win = impl_->overlay;
+    werase(win);
+    for (int row = 0; row < height; ++row) {
+        for (int column = 0; column < width; ++column) {
+            const Cell& cell = surface.at(column + left - x, row + top - y);
+            if (cell.continuation)
+                continue;
+            wattrset(win, attr_for(cell.style, impl_->theme));
+            const std::wstring glyph = text::to_wide(cell.glyph);
+            if (!glyph.empty())
+                mvwaddnwstr(win, row, column, glyph.c_str(), static_cast<int>(glyph.size()));
+        }
+    }
+    if (cursor_x >= 0 && cursor_y >= 0) {
+        wmove(win, cursor_y, cursor_x);
+        curs_set(1);
+    } else {
+        curs_set(0);
+    }
+    wnoutrefresh(win);
+    doupdate();
+}
+
+void Terminal::close_overlay() {
+    if (!impl_ || !impl_->overlay)
+        return;
+    delwin(impl_->overlay);
+    impl_->overlay = nullptr;
+    impl_->overlay_w = 0;
+    impl_->overlay_h = 0;
+    curs_set(0);
+    // The overlay wrote into the virtual screen; stdscr still holds the frame
+    // the dialog covered, so one full refresh restores it.
+    touchwin(stdscr);
+    wnoutrefresh(stdscr);
+    doupdate();
 }
 
 } // namespace tui

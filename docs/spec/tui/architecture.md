@@ -24,16 +24,16 @@ because their logic is welded to ncurses.
     gauge_text,input_line_layout,completion_context,help_page,option_key_decode,
     form_focus,list_state,dialog_pager,panel_view_text,session_browser_view,
     wrap_columns,cmdline_edit,geometry,cell,glyphs,theme,surface,compositor,
-    component,gallery}.{h,cpp}`
+    component,gallery,dialog_state,dialog_view}.{h,cpp}`
   - **L2 Application** — `tui/{event_loop,window_ops,slash_dispatcher,
     agent_event_handlers,command_service,session_service,prompt_service,
     popup_service,help_service,shutdown_service}.{h,cpp}`
   - **L3 Ports** — `tui/{display_port,key_source_port,modal_port,session_port,
     prompt_port,window_ops_port,terminal_port,clock_port}.h`
-  - **L4 Adapters** — `tui/{terminal,gallery_screen,render_engine,event_router,
-    confirm_panel,list_panel,panel,panel_view,dialog,form_edit,info_dialog,
-    menu_select,welcome,session_controller,feed_manager,tui_window_ops_hooks,
-    tui_ui_services}.{h,cpp}`
+  - **L4 Adapters** — `tui/{terminal,gallery_screen,modal_host,widgets,
+    render_engine,event_router,confirm_panel,list_panel,panel,panel_view,dialog,
+    form_edit,info_dialog,menu_select,welcome,session_controller,feed_manager,
+    tui_window_ops_hooks,tui_ui_services}.{h,cpp}`
   - **L5 Composition** — `tui/{tui,tui_main}.{h,cpp}`
 - **Test files**: `tests/tui_tests.cpp` (L1), `tests/session_browser_test.cpp`,
   `tests/command_line_test.cpp`, `tests/completions_test.cpp`, plus new per-unit

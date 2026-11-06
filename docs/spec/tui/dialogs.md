@@ -1,98 +1,97 @@
-## Spec: Approval Dialog
+# Spec: Dialogs and the modal stack
 
-### Purpose
-Block the agent worker thread with a modal ncurses dialog that presents
-approval options to the user, then return the selected `Approval` value.
-Supports keyboard shortcuts (`1` `2` `3` `4`), Tab/arrow navigation,
-a countdown timer that auto-selects the default, and last-choice tracking.
+- **Status:** 0.8. M4 of the shell plan. Every blocking dialog paints through the
+  cell grid (`dialog_view`) and runs through one host (`ModalHost`).
+- **Issue:** #516.
+- **Related:** `render-foundation.md`, `docs/spec/plugins/developer-guide.md`,
+  `docs/spec/tui/architecture.md`.
 
-### Ownership
-- **Source files**: `tui/confirm_panel.cpp`, `tui/confirm_panel.h`
-- **Used by**: `tui/tui.cpp` `resolve_approval()`, `tui/tui_input.cpp` inline hook
+## 1. Why one host
 
----
+A dialog is not a screen: it blocks the agent worker that asked for an answer,
+paints over the frame the user was reading, and returns one value. The old
+widgets each owned an ncurses `WINDOW`/`PANEL`, a `getch()` loop and a modal
+flag, so deferred approvals, Esc/cancel semantics and the input timeout were
+re-derived per dialog. `ModalHost` owns exactly those concerns once:
 
-### Contract
+| Concern | Owner |
+|---|---|
+| terminal overlay, keys, timeout | `ModalHost` + `Terminal` |
+| what the sheet means / how it reacts | `dialog_state` (pure) |
+| what it looks like | `dialog_view` (pure `Surface`) |
+| deferring while a modal is open | `EventRouter` pending queues |
+| the modal flag | `ModalScope` (`widgets.h`) |
 
-| Dimension | Detail |
-|-----------|--------|
-| **Input** | Tool summary text, timeout seconds, default option index (0-3) |
-| **Output** | `agent::Approval` enum value |
-| **Error states** | None — Esc maps to `Deny`, timer expiry maps to default |
-| **Thread safety** | Called from agent worker thread via promise/future |
+The state machines take a key and return `DialogKey::{None,Redraw,Accept,Cancel}`;
+the host blits `paint_dialog(view, size)` and never sees ncurses types. The form
+reuses `form_focus`'s documented key map, so its key behaviour cannot drift.
 
-### Options
+## 2. Host contract
 
-| Key | Label | PolicyLevel | Effect |
-|-----|-------|-------------|--------|
-| `1` | Allow once | `AllowOnce` | Pass through, no state change |
-| `2` | Allow session | `AllowSession` | Grant for rest of conversation |
-| `3` | Allow (always) | `AlwaysAllow` | Persist rule to PolicyStore |
-| `4` | Deny (always) | `AlwaysDeny` | Persist rule to PolicyStore |
-| Esc | Cancel | `Deny` | Deny this call only |
+- **Blocking, as before.** A dialog runs on the UI thread and the agent worker
+  waits on its promise. That is the existing approval/ask contract; M4 does not
+  make it asynchronous.
+- **Overlay, not a full screen.** The host blits only the dialog surface at the
+  centred origin. On close it restores `stdscr` with one full refresh, so the
+  frame underneath returns.
+- **Timeout restore.** The host sets the read timeout per iteration (250 ms
+  while an approval counts down, blocking otherwise) and restores
+  `kTickTimeoutMs` on every exit path, including cancel and timeout.
+- **Active window is untouched.** No sheet reads or sets the active window. A
+  background tab's approval names that tab (`[title] summary`) and leaves focus
+  where the user was; the tab carries `!` while the question is pending.
+- **Deferred questions.** `EventRouter` queues approvals, plugin asks and API-key
+  requests while `modal_open_` is set and pumps one per tick afterwards. No
+  nested curses dialog exists anymore.
 
-### Timer behavior
+## 3. Sheets
 
-- Default timeout: 60 seconds (configurable via `/set policy timeout <N>`)
-- 0 = no timeout (wait indefinitely for user input)
-- Timer displayed on the default option: `Allow once (45s)`
-- On expiry: default option is auto-selected (solidifies last choice)
-- Timer ticks are computed from elapsed wall-clock time, checked on each
-  keypress (no dedicated timer thread)
+| Sheet | Constructor | Keys | Result |
+|---|---|---|---|
+| Confirm | title, message | Tab/arrows toggle, Enter accepts, Esc cancels | bool |
+| Approval | summary, timeout, default | `1`-`4` pick+accept, Tab/arrows move, Enter accepts selection, Esc denies | `agent::Approval` |
+| Info | title, rows | Up/Down/PgUp/PgDn/Home/End scroll, Enter/Esc/q close | none |
+| List | title, items | Up/Down/PgUp/PgDn, Enter select, `/` filter, Esc cancel | index or -1 |
+| Form | title, fields, notice | Tab/arrow field navigation, printable insert, Backspace/Delete, Enter accept, Esc cancel | bool + edited values |
 
-### Default selection
+The approval countdown **denies on expiry**. It never auto-confirms: the
+fail-safe is `ApprovalModel`'s invariant, not the panel's.
 
-The default (pre-highlighted) option is determined from the PolicyStore's
-`last_choice` for the tool being approved:
-- `AllowOnce` → option 0 (pre-selected for first-time approvals)
-- `AllowSession` → option 1
-- `AlwaysAllow` → option 2
-- `AlwaysDeny` → option 3
+Paste into a form is decoded from the bracketed-paste stream before the key
+path, so an API key can be pasted without the leading ESC cancelling the dialog.
+Control bytes in a paste are dropped; the field stays single-line.
 
-### Layout
+## 4. Layout
 
 ```
 ┌──────────────────────────────────────┐
-│  Approve action?                     │
-│                                      │
-│  run: rm -rf /                       │
-│                                      │
-│  [1] Allow once    (45s)             │
-│  [2] Allow session                   │
-│  [3] Always allow                    │
-│  [4] Always deny                     │
-│                                      │
-│  1-4:pick  Enter:confirm  Esc:cancel │
+│           Approve action?            │
+│  [worker] bash: echo hi > file       │
+│  [1] Allow once (45s)  [2] Allow ... │
+│  1-4: pick   Enter: confirm  Esc ...  │
 └──────────────────────────────────────┘
 ```
 
----
+The view sizes itself to the title, body, fields and buttons, clamps to the
+screen, wraps long body lines and places at most one scroll marker per side.
+The selected row/button/field uses the `Selected` role; the footer and labels
+use `Muted`; a form notice uses `Error`. The form cursor is returned as a cell
+position and shown only while a field has focus.
 
-### Scenarios
+## 5. Notices
 
-#### [DI-01] Basic approval
-Tool requires approval → `approve_dialog()` called with summary and timeout.
-Dialog shown. User presses `1` → returns `AllowOnce`. Tool executes.
+Background completion, plugin notifications and command results remain
+`P_STATUS` transcript lines: they are bounded, scroll with the conversation and
+do not steal focus. The modal host deliberately does not own a second
+notification channel.
 
-#### [DI-02] Countdown auto-selects default
-User does nothing. After 60s, default option auto-confirms. Dialog closes
-as if user pressed Enter on the default.
+## 6. Tests
 
-#### [DI-03] Esc cancels
-User presses Esc → returns `Deny`. Call blocked.
-
-#### [DI-04] Keyboard shortcuts
-User presses `3` → immediately selects AlwaysAllow without navigating.
-
-#### [DI-05] Tab navigation
-User presses Tab → selection cycles through options. Enter confirms.
-
-#### [DI-06] Dialog reuses ConfirmPanel (yes/no)
-`confirm_dialog()` used for destructive confirmations (delete session, etc.).
-Simple Yes/No toggle with Tab/Enter/Esc.
-
----
-
-### Cross-references
-- **Depends on**: `agent/policy.h` (PolicyLevel enum), `lib/policy.cpp` (last_choice lookup)
-- **Depended on by**: `tui/tui.cpp` (resolve_approval), `tui/tui_input.cpp` (inline hook)
+- `tests/dialog_test.cpp` — state machines and painter: confirm toggle, info
+  bounds, form editing/paste/buttons, framed rendering at 80×24 and 120×40,
+  selection/filter/notice/cursor placement and small-screen clamping.
+- `tests/tui_pty_test.cpp` — the real flows: confirm/cancel on a task, provider
+  API-key form (including paste), and a background-window approval that names
+  its window, keeps the active window, and whose approved command actually runs.
+- `tests/gates/` — no separate gate; the ncurses ratchet shrinks as the old
+  dialog files stop including curses.
