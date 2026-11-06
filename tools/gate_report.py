@@ -59,6 +59,7 @@ COMMANDS = {
     "detach": ["make", "detach"],
     "prompt-lint": ["make", "prompt-lint"],
     "hygiene": ["python3", "tools/hygiene_gate.py", "--check"],
+    "ncurses": ["make", "ncurses"],
     "obfuscation": ["python3", "tools/obfuscation_guard.py"],
     "duplicates": ["make", "duplicates"],
 }

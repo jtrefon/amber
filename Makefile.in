@@ -391,7 +391,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
-        static-gates content-gates check-build \
+        static-gates content-gates check-build ncurses ncurses-update \
         verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
         release-check \
         parity-image verify-container verify-quick-container \
@@ -744,7 +744,7 @@ nesting-update:
 # job logs. Runs the gates only; it never gates anything itself, so a failure here
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
-GATES_RUN := complexity nesting class-size debt hygiene detach prompt-lint obfuscation duplicates
+GATES_RUN := complexity nesting class-size debt hygiene detach ncurses prompt-lint obfuscation duplicates
 # Writes the two report files and, when running under GitHub Actions, appends the
 # table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
 # Artefacts alone were not enough: they sit in a panel at the very bottom of the
@@ -771,6 +771,15 @@ HYGIENE_CXXFLAGS = $(subst \, ,$(LINT_CXXFLAGS))
 hygiene-self-contained:
 	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check-self-contained \
 	    --cxx $(HYGIENE_CXX) --cxxflags "$(HYGIENE_CXXFLAGS)"
+
+# The ncurses include set is a ratchet: only files in tests/ncurses_baseline.json
+# may include a curses header, and that list can only shrink. A new include means
+# a module skipped the cell grid, which is the adapter boundary the shell needs.
+ncurses:
+	@python3 "$(SRC_DIR)/tools/ncurses_ratchet.py" --check
+
+ncurses-update:
+	@python3 "$(SRC_DIR)/tools/ncurses_ratchet.py" --update
 
 hygiene-report:
 	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --report
@@ -986,6 +995,7 @@ static-gates:
 	@$(MAKE) --no-print-directory detach
 	@$(MAKE) --no-print-directory prompt-lint
 	@$(MAKE) --no-print-directory hygiene
+	@$(MAKE) --no-print-directory ncurses
 	@$(MAKE) --no-print-directory complexity
 	@$(MAKE) --no-print-directory duplicates
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
@@ -1030,6 +1040,7 @@ verify-quick:
 	@$(MAKE) --no-print-directory prompt-lint
 	@$(MAKE) --no-print-directory hygiene
 	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
+	@$(MAKE) --no-print-directory ncurses
 	@$(MAKE) --no-print-directory complexity
 	@$(MAKE) --no-print-directory duplicates
 	@$(MAKE) --no-print-directory obfuscation

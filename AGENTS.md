@@ -143,6 +143,12 @@ driven by an OpenAI-compatible LLM API.
   skipped on purpose; anything else that no longer runs is stale knowledge and
   fails the check. It is part of `make check` and `make verify-quick`, so a
   library content edit is gated even when no C++ changed.
+- `make ncurses` is a **ratchet** (`tools/ncurses_ratchet.py`): only files listed
+  in `tests/ncurses_baseline.json` may include a curses header, and the list can
+  only shrink (`make ncurses-update` records a removal). The terminal adapter
+  (`tui/terminal.cpp`) is the new exception; every other TUI module paints into
+  `tui::Surface`. A missing baseline or a scan below the file floor exits 2, so
+  a broken measurement cannot read as a pass.
 - `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
   in a header, no raw `new`/`delete` in owned source, `lib/` and
   `include/agent/` do not `#include` from `tui/`, `src/` or `tools/`, and a
