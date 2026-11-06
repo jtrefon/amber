@@ -4,6 +4,7 @@
 #include "tui/textutil.h"
 
 #include <algorithm>
+#include <numeric>
 #include <string>
 
 namespace tui {
@@ -31,25 +32,25 @@ std::vector<std::string> wrapped(const std::vector<std::string>& lines, int widt
 }
 
 int widest(const std::vector<std::string>& rows) {
-    int width = 0;
-    for (const auto& row : rows)
-        width = std::max(width, cols(row));
-    return width;
+    return std::accumulate(rows.begin(), rows.end(), 0, [](int width, const std::string& row) {
+        return std::max(width, cols(row));
+    });
 }
 
 int button_row_width(const std::vector<std::string>& buttons) {
-    int width = 0;
-    for (const auto& button : buttons)
-        width += cols(button) + 2;
-    return width;
+    return std::accumulate(
+        buttons.begin(), buttons.end(), 0,
+        [](int width, const std::string& button) { return width + cols(button) + 2; });
 }
 
 int dialog_width(const DialogView& view, int screen_w) {
     int width = std::max(50, cols(view.title) + 6);
     width = std::max(width, widest(view.lines) + 6);
     width = std::max(width, widest(view.items) + 6);
-    for (const auto& field : view.fields)
-        width = std::max(width, cols(field.label) + cols(field.value) + 10);
+    width = std::accumulate(
+        view.fields.begin(), view.fields.end(), width, [](int current, const FieldSpec& field) {
+            return std::max(current, cols(field.label) + cols(field.value) + 10);
+        });
     width = std::max(width, button_row_width(view.buttons) + 6);
     width = std::max(width, cols(view.footer) + 4);
     width = std::max(width, cols(view.notice) + 4);

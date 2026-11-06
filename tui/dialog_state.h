@@ -63,7 +63,6 @@ private:
     void apply_focus(form_focus::Intent intent);
     void apply_edit(const form_focus::Decision& decision);
     void move_cursor(form_focus::Intent intent);
-    void edit_text(const form_focus::Decision& decision);
     void erase_before();
     void erase_at();
     void insert_byte(unsigned char value);

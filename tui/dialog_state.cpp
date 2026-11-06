@@ -87,37 +87,37 @@ void FormState::erase_before() {
     if (!on_field() || focus_ >= fields_.size())
         return;
     std::string& value = fields_[focus_].value;
-    std::size_t& cursor = cursors_[focus_];
-    cursor = std::min(cursor, value.size());
-    if (cursor == 0)
+    std::size_t& at = cursors_[focus_];
+    at = std::min(at, value.size());
+    if (at == 0)
         return;
-    value.erase(cursor - 1, 1);
-    --cursor;
+    value.erase(at - 1, 1);
+    --at;
 }
 
 void FormState::erase_at() {
     if (!on_field() || focus_ >= fields_.size())
         return;
     std::string& value = fields_[focus_].value;
-    std::size_t& cursor = cursors_[focus_];
-    cursor = std::min(cursor, value.size());
-    if (cursor < value.size())
-        value.erase(cursor, 1);
+    std::size_t& at = cursors_[focus_];
+    at = std::min(at, value.size());
+    if (at < value.size())
+        value.erase(at, 1);
 }
 
 void FormState::insert_byte(unsigned char value) {
     if (!on_field() || focus_ >= fields_.size())
         return;
     std::string& text = fields_[focus_].value;
-    std::size_t& cursor = cursors_[focus_];
-    text.insert(cursor, 1, static_cast<char>(value));
-    ++cursor;
+    std::size_t& at = cursors_[focus_];
+    text.insert(at, 1, static_cast<char>(value));
+    ++at;
 }
 
 void FormState::insert_text(const std::string& text) {
     for (const char raw : text) {
         const auto byte = static_cast<unsigned char>(raw);
-        if (byte < 32 || byte == 127 || byte == 9 || byte == 10 || byte == 13)
+        if (byte < 32 || byte == 127)
             continue;
         insert_byte(byte);
     }
@@ -213,39 +213,22 @@ void FormState::apply_edit(const form_focus::Decision& decision) {
 void FormState::move_cursor(form_focus::Intent intent) {
     if (!on_field() || focus_ >= cursors_.size())
         return;
-    std::size_t& cursor = cursors_[focus_];
+    std::size_t& at = cursors_[focus_];
     const std::size_t size = fields_[focus_].value.size();
     switch (intent) {
     case form_focus::Intent::PrevChar:
-        if (cursor > 0)
-            --cursor;
+        if (at > 0)
+            --at;
         break;
     case form_focus::Intent::NextChar:
-        if (cursor < size)
-            ++cursor;
+        if (at < size)
+            ++at;
         break;
     case form_focus::Intent::BegLine:
-        cursor = 0;
+        at = 0;
         break;
     case form_focus::Intent::EndLine:
-        cursor = size;
-        break;
-    default:
-        break;
-    }
-}
-
-void FormState::edit_text(const form_focus::Decision& decision) {
-    switch (decision.intent) {
-    case form_focus::Intent::DelChar:
-        erase_at();
-        break;
-    case form_focus::Intent::DelPrev:
-        erase_before();
-        break;
-    case form_focus::Intent::InsertChar:
-        if (decision.insert >= 32 && decision.insert <= 126)
-            insert_byte(static_cast<unsigned char>(decision.insert));
+        at = size;
         break;
     default:
         break;
