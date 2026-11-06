@@ -78,7 +78,7 @@ struct Frame {
 Frame frame_for(const DialogView& view, Size screen) {
     Frame frame;
     frame.width = dialog_width(view, screen.w);
-    frame.lines = wrapped(view.lines, std::max(1, frame.width - 4));
+    frame.lines = view.wrap_lines ? wrapped(view.lines, std::max(1, frame.width - 4)) : view.lines;
     const int rows = content_height(view, static_cast<int>(frame.lines.size()));
     frame.height = std::clamp(rows + 3, 6, std::max(6, screen.h - 1));
     return frame;
@@ -95,12 +95,18 @@ void paint_title(Surface& surface, const DialogView& view, const Frame& frame) {
     surface.put_text(centered(frame.width, view.title), 0, view.title, Style{Role::Title});
 }
 
-void paint_lines(Surface& surface, const Frame& frame, int& y, int bottom) {
+void paint_lines(Surface& surface, const DialogView& view, const Frame& frame, int& y, int bottom) {
+    int index = 0;
     for (const auto& line : frame.lines) {
         if (y >= bottom)
             return;
-        surface.put_text(2, y, line, Style{Role::Text});
+        const bool focused = view.focus_line == index;
+        const Style style{focused ? Role::Selected : Role::Text};
+        if (focused)
+            surface.fill({1, y, frame.width - 2, 1}, Cell{" ", style});
+        surface.put_text(2, y, line, style);
         ++y;
+        ++index;
     }
 }
 
@@ -194,7 +200,7 @@ PaintedDialog paint_dialog(const DialogView& view, Size screen) {
     const int bottom = frame.height - 2; // content stops before the footer row
     int y = 1;
     Cursor cursor;
-    paint_lines(surface, frame, y, bottom);
+    paint_lines(surface, view, frame, y, bottom);
     paint_items(surface, view, frame, y, bottom);
     paint_fields(surface, view, frame, y, bottom, cursor);
     paint_notice(surface, view, y, bottom);

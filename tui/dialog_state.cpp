@@ -7,6 +7,14 @@
 namespace tui {
 
 DialogKey ConfirmState::key(int ch) {
+    if (ch == 'y' || ch == 'Y') {
+        yes_ = true;
+        return DialogKey::Accept;
+    }
+    if (ch == 'n' || ch == 'N') {
+        yes_ = false;
+        return DialogKey::Cancel;
+    }
     if (ch == '\t' || ch == keys::kLeft || ch == keys::kRight || ch == keys::kUp ||
         ch == keys::kDown) {
         yes_ = !yes_;

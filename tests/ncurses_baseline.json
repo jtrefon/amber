@@ -6,9 +6,6 @@
     "tui/panel.h",
     "tui/render_engine.h",
     "tui/rich_paint.h",
-    "tui/skills_detail_view.h",
-    "tui/skills_explorer.cpp",
-    "tui/skills_sheet_view.cpp",
     "tui/terminal.cpp",
     "tui/welcome.h"
   ]

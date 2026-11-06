@@ -25,6 +25,8 @@ struct DialogView {
     std::vector<std::string> buttons; // e.g. {"[ Yes ]", "[ No ]"}
     std::string filter;
     bool filter_mode = false;
+    bool wrap_lines = true; // a sheet of preformatted rows clips instead
+    int focus_line = -1;    // highlight one line (a facet cursor)
     int selected_item = 0;
     int first_item = 0;
     int selected_button = -1;

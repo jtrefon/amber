@@ -2,9 +2,11 @@
 
 #include "agent/remote_text.h"
 #include "agent/skill_catalog.h"
+#include "tui/glyphs.h"
 #include "tui/markdown.h"
-#include "tui/rich_paint.h"
+#include "tui/rich_surface.h"
 #include "tui/skills_format.h"
+#include "tui/textutil.h"
 
 #include <algorithm>
 
@@ -50,25 +52,25 @@ void fill_body(DetailView& view, const agent::SkillDetail& detail,
     view.body = md::render(*bytes);
 }
 
-void draw_wrapped(WINDOW* w, int row, int left, int width, const std::string& text, int attr) {
-    if (text.empty())
+void put_wrapped(Surface& surface, int row, int left, int width, const std::string& text,
+                 Role role) {
+    if (text.empty() || width <= 0)
         return;
-    wattron(w, attr);
-    mvwaddnstr(w, row, left, text.c_str(), std::max(0, width));
-    wattroff(w, attr);
+    surface.put_text(left, row, text, Style{role});
 }
 
-int draw_blocks(WINDOW* w, int y, int left, int width, const DetailView& view) {
-    draw_wrapped(w, y++, left, width, view.name, A_BOLD);
-    draw_wrapped(w, y++, left, width, view.source, A_DIM);
-    draw_wrapped(w, y++, left, width, view.headline, 0);
-    mvwaddnstr(w, y++, left, std::string(static_cast<std::size_t>(width), '-').c_str(), width);
+int paint_blocks(Surface& surface, int y, int left, int width, const DetailView& view) {
+    put_wrapped(surface, y++, left, width, view.name, Role::Title);
+    put_wrapped(surface, y++, left, width, view.source, Role::Muted);
+    put_wrapped(surface, y++, left, width, view.headline, Role::Text);
+    const Glyphs& glyphs = text::glyph::utf8() ? Glyphs::unicode() : Glyphs::ascii();
+    surface.draw_hline(left, y++, width, glyphs.hline, Style{Role::Frame});
     for (const auto& line : view.evidence)
-        draw_wrapped(w, y++, left, width, line, 0);
+        put_wrapped(surface, y++, left, width, line, Role::Text);
     if (!view.audit.empty())
-        draw_wrapped(w, y++, left, width, "Audit  " + view.audit, 0);
+        put_wrapped(surface, y++, left, width, "Audit  " + view.audit, Role::Warning);
     if (!view.cost.empty())
-        draw_wrapped(w, y++, left, width, "Cost   " + view.cost, 0);
+        put_wrapped(surface, y++, left, width, "Cost   " + view.cost, Role::Text);
     return y;
 }
 
@@ -80,10 +82,11 @@ std::string file_header(const DetailView& view) {
            std::to_string(view.file + 1) + "/" + std::to_string(view.assets.size()) + "]";
 }
 
-void draw_body(WINDOW* w, const DetailRect& rect, int y, const DetailView& view, int scroll) {
+void paint_body(Surface& surface, const DetailRect& rect, int y, const DetailView& view,
+                int scroll) {
     if (view.body.empty()) {
         if (!view.note.empty())
-            draw_wrapped(w, y, rect.left, rect.width, view.note, A_DIM);
+            put_wrapped(surface, y, rect.left, rect.width, view.note, Role::Muted);
         return;
     }
     const int rows = std::max(0, rect.top + rect.height - y);
@@ -92,7 +95,7 @@ void draw_body(WINDOW* w, const DetailRect& rect, int y, const DetailView& view,
         const auto index = static_cast<std::size_t>(first) + static_cast<std::size_t>(i);
         if (index >= view.body.size())
             break;
-        rich::paint_line(w, y + i, std::max(0, rect.width), view.body[index]);
+        rich::paint_surface_line(surface, rect.left, y + i, rect.width, view.body[index]);
     }
 }
 
@@ -120,16 +123,17 @@ DetailView build_detail_view(const agent::SkillDetail& detail, const DetailInsta
     return view;
 }
 
-void draw_detail_pane(WINDOW* w, const DetailRect& rect, const DetailView& view, int scroll) {
+void paint_detail_pane(Surface& surface, const DetailRect& rect, const DetailView& view,
+                       int scroll) {
     if (rect.width < 12 || rect.height < 3)
         return;
-    int y = draw_blocks(w, rect.top, rect.left, rect.width, view);
+    int y = paint_blocks(surface, rect.top, rect.left, rect.width, view);
     if (y >= rect.top + rect.height)
         return;
-    mvwaddnstr(w, y++, rect.left, std::string(static_cast<std::size_t>(rect.width), '-').c_str(),
-               rect.width);
-    draw_wrapped(w, y++, rect.left, rect.width, file_header(view), A_DIM);
-    draw_body(w, rect, y, view, scroll);
+    const Glyphs& glyphs = text::glyph::utf8() ? Glyphs::unicode() : Glyphs::ascii();
+    surface.draw_hline(rect.left, y++, rect.width, glyphs.hline, Style{Role::Frame});
+    put_wrapped(surface, y++, rect.left, rect.width, file_header(view), Role::Muted);
+    paint_body(surface, rect, y, view, scroll);
 }
 
 } // namespace tui

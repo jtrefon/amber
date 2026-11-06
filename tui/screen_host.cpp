@@ -9,6 +9,11 @@
 namespace tui {
 
 void ScreenHost::run(ScreenView& view, const KeyHandler& handler, int poll_ms, const Tick& tick) {
+    run([&view](Size size) { return paint_screen(view, size); }, handler, poll_ms, tick);
+}
+
+void ScreenHost::run(const Painter& painter, const KeyHandler& handler, int poll_ms,
+                     const Tick& tick) {
     ModalScope modal;
     Terminal terminal;
     terminal.adopt();
@@ -18,7 +23,7 @@ void ScreenHost::run(ScreenView& view, const KeyHandler& handler, int poll_ms, c
     } restore{terminal};
 
     for (;;) {
-        const PaintedScreen painted = paint_screen(view, terminal.size());
+        const PaintedScreen painted = painter(terminal.size());
         terminal.overlay(painted.surface, 0, 0, painted.cursor_x, painted.cursor_y);
         terminal.set_timeout(poll_ms);
         const int key = terminal.read_key();
