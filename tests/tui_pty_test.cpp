@@ -3151,8 +3151,9 @@ TEST(approval_in_a_background_window_names_its_session) {
 
     if (!require(tui.wait_for("Approve action?", 20000), "the approval dialog never opened", tui))
         return;
-    require(tui.text().find("[worker]") != std::string::npos,
-            "the approval did not name the originating session", tui);
+    if (!require(tui.wait_for("[worker]", 5000),
+                 "the approval did not name the originating session", tui))
+        return;
     const std::string marker_file = "/tmp/amber-pty-approval";
     std::error_code ec;
     fs::remove(marker_file, ec);
