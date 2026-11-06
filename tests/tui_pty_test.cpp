@@ -3151,8 +3151,9 @@ TEST(approval_in_a_background_window_names_its_session) {
 
     if (!require(tui.wait_for("Approve action?", 20000), "the approval dialog never opened", tui))
         return;
-    require(tui.text().find("[worker]") != std::string::npos,
-            "the approval did not name the originating session", tui);
+    if (!require(tui.wait_for("[worker]", 5000),
+                 "the approval did not name the originating session", tui))
+        return;
     const std::string marker_file = "/tmp/amber-pty-approval";
     std::error_code ec;
     fs::remove(marker_file, ec);
@@ -3175,6 +3176,31 @@ TEST(approval_in_a_background_window_names_its_session) {
     }
     fs::remove(marker_file, ec);
     require(ran, "the approved command did not run", tui);
+}
+
+// The contributed-panel viewer is a ScreenHost screen now: the registry console
+// paints through the same frame/rows/footer, Tab cycles and Esc restores the
+// prompt without leaving a modal behind.
+TEST(panel_view_cycles_and_returns_to_the_prompt) {
+    Tui tui;
+    tui.name = "panel_view_cycles_and_returns_to_the_prompt";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/panel\r");
+    if (!require(tui.wait_for("Plugin registry", 10000), "the registry console did not open", tui))
+        return;
+    require(tui.text().find("provider:") != std::string::npos, "the panel body did not render",
+            tui);
+
+    tui.send("\t");
+    tui.pump(400);
+    tui.send("\x1b");
+    tui.pump(500);
+    tui.send("/window list\r");
+    require(tui.wait_for("windows:", 10000), "the prompt did not return after the panel", tui);
 }
 
 TEST(working_row_shows_the_narrated_intent) {
@@ -3847,6 +3873,7 @@ int main(int argc, char** argv) {
     system_commands_do_not_freeze_the_ui();
     gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();
+    panel_view_cycles_and_returns_to_the_prompt();
     working_row_shows_the_narrated_intent();
     approval_in_a_background_window_names_its_session();
     worktree_setting_reports_itself_and_persists();

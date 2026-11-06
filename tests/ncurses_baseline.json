@@ -4,7 +4,6 @@
     "tui/canvas.h",
     "tui/keys_ncurses.h",
     "tui/panel.h",
-    "tui/panel_view.cpp",
     "tui/render_engine.h",
     "tui/rich_paint.h",
     "tui/skills_detail_view.h",

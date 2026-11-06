@@ -12,8 +12,8 @@
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "tui/widgets.h"
-#include "tui/dialog.h"
 #include "tui/drawer_rows.h"
+#include "tui/screen_view.h"
 #include "plugins/watch/watch_plugin.h"
 #include "agent/model_probe.h"
 #include "agent/provider_health.h"
@@ -3140,35 +3140,6 @@ struct WorkBoardState {
     void move(int delta) { sel = std::max(0, sel + delta); }
 };
 
-void draw_work_board(WINDOW* w, int height, int width, const WorkBoardState& state) {
-    werase(w);
-    const std::string tabs = std::string(state.section == 0 ? "[" : " ") + "All" +
-                             (state.section == 0 ? "]" : " ") + "  " +
-                             (state.section == 1 ? "[Sessions]" : " Sessions ") + "  " +
-                             (state.section == 2 ? "[Tasks]" : " Tasks ");
-    wattron(w, COLOR_PAIR(P_BANNER) | A_BOLD);
-    mvwaddnstr(w, 0, 0, tabs.c_str(), width);
-    wattroff(w, COLOR_PAIR(P_BANNER) | A_BOLD);
-    int row = 1;
-    const int list_h = height - 2;
-    const int first = std::max(0, state.sel - list_h + 1);
-    for (int i = first; i < static_cast<int>(state.items.size()) && row < list_h; ++i, ++row) {
-        const bool current = i == state.sel;
-        if (current)
-            wattron(w, A_REVERSE);
-        mvwaddnstr(w, row, 0, work_label(state.items[static_cast<std::size_t>(i)]).c_str(), width);
-        if (current)
-            wattroff(w, A_REVERSE);
-    }
-    if (state.items.empty())
-        mvwaddnstr(w, 1, 0, "(no matching work)", width);
-    wattron(w, COLOR_PAIR(P_STATUS));
-    const std::string line = state.filtering ? "/" + state.filter : "Press / to filter";
-    mvwaddnstr(w, height - 1, 0, line.c_str(), width);
-    wattroff(w, COLOR_PAIR(P_STATUS));
-    wnoutrefresh(w);
-}
-
 bool work_board_filter_key(int ch, WorkBoardState& state) {
     if (ch == 27 || ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
         state.filtering = false;
@@ -3234,7 +3205,29 @@ WorkBoardAction work_board_command_key(int ch, const WorkBoardState& state) {
     }
 }
 
-WorkBoardAction work_board_key(int ch, WorkBoardState& state) {
+} // namespace
+
+namespace {
+
+ScreenView work_board_view(const WorkBoardState& state) {
+    ScreenView view;
+    view.title = "Work";
+    view.footer = "Enter: open   a: attach   x: cancel   Tab: section   /: filter   Esc: close";
+    view.header = std::string(state.section == 0 ? "[" : " ") + "All" +
+                  (state.section == 0 ? "]" : " ") + "  " +
+                  (state.section == 1 ? "[Sessions]" : " Sessions ") + "  " +
+                  (state.section == 2 ? "[Tasks]" : " Tasks ");
+    for (std::size_t i = 0; i < state.items.size(); ++i)
+        view.rows.push_back({work_label(state.items[i]), static_cast<int>(i) == state.sel, false});
+    if (view.rows.empty())
+        view.rows.push_back({"(no matching work)", false, false});
+    view.filter = state.filter;
+    view.filter_cursor = static_cast<int>(state.filter.size());
+    view.show_filter = true;
+    return view;
+}
+
+WorkBoardAction work_board_step(int ch, WorkBoardState& state) {
     if (state.filtering) {
         work_board_filter_key(ch, state);
         return WorkBoardAction::None;
@@ -3247,43 +3240,36 @@ WorkBoardAction work_board_key(int ch, WorkBoardState& state) {
 } // namespace
 
 void SlashDispatcher::cmd_work_board() {
-    Dialog dlg(std::min(26, std::max(8, LINES - 2)), std::min(120, std::max(40, COLS - 4)), "Work");
-    dlg.set_footer({{"Enter", "open"},
-                    {"a", "attach"},
-                    {"x", "cancel"},
-                    {"Tab", "section"},
-                    {"/", "filter"},
-                    {"Esc", "close"}});
-    WINDOW* w = dlg.content();
-    const int height = dlg.rows() - 2;
-    const int width = dlg.cols() - 2;
-    wtimeout(w, 250);
     WorkBoardState state;
+    state.sync(collect_work_items(*tui_.window_manager_, *tui_.tasks_));
+    ScreenView view = work_board_view(state);
 
-    bool done = false;
-    while (!done) {
-        state.sync(collect_work_items(*tui_.window_manager_, *tui_.tasks_));
-        draw_work_board(w, height, width, state);
-        update_panels();
-        doupdate();
-
-        const int ch = wgetch(w);
-        if (ch == ERR || ch == KEY_RESIZE)
-            continue;
-        const WorkBoardAction action = work_board_key(ch, state);
-        if (action == WorkBoardAction::Close) {
-            done = true;
-        } else if (action == WorkBoardAction::NewSession) {
-            tui_.new_window("chat");
-            done = true;
-        } else if (action == WorkBoardAction::Open || action == WorkBoardAction::Stop) {
-            if (const WorkItem* item = state.current()) {
-                apply_work_item(item->kind, item->id, item->window_index);
-                done = true;
+    ScreenHost host;
+    host.run(
+        view,
+        [&](int ch) {
+            switch (work_board_step(ch, state)) {
+            case WorkBoardAction::Close:
+                return true;
+            case WorkBoardAction::NewSession:
+                tui_.new_window("chat");
+                return true;
+            case WorkBoardAction::Open:
+            case WorkBoardAction::Stop:
+                if (const WorkItem* item = state.current())
+                    apply_work_item(item->kind, item->id, item->window_index);
+                return true;
+            case WorkBoardAction::None:
+                break;
             }
-        }
-    }
-    dlg.hide();
+            view = work_board_view(state);
+            return false;
+        },
+        250,
+        [&] {
+            state.sync(collect_work_items(*tui_.window_manager_, *tui_.tasks_));
+            view = work_board_view(state);
+        });
     tui_.draw();
 }
 
