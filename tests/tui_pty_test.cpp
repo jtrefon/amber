@@ -1793,6 +1793,27 @@ TEST(input_scroll_keeps_tail_visible) {
     require(tui.wait_for("ZZZ", 4000), "the input tail stayed clipped off screen", tui);
 }
 
+// The dev screen is a real end-to-end user of the foundation: it paints the
+// gallery through the terminal adapter, switches glyph mode, repaints in place
+// and exits on Esc with the normal exit marker.
+TEST(gallery_dev_screen_renders_switches_and_quits) {
+    Tui tui;
+    tui.name = "gallery_dev_screen_renders_switches_and_quits";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {"--gallery"}));
+    if (!require(tui.wait_for("Amber render gallery", 8000), "the gallery never painted", tui))
+        return;
+    require(tui.text().find("Frame:") != std::string::npos, "the gallery lost its primitives", tui);
+    require(tui.text().find("a: ASCII") != std::string::npos, "the footer is missing", tui);
+
+    tui.send("a"); // Unicode -> ASCII
+    tui.pump(500);
+    require(tui.wait_for("a: Unicode", 5000), "the glyph mode did not switch", tui);
+
+    tui.send("\x1b");
+    require(tui.wait_exit(10000), "the gallery did not exit on Esc", tui);
+    require(tui.exit_ready_seen(), "the gallery exited without the exit marker", tui);
+}
+
 // The binder's ui.* actions reach the same handlers in the running app:
 // Ctrl+W edits the prompt, ESC+m toggles mouse reporting, and a bare ESC on an
 // idle prompt toggles scroll mode. None of them may insert their bytes.
