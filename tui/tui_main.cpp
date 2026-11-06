@@ -13,6 +13,7 @@
 #include "agent/data_path.h"
 
 #include "tui.h"
+#include "gallery_screen.h"
 
 #include <algorithm>
 #include <clocale>
@@ -37,7 +38,8 @@ void print_usage(const char* argv0) {
                  "  --model <name>     LLM model\n"
                  "  --system <file>    System prompt path\n"
                  "  --tools <file>     Tools prompt path\n"
-                 "  --no-stream        Disable streaming responses\n",
+                 "  --no-stream        Disable streaming responses\n"
+                 "  --gallery          Render the component gallery (dev screen)\n",
                  argv0);
 }
 
@@ -76,6 +78,7 @@ std::optional<int> handle_version_help(int argc, char** argv) {
 
 struct TuiCliArgs {
     std::string config_file;
+    bool gallery = false;
 };
 
 // Consume the next argument as this flag's value. Returns false — leaving the
@@ -107,6 +110,8 @@ void parse_tui_args(int argc, char** argv, agent::Config& cfg, TuiCliArgs& args)
             take_value(argc, argv, i, cfg.tools_prompt_path);
         else if (a == "--no-stream")
             cfg.stream = false;
+        else if (a == "--gallery")
+            args.gallery = true;
     }
 }
 
@@ -199,6 +204,11 @@ int main(int argc, char** argv) try {
     agent::Config cfg;
     TuiCliArgs args;
     parse_tui_args(argc, argv, cfg, args);
+    if (args.gallery) {
+        const int rc = tui::run_gallery_screen();
+        agent::announce_exit_ready();
+        return rc;
+    }
     if (!args.config_file.empty())
         cfg.load(args.config_file);
     apply_global_config(cfg);

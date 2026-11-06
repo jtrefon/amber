@@ -194,7 +194,8 @@ key_action input_state key_read drawer_rows textutil rich palette tool_display
 path_confine approval_model run_registry setting_registry markdown markdown_md4c
 reasoning_block help_page completion_context option_key_decode status_bar_layout
 markdown_normalize info_dialog_layout list_state panel_view_state form_focus
-session_row input_line_layout ansi_sgr"
+session_row input_line_layout ansi_sgr geometry theme glyphs surface compositor
+component gallery"
 NC_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"](ncurses|panel|form|menu)\.h'
 PORT_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]*_port\.h'
 p7_bad=0
@@ -390,7 +391,7 @@ else
     warn "P15: verify-quick does not run tests/build_hygiene.sh"
 fi
 for t in format-check-changed lint-changed test-presence class-size nesting debt \
-         detach prompt-lint hygiene hygiene-self-contained complexity duplicates \
+         detach prompt-lint hygiene hygiene-self-contained ncurses complexity duplicates \
          obfuscation gates-test library-check ci-manifest; do
     if echo "$verify_out" | grep -q -- "$t"; then
         ok "P15: verify-quick runs $t"

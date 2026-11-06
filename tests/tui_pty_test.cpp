@@ -1766,7 +1766,7 @@ TEST(system_commands_do_not_freeze_the_ui) {
 }
 
 // A plugin keybinding is a data contribution, not a second input path: the
-// hello plugin binds Ctrl+G to the same action its /hello greet command runs.
+// hello plugin binds Ctrl+Y to the same action its /hello greet command runs.
 TEST(plugin_keybinding_runs_the_command_action) {
     Tui tui;
     tui.name = "plugin_keybinding_runs_the_command_action";
@@ -1793,6 +1793,30 @@ TEST(input_scroll_keeps_tail_visible) {
     require(tui.wait_for("ZZZ", 4000), "the input tail stayed clipped off screen", tui);
 }
 
+// The dev screen is a real end-to-end user of the foundation: it paints the
+// gallery through the terminal adapter, switches glyph mode, repaints in place
+// and exits on Esc with the normal exit marker.
+TEST(gallery_dev_screen_renders_switches_and_quits) {
+    Tui tui;
+    tui.name = "gallery_dev_screen_renders_switches_and_quits";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {"--gallery"}));
+    if (!require(tui.wait_for("Amber render gallery", 8000), "the gallery never painted", tui))
+        return;
+    require(tui.text().find("Frame:") != std::string::npos, "the gallery lost its primitives", tui);
+    require(tui.text().find("a: ASCII") != std::string::npos, "the footer is missing", tui);
+
+    // The adapter blits a diff, so the repaint carries only changed cells: the
+    // footer prefix "a: " is unchanged and the mode word is what moved.
+    tui.raw.clear();
+    tui.send("a"); // Unicode -> ASCII
+    tui.pump(500);
+    require(tui.wait_for("Unicode", 5000), "the glyph mode did not switch", tui);
+
+    tui.send("\x1b");
+    require(tui.wait_exit(10000), "the gallery did not exit on Esc", tui);
+    require(tui.exit_ready_seen(), "the gallery exited without the exit marker", tui);
+}
+
 // The binder's ui.* actions reach the same handlers in the running app:
 // Ctrl+W edits the prompt, ESC+m toggles mouse reporting, and a bare ESC on an
 // idle prompt toggles scroll mode. None of them may insert their bytes.
@@ -1804,13 +1828,19 @@ TEST(keybinding_actions_edit_and_toggle_the_shell) {
         return;
 
     tui.send("one two");
-    tui.pump(300);
-    tui.send("\x17"); // Ctrl+W
     tui.pump(500);
-    const std::string edited = tui.text();
-    if (!require(edited.find("one ") != std::string::npos, "Ctrl+W lost the prefix", tui))
+    tui.send("\x17"); // Ctrl+W
+    tui.pump(300);
+    // The input line is diffed by ncurses, so the repaint carries only changed
+    // cells. Submit instead: the new transcript line is painted whole, which is
+    // the observable result of the edit.
+    tui.send("!\r");
+    if (!require(tui.wait_for("> one !", 8000), "Ctrl+W did not leave the prefix", tui))
         return;
-    require(edited.find("one two") == std::string::npos, "Ctrl+W did not delete the word", tui);
+    require(tui.text().find("> one two") == std::string::npos, "Ctrl+W did not delete the word",
+            tui);
+    tui.send("\x03"); // cancel the turn
+    tui.pump(500);
 
     tui.send("\x1bm"); // ESC+m
     require(tui.wait_for("mouse: off", 5000), "ESC+m did not toggle mouse reporting", tui);
@@ -3717,6 +3747,8 @@ int main(int argc, char** argv) {
     shell_menu_navigates_runs_an_action_and_releases_the_prompt();
     shell_amber_mark_click_opens_the_menu();
     shell_tab_click_switches_and_the_close_cell_closes();
+    plugin_keybinding_runs_the_command_action();
+    keybinding_actions_edit_and_toggle_the_shell();
     bracketed_paste_fills_a_secret_field_and_keeps_the_editor_open();
     set_model_lists_every_configured_providers_cached_models();
     set_model_provider_tabs_narrow_the_rows();
@@ -3745,6 +3777,7 @@ int main(int argc, char** argv) {
     skills_explorer_opens_switches_tabs_and_closes();
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
     system_commands_do_not_freeze_the_ui();
+    gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();
     working_row_shows_the_narrated_intent();
     worktree_setting_reports_itself_and_persists();

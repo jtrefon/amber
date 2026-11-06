@@ -282,6 +282,10 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/log_retention_controller.o \
              $(BUILD_DIR)/tui/slash_dispatcher.o \
              $(BUILD_DIR)/tui/key_binder.o \
+             $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o \
+             $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o \
+             $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o \
+             $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/gallery_screen.o \
              $(BUILD_DIR)/tui/window_ops.o \
              $(BUILD_DIR)/tui/tui_window_ops_hooks.o \
              $(BUILD_DIR)/tui/watch_cancel.o \
@@ -330,6 +334,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
+               $(BUILD_DIR)/tests/render_foundation_test.o \
                $(BUILD_DIR)/tests/task_service_test.o \
                $(BUILD_DIR)/tests/tasks_tool_test.o \
                $(BUILD_DIR)/tests/task_inbox_test.o \
@@ -386,7 +391,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
-        static-gates content-gates check-build \
+        static-gates content-gates check-build ncurses ncurses-update \
         verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
         release-check \
         parity-image verify-container verify-quick-container \
@@ -739,7 +744,7 @@ nesting-update:
 # job logs. Runs the gates only; it never gates anything itself, so a failure here
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
-GATES_RUN := complexity nesting class-size debt hygiene detach prompt-lint obfuscation duplicates
+GATES_RUN := complexity nesting class-size debt hygiene detach ncurses prompt-lint obfuscation duplicates
 # Writes the two report files and, when running under GitHub Actions, appends the
 # table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
 # Artefacts alone were not enough: they sit in a panel at the very bottom of the
@@ -766,6 +771,15 @@ HYGIENE_CXXFLAGS = $(subst \, ,$(LINT_CXXFLAGS))
 hygiene-self-contained:
 	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --check-self-contained \
 	    --cxx $(HYGIENE_CXX) --cxxflags "$(HYGIENE_CXXFLAGS)"
+
+# The ncurses include set is a ratchet: only files in tests/ncurses_baseline.json
+# may include a curses header, and that list can only shrink. A new include means
+# a module skipped the cell grid, which is the adapter boundary the shell needs.
+ncurses:
+	@python3 "$(SRC_DIR)/tools/ncurses_ratchet.py" --check
+
+ncurses-update:
+	@python3 "$(SRC_DIR)/tools/ncurses_ratchet.py" --update
 
 hygiene-report:
 	@python3 "$(SRC_DIR)/tools/hygiene_gate.py" --report
@@ -981,6 +995,7 @@ static-gates:
 	@$(MAKE) --no-print-directory detach
 	@$(MAKE) --no-print-directory prompt-lint
 	@$(MAKE) --no-print-directory hygiene
+	@$(MAKE) --no-print-directory ncurses
 	@$(MAKE) --no-print-directory complexity
 	@$(MAKE) --no-print-directory duplicates
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
@@ -1025,6 +1040,7 @@ verify-quick:
 	@$(MAKE) --no-print-directory prompt-lint
 	@$(MAKE) --no-print-directory hygiene
 	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
+	@$(MAKE) --no-print-directory ncurses
 	@$(MAKE) --no-print-directory complexity
 	@$(MAKE) --no-print-directory duplicates
 	@$(MAKE) --no-print-directory obfuscation
@@ -1105,8 +1121,8 @@ class-size-update:
 
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/info_dialog_layout.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
 
 
 $(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o

@@ -989,8 +989,13 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
         return false;
     const bool handled =
         slash_dispatcher_->dispatch_key_action(binding.action, binding.arg, ch, cl, state);
-    if (handled)
+    if (handled) {
+        // A key can run any action, including a plugin command that appends a
+        // status line. The input-only repaint left that line queued until the
+        // next unrelated event, so the key looked dead.
+        draw();
         draw_input(cl.text(), cl.cursor(), cl.shadow());
+    }
     return handled;
 }
 
