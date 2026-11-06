@@ -202,7 +202,6 @@ void Tui::init_terminal() {
     // From here the terminal has modes that outlive the process: anything that
     // exits without endwin() must undo them itself.
     g_terminal_guard.arm();
-    set_modal_flag(&modal_open_);
     use_default_colors();
     use_legacy_coding(1);
     init_pairs();
@@ -884,7 +883,7 @@ void Tui::poll_watch_usage() {
 // the sweep moves in the event loop's own steps instead of jumping at 150 ms.
 void Tui::idle_tick(bool had_events, CommandLine& cl) {
     const auto now = std::chrono::steady_clock::now();
-    const bool hint_eligible = cl.text().empty() && !runs_.busy(win().id) && !modal_open_ &&
+    const bool hint_eligible = cl.text().empty() && !runs_.busy(win().id) && !modal_open() &&
                                !menu_->is_open() && !render_engine_->drawer_open();
     menu_->update_hint(now, hint_eligible && !had_events);
 

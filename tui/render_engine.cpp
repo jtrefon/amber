@@ -1085,7 +1085,7 @@ void RenderEngine::draw_drawer(const std::string& input) {
     if (!drawer_open_ || input.empty() || input.front() != '/')
         return;
     const int bar_row = height() - 2;
-    if (tui_.modal_open_) {
+    if (modal_open()) {
         clear_rows(std::max(0, bar_row - 8), bar_row);
         return;
     }

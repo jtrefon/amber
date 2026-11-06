@@ -541,7 +541,6 @@ void SessionController::save_workspace_now() {
     store_for(agent::Workspace::project_root()).save_workspace(ws);
 }
 void SessionController::redraw_after_modal() {
-    tui_.modal_open_ = false;
     // Resolve any approvals that arrived while a modal dialog was open. Each
     // resolve shows its own (non-nested) approval dialog on the now-live loop.
     while (!tui_.router_->pending_approvals().empty()) {

@@ -191,7 +191,7 @@ private:
     std::unique_ptr<TuiUiServices> ui_services_;
     // Mouse reporting is on by default (wheel scrolls the chat log). Off lets
     // the terminal select and copy with a plain drag.
-    bool modal_open_ = false, mouse_on_ = true;
+    bool mouse_on_ = true;
 
     // Per-window run slots: each window's agent has its own worker thread,
     // busy/cancel flags, and pending-prompt queue (see run_registry.h).

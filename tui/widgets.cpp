@@ -3,21 +3,20 @@
 namespace tui {
 
 namespace {
-bool* g_modal_flag = nullptr;
+int g_modal_depth = 0;
 } // namespace
 
-void set_modal_flag(bool* flag) {
-    g_modal_flag = flag;
+bool modal_open() noexcept {
+    return g_modal_depth > 0;
 }
 
 ModalScope::ModalScope() {
-    if (g_modal_flag)
-        *g_modal_flag = true;
+    ++g_modal_depth;
 }
 
 ModalScope::~ModalScope() {
-    if (g_modal_flag)
-        *g_modal_flag = false;
+    if (g_modal_depth > 0)
+        --g_modal_depth;
 }
 
 } // namespace tui

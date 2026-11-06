@@ -16,10 +16,11 @@ namespace tui {
 // use_default_colors()) to have been called first.
 void init_pairs();
 
-// Register the owner's "a modal dialog is open" flag. A modal primitive sets
-// it so the host event loop can defer agent approvals instead of nesting
-// dialogs or deadlocking the worker. Pass nullptr to detach.
-void set_modal_flag(bool* flag);
+// True while a modal owns the UI loop. ModalScope keeps a nesting depth, so the
+// host event loop can defer agent approvals instead of nesting dialogs or
+// deadlocking the worker. There is no pointer to an owner's member: the last
+// owner is not always the process.
+bool modal_open() noexcept;
 
 // The main event loop ticks getch with this non-blocking timeout. The modal
 // host restores this value on every exit path, so a closed dialog cannot freeze
