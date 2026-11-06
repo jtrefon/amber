@@ -1,15 +1,14 @@
-
 #include "widgets.h"
-#include "tui/list_panel.h"
+
+#include "tui/modal_host.h"
+
+#include <string>
+#include <vector>
 
 namespace tui {
 
 int menu_select(const std::string& title, const std::vector<std::string>& choices) {
-    ModalScope scope;
-    curs_set(0);
-
-    ListPanel panel(title, choices);
-    return panel.run();
+    return ModalHost{}.choose(title, choices);
 }
 
 } // namespace tui

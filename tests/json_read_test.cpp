@@ -204,7 +204,10 @@ TEST(json_read_tasks_output_adopts_a_numeric_since) {
     agent::ToolResult r;
     for (int i = 0; i < 100; ++i) {
         r = tool->execute({{"action", "output"}, {"id", started.output}, {"since", 0}});
-        if (r.output.find("one") != std::string::npos)
+        // Both lines, not just the first: the reader can publish "one" before
+        // "two", and breaking on the first made the next assertion a race
+        // (caught under TSan).
+        if (r.output.find("one") != std::string::npos && r.output.find("two") != std::string::npos)
             break;
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }

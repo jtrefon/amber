@@ -24,7 +24,21 @@ public:
     void start();
     void stop();
 
+    // The Tui already owns curses. A dialog host calls adopt() to register the
+    // theme pairs without re-running initscr.
+    void adopt();
+
     Size size() const;
+
+    // A modal overlay: paint a whole surface at (x, y) over the current screen.
+    // No diff: the surface is self-contained, and close_overlay() restores the
+    // screen buffer that was underneath.
+    void overlay(const Surface& surface, int x, int y, int cursor_x = -1, int cursor_y = -1);
+    void close_overlay();
+
+    void set_timeout(int milliseconds);
+    // One non-blocking read (the modal paste probe).
+    int read_key_now();
 
     // Repaint only the cells whose value changed since the last present, then
     // flush with one doupdate(). Commits the surface on success.

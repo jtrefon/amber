@@ -310,7 +310,7 @@ void EventRouter::defer_or_resolve_approval(AgentEvent ev) {
     // queue the approval so we don't nest ncurses dialogs or deadlock the
     // worker on its promise. Resolved in redraw_after_modal() once the modal
     // closes.
-    if (tui_.modal_open_) {
+    if (modal_open()) {
         pending_approvals_.push(std::move(ev));
         return;
     }
@@ -318,7 +318,7 @@ void EventRouter::defer_or_resolve_approval(AgentEvent ev) {
 }
 
 void EventRouter::defer_or_resolve_api_key(AgentEvent ev) {
-    if (tui_.modal_open_) {
+    if (modal_open()) {
         pending_api_keys_.push(std::move(ev));
         return;
     }
@@ -328,7 +328,7 @@ void EventRouter::defer_or_resolve_api_key(AgentEvent ev) {
 void EventRouter::defer_or_resolve_ask(AgentEvent ev) {
     // A plugin's question while a modal is already up queues the same way, so we
     // never nest ncurses dialogs or deadlock its worker.
-    if (tui_.modal_open_) {
+    if (modal_open()) {
         pending_asks_.push(std::move(ev));
         return;
     }
@@ -339,7 +339,7 @@ void EventRouter::pump_pending_approvals() {
     // Resolve any approvals queued while a modal was open. Only one per pump
     // so a nested approval (during the approval dialog) queues and resolves
     // on a later tick rather than re-entering this loop.
-    if (tui_.modal_open_ || pending_approvals_.empty())
+    if (modal_open() || pending_approvals_.empty())
         return;
     AgentEvent ev = std::move(pending_approvals_.front());
     pending_approvals_.pop();
@@ -371,7 +371,7 @@ void EventRouter::resolve_approval(const AgentEvent& ev) {
 void EventRouter::pump_pending_asks() {
     // Same cadence as the other deferred questions: one per tick, so a question
     // asked from inside a dialog's handler queues rather than re-entering.
-    if (tui_.modal_open_ || pending_asks_.empty())
+    if (modal_open() || pending_asks_.empty())
         return;
     AgentEvent ev = std::move(pending_asks_.front());
     pending_asks_.pop();
@@ -381,7 +381,7 @@ void EventRouter::pump_pending_asks() {
 void EventRouter::pump_pending_api_keys() {
     // Resolve key requests queued while a modal was open (same cadence as
     // pending approvals: one per pump).
-    if (tui_.modal_open_ || pending_api_keys_.empty())
+    if (modal_open() || pending_api_keys_.empty())
         return;
     AgentEvent ev = std::move(pending_api_keys_.front());
     pending_api_keys_.pop();

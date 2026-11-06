@@ -63,6 +63,8 @@ def scan(root):
     files = tracked_files(root)
     for name in files:
         path = os.path.join(root, name)
+        if not os.path.isfile(path):
+            continue  # tracked but deleted in the worktree; not a live include
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as handle:
                 text = handle.read()

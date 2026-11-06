@@ -5,6 +5,7 @@
 #include <ncurses.h>
 #include <panel.h>
 
+#include "tui/pairs.h"
 #include "tui/widgets.h"
 
 #include <memory>
