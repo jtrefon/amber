@@ -1882,6 +1882,29 @@ TEST(no_color_still_paints_a_usable_frame) {
     require(tui.wait_for("windows:", 8000), "NO_COLOR made the prompt unreadable", tui);
 }
 
+// A fresh install starts on the welcome mural. A slash command must replace it
+// with its transcript output instead of appending to lines the mural never
+// paints (the real-tmux "/window list shows nothing" bug).
+TEST(welcome_window_shows_slash_command_output) {
+    std::error_code ec;
+    fs::path fresh = fs::temp_directory_path(ec) / "amber-welcome-XXXXXX";
+    std::string tmpl = fresh.string();
+    std::vector<char> buf(tmpl.begin(), tmpl.end());
+    buf.push_back('\0');
+    ASSERT(mkdtemp(buf.data()) != nullptr);
+    fresh = buf.data();
+
+    Tui tui;
+    tui.name = "welcome_window_shows_slash_command_output";
+    ASSERT(tui.start(fixture().binary, fresh.string()));
+    if (!require(tui.wait_for("amber", 10000), "the welcome window did not paint", tui))
+        return;
+    tui.send("/window list\r");
+    require(tui.wait_for("windows:", 8000), "a slash command painted nothing on the welcome window",
+            tui);
+    fs::remove_all(fresh, ec);
+}
+
 TEST(gallery_dev_screen_renders_switches_and_quits) {
     Tui tui;
     tui.name = "gallery_dev_screen_renders_switches_and_quits";
@@ -3997,6 +4020,7 @@ int main(int argc, char** argv) {
     display_settings_switch_palette_glyphs_and_motion();
     gallery_cycles_all_palettes_and_ascii();
     no_color_still_paints_a_usable_frame();
+    welcome_window_shows_slash_command_output();
     gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();
     panel_view_cycles_and_returns_to_the_prompt();

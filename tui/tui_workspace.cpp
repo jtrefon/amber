@@ -426,7 +426,7 @@ void Tui::flush_workspace_notice() {
     // The active window may be the welcome mural, which renders art instead of
     // scrollback: hold the notice until a window that shows lines is active, or
     // it would be written where nobody can read it.
-    if (win().welcome_art)
+    if (win().welcome_art && win().lines.empty())
         return;
     append_line(P_STATUS, pending_workspace_notice_);
     pending_workspace_notice_.clear();

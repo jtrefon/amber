@@ -10,8 +10,7 @@ runs with `AMBER_PTY_TERM` selecting the terminal type:
 
 ```sh
 make pty-matrix
-# xterm-256color
-# screen-256color (the TERM inside tmux/screen)
+# the full pty suite on xterm-256color, plus a real tmux pane smoke
 ```
 
 The suite already includes a 58×17 list-only layout and 120×40/80×24 layouts.
@@ -23,7 +22,7 @@ ASCII.
 | Terminal / environment | Status | Notes |
 |---|---|---|
 | xterm / xterm-256color | primary | full colour, UTF-8, mouse, bracketed paste |
-| tmux / screen | manual gap | real tmux paints and echoes input, but a slash command does not dispatch; the same behaviour is present on the last release, so it is not a theme regression. Tracked under #519. |
+| tmux / screen | supported | the tmux smoke opens a real pane, types `/window list` and asserts the output; the welcome-window transition is covered by a pty test |
 | Linux console | supported, ASCII-safe | 8 colours; `DarkGray` falls back to white; use `/set display glyphs ascii` if the font lacks box drawing |
 | macOS Terminal / iTerm2 | supported | Option-as-text is decoded for the Option digit row and Option+B; `Alt` sequences otherwise need the terminal's "Esc+" setting |
 | kitty / alacritty / wezterm | supported | xterm-256color behaviour; truecolor is not required |

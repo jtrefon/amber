@@ -640,7 +640,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/install-deps
         with:
-          extra: ccache
+          extra: ccache tmux
 
       - name: Cache ccache
         uses: actions/cache@v6
@@ -696,6 +696,12 @@ jobs:
 
       - name: Test
         run: make test
+
+      - name: TUI in a real tmux pane
+        # A bare pty is not a terminal emulator; tmux is where the welcome
+        # window and slash-command output had to prove themselves.
+        if: matrix.cxx == 'g++'
+        run: ./tests/tmux_smoke.sh ./amber
 
       - name: PTY exit handshake, repeated
         # #369: the force-kill this guards against is intermittent, so a single

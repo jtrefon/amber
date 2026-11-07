@@ -488,6 +488,21 @@ static int test_tab_cycle_replaces_only_token() {
     return 0;
 }
 
+// Enter runs the command the user actually typed when its trailing token is an
+// exact drawer row. Before this, an open drawer always ran the highlighted row,
+// so "/window list" + Enter could run "/window attach" when the keys arrived
+// with a pause between them (a real terminal) instead of in one burst (a pty).
+static int test_enter_prefers_the_exact_typed_row() {
+    tui::CommandLine cl;
+    cl.set_completions({"attach", "list", "new"});
+    cl.set_text("/window list");
+    auto r = cl.on_enter();
+    ASSERT(r.action == tui::CommandLine::Result::Dispatch);
+    ASSERT_EQ(r.dispatch_text, std::string("/window list"));
+    ASSERT_EQ(cl.text(), std::string());
+    return 0;
+}
+
 // ── Test: enter dispatches the drawer row (descend case, empty partial) ──
 static int test_enter_dispatches_drawer_row_descend() {
     tui::CommandLine cl;
@@ -547,6 +562,7 @@ int main() {
     failed += run_test("tab cycle replaces only token", test_tab_cycle_replaces_only_token);
     failed +=
         run_test("enter dispatches drawer row descend", test_enter_dispatches_drawer_row_descend);
+    failed += run_test("enter prefers the exact typed row", test_enter_prefers_the_exact_typed_row);
 
     std::cout << "\n" << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed;

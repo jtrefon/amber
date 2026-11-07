@@ -398,7 +398,7 @@ void RenderEngine::draw() {
     tick_anim();
     begin_frame();
     working_row_owned_ = false;
-    if (tui_.win().welcome_art) {
+    if (tui_.win().welcome_art && tui_.win().lines.empty()) {
         paint_.erase();
         draw_top_bar();
         welcome::render(frame_, chat_top(), width());
