@@ -131,8 +131,11 @@ TEST(text_canvas_ten_thousand_line_scroll_stays_in_the_frame_budget) {
     canvas.set_lines(numbered_lines(10000));
     canvas.surface();
 
+    // The renderer rebuilds the view and re-supplies it every frame; the
+    // equality check is part of the budget, not just the scroll.
     const auto start = std::chrono::steady_clock::now();
     for (int frame = 0; frame < 120; ++frame) {
+        canvas.set_lines(numbered_lines(10000));
         canvas.set_top((frame * 83) % 9960);
         canvas.surface();
     }
