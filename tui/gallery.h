@@ -14,11 +14,11 @@
 namespace tui {
 
 // Repaint `surface` (clearing its back buffer first) for one glyph mode.
-void paint_gallery(Surface& surface, GlyphMode mode);
+void paint_gallery(Surface& surface, GlyphMode mode, ThemeKind kind = ThemeKind::Amber);
 
 // Build a fresh surface and paint it. The terminal screen repaints in place
 // instead, so its diff stays valid across a mode switch.
-Surface render_gallery(Size size, GlyphMode mode);
+Surface render_gallery(Size size, GlyphMode mode, ThemeKind kind = ThemeKind::Amber);
 
 } // namespace tui
 

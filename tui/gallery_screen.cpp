@@ -11,8 +11,10 @@ int run_gallery_screen() {
     terminal.start();
 
     GlyphMode mode = GlyphMode::Unicode;
+    ThemeKind kind = ThemeKind::Amber;
+    terminal.set_theme(Theme::make(kind, mode));
     Surface surface(terminal.size().w, terminal.size().h);
-    paint_gallery(surface, mode);
+    paint_gallery(surface, mode, kind);
     terminal.present(surface);
 
     for (;;) {
@@ -26,10 +28,14 @@ int run_gallery_screen() {
                 surface = Surface(size.w, size.h);
         } else if (key == 'a' || key == 'A') {
             mode = mode == GlyphMode::Unicode ? GlyphMode::Ascii : GlyphMode::Unicode;
+            terminal.set_theme(Theme::make(kind, mode));
+        } else if (key == 't' || key == 'T') {
+            kind = static_cast<ThemeKind>((static_cast<int>(kind) + 1) % 4);
+            terminal.set_theme(Theme::make(kind, mode));
         } else {
             continue;
         }
-        paint_gallery(surface, mode);
+        paint_gallery(surface, mode, kind);
         terminal.present(surface);
     }
 

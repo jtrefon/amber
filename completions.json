@@ -572,6 +572,36 @@
         "on",
         "off"
        ]
+      },
+      "theme": {
+       "action": "core.config.set.display.theme",
+       "help": "Choose the interface palette.",
+       "man": "amber is the default warm palette. modern uses cool blues and magenta; high-contrast uses black/white with bold and reverse emphasis for low-vision use; monochrome uses only attributes (bold, dim, reverse), so it survives a no-colour terminal and screen readers.",
+       "choices": [
+        "amber",
+        "modern",
+        "high-contrast",
+        "monochrome"
+       ]
+      },
+      "glyphs": {
+       "action": "core.config.set.display.glyphs",
+       "help": "Choose Unicode or ASCII decoration.",
+       "man": "auto follows the locale and honours AMBER_ASCII. unicode uses box drawing, block and spinner glyphs; ascii uses +-| and fallback marks for terminals whose font or encoding cannot show them.",
+       "choices": [
+        "auto",
+        "unicode",
+        "ascii"
+       ]
+      },
+      "motion": {
+       "action": "core.config.set.display.motion",
+       "help": "Reduce the pulse and spinner animation.",
+       "man": "full keeps the working spinner, the gauge sweep and the clock colon blinking. reduced freezes them to the first frame and keeps the clock colon solid, for motion sensitivity or a slow terminal.",
+       "choices": [
+        "full",
+        "reduced"
+       ]
       }
      }
     },

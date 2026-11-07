@@ -173,6 +173,7 @@ public:
     void cmd_get_policy_approval();
     void cmd_get_policy_timeout();
     void cmd_get_display();
+    void cmd_set_display(const std::string& key, const std::string& v);
     void cmd_get_think();
     void cmd_get_detection(const std::string& sub);
     void cmd_get_compression();

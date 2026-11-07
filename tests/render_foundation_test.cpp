@@ -280,34 +280,68 @@ TEST(hit_map_returns_the_topmost_component) {
 
 TEST(gallery_renders_every_primitive_at_both_target_sizes) {
     for (const tui::GlyphMode mode : {tui::GlyphMode::Unicode, tui::GlyphMode::Ascii}) {
-        for (const Size size : {Size{80, 24}, Size{120, 40}}) {
-            const Surface surface = tui::render_gallery(size, mode);
-            ASSERT(surface.width() == size.w && surface.height() == size.h);
-
-            bool title = false;
-            bool wide = false;
-            bool bold = false;
-            bool underline = false;
-            bool reverse = false;
-            for (int y = 0; y < surface.height(); ++y) {
-                const std::string row = surface.row_text(y);
-                title = title || row.find("Amber render gallery") != std::string::npos;
-                for (int x = 0; x < surface.width(); ++x) {
-                    const tui::Cell& cell = surface.at(x, y);
-                    wide = wide || cell.continuation;
-                    bold = bold || cell.style.bold;
-                    underline = underline || cell.style.underline;
-                    reverse = reverse || cell.style.reverse;
+        for (const tui::ThemeKind kind :
+             {tui::ThemeKind::Amber, tui::ThemeKind::Modern, tui::ThemeKind::HighContrast,
+              tui::ThemeKind::Monochrome}) {
+            for (const Size size : {Size{80, 24}, Size{120, 40}}) {
+                const Surface surface = tui::render_gallery(size, mode, kind);
+                ASSERT(surface.width() == size.w && surface.height() == size.h);
+                bool title = false;
+                bool label = false;
+                for (int y = 0; y < surface.height(); ++y) {
+                    const std::string row = surface.row_text(y);
+                    title = title || row.find("Amber render gallery") != std::string::npos;
+                    label = label || row.find(tui::theme_kind_name(kind)) != std::string::npos;
                 }
+                ASSERT(title);
+                ASSERT(label);
             }
-            ASSERT(title);
-            ASSERT(bold && underline && reverse);
-            if (mode == tui::GlyphMode::Unicode)
-                ASSERT(wide); // the wide-glyph sample is present
-            else
-                ASSERT(!wide); // ASCII has no double-width glyphs
         }
     }
+}
+
+TEST(gallery_keeps_its_cell_structure_across_palettes) {
+    for (const tui::ThemeKind kind : {tui::ThemeKind::Amber, tui::ThemeKind::Modern,
+                                      tui::ThemeKind::HighContrast, tui::ThemeKind::Monochrome}) {
+        for (const tui::GlyphMode mode : {tui::GlyphMode::Unicode, tui::GlyphMode::Ascii}) {
+            const Surface amber = tui::render_gallery(Size{80, 24}, mode, tui::ThemeKind::Amber);
+            const Surface themed = tui::render_gallery(Size{80, 24}, mode, kind);
+            // Row 0 carries the palette label and the footer names the palette;
+            // the primitives between them are identical.
+            for (int y = 1; y < amber.height() - 2; ++y) {
+                for (int x = 0; x < amber.width(); ++x) {
+                    ASSERT(amber.at(x, y).glyph == themed.at(x, y).glyph);
+                    ASSERT(amber.at(x, y).style.role == themed.at(x, y).style.role);
+                }
+            }
+        }
+    }
+}
+
+TEST(theme_palettes_are_semantic_and_monochrome_uses_attributes) {
+    using tui::Role;
+    using tui::Theme;
+    using tui::ThemeKind;
+
+    const Theme mono = Theme::make(ThemeKind::Monochrome, tui::GlyphMode::Unicode);
+    ASSERT(mono.style(Role::Surface).fg == tui::Color::Default);
+    ASSERT(mono.style(Role::Text).fg == tui::Color::Default);
+    ASSERT(mono.style(Role::Selected).reverse);
+    ASSERT(mono.style(Role::Attention).reverse);
+    ASSERT(mono.style(Role::Frame).bold);
+
+    const Theme contrast = Theme::make(ThemeKind::HighContrast, tui::GlyphMode::Unicode);
+    ASSERT(contrast.style(Role::Selected).fg != contrast.style(Role::Selected).bg);
+    ASSERT(contrast.style(Role::Text).fg != contrast.style(Role::Surface).bg);
+
+    const Theme modern = Theme::make(ThemeKind::Modern, tui::GlyphMode::Unicode);
+    ASSERT(modern.kind == ThemeKind::Modern);
+    ASSERT(modern.style(Role::Frame).fg != contrast.style(Role::Frame).fg);
+
+    tui::ThemeKind parsed = ThemeKind::Amber;
+    ASSERT(tui::parse_theme_kind("high-contrast", parsed));
+    ASSERT(parsed == ThemeKind::HighContrast);
+    ASSERT_FALSE(tui::parse_theme_kind("solarized", parsed));
 }
 
 TEST(gallery_ascii_mode_stays_ascii) {

@@ -28,6 +28,8 @@ public:
     // The Tui already owns curses. A dialog host calls adopt() to register the
     // theme pairs without re-running initscr.
     void adopt();
+    // Swap the palette. Pairs are re-registered; the caller repaints.
+    void set_theme(const Theme& theme);
 
     Size size() const;
 

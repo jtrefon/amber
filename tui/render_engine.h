@@ -146,6 +146,9 @@ public:
     }
     bool drawer_open() const noexcept { return drawer_open_; }
     void set_drawer_open(bool v) noexcept { drawer_open_ = v; }
+    void set_theme(const Theme& theme) { terminal_.set_theme(theme); }
+    void set_reduced_motion(bool reduced) noexcept { reduced_motion_ = reduced; }
+    bool reduced_motion() const noexcept { return reduced_motion_; }
     int drawer_sel() const noexcept { return drawer_sel_; }
     void set_drawer_sel(int v) noexcept { drawer_sel_ = v; }
     void set_drawer_tabs(DrawerTabStrip strip) noexcept { drawer_tabs_ = std::move(strip); }
@@ -243,6 +246,7 @@ private:
     // Whether the last draw sized the canvas to leave the working row free, so
     // tick_pulse may repaint that row without resizing anything.
     bool working_row_owned_ = false;
+    bool reduced_motion_ = false;
     bool dirty_ = true;
     std::chrono::steady_clock::time_point last_status_tick_{};
     // The top rail changes on the second (clock + pulse), not on every idle

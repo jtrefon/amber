@@ -12,6 +12,7 @@
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "tui/widgets.h"
+#include "tui/theme.h"
 #include "tui/keys.h"
 #include "tui/drawer_rows.h"
 #include "tui/screen_view.h"
@@ -719,6 +720,43 @@ void SlashDispatcher::cmd_get_policy_timeout() {
 
 void SlashDispatcher::cmd_get_display() {
     tui_.append_line(P_STATUS, "markdown: " + std::string(tui_.win().markdown_on ? "on" : "off"));
+    tui_.append_line(P_STATUS, "theme: " + tui_.cfg_.ui_theme + "  glyphs: " + tui_.cfg_.ui_glyphs +
+                                   "  motion: " + tui_.cfg_.ui_motion);
+}
+
+void SlashDispatcher::cmd_set_display(const std::string& key, const std::string& v) {
+    if (key == "theme") {
+        ThemeKind kind;
+        std::string normalized = v == "high_contrast" ? "high-contrast" : v;
+        if (!parse_theme_kind(normalized, kind)) {
+            tui_.append_line(P_STATUS,
+                             "usage: /set display theme amber|modern|high-contrast|monochrome");
+            return;
+        }
+        tui_.cfg_.ui_theme = normalized;
+        tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+        tui_.apply_display_settings();
+        tui_.append_line(P_STATUS, std::string("theme: ") + theme_kind_name(kind));
+    } else if (key == "glyphs") {
+        if (v != "auto" && v != "unicode" && v != "ascii") {
+            tui_.append_line(P_STATUS, "usage: /set display glyphs auto|unicode|ascii");
+            return;
+        }
+        tui_.cfg_.ui_glyphs = v;
+        tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+        tui_.apply_display_settings();
+        tui_.append_line(P_STATUS, "glyphs: " + v);
+    } else if (key == "motion") {
+        if (v != "full" && v != "reduced") {
+            tui_.append_line(P_STATUS, "usage: /set display motion full|reduced");
+            return;
+        }
+        tui_.cfg_.ui_motion = v;
+        tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+        tui_.apply_display_settings();
+        tui_.append_line(P_STATUS, "motion: " + v);
+    }
+    tui_.draw();
 }
 
 void SlashDispatcher::cmd_get_think() {
@@ -1668,6 +1706,12 @@ void SlashDispatcher::register_set_engine_actions() {
                     [this](const std::string& v) { cmd_set_subagent_parallel(v); });
     register_action("core.config.set.subagent.max",
                     [this](const std::string& v) { cmd_set_subagent_max(v); });
+    register_action("core.config.set.display.theme",
+                    [this](const std::string& v) { cmd_set_display("theme", v); });
+    register_action("core.config.set.display.glyphs",
+                    [this](const std::string& v) { cmd_set_display("glyphs", v); });
+    register_action("core.config.set.display.motion",
+                    [this](const std::string& v) { cmd_set_display("motion", v); });
     register_action("core.config.set.display.markdown", [this](const std::string& v) {
         if (v != "on" && v != "off") {
             tui_.append_line(P_STATUS, "usage: /set display markdown on|off");
@@ -4624,6 +4668,15 @@ void SlashDispatcher::add_display_settings() {
             tui_.win().markdown_on = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
+    add_setting(
+        "display.theme", [this]() { return tui_.cfg_.ui_theme; },
+        [this](const std::string& v) { cmd_set_display("theme", v); });
+    add_setting(
+        "display.glyphs", [this]() { return tui_.cfg_.ui_glyphs; },
+        [this](const std::string& v) { cmd_set_display("glyphs", v); });
+    add_setting(
+        "display.motion", [this]() { return tui_.cfg_.ui_motion; },
+        [this](const std::string& v) { cmd_set_display("motion", v); });
 }
 
 // Mode lives on the agent (the approval gate reads it live) — propagate to the

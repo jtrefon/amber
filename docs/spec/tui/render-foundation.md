@@ -73,8 +73,8 @@ skipped. A clipped edge therefore shows the layer underneath, not a broken glyph
 `Role` is semantic: `Surface`, `SurfaceAlt`, `Frame`, `FrameFocus`, `Title`,
 `Text`, `Muted`, `Accent`, `Selected`, `Attention`, `Success`, `Error`,
 `Warning`, `Hint`, `Shadow`. A `RoleStyle` carries foreground/background
-`Color` plus bold/dim/italic/underline/reverse. `Theme::amber(mode)` is the
-shipped table; the glyph mode is the only variant today (full palettes are M7).
+`Color` plus bold/dim/italic/underline/reverse. `Theme::make(kind, mode)` is the
+shipped table; the four palettes and their fallbacks are `themes.md`.
 
 The terminal adapter resolves a role to a colour pair and clamps:
 

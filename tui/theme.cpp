@@ -6,18 +6,7 @@
 
 namespace tui {
 
-namespace {
-
-RoleStyle styled(Color fg, Color bg, bool bold = false, bool dim = false) {
-    RoleStyle s;
-    s.fg = fg;
-    s.bg = bg;
-    s.bold = bold;
-    s.dim = dim;
-    return s;
-}
-
-} // namespace
+namespace {} // namespace
 
 namespace {
 
@@ -79,27 +68,143 @@ Role role_for_pair(int pair) noexcept {
     return role_table()[static_cast<std::size_t>(pair)];
 }
 
-Theme Theme::amber(GlyphMode mode) {
+const char* theme_kind_name(ThemeKind kind) noexcept {
+    switch (kind) {
+    case ThemeKind::Amber:
+        return "Amber";
+    case ThemeKind::Modern:
+        return "Modern";
+    case ThemeKind::HighContrast:
+        return "High contrast";
+    case ThemeKind::Monochrome:
+        return "Monochrome";
+    }
+    return "Amber";
+}
+
+bool parse_theme_kind(const std::string& text, ThemeKind& out) noexcept {
+    if (text == "amber")
+        out = ThemeKind::Amber;
+    else if (text == "modern")
+        out = ThemeKind::Modern;
+    else if (text == "high-contrast" || text == "high_contrast")
+        out = ThemeKind::HighContrast;
+    else if (text == "monochrome")
+        out = ThemeKind::Monochrome;
+    else
+        return false;
+    return true;
+}
+
+namespace {
+
+RoleStyle role(Color fg, Color bg, bool bold = false, bool dim = false) {
+    RoleStyle style;
+    style.fg = fg;
+    style.bg = bg;
+    style.bold = bold;
+    style.dim = dim;
+    return style;
+}
+
+void apply_amber(Theme& theme) {
+    auto set = [&theme](Role role_id, const RoleStyle& style) { theme.set(role_id, style); };
+    set(Role::Surface, role(Color::Default, Color::Default));
+    set(Role::SurfaceAlt, role(Color::Default, Color::DarkGray));
+    set(Role::Frame, role(Color::Cyan, Color::Default));
+    set(Role::FrameFocus, role(Color::Cyan, Color::Default, true));
+    set(Role::Title, role(Color::Cyan, Color::Default, true));
+    set(Role::Text, role(Color::Default, Color::Default));
+    set(Role::Muted, role(Color::DarkGray, Color::Default, false, true));
+    set(Role::Accent, role(Color::Yellow, Color::Default));
+    set(Role::Selected, role(Color::Black, Color::Yellow));
+    set(Role::Attention, role(Color::Yellow, Color::Default, true));
+    set(Role::Success, role(Color::Green, Color::Default));
+    set(Role::Error, role(Color::Red, Color::Default, true));
+    set(Role::Warning, role(Color::Yellow, Color::Default));
+    set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
+    set(Role::Shadow, role(Color::Black, Color::Black));
+}
+
+void apply_modern(Theme& theme) {
+    auto set = [&theme](Role role_id, const RoleStyle& style) { theme.set(role_id, style); };
+    set(Role::Surface, role(Color::Default, Color::Default));
+    set(Role::SurfaceAlt, role(Color::Default, Color::DarkGray));
+    set(Role::Frame, role(Color::Blue, Color::Default, true));
+    set(Role::FrameFocus, role(Color::Blue, Color::Default, true));
+    set(Role::Title, role(Color::White, Color::Default, true));
+    set(Role::Text, role(Color::Default, Color::Default));
+    set(Role::Muted, role(Color::DarkGray, Color::Default, false, true));
+    set(Role::Accent, role(Color::Magenta, Color::Default, true));
+    set(Role::Selected, role(Color::White, Color::Blue));
+    set(Role::Attention, role(Color::Magenta, Color::Default, true));
+    set(Role::Success, role(Color::Green, Color::Default, true));
+    set(Role::Error, role(Color::Red, Color::Default, true));
+    set(Role::Warning, role(Color::Yellow, Color::Default, true));
+    set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
+    set(Role::Shadow, role(Color::Black, Color::Black));
+}
+
+void apply_high_contrast(Theme& theme) {
+    auto set = [&theme](Role role_id, const RoleStyle& style) { theme.set(role_id, style); };
+    set(Role::Surface, role(Color::Default, Color::Default));
+    set(Role::SurfaceAlt, role(Color::Black, Color::White));
+    set(Role::Frame, role(Color::White, Color::Default, true));
+    set(Role::FrameFocus, role(Color::White, Color::Default, true));
+    set(Role::Title, role(Color::White, Color::Default, true));
+    set(Role::Text, role(Color::White, Color::Default));
+    set(Role::Muted, role(Color::White, Color::Default, false, true));
+    set(Role::Accent, role(Color::White, Color::Default, true));
+    set(Role::Selected, role(Color::Black, Color::White));
+    set(Role::Attention, role(Color::Black, Color::White, true));
+    set(Role::Success, role(Color::White, Color::Default, true));
+    set(Role::Error, role(Color::White, Color::Default, true));
+    set(Role::Warning, role(Color::White, Color::Default, true));
+    set(Role::Hint, role(Color::White, Color::Default, false, true));
+    set(Role::Shadow, role(Color::Black, Color::Black));
+}
+
+void apply_monochrome(Theme& theme) {
+    auto set = [&theme](Role role_id, RoleStyle style) { theme.set(role_id, style); };
+    set(Role::Surface, role(Color::Default, Color::Default));
+    set(Role::SurfaceAlt, role(Color::Default, Color::Default, false, true));
+    set(Role::Frame, role(Color::Default, Color::Default, true));
+    set(Role::FrameFocus, role(Color::Default, Color::Default, true));
+    set(Role::Title, role(Color::Default, Color::Default, true));
+    set(Role::Text, role(Color::Default, Color::Default));
+    set(Role::Muted, role(Color::Default, Color::Default, false, true));
+    set(Role::Accent, role(Color::Default, Color::Default, true));
+    RoleStyle selected = role(Color::Default, Color::Default);
+    selected.reverse = true;
+    set(Role::Selected, selected);
+    set(Role::Attention, selected);
+    set(Role::Success, role(Color::Default, Color::Default, true));
+    set(Role::Error, role(Color::Default, Color::Default, true));
+    set(Role::Warning, role(Color::Default, Color::Default, true));
+    set(Role::Hint, role(Color::Default, Color::Default, false, true));
+    set(Role::Shadow, role(Color::Default, Color::Default, false, true));
+}
+
+} // namespace
+
+Theme Theme::make(ThemeKind kind, GlyphMode mode) {
     Theme theme;
+    theme.kind = kind;
     theme.glyphs = mode;
-    auto set = [&theme](Role role, const RoleStyle& style) {
-        theme.roles_[static_cast<std::size_t>(role)] = style;
-    };
-    set(Role::Surface, styled(Color::Default, Color::Default));
-    set(Role::SurfaceAlt, styled(Color::Default, Color::DarkGray));
-    set(Role::Frame, styled(Color::Cyan, Color::Default));
-    set(Role::FrameFocus, styled(Color::Cyan, Color::Default, true));
-    set(Role::Title, styled(Color::Cyan, Color::Default, true));
-    set(Role::Text, styled(Color::Default, Color::Default));
-    set(Role::Muted, styled(Color::DarkGray, Color::Default, false, true));
-    set(Role::Accent, styled(Color::Yellow, Color::Default));
-    set(Role::Selected, styled(Color::Black, Color::Yellow));
-    set(Role::Attention, styled(Color::Yellow, Color::Default, true));
-    set(Role::Success, styled(Color::Green, Color::Default));
-    set(Role::Error, styled(Color::Red, Color::Default, true));
-    set(Role::Warning, styled(Color::Yellow, Color::Default));
-    set(Role::Hint, styled(Color::DarkGray, Color::Default, false, true));
-    set(Role::Shadow, styled(Color::Black, Color::Black));
+    switch (kind) {
+    case ThemeKind::Amber:
+        apply_amber(theme);
+        break;
+    case ThemeKind::Modern:
+        apply_modern(theme);
+        break;
+    case ThemeKind::HighContrast:
+        apply_high_contrast(theme);
+        break;
+    case ThemeKind::Monochrome:
+        apply_monochrome(theme);
+        break;
+    }
     return theme;
 }
 

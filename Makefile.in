@@ -404,7 +404,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
-        static-gates content-gates check-build ncurses ncurses-update \
+        static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
         release-check \
         parity-image verify-container verify-quick-container \
@@ -1131,6 +1131,12 @@ class-size:
 
 class-size-update:
 	@python3 "$(SRC_DIR)/tools/class_size_gate.py" --update
+
+# The terminal matrix's local half: the same pty suite under the two TERMs a
+# user is most likely to be inside (xterm). The suite itself
+# already covers a 58x17 terminal and 120x40.
+pty-matrix: $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
+	AMBER_PTY_TERM=xterm-256color $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
 
 test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
