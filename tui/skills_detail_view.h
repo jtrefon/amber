@@ -4,12 +4,11 @@
 #include "agent/skill_index.h"
 #include "tui/rich.h"
 #include "tui/skills_browse_core.h"
+#include "tui/surface.h"
 
 #include <map>
 #include <string>
 #include <vector>
-
-#include <ncurses.h>
 
 namespace tui {
 
@@ -37,7 +36,7 @@ DetailView build_detail_view(const agent::SkillDetail& detail, const DetailInsta
                              const std::map<std::string, std::string>* files,
                              std::size_t file_index);
 
-// The pane's rectangle in the dialog window.
+// The pane's rectangle in the screen surface.
 struct DetailRect {
     int top = 0;
     int left = 0;
@@ -45,9 +44,10 @@ struct DetailRect {
     int width = 0;
 };
 
-// Paint the pane. `scroll` is the first body line shown; the renderer clamps it,
-// so a stale scroll cannot paint past the body.
-void draw_detail_pane(WINDOW* w, const DetailRect& rect, const DetailView& view, int scroll);
+// Paint the pane into `surface`. `scroll` is the first body line shown; the
+// painter clamps it, so a stale scroll cannot paint past the body.
+void paint_detail_pane(Surface& surface, const DetailRect& rect, const DetailView& view,
+                       int scroll);
 
 } // namespace tui
 

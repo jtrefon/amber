@@ -53,6 +53,7 @@ reuses `form_focus`'s documented key map, so its key behaviour cannot drift.
 | Info | title, rows | Up/Down/PgUp/PgDn/Home/End scroll, Enter/Esc/q close | none |
 | List | title, items | Up/Down/PgUp/PgDn, Enter select, `/` filter, Esc cancel | index or -1 |
 | Form | title, fields, notice | Tab/arrow field navigation, printable insert, Backspace/Delete, Enter accept, Esc cancel | bool + edited values |
+| Custom sheet | a caller-owned `PaintedDialog` painter | `Accept`/`Cancel` from the handler; used by the skills install sheet and facet overlay | caller-defined |
 
 The approval countdown **denies on expiry**. It never auto-confirms: the
 fail-safe is `ApprovalModel`'s invariant, not the panel's.

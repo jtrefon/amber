@@ -1,15 +1,16 @@
 #include "tui/skills_sheet_view.h"
 
-#include "tui/dialog.h"
 #include "tui/keys.h"
 #include "tui/markdown.h"
-#include "tui/rich_paint.h"
+#include "tui/modal_host.h"
+#include "tui/rich.h"
+#include "tui/screen_view.h"
+#include "tui/text_screen.h"
 
 #include <algorithm>
+#include <cctype>
 #include <string>
 #include <vector>
-
-#include <ncurses.h>
 
 namespace tui {
 
@@ -23,70 +24,89 @@ std::string risk_line(const agent::RiskSignal& signal) {
     return "! line " + std::to_string(signal.line) + "  " + signal.kind + "  " + signal.excerpt;
 }
 
-void paint_header(WINDOW* w, const InstallSheet& sheet, int aw) {
-    const auto& evidence = sheet.evidence();
-    const std::string identity = evidence.name + "  \u00b7  " + evidence.source + "  \u00b7  " +
-                                 agent::trust_tier_name(evidence.tier);
-    mvwaddnstr(w, 0, 0, identity.c_str(), std::max(0, aw - 1));
+void add_evidence(std::vector<std::string>& lines, const InstallSheet& sheet) {
+    lines.emplace_back("Evidence");
+    lines.push_back("  " + std::string(agent::audit_verdict_name(sheet.evidence().audit)));
+    int shown = 0;
+    for (const auto& signal : sheet.evidence().risks) {
+        if (shown == 3)
+            break;
+        lines.push_back("  " + risk_line(signal));
+        ++shown;
+    }
+    if (shown == 0)
+        lines.emplace_back("  no shell, network or path signals");
+}
 
+} // namespace
+
+PaintedDialog paint_install_sheet(const InstallSheet& sheet, Size screen) {
+    const auto& evidence = sheet.evidence();
+    const bool project = sheet.scope() == InstallScope::Project;
+
+    DialogView view;
+    view.title = "Install skill";
+    view.footer = "Enter: install   p: read   Tab: scope   Esc: cancel";
+    view.wrap_lines = false;
+
+    view.lines.push_back(evidence.name + "  \u00b7  " + evidence.source + "  \u00b7  " +
+                         agent::trust_tier_name(evidence.tier));
     std::string facts = std::to_string(evidence.files) + " files  \u00b7  " +
                         human_bytes(evidence.bytes) + "  \u00b7  ~" +
                         std::to_string(evidence.tokens) + " tokens";
     if (!evidence.license.empty())
         facts += "  \u00b7  " + evidence.license;
-    mvwaddnstr(w, 1, 0, facts.c_str(), std::max(0, aw - 1));
-    mvwhline(w, 2, 0, ACS_HLINE, std::max(0, aw));
-}
+    view.lines.push_back(facts);
+    view.lines.emplace_back();
 
-void paint_settings(WINDOW* w, const InstallSheet& sheet, int aw) {
-    const bool project = sheet.scope() == InstallScope::Project;
-    mvwaddnstr(w, 3, 0, ("Scope    " + mark(project) + " project  .amber/skills").c_str(),
-               std::max(0, aw - 1));
-    mvwaddnstr(w, 4, 0, ("         " + mark(!project) + " global   ~/.config/amber/skills").c_str(),
-               std::max(0, aw - 1));
-
-    std::string name_line = "Name     " + sheet.evidence().name;
+    view.lines.push_back("Scope    " + mark(project) + " project  .amber/skills");
+    view.lines.push_back("         " + mark(!project) + " global   ~/.config/amber/skills");
+    std::string name_line = "Name     " + evidence.name;
     if (sheet.collision())
         name_line += sheet.replace() ? "   [replace]" : "   [name exists]";
-    mvwaddnstr(w, 5, 0, name_line.c_str(), std::max(0, aw - 1));
+    view.lines.push_back(name_line);
+    view.lines.push_back(std::string("After    ") + (sheet.enabled()
+                                                         ? "(o) enable now  ( ) install disabled"
+                                                         : "( ) enable now  (o) install disabled"));
+    view.lines.emplace_back();
 
-    const std::string enable = sheet.enabled() ? "(o) enable now  ( ) install disabled"
-                                               : "( ) enable now  (o) install disabled";
-    mvwaddnstr(w, 6, 0, ("After    " + enable).c_str(), std::max(0, aw - 1));
+    add_evidence(view.lines, sheet);
+    view.lines.emplace_back();
+    view.lines.push_back(sheet.status());
+    return paint_dialog(view, screen);
 }
 
-void paint_evidence(WINDOW* w, const InstallSheet& sheet, int aw, int ah) {
-    int y = 8;
-    mvwaddnstr(w, y++, 0, "Evidence", std::max(0, aw - 1));
-    const char* audit = agent::audit_verdict_name(sheet.evidence().audit);
-    mvwaddnstr(w, y++, 2, audit, std::max(0, aw - 3));
+namespace {
 
-    int shown = 0;
-    for (const auto& signal : sheet.evidence().risks) {
-        if (shown == 3 || y >= ah - 2)
-            break;
-        mvwaddnstr(w, y++, 2, risk_line(signal).c_str(), std::max(0, aw - 3));
-        ++shown;
-    }
-    if (shown == 0 && y < ah - 2)
-        mvwaddnstr(w, y++, 2, "no shell, network or path signals", std::max(0, aw - 3));
-    if (y < ah - 1)
-        mvwaddnstr(w, ah - 1, 0, sheet.status().c_str(), std::max(0, aw - 1));
-}
-
-void paint_sheet(WINDOW* w, const InstallSheet& sheet) {
-    const int aw = getmaxx(w);
-    const int ah = getmaxy(w);
-    werase(w);
-    paint_header(w, sheet, aw);
-    paint_settings(w, sheet, aw);
-    paint_evidence(w, sheet, aw, ah);
-    wnoutrefresh(w);
-    update_panels();
-    doupdate();
+void show_install_sheet(const InstallEvidence& evidence, const std::string& body,
+                        const InstallSheetOptions& options, InstallDecision& out) {
+    InstallSheet sheet(evidence, options);
+    ModalHost host;
+    host.custom([&sheet](Size screen) { return paint_install_sheet(sheet, screen); },
+                [&](int ch) {
+                    switch (sheet.key(ch)) {
+                    case InstallSheetAction::Confirm:
+                        out = sheet.decision();
+                        return DialogKey::Accept;
+                    case InstallSheetAction::Cancel:
+                        return DialogKey::Cancel;
+                    case InstallSheetAction::Preview:
+                        run_body_preview(evidence.name, body);
+                        return DialogKey::Redraw;
+                    default:
+                        return DialogKey::Redraw;
+                    }
+                });
 }
 
 } // namespace
+
+InstallDecision run_install_sheet(const InstallEvidence& evidence, const std::string& body,
+                                  const InstallSheetOptions& options) {
+    InstallDecision decision;
+    show_install_sheet(evidence, body, options, decision);
+    return decision;
+}
 
 namespace {
 
@@ -106,26 +126,6 @@ bool ci_find(const std::string& haystack, const std::string& needle) {
     return it != haystack.end();
 }
 
-void paint_preview(WINDOW* w, const std::vector<rich::Line>& lines, int top, int height, int width,
-                   const std::string& search) {
-    werase(w);
-    for (int i = 0; i < height; ++i) {
-        const int index = top + i;
-        if (index >= static_cast<int>(lines.size()))
-            break;
-        rich::paint_line(w, i, width, lines[static_cast<size_t>(index)]);
-    }
-    std::string position = std::to_string(std::min(top + height, static_cast<int>(lines.size()))) +
-                           "/" + std::to_string(lines.size());
-    if (!search.empty())
-        position = "/" + search + "   " + position;
-    mvwaddnstr(w, height - 1, std::max(0, width - static_cast<int>(position.size())),
-               position.c_str(), static_cast<int>(position.size()));
-    wnoutrefresh(w);
-    update_panels();
-    doupdate();
-}
-
 // The next line (in `step` direction) containing the query, wrapping at the
 // ends. Returns `from` when nothing matches.
 int find_line(const std::vector<rich::Line>& lines, int from, const std::string& query, int step) {
@@ -134,7 +134,7 @@ int find_line(const std::vector<rich::Line>& lines, int from, const std::string&
     const int count = static_cast<int>(lines.size());
     for (int i = 1; i <= count; ++i) {
         const int index = ((from + step * i) % count + count) % count;
-        if (ci_find(line_text(lines[static_cast<size_t>(index)]), query))
+        if (ci_find(line_text(lines[static_cast<std::size_t>(index)]), query))
             return index;
     }
     return from;
@@ -166,96 +166,92 @@ int preview_top(int ch, int top, int height, int count) {
     }
 }
 
-// Read a search query on the footer row. Enter keeps it, Esc clears it.
-std::string read_search(WINDOW* w, int row, int width) {
-    std::string query;
-    while (true) {
-        const std::string shown = "/" + query;
-        mvwhline(w, row, 0, ' ', std::max(0, width));
-        mvwaddnstr(w, row, 0, shown.c_str(), std::max(0, width));
-        wrefresh(w);
-        const int ch = wgetch(w);
-        if (ch == ERR)
-            continue;
-        if (ch == '\n' || ch == '\r' || ch == keys::kEnter)
-            return query;
-        if (ch == 27) {
-            query.clear();
-            return query;
-        }
-        if (ch == 127 || ch == 8 || ch == keys::kBackspace) {
-            if (query.empty())
-                return query;
-            query.pop_back();
-        } else if (ch >= 32 && ch < 127) {
-            query.push_back(static_cast<char>(ch));
-        }
+} // namespace
+
+namespace {
+
+struct PreviewState {
+    TextScreenView view;
+    Size screen{80, 24};
+    int width = 0;
+    int top = 0;
+    std::string search;
+    bool searching = false;
+
+    int height() const { return std::max(1, screen.h - 4); }
+
+    void clamp_top() {
+        top =
+            std::max(0, std::min(top, std::max(0, static_cast<int>(view.lines.size()) - height())));
     }
-}
+
+    void fill(const std::string& body, Size size) {
+        screen = size;
+        const int next = std::max(10, size.w - 4);
+        if (next != width) {
+            width = next;
+            view.lines = rich::rewrap_all(md::render(body), width);
+        }
+        clamp_top();
+        view.top = top;
+        view.search = search;
+        view.position =
+            std::to_string(std::min(top + height(), static_cast<int>(view.lines.size()))) + "/" +
+            std::to_string(view.lines.size());
+    }
+
+    bool search_key(int ch) {
+        if (ch == '\n' || ch == '\r' || ch == keys::kEnter) {
+            searching = false;
+            top = find_line(view.lines, std::max(0, top - 1), search, 1);
+            clamp_top();
+        } else if (ch == 27) {
+            searching = false;
+            search.clear();
+        } else if (ch == 127 || ch == 8 || ch == keys::kBackspace) {
+            if (!search.empty())
+                search.pop_back();
+        } else if (ch >= 32 && ch < 127) {
+            search.push_back(static_cast<char>(ch));
+        }
+        return false;
+    }
+
+    // True closes the pager; the tick of a search never does.
+    bool key(int ch) {
+        if (searching)
+            return search_key(ch);
+        if (ch == 27 || ch == 'q')
+            return true;
+        if (ch == '/') {
+            searching = true;
+            search.clear();
+            return false;
+        }
+        if (ch == 'n' || ch == 'N') {
+            top = find_line(view.lines, top, search, ch == 'n' ? 1 : -1);
+            clamp_top();
+            return false;
+        }
+        top = preview_top(ch, top, height(), static_cast<int>(view.lines.size()));
+        return false;
+    }
+};
 
 } // namespace
 
 void run_body_preview(const std::string& title, const std::string& body) {
-    Dialog dlg(std::max(12, LINES - 2), std::max(40, COLS - 4), "Preview: " + title);
-    dlg.set_footer({{"j/k", "scroll"},
-                    {"Space", "page"},
-                    {"/", "search"},
-                    {"n/N", "next/prev"},
-                    {"Esc", "back"}});
-    WINDOW* w = dlg.content();
-    const int width = std::max(10, dlg.cols() - 3);
-    const int height = std::max(1, dlg.rows() - 2);
-    // The real renderer: what the model would read, not a summary of it.
-    const std::vector<rich::Line> lines = rich::rewrap_all(md::render(body), width);
-    int top = 0;
-    std::string search;
-    dlg.show();
-    while (true) {
-        paint_preview(w, lines, top, height, width, search);
-        const int ch = wgetch(w);
-        if (ch == ERR)
-            continue;
-        if (ch == 27 || ch == 'q')
-            return;
-        if (ch == '/') {
-            search = read_search(w, height - 1, width);
-            top = find_line(lines, top - 1, search, 1);
-            continue;
-        }
-        if (ch == 'n' || ch == 'N') {
-            top = find_line(lines, top, search, ch == 'n' ? 1 : -1);
-            top = std::max(0, std::min(top, std::max(0, static_cast<int>(lines.size()) - height)));
-            continue;
-        }
-        top = preview_top(ch, top, height, static_cast<int>(lines.size()));
-    }
-}
+    PreviewState state;
+    state.view.title = "Preview: " + title;
+    state.view.footer = "j/k: scroll   Space: page   /: search   n/N: next/prev   Esc: back";
 
-InstallDecision run_install_sheet(const InstallEvidence& evidence, const std::string& body,
-                                  const InstallSheetOptions& options) {
-    InstallSheet sheet(evidence, options);
-    Dialog dlg(std::min(18, std::max(12, LINES - 2)), std::min(78, std::max(50, COLS - 4)),
-               "Install skill");
-    dlg.set_footer({{"Enter", "install"}, {"p", "read"}, {"Tab", "scope"}, {"Esc", "cancel"}});
-    WINDOW* w = dlg.content();
-    dlg.show();
-    while (true) {
-        paint_sheet(w, sheet);
-        const int ch = wgetch(w);
-        if (ch == ERR)
-            continue;
-        switch (sheet.key(ch)) {
-        case InstallSheetAction::Confirm:
-            return sheet.decision();
-        case InstallSheetAction::Cancel:
-            return InstallDecision{};
-        case InstallSheetAction::Preview:
-            run_body_preview(evidence.name, body);
-            break;
-        default:
-            break;
-        }
-    }
+    ScreenHost host;
+    host.run(
+        [&](Size size) {
+            state.fill(body, size);
+            return paint_text_screen(state.view, size);
+        },
+        [&](int ch) { return state.key(ch); }, 250);
 }
 
 } // namespace tui

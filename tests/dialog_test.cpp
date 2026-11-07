@@ -52,6 +52,16 @@ TEST(confirm_state_escape_is_cancel) {
     ASSERT_FALSE(state.yes());
 }
 
+TEST(confirm_state_accepts_y_and_n) {
+    ConfirmState yes;
+    ASSERT(yes.key('y') == DialogKey::Accept);
+    ASSERT(yes.yes());
+
+    ConfirmState no;
+    ASSERT(no.key('n') == DialogKey::Cancel);
+    ASSERT_FALSE(no.yes());
+}
+
 TEST(info_state_scrolls_within_the_content_bounds) {
     InfoState state;
     ASSERT(state.key(tui::keys::kDown, 3, 10) == DialogKey::Redraw);

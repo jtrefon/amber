@@ -3398,6 +3398,51 @@ TEST(skills_explorer_paints_both_wide_breakpoints) {
     }
 }
 
+// A narrow terminal has no facet column, so `f` opens the same facet state as a
+// modal. The sheet must paint, toggle and close back to the list.
+TEST(skills_facet_sheet_opens_on_a_narrow_layout) {
+    SkillsMirrorEndpoint mirror;
+    if (!mirror.start()) {
+        std::cerr << "FAIL: the skills mirror did not start\n";
+        failed++;
+        return;
+    }
+    MirrorEnv env(mirror.base());
+    Tui tui;
+    tui.name = "skills_facet_sheet_opens_on_a_narrow_layout";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    std::error_code ec;
+    fs::remove_all(fixture().workspace + "/cache/amber", ec);
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+    tui.pump(300);
+    tui.send("/");
+    tui.pump(100);
+    tui.send("tdd");
+    if (!require(tui.wait_for("1 results", 15000), "the mirror search never landed", tui))
+        return;
+    tui.send("\r"); // leave the search field
+    tui.pump(100);
+    tui.send("\r"); // load the selected detail, which supplies the facets
+    if (!require(tui.wait_for("Category engineering", 15000), "the detail never loaded", tui))
+        return;
+    tui.pump(500);
+
+    tui.send("f");
+    if (!require(tui.wait_for("Filters (j/k", 5000), "the facet sheet did not open", tui))
+        return;
+    tui.send("\r"); // toggle the focused facet
+    tui.pump(300);
+    tui.send("\x1b"); // close the sheet, keeping the list
+    tui.pump(500);
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 // Below 60 columns the detail pane would eat the list, so the explorer is
 // list-only and says why instead of looking broken.
 TEST(skills_explorer_narrow_terminal_is_list_only_and_says_so) {
@@ -3870,6 +3915,7 @@ int main(int argc, char** argv) {
     esc_does_not_swallow_the_key_queued_behind_it();
     skills_explorer_opens_switches_tabs_and_closes();
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
+    skills_facet_sheet_opens_on_a_narrow_layout();
     system_commands_do_not_freeze_the_ui();
     gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();

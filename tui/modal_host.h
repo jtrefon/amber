@@ -34,11 +34,19 @@ public:
 
     agent::Approval approve(const std::string& summary, int timeout_sec, int default_idx);
 
+    // A sheet with its own painter (the install sheet, the facet overlay). The
+    // handler returns Redraw/None to stay, Accept/Cancel to close.
+    void custom(const std::function<PaintedDialog(Size)>& painter,
+                const std::function<DialogKey(int)>& handler, int poll_ms = -1,
+                const std::function<bool()>& tick = {});
+
 private:
     enum class Outcome { Continue, Accept, Cancel };
     using Handler = std::function<Outcome(int)>;
     using Tick = std::function<bool()>; // true closes the dialog (timeout)
 
+    DialogKey loop(const std::function<PaintedDialog(Size)>& painter,
+                   const std::function<DialogKey(int)>& handler, int poll_ms, const Tick& tick);
     Outcome run(DialogView& view, const Handler& handle, int poll_ms, const Tick& tick = {});
     bool handle_paste(FormState& state);
 };

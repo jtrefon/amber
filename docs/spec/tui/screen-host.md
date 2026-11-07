@@ -33,6 +33,7 @@ active window.
 | Sessions | date headers + session rows | Up/Down, Enter load, Del remove, `/` search, Esc | `SessionBrowserCore` stays the pure state machine; the screen only renders it |
 | Work board | sessions + tasks | Tab section, Up/Down, Enter/a open, x cancel, `/` filter, n new, Esc | live refresh on the 250 ms tick |
 | Plugin panels | panel lines | Tab cycle, Up/Down/PgUp/PgDn scroll, Esc/q close, panel `on_key` first | title/footer from `PanelSpec` and `panel_view_state` |
+| Skills explorer | facets + list + detail | tabs `1`-`7`, `/` search, Enter detail, install/update/remove, `f` facets, `?` help | `skills-surfaces.md`; the host painter overload carries its three-pane `Surface` |
 
 The settings/provider screens already use the modal host: their pickers and
 forms are `menu_select`/`form_edit`, and destructive steps are `ConfirmPanel`.

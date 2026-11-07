@@ -56,7 +56,7 @@ bool ModalHost::confirm(const std::string& title, const std::string& message) {
     view.lines = {message};
     view.buttons = {"[ Yes ]", "[ No ]"};
     view.selected_button = 1; // the safe choice starts focused
-    view.footer = "Tab/left/right: switch   Enter: confirm   Esc: cancel";
+    view.footer = "Tab/left/right: switch   y/n or Enter: confirm   Esc: cancel";
 
     const Outcome outcome = run(
         view,
@@ -244,6 +244,29 @@ agent::Approval ModalHost::approve(const std::string& summary, int timeout_sec, 
 
 ModalHost::Outcome ModalHost::run(DialogView& view, const Handler& handle, int poll_ms,
                                   const Tick& tick) {
+    Outcome outcome = Outcome::Continue;
+    const DialogKey result = loop([&view](Size size) { return paint_dialog(view, size); },
+                                  [&handle, &outcome](int key) {
+                                      outcome = handle(key);
+                                      if (outcome == Outcome::Accept)
+                                          return DialogKey::Accept;
+                                      if (outcome == Outcome::Cancel)
+                                          return DialogKey::Cancel;
+                                      return DialogKey::None;
+                                  },
+                                  poll_ms, tick);
+    return result == DialogKey::Accept ? Outcome::Accept : Outcome::Cancel;
+}
+
+void ModalHost::custom(const std::function<PaintedDialog(Size)>& painter,
+                       const std::function<DialogKey(int)>& handler, int poll_ms,
+                       const std::function<bool()>& tick) {
+    loop(painter, handler, poll_ms, tick);
+}
+
+DialogKey ModalHost::loop(const std::function<PaintedDialog(Size)>& painter,
+                          const std::function<DialogKey(int)>& handler, int poll_ms,
+                          const Tick& tick) {
     ModalScope modal;
     Terminal terminal;
     terminal.adopt();
@@ -253,7 +276,7 @@ ModalHost::Outcome ModalHost::run(DialogView& view, const Handler& handle, int p
     } restore{terminal};
 
     for (;;) {
-        const PaintedDialog painted = paint_dialog(view, terminal.size());
+        const PaintedDialog painted = painter(terminal.size());
         terminal.overlay(painted.surface, painted.x, painted.y, painted.cursor_x, painted.cursor_y);
         terminal.set_timeout(poll_ms);
         const int key = terminal.read_key();
@@ -262,15 +285,15 @@ ModalHost::Outcome ModalHost::run(DialogView& view, const Handler& handle, int p
         if (key == keys::kNone) {
             if (tick && tick()) {
                 terminal.close_overlay();
-                return Outcome::Cancel;
+                return DialogKey::Cancel;
             }
             continue;
         }
-        const Outcome outcome = handle(key);
-        if (outcome == Outcome::Continue)
-            continue;
-        terminal.close_overlay();
-        return outcome;
+        const DialogKey action = handler(key);
+        if (action == DialogKey::Accept || action == DialogKey::Cancel) {
+            terminal.close_overlay();
+            return action;
+        }
     }
 }
 

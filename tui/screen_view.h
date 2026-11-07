@@ -48,8 +48,13 @@ class ScreenHost {
 public:
     using KeyHandler = std::function<bool(int)>;
     using Tick = std::function<void()>;
+    // A custom screen paints its own Surface. The skills explorer needs three
+    // panes, so it builds a SkillsScreenView and passes its painter here.
+    using Painter = std::function<PaintedScreen(Size)>;
 
     void run(ScreenView& view, const KeyHandler& handler, int poll_ms = -1, const Tick& tick = {});
+    void run(const Painter& painter, const KeyHandler& handler, int poll_ms = -1,
+             const Tick& tick = {});
 };
 
 } // namespace tui

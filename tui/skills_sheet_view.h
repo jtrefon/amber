@@ -1,6 +1,7 @@
 #ifndef AMBER_TUI_SKILLS_SHEET_VIEW_H
 #define AMBER_TUI_SKILLS_SHEET_VIEW_H
 
+#include "tui/dialog_view.h"
 #include "tui/skills_install_sheet.h"
 
 #include <string>
@@ -12,6 +13,9 @@ namespace tui {
 // sheet lets Enter install an unvetted source.
 InstallDecision run_install_sheet(const InstallEvidence& evidence, const std::string& body,
                                   const InstallSheetOptions& options);
+
+// The sheet's frame, exposed so its layout is covered without a terminal.
+PaintedDialog paint_install_sheet(const InstallSheet& sheet, Size screen);
 
 // A read-only pager for a skill body. Exposed so the explorer's detail pane can
 // reuse the same surface instead of growing a second scroller.

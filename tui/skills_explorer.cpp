@@ -3,9 +3,10 @@
 #include "agent/github_index.h"
 #include "agent/private_file.h"
 #include "agent/skill_install.h"
-#include "tui/dialog.h"
-#include "tui/keys.h"
+#include "tui/modal_host.h"
+#include "tui/screen_view.h"
 #include "tui/skills_detail_view.h"
+#include "tui/skills_screen_view.h"
 #include "tui/skills_lifecycle.h"
 #include "tui/skills_service.h"
 #include "tui/skills_sheet_view.h"
@@ -26,8 +27,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-#include <ncurses.h>
 
 namespace tui {
 
@@ -65,15 +64,6 @@ std::string failure_text(const agent::IndexFailure& error) {
     return "error";
 }
 
-std::string compact_installs(int installs) {
-    if (installs >= 1000000)
-        return std::to_string(installs / 1000000) + "." + std::to_string((installs / 100000) % 10) +
-               "M";
-    if (installs >= 1000)
-        return std::to_string(installs / 1000) + "K";
-    return std::to_string(installs);
-}
-
 agent::SkillRef ref_from_id(const std::string& id) {
     agent::SkillRef ref;
     ref.id = id;
@@ -103,71 +93,6 @@ const SkillRow* installed_row(const std::vector<SkillRow>& rows, const std::stri
     return nullptr;
 }
 
-void draw_tabs(WINDOW* w, int row, int width, SkillTab tab) {
-    const SkillTab tabs[] = {SkillTab::ForYou,   SkillTab::Trending,    SkillTab::Top,
-                             SkillTab::Official, SkillTab::Collections, SkillTab::Installed,
-                             SkillTab::Updates};
-    int x = 0;
-    for (std::size_t i = 0; i < std::size(tabs); ++i) {
-        const SkillTab kind = tabs[i];
-        const std::string label = std::to_string(i + 1) + " " + skill_tab_name(kind);
-        if (kind == tab)
-            wattron(w, A_REVERSE);
-        else if (!skill_tab_available(kind))
-            wattron(w, A_DIM);
-        mvwaddnstr(w, row, x, label.c_str(), std::max(0, width - x));
-        if (kind == tab)
-            wattroff(w, A_REVERSE);
-        else if (!skill_tab_available(kind))
-            wattroff(w, A_DIM);
-        x += static_cast<int>(label.size()) + 2;
-        if (x >= width)
-            break;
-    }
-}
-
-struct RowFlags {
-    bool selected = false;
-    bool marked = false;
-};
-
-void draw_row(WINDOW* w, int y, int x, int width, const SkillRow& row, RowFlags flags) {
-    std::string badges;
-    if (flags.marked)
-        badges += "\u2022";
-    if (row.installed)
-        badges += "*";
-    if (row.update)
-        badges += "+";
-    badges += audit_badge(row.audit);
-    if (row.unmanaged)
-        badges += "?";
-
-    std::string name = row.ref.name;
-    if (name.size() > 26) {
-        name.resize(25);
-        name += "\u2026";
-    }
-
-    const std::string tail = compact_installs(row.ref.installs);
-    const int tail_x = std::max(28, width - static_cast<int>(tail.size()) - 1);
-
-    if (flags.selected)
-        wattron(w, A_REVERSE);
-    mvwhline(w, y, x, ' ', std::max(0, width));
-    mvwaddnstr(w, y, x, name.c_str(), 27);
-    if (!badges.empty())
-        mvwaddnstr(w, y, x + 28, badges.c_str(), 4);
-    if (width > 40) {
-        const std::string source =
-            row.state.empty() ? row.ref.source : row.ref.source + " · " + row.state;
-        mvwaddnstr(w, y, x + 32, source.c_str(), std::max(0, tail_x - 33));
-    }
-    mvwaddnstr(w, y, x + tail_x, tail.c_str(), static_cast<int>(tail.size()));
-    if (flags.selected)
-        wattroff(w, A_REVERSE);
-}
-
 InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string& name) {
     InstallEvidence evidence;
     evidence.name = name;
@@ -188,112 +113,6 @@ InstallEvidence evidence_of(const agent::SkillDetail& detail, const std::string&
     return evidence;
 }
 
-std::string facet_line(const std::string& value, int count, bool selected) {
-    return std::string(selected ? "[x] " : "[ ] ") + value + " (" + std::to_string(count) + ")";
-}
-
-struct FacetRect {
-    int top = 0;
-    int height = 0;
-    int width = 0;
-};
-
-// One facet group, drawn from `y`, returning the next free line. Extracted so
-// the column is a loop over groups, not five nested conditions.
-int draw_facet_group(WINDOW* w, const SkillsBrowseCore& core, FacetGroup group, int y,
-                     const FacetRect& rect, bool focused) {
-    if (y >= rect.top + rect.height)
-        return y;
-    mvwaddnstr(w, y++, 0, facet_group_name(group), std::max(0, rect.width - 1));
-    const auto counts = core.facet_counts(group);
-    for (std::size_t i = 0; i < counts.size() && y < rect.top + rect.height; ++i) {
-        const bool cursor =
-            focused && core.facet_cursor().group == group && core.facet_cursor().index == i;
-        const std::string line = facet_line(counts[i].first, counts[i].second,
-                                            core.facet_selected(group, counts[i].first));
-        if (cursor)
-            wattron(w, A_REVERSE);
-        mvwaddnstr(w, y++, 0, line.c_str(), std::max(0, rect.width - 1));
-        if (cursor)
-            wattroff(w, A_REVERSE);
-    }
-    return y + 1; // blank line between groups
-}
-
-// The facet column: one block per group, values ranked by count, the cursor
-// reversed while the pane is focused. Selecting a value filters locally; the
-// header says so when a live query is also narrowing the set.
-void draw_facets(WINDOW* w, const SkillsBrowseCore& core, int top, int height, int width) {
-    if (width < 8 || height < 3)
-        return;
-    const bool focused = core.pane() == SkillPane::Facets;
-    mvwaddnstr(w, top, 0, focused ? "Filters (j/k, Enter, f)" : "Filters", std::max(0, width - 1));
-    const std::vector<FacetGroup> groups = core.facet_groups();
-    if (groups.empty()) {
-        mvwaddnstr(w, top + 2, 0, "load a detail", std::max(0, width - 1));
-        if (top + 3 < top + height)
-            mvwaddnstr(w, top + 3, 0, "to see filters", std::max(0, width - 1));
-        return;
-    }
-    const FacetRect rect{top, height, width};
-    int y = top + 2;
-    for (FacetGroup group : groups) {
-        if (y >= top + height)
-            return;
-        y = draw_facet_group(w, core, group, y, rect, focused);
-    }
-}
-
-struct ListRect {
-    int x = 0;
-    int y = 0;
-    int width = 0;
-    int height = 0;
-};
-
-void paint_rows(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
-                const ListRect& rect) {
-    const auto rows_now = core.visible();
-    for (int i = 0; i < rect.height; ++i) {
-        const int index = core.scroll_offset() + i;
-        if (index >= static_cast<int>(rows_now.size()))
-            break;
-        const SkillRow& row = rows_now[static_cast<size_t>(index)];
-        draw_row(w, rect.y + i, rect.x, rect.width, row,
-                 RowFlags{index == core.selection(), core.marked(row.ref.id)});
-    }
-    if (rows_now.empty()) {
-        const char* message = "Type a query to search.";
-        if (core.tab() == SkillTab::Installed)
-            message = "No installed skills. Press 1 and search.";
-        else if (core.tab() == SkillTab::Updates)
-            message = "No updates. Press 6, then u to check.";
-        else if (!skill_tab_available(core.tab()))
-            message = "This shelf has no source yet; Top shows the proven list.";
-        else if (!query.empty())
-            message = "No matches.";
-        mvwaddnstr(w, rect.y, rect.x, message, std::max(0, rect.width - 1));
-    }
-}
-
-void paint_detail_pane(WINDOW* w, const SkillsBrowseCore& core,
-                       const std::map<std::string, DetailView>& details, const ListRect& rect) {
-    if (rect.width < 12)
-        return;
-    const auto current = core.current();
-    if (!current) {
-        mvwaddnstr(w, rect.y, rect.x, "Enter to load details", std::max(0, rect.width - 1));
-        return;
-    }
-    const auto it = details.find(current->ref.id);
-    if (it == details.end()) {
-        mvwaddnstr(w, rect.y, rect.x, "Enter to load details", std::max(0, rect.width - 1));
-        return;
-    }
-    draw_detail_pane(w, DetailRect{rect.y, rect.x, rect.height, rect.width}, it->second,
-                     core.detail_scroll());
-}
-
 std::string explorer_footer(const SkillsBrowseCore& core, const std::string& last_status,
                             long long error_at_ms) {
     std::string footer;
@@ -312,99 +131,11 @@ std::string explorer_footer(const SkillsBrowseCore& core, const std::string& las
     return footer;
 }
 
-const char* sort_name(SkillSort sort) {
-    switch (sort) {
-    case SkillSort::Relevance:
-        return "relevance";
-    case SkillSort::Installs:
-        return "installs";
-    case SkillSort::Name:
-        return "name";
-    }
-    return "?";
-}
-
-struct ExplorerStatus {
-    std::string line;
-    long long error_at_ms = 0;
-};
-
-void paint_search_line(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
-                       int width) {
-    const std::string field = query.empty() ? "type to search (2+ chars)" : query;
-    // The right-hand status is a claim about the rows, so it never says live for
-    // a page that came from the cache or after a failed request.
-    const std::string state =
-        source_state(core.answered(), core.cached(), core.fetched_at_ms(), core.error(), now_ms());
-    const int state_x = std::max(0, width - static_cast<int>(state.size()) - 1);
-    mvwaddnstr(w, 0, 0, ("/ " + field).c_str(), std::max(0, state_x - 2));
-    mvwaddnstr(w, 0, state_x, state.c_str(), static_cast<int>(state.size()));
-    const std::string sort_label = std::string("sort: ") + sort_name(core.sort());
-    mvwaddnstr(w, 0, std::max(0, state_x - static_cast<int>(sort_label.size()) - 2),
-               sort_label.c_str(), static_cast<int>(sort_label.size()));
-}
-
-void paint_explorer(WINDOW* w, const SkillsBrowseCore& core, const std::string& query,
-                    const ExplorerStatus& status, const std::map<std::string, DetailView>& details,
-                    const std::string& budget) {
-    const int aw = getmaxx(w);
-    const int ah = getmaxy(w);
-    werase(w);
-
-    paint_search_line(w, core, query, aw);
-    draw_tabs(w, 1, aw, core.tab());
-    if (!budget.empty() && (core.tab() == SkillTab::Installed || core.tab() == SkillTab::Updates))
-        mvwaddnstr(w, 1, std::max(0, aw - static_cast<int>(budget.size()) - 1), budget.c_str(),
-                   static_cast<int>(budget.size()));
-    mvwhline(w, 2, 0, ACS_HLINE, std::max(0, aw));
-
-    const SkillsLayout layout = skills_layout(aw, ah);
-    const int facet_w = layout.show_facets ? layout.facets_w : 0;
-    const int list_x = facet_w;
-    const int list_w = std::max(10, layout.list_w);
-    const int detail_x = list_x + list_w + 2;
-    const int detail_w = std::max(0, aw - detail_x - 1);
-    const int top = 3;
-    const int height = std::max(1, ah - 4);
-
-    if (layout.show_facets)
-        draw_facets(w, core, top, height, facet_w - 1);
-    paint_rows(w, core, query, ListRect{list_x, top, list_w, height});
-    std::string footer = explorer_footer(core, status.line, status.error_at_ms);
-    if (!layout.show_detail) {
-        // Say why the pane is missing instead of letting it look broken.
-        const std::string hint =
-            " · " + std::to_string(aw) + "x" + std::to_string(ah) + " is list-only, 60x18 + detail";
-        if (static_cast<int>(footer.size() + hint.size()) < aw)
-            footer += hint;
-    }
-    if (!footer.empty())
-        mvwaddnstr(w, top + height, 0, footer.c_str(), std::max(0, aw - 1));
-
-    if (layout.show_detail)
-        paint_detail_pane(w, core, details, ListRect{detail_x, top, detail_w, height});
-    wnoutrefresh(w);
-    update_panels();
-    doupdate();
-}
-
 class SkillsExplorer {
 public:
     SkillsExplorer(const SkillsExplorerOptions& options,
                    std::function<void(const std::string&)> status)
-        : options_(options), status_(std::move(status)),
-          dlg_(std::make_unique<Dialog>(std::max(10, options.rows - 2),
-                                        std::max(50, options.cols - 2), "Skills")) {
-        dlg_->set_footer({{"/", "search"},
-                          {"Enter", "detail"},
-                          {"i", "install"},
-                          {"u", "update"},
-                          {"U", "update all"},
-                          {"d", "diff"},
-                          {"?", "help"},
-                          {"Esc", "close"}});
-        keypad(dlg_->win(), TRUE);
-        nodelay(dlg_->win(), TRUE);
+        : options_(options), status_(std::move(status)) {
 
         agent::SkillIndexOptions index_opts;
         index_opts.cache_root = options.cache_root;
@@ -429,25 +160,29 @@ public:
     }
 
     void run() {
-        while (true) {
-            paint_explorer(dlg_->content(), core_, query_,
-                           ExplorerStatus{last_status_, error_at_ms_}, details_, options_.budget);
-            const int ch = wgetch(dlg_->win());
-            if (ch == ERR) {
+        ScreenHost host;
+        host.run(
+            [this](Size size) {
+                screen_ = size;
+                const SkillsScreenView view = build_skills_screen(
+                    core_,
+                    SkillsScreenInput{query_, explorer_footer(core_, last_status_, error_at_ms_),
+                                      options_.budget, now_ms()},
+                    details_, size);
+                return paint_skills_screen(view, size);
+            },
+            [this](int ch) {
+                const SkillIntent intent = core_.key(ch, list_height());
+                if (!apply(intent))
+                    return true;
                 tick();
-                napms(50);
-                continue;
-            }
-            const SkillIntent intent = core_.key(ch, list_height());
-            if (!apply(intent))
-                return;
-            tick();
-        }
+                return false;
+            },
+            50, [this] { tick(); });
     }
 
 private:
-    int content_height() const { return dlg_->rows() - 2; }
-    int list_height() const { return std::max(1, content_height() - 4); }
+    int list_height() const { return std::max(1, screen_.h - 4); }
 
     void refresh_installed() {
         installed_rows_ = options_.installed ? options_.installed() : std::vector<SkillRow>{};
@@ -547,7 +282,7 @@ private:
 
     SkillsExplorerOptions options_;
     std::function<void(const std::string&)> status_;
-    std::unique_ptr<Dialog> dlg_;
+    Size screen_{80, 24};
     std::unique_ptr<SkillsService> service_;
     std::unique_ptr<SkillsLifecycle> life_;
     SkillsBrowseCore core_;
@@ -1222,36 +957,58 @@ void SkillsExplorer::apply_tab(SkillTab tab) {
 }
 
 bool SkillsExplorer::layout_shows_facets() const {
-    return skills_layout(options_.cols, options_.rows).show_facets;
+    return skills_layout(screen_.w, screen_.h).show_facets;
 }
 
 // Narrow terminals get the same facet state in a modal: the column would eat
 // the list, and hiding the filters entirely is the one thing the spec forbids.
+namespace {
+
+DialogView facet_sheet(const SkillsBrowseCore& core) {
+    DialogView view;
+    view.title = "Filters";
+    view.footer = "j/k: move   Enter: toggle   r: reset   Esc: close";
+    view.wrap_lines = false;
+    const bool focused = core.pane() == SkillPane::Facets;
+    view.lines.emplace_back(focused ? "Filters (j/k, Enter, r)" : "Filters");
+    for (FacetGroup group : core.facet_groups()) {
+        view.lines.emplace_back(facet_group_name(group));
+        const auto counts = core.facet_counts(group);
+        for (std::size_t i = 0; i < counts.size(); ++i) {
+            const std::string& value = counts[i].first;
+            const bool cursor =
+                core.facet_cursor().group == group && core.facet_cursor().index == i;
+            if (cursor)
+                view.focus_line = static_cast<int>(view.lines.size());
+            view.lines.push_back(std::string(core.facet_selected(group, value) ? "[x] " : "[ ] ") +
+                                 value + " (" + std::to_string(counts[i].second) + ")");
+        }
+        view.lines.emplace_back();
+    }
+    return view;
+}
+
+} // namespace
+
 bool SkillsExplorer::facet_overlay() {
     if (core_.facet_groups().empty()) {
         last_status_ = "no filters to show yet";
         return true;
     }
-    Dialog dlg(std::min(18, options_.rows - 2), std::min(56, options_.cols - 4), "Filters");
-    dlg.set_footer({{"j/k", "move"}, {"Enter", "toggle"}, {"r", "reset"}, {"Esc", "close"}});
-    WINDOW* w = dlg.content();
-    dlg.show();
-    while (true) {
-        werase(w);
-        draw_facets(w, core_, 0, dlg.rows() - 2, dlg.cols() - 2);
-        wrefresh(w);
-        const int ch = wgetch(w);
-        if (ch == ERR)
-            continue;
-        const SkillIntent intent = core_.facet_key(ch);
-        if (intent.kind == SkillIntent::Kind::Close)
-            return true;
-        if (core_.pane() != SkillPane::Facets) {
-            core_.set_pane(SkillPane::Facets); // stay in the overlay until Esc
-            if (ch == 27)
-                return true;
-        }
-    }
+    ModalHost host;
+    host.custom([this](Size screen) { return paint_dialog(facet_sheet(core_), screen); },
+                [this](int ch) {
+                    const SkillIntent intent = core_.facet_key(ch);
+                    if (intent.kind == SkillIntent::Kind::Close)
+                        return DialogKey::Cancel;
+                    if (core_.pane() != SkillPane::Facets) {
+                        core_.set_pane(SkillPane::Facets); // stay in the sheet until Esc
+                        if (ch == 27)
+                            return DialogKey::Cancel;
+                    }
+                    return DialogKey::Redraw;
+                });
+    return true;
 }
 
 std::string help_line(const SkillKeyDoc& doc) {
@@ -1266,55 +1023,12 @@ std::string help_line(const SkillKeyDoc& doc) {
     return line;
 }
 
-void paint_help(WINDOW* w, const std::vector<SkillKeyDoc>& table, int top, int height, int width) {
-    werase(w);
-    for (int i = 0; i < height; ++i) {
-        const auto index = static_cast<std::size_t>(top) + static_cast<std::size_t>(i);
-        if (index >= table.size())
-            break;
-        mvwaddnstr(w, i, 0, help_line(table[index]).c_str(), width);
-    }
-    wrefresh(w);
-}
-
-int help_top(int ch, int top, int count, int height) {
-    const int last = std::max(0, count - height);
-    switch (ch) {
-    case 'j':
-    case keys::kDown:
-        return std::min(last, top + 1);
-    case 'k':
-    case keys::kUp:
-        return std::max(0, top - 1);
-    case ' ':
-    case keys::kNPage:
-        return std::min(last, top + height);
-    case 'b':
-    case keys::kPPage:
-        return std::max(0, top - height);
-    default:
-        return top;
-    }
-}
-
 void SkillsExplorer::help() const {
-    Dialog dlg(std::min(20, options_.rows - 2), std::min(78, options_.cols - 4), "Skills keys");
-    dlg.set_footer({{"j/k", "scroll"}, {"Esc", "close"}});
-    WINDOW* w = dlg.content();
-    const int width = std::max(10, dlg.cols() - 2);
-    const int height = std::max(1, dlg.rows() - 2);
-    const auto& table = skill_key_table();
-    int top = 0;
-    dlg.show();
-    while (true) {
-        paint_help(w, table, top, height, width);
-        const int ch = wgetch(w);
-        if (ch == ERR)
-            continue;
-        if (ch == 27 || ch == 'q' || ch == '?')
-            return;
-        top = help_top(ch, top, static_cast<int>(table.size()), height);
-    }
+    std::vector<std::string> rows;
+    rows.reserve(skill_key_table().size());
+    for (const auto& doc : skill_key_table())
+        rows.push_back(help_line(doc));
+    ModalHost{}.info("Skills keys", rows);
 }
 
 void SkillsExplorer::tick() {
@@ -1549,8 +1263,6 @@ void SkillsExplorer::prompt_install(const std::string& id) {
     sheet_options.default_global = options_.install_global;
     const InstallDecision decision =
         run_install_sheet(evidence_of(raw->second, name), raw->second.body, sheet_options);
-    touchwin(dlg_->win());
-    wrefresh(dlg_->win());
     if (!decision.confirmed)
         return;
     const std::string root =
@@ -1561,21 +1273,10 @@ void SkillsExplorer::prompt_install(const std::string& id) {
 
 bool SkillsExplorer::confirm(const std::string& title, const std::string& text,
                              const std::string& note) const {
-    Dialog dlg(std::min(10, options_.rows - 2), std::min(68, options_.cols - 4), title);
-    dlg.set_footer({{"y", "confirm"}, {"n", "cancel"}});
-    WINDOW* w = dlg.content();
-    mvwaddnstr(w, 1, 0, text.c_str(), dlg.cols() - 2);
+    std::string message = text;
     if (!note.empty())
-        mvwaddnstr(w, 3, 0, note.c_str(), dlg.cols() - 2);
-    dlg.show();
-    keypad(w, TRUE);
-    while (true) {
-        const int ch = wgetch(w);
-        if (ch == 'y' || ch == 'Y')
-            return true;
-        if (ch == 'n' || ch == 'N' || ch == 27 || ch == 'q')
-            return false;
-    }
+        message += "\n" + note;
+    return ModalHost{}.confirm(title, message);
 }
 
 } // namespace
