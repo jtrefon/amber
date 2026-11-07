@@ -157,6 +157,7 @@ private:
     void start_cycle();
     bool can_complete_partial() const;
     bool accept_first_completion();
+    bool dispatch_exact_row(const std::vector<std::string>& rows, Result& r);
     Result intercept_help_question(char c);
     std::string cycle_shadow(const std::string& partial) const;
     std::string completion_shadow(const std::string& partial) const;

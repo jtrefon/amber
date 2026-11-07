@@ -295,6 +295,23 @@ CommandLine::Result CommandLine::on_shift_tab() {
     return r;
 }
 
+// The typed line wins when its trailing token is one of the rows. A drawer
+// left open by a pause between keys must not turn an exact "/window list" into
+// whatever row happened to be highlighted.
+bool CommandLine::dispatch_exact_row(const std::vector<std::string>& rows, Result& r) {
+    const std::size_t token_start = input_.rfind(' ');
+    const std::string token = input_.substr(token_start == std::string::npos ? 0 : token_start + 1);
+    if (token.empty() || std::find(rows.begin(), rows.end(), token) == rows.end())
+        return false;
+    r.action = Result::Dispatch;
+    r.dispatch_text = input_;
+    r.drawer_open = false;
+    input_.clear();
+    cursor_ = 0;
+    reset_cycle();
+    return true;
+}
+
 CommandLine::Result CommandLine::on_enter() {
     Result r;
     if (input_.empty())
@@ -305,6 +322,8 @@ CommandLine::Result CommandLine::on_enter() {
     // be stale or unfiltered from Tab cycling).
     if (drawer_open_ && drawer_sel_ >= 0) {
         std::vector<std::string> filtered = tab_rows();
+        if (dispatch_exact_row(filtered, r))
+            return r;
         if (drawer_sel_ < static_cast<int>(filtered.size())) {
             r.action = Result::Dispatch;
             // Preserve the typed prefix. When the host supplied an explicit
