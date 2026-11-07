@@ -196,7 +196,7 @@ reasoning_block help_page completion_context option_key_decode status_bar_layout
 markdown_normalize list_state panel_view_state form_focus session_row
 input_line_layout ansi_sgr geometry theme glyphs surface compositor component
 gallery dialog_state dialog_view screen_view rich_surface text_screen
-skills_screen_view"
+skills_screen_view drawer_view"
 NC_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"](ncurses|panel|form|menu)\.h'
 PORT_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]*_port\.h'
 p7_bad=0

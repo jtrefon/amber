@@ -1,4 +1,5 @@
 #include "render_engine.h"
+#include "drawer_view.h"
 #include "git_reads.h"
 #include "menu_controller.h"
 #include "top_bar.h"
@@ -1016,67 +1017,6 @@ void clear_rows(int from, int to) {
 
 } // namespace
 
-void RenderEngine::draw_drawer_header(int top) {
-    const std::string hdr =
-        " options  (Tab complete  Up/Down select  Enter run  ? help  Esc cancel) ";
-    move(top, 0);
-    attron(COLOR_PAIR(P_STATUS) | A_BOLD);
-    for (int i = 0; i < width(); ++i)
-        addch(' ');
-    mvaddnstr(top, 0, hdr.c_str(), width());
-    attroff(COLOR_PAIR(P_STATUS) | A_BOLD);
-}
-
-void RenderEngine::draw_drawer_rows(int top, int header, const std::vector<std::string>& rows,
-                                    int first, int shown) {
-    for (int i = 0; i < shown; ++i) {
-        const int y = top + header + i;
-        if (first + i == drawer_sel_) {
-            attron(A_REVERSE);
-            mvaddnstr(y, 0, rows[first + i].c_str(), width());
-            attroff(A_REVERSE);
-        } else {
-            attron(COLOR_PAIR(P_ASSISTANT));
-            mvaddnstr(y, 0, rows[first + i].c_str(), width());
-            attroff(COLOR_PAIR(P_ASSISTANT));
-        }
-    }
-}
-
-// The tab strip, when the open drawer has tabs. Painted on the header row's
-// right so it cannot displace the key hints on the left.
-void RenderEngine::draw_drawer_tabs(int top) {
-    if (drawer_tabs_.line.empty())
-        return;
-    const int w = std::min<int>(static_cast<int>(drawer_tabs_.line.size()), width());
-    const int x = std::max(0, width() - w);
-    move(top, 0);
-    for (int i = 0; i < width(); ++i)
-        addch(' ');
-
-    // Only the SELECTED tab is reverse-video. The attribute used to be switched
-    // on around the whole line, which made every tab read as selected -- the
-    // opposite of telling the user where they are. Paint it in three spans:
-    // before, the tab (label and count), after.
-    const std::size_t mark = drawer_tabs_.selected_mark_pos;
-    const auto end = static_cast<std::size_t>(w);
-    if (mark == std::string::npos || drawer_tabs_.selected_len == 0 || mark >= end) {
-        mvaddnstr(top, x, drawer_tabs_.line.c_str(), w);
-        return;
-    }
-    const std::size_t span_end = std::min(mark + drawer_tabs_.selected_len, end);
-    const std::string& line = drawer_tabs_.line;
-    if (mark > 0)
-        mvaddnstr(top, x, line.c_str(), static_cast<int>(mark));
-    attron(A_REVERSE);
-    mvaddnstr(top, x + static_cast<int>(mark), line.c_str() + mark,
-              static_cast<int>(span_end - mark));
-    attroff(A_REVERSE);
-    if (span_end < end)
-        mvaddnstr(top, x + static_cast<int>(span_end), line.c_str() + span_end,
-                  static_cast<int>(end - span_end));
-}
-
 void RenderEngine::draw_drawer(const std::string& input) {
     // The flag mirrors CommandLine's drawer state, but the line is the fact: a
     // closed and idle UI repaints the input every tick, and painting a drawer
@@ -1101,10 +1041,17 @@ void RenderEngine::draw_drawer(const std::string& input) {
     const auto win = drawer_window(static_cast<int>(rows.size()), max_rows - header, drawer_sel_);
     const int top = bar_row - header - win.second;
 
-    clear_rows(top, bar_row);
-    draw_drawer_header(top);
-    draw_drawer_tabs(top);
-    draw_drawer_rows(top, header, rows, win.first, win.second);
+    DrawerView view;
+    view.header = " options  (Tab complete  Up/Down select  Enter run  ? help  Esc cancel) ";
+    view.tabs = drawer_tabs_;
+    view.rows.assign(rows.begin() + win.first, rows.begin() + win.first + win.second);
+    view.selected = drawer_sel_ - win.first;
+
+    // The drawer is one self-contained strip. The shell already owns stdscr, so
+    // blit into that buffer; draw_input's wnoutrefresh and the loop's doupdate
+    // present it with the rest of the frame.
+    const Surface surface = paint_drawer(view, width());
+    terminal_.blit(surface, 0, top);
 }
 
 void RenderEngine::request_git_refresh(const std::string& root) {

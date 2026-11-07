@@ -20,6 +20,22 @@ silently disagree with the file.
 
 ---
 
+### Drawing the drawer
+
+The drawer is a view of the same tree: `drawer_rows()` turns the current
+namespace into one line per child, `drawer_window()` selects the visible
+window, and `make_tab_strip()` builds the provider tabs for the model picker.
+None of them paint. `DrawerView` + `paint_drawer()` place the header, the
+right-aligned tab strip and the selected row into a `Surface`, and
+`RenderEngine::draw_drawer` blits that surface into the shell's screen buffer
+with `Terminal::blit`. The loop's existing `doupdate()` presents it with the
+frame, so the drawer repaint has no refresh of its own.
+
+`tests/drawer_view_test.cpp` pins the painter at the drawer's real widths: the
+header and tab strip overlap resolves in favour of the tabs, a selected row is
+a full-width bar, and a narrow screen clips rather than wraps. The pty model
+tests drive the rows and provider tabs end to end.
+
 ### The single source rule
 
 `SettingRegistry::load_completions_json()` is the only loader. It is found
