@@ -151,6 +151,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         task_runtime_ = std::make_unique<detail::TaskRuntime>(plugin_runtime_.events(), *tasks_);
         wire_plugin_runtime();
         build_managers();
+        apply_display_settings();
         menu_ = std::make_unique<MenuController>(
             [this](const std::string& action, const std::string& arg) {
                 return slash_dispatcher_->run_action(action, arg);
@@ -224,6 +225,29 @@ void Tui::wire_plugin_runtime() {
                                                                            : completion.backend_id);
     });
     feed_manager_ = std::make_unique<FeedManager>(*this);
+}
+
+void Tui::apply_display_settings() {
+    ThemeKind kind = ThemeKind::Amber;
+    if (!parse_theme_kind(cfg_.ui_theme, kind))
+        kind = ThemeKind::Amber;
+
+    GlyphMode mode = GlyphMode::Unicode;
+    if (cfg_.ui_glyphs == "ascii") {
+        text::glyph::set_ascii(true);
+        mode = GlyphMode::Ascii;
+    } else if (cfg_.ui_glyphs == "unicode") {
+        text::glyph::set_ascii(false);
+        mode = GlyphMode::Unicode;
+    } else {
+        text::glyph::clear_override();
+        mode = text::glyph::utf8() ? GlyphMode::Unicode : GlyphMode::Ascii;
+    }
+
+    const Theme theme = Theme::make(kind, mode);
+    terminal_.set_theme(theme);
+    render_engine_->set_theme(theme);
+    render_engine_->set_reduced_motion(cfg_.ui_motion == "reduced");
 }
 
 void Tui::build_managers() {

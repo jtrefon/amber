@@ -192,7 +192,7 @@ private:
     std::unique_ptr<TuiUiServices> ui_services_;
     // Mouse reporting is on by default (wheel scrolls the chat log). Off lets
     // the terminal select and copy with a plain drag.
-    bool mouse_on_ = true;
+    bool mouse_on_ = true, quit_ = false;
 
     // Per-window run slots: each window's agent has its own worker thread,
     // busy/cancel flags, and pending-prompt queue (see run_registry.h).
@@ -323,7 +323,6 @@ private:
     void provider_actions(const std::string& selected_id);
     void activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
                                     bool is_preset);
-    bool quit_ = false;
     // A workspace release happens while the closing window still exists (the
     // erase follows), so its message waits here for the next redraw instead of
     // being written into a window that is about to disappear.
@@ -335,6 +334,9 @@ private:
     void init_terminal();
     void wire_plugin_runtime();
     void build_managers();
+    // Apply ui_theme/ui_glyphs/ui_motion from cfg_ to both terminal adapters
+    // and the render engine. Safe to call at runtime; the caller repaints.
+    void apply_display_settings();
     void load_key_bindings();
     void restore_workspace();
 

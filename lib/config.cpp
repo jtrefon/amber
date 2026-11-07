@@ -125,10 +125,37 @@ void apply_prompt_cache_keys(Config& c, const std::string& key, const std::strin
     }
 }
 
+void apply_ui_keys(Config& c, const std::string& key, const std::string& val,
+                   std::vector<std::string>& warnings, bool& handled) {
+    handled = true;
+    if (key == "ui_theme") {
+        if (val == "amber" || val == "modern" || val == "high-contrast" || val == "monochrome")
+            c.ui_theme = val;
+        else
+            warnings.push_back("ui_theme: expected amber|modern|high-contrast|monochrome, got '" +
+                               val + "'");
+    } else if (key == "ui_glyphs") {
+        if (val == "auto" || val == "unicode" || val == "ascii")
+            c.ui_glyphs = val;
+        else
+            warnings.push_back("ui_glyphs: expected auto|unicode|ascii, got '" + val + "'");
+    } else if (key == "ui_motion") {
+        if (val == "full" || val == "reduced")
+            c.ui_motion = val;
+        else
+            warnings.push_back("ui_motion: expected full|reduced, got '" + val + "'");
+    } else {
+        handled = false;
+    }
+}
+
 void apply_sampling_keys(Config& c, const std::string& key, const std::string& val,
                          std::vector<std::string>& warnings) {
     bool handled = false;
     apply_prompt_cache_keys(c, key, val, warnings, handled);
+    if (handled)
+        return;
+    apply_ui_keys(c, key, val, warnings, handled);
     if (handled)
         return;
     if (key == "temperature")
@@ -485,6 +512,13 @@ RetentionPolicy Config::log_retention_policy() const {
     return policy;
 }
 
+void write_ui_settings(std::ostream& f, const Config& c) {
+    f << "show_reasoning=" << (c.show_reasoning ? 1 : 0) << "\n";
+    f << "ui_theme=" << c.ui_theme << "\n";
+    f << "ui_glyphs=" << c.ui_glyphs << "\n";
+    f << "ui_motion=" << c.ui_motion << "\n";
+}
+
 bool Config::save_settings(const std::string& path) const {
     std::ostringstream f;
     f << "# amber project settings (local)\n";
@@ -496,7 +530,7 @@ bool Config::save_settings(const std::string& path) const {
     f << "thinking_budget=" << thinking_budget << "\n";
     f << "reasoning_effort=" << reasoning_effort << "\n";
     write_compression_settings(f, *this);
-    f << "show_reasoning=" << (show_reasoning ? 1 : 0) << "\n";
+    write_ui_settings(f, *this);
     f << "system_prompt=" << system_prompt_path << "\n";
     f << "tools_prompt=" << tools_prompt_path << "\n";
     f << "git_prompt=" << git_prompt_path << "\n";

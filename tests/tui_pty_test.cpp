@@ -156,7 +156,8 @@ struct Tui {
             dup2(slave, STDERR_FILENO);
             if (slave > STDERR_FILENO)
                 close(slave);
-            setenv("TERM", "xterm-256color", 1);
+            const char* term_override = std::getenv("AMBER_PTY_TERM");
+            setenv("TERM", (term_override && *term_override) ? term_override : "xterm-256color", 1);
             // Ask for the exit announcement. The path is not passed: the app
             // derives it from its own state dir and pid, and the harness below
             // computes the same one.
@@ -169,10 +170,8 @@ struct Tui {
             // for it here. The pty has no winsize of its own, and ncurses reads
             // LINES/COLUMNS at initscr (the app never calls use_env(FALSE)), so
             // the environment is what gives it a size.
-            if (rows > 0 && cols > 0) {
-                setenv("LINES", std::to_string(rows).c_str(), 1);
-                setenv("COLUMNS", std::to_string(cols).c_str(), 1);
-            }
+            setenv("LINES", std::to_string(rows > 0 ? rows : 24).c_str(), 1);
+            setenv("COLUMNS", std::to_string(cols > 0 ? cols : 80).c_str(), 1);
             if (!path_prefix.empty()) {
                 std::string path = path_prefix;
                 if (const char* inherited = getenv("PATH"))
@@ -1808,6 +1807,81 @@ TEST(input_scroll_keeps_tail_visible) {
 // The dev screen is a real end-to-end user of the foundation: it paints the
 // gallery through the terminal adapter, switches glyph mode, repaints in place
 // and exits on Esc with the normal exit marker.
+// The display settings are the one place the palette, glyph set and motion are
+// chosen. Each takes effect immediately (not on restart) and is readable back.
+TEST(display_settings_switch_palette_glyphs_and_motion) {
+    Tui tui;
+    tui.name = "display_settings_switch_palette_glyphs_and_motion";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set display theme modern\r");
+    if (!require(tui.wait_for("theme: Modern", 5000), "the palette did not switch", tui))
+        return;
+    tui.send("/set display glyphs ascii\r");
+    if (!require(tui.wait_for("glyphs: ascii", 5000), "the glyph mode did not switch", tui))
+        return;
+    tui.send("/set display motion reduced\r");
+    if (!require(tui.wait_for("motion: reduced", 5000), "the motion setting did not switch", tui))
+        return;
+
+    tui.send("/get display\r");
+    if (!require(tui.wait_for("theme: modern", 5000),
+                 "the display readout did not report the settings", tui))
+        return;
+
+    tui.send("/set display theme monochrome\r");
+    if (!require(tui.wait_for("theme: Monochrome", 5000), "the monochrome palette did not apply",
+                 tui))
+        return;
+
+    // Later scenarios share the fixture's settings file; leave it at defaults.
+    tui.send("/set display theme amber\r");
+    tui.send("/set display glyphs auto\r");
+    tui.send("/set display motion full\r");
+    tui.pump(500);
+}
+
+// The gallery has to prove every palette and glyph mode, not just draw one.
+TEST(gallery_cycles_all_palettes_and_ascii) {
+    Tui tui;
+    tui.name = "gallery_cycles_all_palettes_and_ascii";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 24, 80, {"--gallery"}));
+    if (!require(tui.wait_for("Amber render gallery", 8000), "the gallery never painted", tui))
+        return;
+    // The palette labels are painted as cells, so a pty sees them split by
+    // cursor moves; the pure gallery test asserts all four render. Here the
+    // point is that cycling does not wedge the screen and ASCII still repaints.
+    for (int i = 0; i < 4; ++i) {
+        tui.send("t");
+        tui.pump(200);
+    }
+    tui.send("a");
+    require(tui.wait_for("ASCII mode has no double-width glyphs", 5000), "ASCII mode did not paint",
+            tui);
+    tui.send("\x1b");
+    require(tui.wait_exit(10000), "the gallery did not exit", tui);
+}
+
+// NO_COLOR is a promise to the user, not a hint: the app still has to paint a
+// usable frame when the terminal cannot be trusted with colour.
+TEST(no_color_still_paints_a_usable_frame) {
+    setenv("NO_COLOR", "1", 1);
+    Tui tui;
+    tui.name = "no_color_still_paints_a_usable_frame";
+    const bool started = tui.start(fixture().binary, fixture().workspace);
+    unsetenv("NO_COLOR");
+    ASSERT(started);
+    if (!require(wait_ready(tui), "NO_COLOR broke the UI", tui))
+        return;
+    require(tui.raw.find("\x1b[38;5;") == std::string::npos &&
+                tui.raw.find("\x1b[48;5;") == std::string::npos,
+            "NO_COLOR still emitted a 256-colour sequence", tui);
+    tui.send("/window list\r");
+    require(tui.wait_for("windows:", 8000), "NO_COLOR made the prompt unreadable", tui);
+}
+
 TEST(gallery_dev_screen_renders_switches_and_quits) {
     Tui tui;
     tui.name = "gallery_dev_screen_renders_switches_and_quits";
@@ -3920,6 +3994,9 @@ int main(int argc, char** argv) {
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
     skills_facet_sheet_opens_on_a_narrow_layout();
     system_commands_do_not_freeze_the_ui();
+    display_settings_switch_palette_glyphs_and_motion();
+    gallery_cycles_all_palettes_and_ascii();
+    no_color_still_paints_a_usable_frame();
     gallery_dev_screen_renders_switches_and_quits();
     input_scroll_keeps_tail_visible();
     panel_view_cycles_and_returns_to_the_prompt();

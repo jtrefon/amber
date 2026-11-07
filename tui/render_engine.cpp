@@ -571,7 +571,7 @@ int RenderEngine::working_row() const {
 // reads the wall clock, so a repaint that arrives early or late cannot change
 // how fast it travels.
 void RenderEngine::tick_anim() {
-    if (!tui_.runs_.busy(tui_.win().id)) {
+    if (reduced_motion_ || !tui_.runs_.busy(tui_.win().id)) {
         anim_phase_ = 0;
         return;
     }
@@ -584,6 +584,8 @@ void RenderEngine::tick_anim() {
 }
 
 double RenderEngine::anim_phase01() const {
+    if (reduced_motion_)
+        return 0.0;
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now() - pulse_epoch_)
                         .count();
@@ -845,7 +847,7 @@ void RenderEngine::draw_menu_dropdown() {
     if (!tui_.menu_->is_open() || state.menu >= tui_.menu_->model().menus.size() ||
         !menu_layout_.dropdown.visible())
         return;
-    const bool utf8 = agent::bar::utf8();
+    const bool utf8 = text::glyph::utf8();
     const auto& items = tui_.menu_->model().menus[state.menu].items;
     draw_menu_box(menu_layout_.dropdown, items, state.item, utf8);
     if (state.mode == menu::Mode::Submenu && state.item < items.size() &&
@@ -872,7 +874,7 @@ void RenderEngine::draw_top_bar() {
     if (rows <= 0)
         return;
     const int w = width();
-    const bool utf8 = agent::bar::utf8();
+    const bool utf8 = text::glyph::utf8();
 
     paint_.attron(paint::color_pair(P_BANNER));
     paint_.mvhline(0, 0, ' ', w);
@@ -884,7 +886,7 @@ void RenderEngine::draw_top_bar() {
     // The beat belongs to work in progress: the clock's colon blinks while a turn
     // or a job runs, and is solid when amber is idle. `colon` is "draw the colon",
     // so idle is always true -- inverting this printed "15 28" at rest.
-    const bool colon = !tui_.runs_.any_busy() || top_bar::pulse_on(now);
+    const bool colon = reduced_motion_ || !tui_.runs_.any_busy() || top_bar::pulse_on(now);
     const int right_w = top_right_width(tops);
     const int left_w = std::max(0, w - right_w - (right_w > 0 ? 2 : 0));
     if (tui_.menu_->is_open()) {

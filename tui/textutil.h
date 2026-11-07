@@ -42,8 +42,11 @@ std::wstring to_wide(const std::string& s);
 // the active locale is not UTF-8, so decoration works on every terminal.
 namespace glyph {
 
-// True iff the process locale's character set is UTF-8.
+// True iff the active glyph mode is UTF-8. The default follows the locale; a
+// user setting (auto|unicode|ascii) overrides it at runtime.
 bool utf8();
+void set_ascii(bool ascii);
+void clear_override();
 
 // Right arrow used in tool-result summaries ("→ ✓").
 const char* arrow();

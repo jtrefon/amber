@@ -82,7 +82,10 @@ struct Config {
     std::string thinking = "auto";
     // Soft cap on thinking tokens; <=0 means "unset" (no thinking_budget sent).
     int thinking_budget = -1;
-    bool show_reasoning = true; // render thinking live in the UI
+    bool show_reasoning = true;     // render thinking live in the UI
+    std::string ui_theme = "amber"; // amber|modern|high-contrast|monochrome
+    std::string ui_glyphs = "auto"; // auto|unicode|ascii
+    std::string ui_motion = "full"; // full|reduced
 
     // Model context window (n_ctx) in tokens. Used by UIs to render a
     // context-usage gauge (prompt_tokens vs this). Auto-detected from the

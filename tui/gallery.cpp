@@ -24,10 +24,11 @@ void draw_text(Surface& surface, int x, int y, const std::string& text, Role rol
     surface.put_text(x, y, text, Style{role});
 }
 
-void paint_shell(Surface& surface, const Glyphs& glyphs, GlyphMode mode) {
+void paint_shell(Surface& surface, const Glyphs& glyphs, GlyphMode mode, ThemeKind kind) {
     const int width = surface.width();
     draw_text(surface, 1, 0, "Amber render gallery", Role::Title);
-    const std::string label = mode_label(mode);
+    const std::string label = std::string(theme_kind_name(kind)) +
+                              (mode == GlyphMode::Unicode ? " \u00b7 " : " - ") + mode_label(mode);
     draw_text(surface, std::max(1, width - static_cast<int>(label.size()) - 2), 0, label,
               Role::Muted);
     surface.draw_hline(1, 1, std::max(0, width - 2), glyphs.rule, Style{Role::Frame});
@@ -107,11 +108,11 @@ void paint_content(Surface& surface, const Glyphs& glyphs, GlyphMode mode, const
     paint_marks(surface, glyphs, x, y);
 }
 
-void paint_footer(Surface& surface, const Glyphs& glyphs, GlyphMode mode) {
+void paint_footer(Surface& surface, const Glyphs& glyphs, GlyphMode mode, ThemeKind kind) {
     draw_text(surface, 2, surface.height() - 2,
-              std::string("a: ") +
+              std::string("theme: ") + theme_kind_name(kind) + "   a: " +
                   mode_label(mode == GlyphMode::Unicode ? GlyphMode::Ascii : GlyphMode::Unicode) +
-                  "   Esc: quit",
+                  "   t: next theme   Esc: quit",
               Role::Hint);
     surface.draw_hline(1, surface.height() - 3, std::max(0, surface.width() - 2), glyphs.hline,
                        Style{Role::Frame});
@@ -119,23 +120,23 @@ void paint_footer(Surface& surface, const Glyphs& glyphs, GlyphMode mode) {
 
 } // namespace
 
-Surface render_gallery(Size size, GlyphMode mode) {
+Surface render_gallery(Size size, GlyphMode mode, ThemeKind kind) {
     Surface surface(size.w, size.h);
-    paint_gallery(surface, mode);
+    paint_gallery(surface, mode, kind);
     return surface;
 }
 
-void paint_gallery(Surface& surface, GlyphMode mode) {
+void paint_gallery(Surface& surface, GlyphMode mode, ThemeKind kind) {
     const Glyphs& glyphs = mode == GlyphMode::Unicode ? Glyphs::unicode() : Glyphs::ascii();
     surface.clear(Cell{" ", Style{Role::Surface}});
-    paint_shell(surface, glyphs, mode);
+    paint_shell(surface, glyphs, mode, kind);
     const Rect frame{1, 2, std::max(0, surface.width() - 2), std::max(0, surface.height() - 5)};
     if (surface.width() < 24 || surface.height() < 12) {
         draw_text(surface, 2, 3, "too small for the gallery", Role::Error);
         return;
     }
     paint_content(surface, glyphs, mode, frame);
-    paint_footer(surface, glyphs, mode);
+    paint_footer(surface, glyphs, mode, kind);
 }
 
 } // namespace tui

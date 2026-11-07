@@ -43,8 +43,25 @@ std::optional<double> parse_setting_double(const std::string& v, double min, dou
 // Terminal capability and the bar decorations live in the core (agent::bar) so
 // a status segment can build its own text without a UI header. These forward,
 // keeping one implementation of the AMBER_ASCII rule.
+namespace {
+// -1 auto, 0 unicode, 1 ascii. The override lives beside utf8() so every
+// painter that already asks the locale question follows the setting without a
+// second plumbing path.
+int g_glyph_override = -1;
+} // namespace
+
 bool glyph::utf8() {
+    if (g_glyph_override >= 0)
+        return g_glyph_override == 0;
     return agent::bar::utf8();
+}
+
+void glyph::set_ascii(bool ascii) {
+    g_glyph_override = ascii ? 1 : 0;
+}
+
+void glyph::clear_override() {
+    g_glyph_override = -1;
 }
 
 const char* glyph::arrow() {

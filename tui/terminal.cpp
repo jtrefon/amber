@@ -8,6 +8,7 @@
 #include <ncurses.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -76,15 +77,19 @@ int color_id(Color color) {
     return -1;
 }
 
-int attr_for(const Style& style, const Theme& theme) {
+int pair_for(const Style& style) {
+    return style.exact_pair > 0 ? style.exact_pair : kPairBase + static_cast<int>(style.role);
+}
+
+int color_for(const Style& style, bool colors) {
+    const int pair = pair_for(style);
+    if (colors && has_colors() && pair < COLOR_PAIRS)
+        return COLOR_PAIR(pair);
+    return 0;
+}
+
+int emphasis_for(const Style& style, const RoleStyle& role) {
     int attrs = 0;
-    const int pair =
-        style.exact_pair > 0 ? style.exact_pair : kPairBase + static_cast<int>(style.role);
-    if (has_colors() && pair < COLOR_PAIRS)
-        attrs |= COLOR_PAIR(pair);
-    // The role carries the shipped emphasis (a title is bold, muted text is
-    // dim); the cell may only add to it, never cancel it.
-    const RoleStyle& role = theme.style(style.role);
     if (style.bold || role.bold)
         attrs |= A_BOLD;
     if (style.dim || role.dim)
@@ -98,22 +103,27 @@ int attr_for(const Style& style, const Theme& theme) {
     return attrs;
 }
 
+int attr_for(const Style& style, const Theme& theme, bool colors) {
+    // The role carries the shipped emphasis (a title is bold, muted text is
+    // dim); the cell may only add to it, never cancel it.
+    return color_for(style, colors) | emphasis_for(style, theme.style(style.role));
+}
+
 } // namespace
 
 struct Terminal::Impl {
     Theme theme = Theme::amber(GlyphMode::Unicode);
     bool started = false;
     bool pairs_registered = false;
+    bool colors = true;
     WINDOW* overlay = nullptr;
     int overlay_w = 0;
     int overlay_h = 0;
 
     void register_pairs() {
-        if (!has_colors() || pairs_registered)
+        if (!colors || !has_colors() || pairs_registered)
             return;
         pairs_registered = true;
-        start_color();
-        use_default_colors();
         for (int i = 0; i < static_cast<int>(Role::Count); ++i) {
             const RoleStyle& role = theme.style(static_cast<Role>(i));
             const int pair = kPairBase + i;
@@ -156,8 +166,12 @@ void Terminal::start() {
     meta(stdscr, TRUE); // the high-bit Alt+digit form
     set_escdelay(25);
     curs_set(1);
-    start_color();
-    use_default_colors();
+    const char* no_color = std::getenv("NO_COLOR");
+    impl_->colors = !(no_color && *no_color);
+    if (impl_->colors) {
+        start_color();
+        use_default_colors();
+    }
     use_legacy_coding(1);
     impl_->register_pairs();
     set_mouse(true);
@@ -173,6 +187,12 @@ void Terminal::stop() {
 }
 
 void Terminal::adopt() {
+    impl_->register_pairs();
+}
+
+void Terminal::set_theme(const Theme& theme) {
+    impl_->theme = theme;
+    impl_->pairs_registered = false;
     impl_->register_pairs();
 }
 
@@ -205,7 +225,7 @@ Size Terminal::size() const {
 
 void Terminal::present(Surface& surface) {
     for (const Damage& damage : surface.diff()) {
-        attrset(attr_for(damage.cell.style, impl_->theme));
+        attrset(attr_for(damage.cell.style, impl_->theme, impl_->colors));
         const std::wstring glyph = text::to_wide(damage.cell.glyph);
         if (!glyph.empty())
             mvaddnwstr(damage.y, damage.x, glyph.c_str(), static_cast<int>(glyph.size()));
@@ -275,7 +295,7 @@ void Terminal::overlay(const Surface& surface, int x, int y, int cursor_x, int c
             const Cell& cell = surface.at(column + left - x, row + top - y);
             if (cell.continuation)
                 continue;
-            wattrset(win, attr_for(cell.style, impl_->theme));
+            wattrset(win, attr_for(cell.style, impl_->theme, impl_->colors));
             const std::wstring glyph = text::to_wide(cell.glyph);
             if (!glyph.empty())
                 mvwaddnwstr(win, row, column, glyph.c_str(), static_cast<int>(glyph.size()));
@@ -320,7 +340,7 @@ void Terminal::blit(const Surface& surface, int x, int y) {
             const Cell& cell = surface.at(column, row);
             if (cell.continuation)
                 continue;
-            attrset(attr_for(cell.style, impl_->theme));
+            attrset(attr_for(cell.style, impl_->theme, impl_->colors));
             const std::wstring glyph = text::to_wide(cell.glyph);
             if (!glyph.empty())
                 mvaddnwstr(target_y, target_x, glyph.c_str(), static_cast<int>(glyph.size()));
