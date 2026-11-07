@@ -36,6 +36,11 @@ public:
     void overlay(const Surface& surface, int x, int y, int cursor_x = -1, int cursor_y = -1);
     void close_overlay();
 
+    // Write a self-contained surface at (x, y) into the shell's own screen
+    // buffer, without refreshing. The caller's existing doupdate() presents it,
+    // which is how the drawer joins the frame the rest of the shell painted.
+    void blit(const Surface& surface, int x, int y);
+
     void set_timeout(int milliseconds);
     // One non-blocking read (the modal paste probe).
     int read_key_now();

@@ -24,7 +24,7 @@ because their logic is welded to ncurses.
     gauge_text,input_line_layout,completion_context,help_page,option_key_decode,
     form_focus,list_state,dialog_pager,panel_view_text,session_browser_view,
     wrap_columns,cmdline_edit,geometry,cell,glyphs,theme,surface,compositor,
-    component,gallery,dialog_state,dialog_view,screen_view,rich_surface,\ntext_screen,skills_screen_view}.{h,cpp}`
+    component,gallery,dialog_state,dialog_view,screen_view,rich_surface,\ntext_screen,skills_screen_view,drawer_view}.{h,cpp}`
   - **L2 Application** — `tui/{event_loop,window_ops,slash_dispatcher,
     agent_event_handlers,command_service,session_service,prompt_service,
     popup_service,help_service,shutdown_service}.{h,cpp}`

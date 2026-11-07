@@ -221,4 +221,30 @@ void Terminal::close_overlay() {
     doupdate();
 }
 
+void Terminal::blit(const Surface& surface, int x, int y) {
+    impl_->register_pairs();
+    const Size screen = size();
+    for (int row = 0; row < surface.height(); ++row) {
+        const int target_y = y + row;
+        if (target_y < 0 || target_y >= screen.h)
+            continue;
+        for (int column = 0; column < surface.width(); ++column) {
+            const int target_x = x + column;
+            if (target_x < 0 || target_x >= screen.w)
+                continue;
+            const Cell& cell = surface.at(column, row);
+            if (cell.continuation)
+                continue;
+            attrset(attr_for(cell.style, impl_->theme));
+            const std::wstring glyph = text::to_wide(cell.glyph);
+            if (!glyph.empty())
+                mvaddnwstr(target_y, target_x, glyph.c_str(), static_cast<int>(glyph.size()));
+        }
+    }
+    // The shell paints after the drawer with attron(), which adds to whatever
+    // is current; leaving the last cell's pair/bold on would colour the input
+    // line that repaints immediately below it.
+    attrset(A_NORMAL);
+}
+
 } // namespace tui
