@@ -10,8 +10,9 @@
 //
 // The numeric values are the ncurses codes (a stable ABI), so an L4 adapter can
 // pass raw getch()/mouse values through without a translation switch.
-// tui/keys_ncurses.h static_asserts that equality: if ncurses ever changes its
-// ABI the build fails, and the adapter must translate instead of passing codes.
+// The terminal adapter static_asserts that equality: if ncurses ever changes
+// its ABI the build fails, and the adapter must translate instead of passing
+// raw codes through.
 namespace tui::keys {
 
 // Special keys; getch() returns these as int. kNone is the timeout/ERR value.
@@ -39,6 +40,14 @@ using MouseMask = std::uint32_t;
 inline constexpr MouseMask kButton1 = 0x2;      // BUTTON1_PRESSED
 inline constexpr MouseMask kButton4 = 0x10000;  // BUTTON4_PRESSED — wheel up
 inline constexpr MouseMask kButton5 = 0x200000; // BUTTON5_PRESSED — wheel down
+
+// One mouse event, translated by the terminal adapter. The shell never sees
+// ncurses' MEVENT, and the masks above stay the wire values.
+struct MouseEvent {
+    int x = 0;
+    int y = 0;
+    MouseMask bstate = 0;
+};
 
 } // namespace tui::keys
 

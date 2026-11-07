@@ -500,7 +500,6 @@ void SessionController::redraw_after_modal() {
         tui_.router_->pending_api_keys().pop();
         tui_.router_->resolve_api_key(ev);
     }
-    touchwin(stdscr);
     tui_.draw();
     tui_.render_engine_->draw_input("");
     tui_.flush();

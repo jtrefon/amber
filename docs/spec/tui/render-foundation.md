@@ -128,9 +128,10 @@ set with `tests/ncurses_baseline.json`.
 - a missing baseline, an unreadable scan or a scan below the file floor exits 2,
   never 0.
 
-The list starts at the pre-foundation set plus `tui/terminal.cpp`, the adapter.
-From here it only shrinks until M6 retires the rest. The gate runs in
-`make static-gates`, `make verify-quick` and the `ncurses` gate-report row.
+The list started at the pre-foundation set plus `tui/terminal.cpp`, the adapter.
+M6 retired the rest: `tests/ncurses_baseline.json` now names **only**
+`tui/terminal.cpp` (`chat-surface.md`). The gate runs in `make static-gates`,
+`make verify-quick` and the `ncurses` gate-report row.
 
 ## 9. Acceptance mapping
 

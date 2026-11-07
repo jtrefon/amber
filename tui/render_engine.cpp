@@ -46,16 +46,31 @@ void RenderEngine::mark_working() noexcept {
 }
 
 int RenderEngine::height() const {
-    int y, x;
-    getmaxyx(stdscr, y, x);
-    (void)x;
-    return y;
+    return terminal_.size().h;
 }
 int RenderEngine::width() const {
-    int y, x;
-    getmaxyx(stdscr, y, x);
-    (void)y;
-    return x;
+    return terminal_.size().w;
+}
+
+void RenderEngine::begin_frame() {
+    const Size size = terminal_.size();
+    if (size.w != frame_.width() || size.h != frame_.height()) {
+        frame_ = Surface(size.w, size.h);
+        paint_.begin(frame_);
+        paint_.erase();
+        return;
+    }
+    // The frame persists between draw() and draw_input(); begin() only resets
+    // the painter's cursor and attributes, not the pixels.
+    paint_.begin(frame_);
+}
+
+void RenderEngine::present_frame() {
+    terminal_.blit(frame_, 0, 0);
+    if (paint_.cursor_visible())
+        terminal_.place_cursor(paint_.cursor_x(), paint_.cursor_y());
+    else
+        terminal_.hide_cursor();
 }
 int RenderEngine::top_rows() const {
     // One row: the rail carries the mark, the tabs and the clock. The second row
@@ -192,7 +207,23 @@ std::string RenderEngine::activity_verb() const {
     return tool_display::activity_verb(w.compressing, w.state, tool, tui_.reg_);
 }
 
+void RenderEngine::sync_chat_canvas(bool show_working) const {
+    int ch = chat_height();
+    if (show_working)
+        ch = std::max(1, ch - 1);
+    chat_canvas_.set_viewport(ch, width());
+    chat_canvas_.set_lines(build_view_without_working(tui_.win()));
+    chat_canvas_.set_top(tui_.win().scroll_top);
+}
+
 int RenderEngine::max_scroll(const Window& w) const {
+    // The active window's canvas already holds this view: syncing it here lets a
+    // scroll key ask for the bound without re-wrapping 10k lines. Background
+    // windows have no canvas, so their bound is computed from their view.
+    if (&w == &tui_.win()) {
+        sync_chat_canvas(tui_.runs_.busy(w.id) && working_visible_);
+        return chat_canvas_.max_top();
+    }
     auto view = build_view_without_working(w);
     int total = static_cast<int>(rich::rewrap_all(view, width()).size());
     bool show_working = tui_.runs_.busy(w.id) && working_visible_;
@@ -334,8 +365,8 @@ std::vector<RenderEngine::Seg> RenderEngine::top_segments() const {
 }
 
 void RenderEngine::draw_working_indicator(int row) {
-    move(row, 0);
-    clrtoeol();
+    paint_.move(row, 0);
+    paint_.clrtoeol();
     const auto now = std::chrono::steady_clock::now();
     const size_t secs = static_cast<size_t>(
         std::chrono::duration_cast<std::chrono::seconds>(now - working_since_).count());
@@ -365,14 +396,15 @@ void RenderEngine::draw_working_indicator(int row) {
 void RenderEngine::draw() {
     dirty_ = true;
     tick_anim();
+    begin_frame();
     working_row_owned_ = false;
     if (tui_.win().welcome_art) {
-        erase();
+        paint_.erase();
         draw_top_bar();
-        welcome::render(stdscr, chat_top(), width());
+        welcome::render(frame_, chat_top(), width());
         draw_menu_dropdown();
         draw_status_bar();
-        wnoutrefresh(stdscr);
+        present_frame();
         return;
     }
 
@@ -382,22 +414,14 @@ void RenderEngine::draw() {
     // row without resizing the canvas, so it must not touch a row the transcript
     // still owns.
     working_row_owned_ = show_working;
-    std::vector<rich::Line> view = build_view_without_working(tui_.win());
-    int ch = chat_height();
-    if (show_working)
-        ch = std::max(1, ch - 1);
-    chat_canvas_.resize(chat_top(), ch, width());
-    chat_canvas_.set_lines(view);
-    if (static_cast<size_t>(tui_.win().scroll_top) > static_cast<size_t>(chat_canvas_.max_top()))
-        tui_.win().scroll_top = chat_canvas_.max_top();
-    chat_canvas_.set_top(tui_.win().scroll_top);
-    chat_canvas_.render();
+    sync_chat_canvas(show_working);
+    paint_.blit(chat_canvas_.surface(), 0, chat_top());
     if (show_working)
         draw_working_indicator(working_row());
     draw_menu_dropdown();
 
     draw_status_bar();
-    wnoutrefresh(stdscr);
+    present_frame();
 }
 
 namespace {
@@ -427,9 +451,9 @@ void RenderEngine::put_wsegment(int y, int budget, int& x, const std::wstring& w
     const size_t n = std::min(ws.size(), room);
     if (n == 0)
         return;
-    attron(COLOR_PAIR(pair));
-    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(n));
-    attroff(COLOR_PAIR(pair));
+    paint_.attron(paint::color_pair(pair));
+    paint_.mvaddnwstr(y, x, ws, static_cast<int>(n));
+    paint_.attroff(paint::color_pair(pair));
     x += static_cast<int>(n);
 }
 
@@ -442,9 +466,9 @@ void RenderEngine::put_span(int y, int w, int& x, const std::string& text, int p
         ws.resize(room);
     if (ws.empty())
         return;
-    attron(COLOR_PAIR(pair) | attrs);
-    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
-    attroff(COLOR_PAIR(pair) | attrs);
+    paint_.attron(paint::color_pair(pair) | attrs);
+    paint_.mvaddnwstr(y, x, ws, static_cast<int>(ws.size()));
+    paint_.attroff(paint::color_pair(pair) | attrs);
     x += static_cast<int>(ws.size());
 }
 
@@ -570,10 +594,11 @@ double RenderEngine::anim_phase01() const {
 // keeps its own, slower cadence.
 void RenderEngine::tick_pulse() {
     tick_anim();
+    begin_frame();
     if (working_row_owned_ && tui_.runs_.busy(tui_.win().id))
         draw_working_indicator(working_row());
     draw_status_bar();
-    wnoutrefresh(stdscr);
+    present_frame();
     dirty_ = true;
 }
 
@@ -587,9 +612,9 @@ void RenderEngine::draw_right_zone(int y, int w, int right_w, const std::vector<
         std::wstring text = to_wide(right_zone[i].text);
         if (rx + static_cast<int>(text.size()) > w)
             text.resize(static_cast<size_t>(std::max(0, w - rx)));
-        attron(COLOR_PAIR(right_zone[i].pair));
-        mvaddnwstr(y, rx, text.c_str(), static_cast<int>(text.size()));
-        attroff(COLOR_PAIR(right_zone[i].pair));
+        paint_.attron(paint::color_pair(right_zone[i].pair));
+        paint_.mvaddnwstr(y, rx, text, static_cast<int>(text.size()));
+        paint_.attroff(paint::color_pair(right_zone[i].pair));
         rx += static_cast<int>(text.size());
     }
 }
@@ -602,9 +627,9 @@ void RenderEngine::draw_status_bar() {
     // knew what else it held. It is a right-aligned segment now (the clock
     // plugin), so this function lays out registered segments and owns no
     // readout of its own: it does not know a clock exists.
-    attron(COLOR_PAIR(P_BANNER));
-    mvhline(y, 0, ' ', w);
-    attroff(COLOR_PAIR(P_BANNER));
+    paint_.attron(paint::color_pair(P_BANNER));
+    paint_.mvhline(y, 0, ' ', w);
+    paint_.attroff(paint::color_pair(P_BANNER));
 
     const int window = context_window();
     const bool have_ctx = (window > 0);
@@ -636,10 +661,10 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
     switch (role) {
     case top_bar::Role::AppMark:
         pair = P_BRAND;
-        attrs = A_BOLD;
+        attrs = paint::bold;
         break;
     case top_bar::Role::ActiveTab:
-        attrs = A_REVERSE | A_BOLD;
+        attrs = paint::reverse | paint::bold;
         break;
     case top_bar::Role::InactiveTab:
         // The clock's own pair: dim-on-banner melted into the bar.
@@ -648,15 +673,15 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
     case top_bar::Role::RunningTab:
     case top_bar::Role::DoneTab:
         pair = P_GAUGE_OK;
-        attrs = A_BOLD;
+        attrs = paint::bold;
         break;
     case top_bar::Role::AttentionTab:
         pair = P_BUTTON_ACT;
-        attrs = A_BOLD;
+        attrs = paint::bold;
         break;
     case top_bar::Role::ErrorTab:
         pair = P_GAUGE_CRIT;
-        attrs = A_BOLD;
+        attrs = paint::bold;
         break;
     case top_bar::Role::Overflow:
         pair = P_BAR_DIM;
@@ -733,9 +758,9 @@ void RenderEngine::put_menu_hline(int row, int col, int n, const std::string& gl
     if (unit.empty() || n <= 0)
         return;
     const std::wstring line(static_cast<std::size_t>(n), unit.front());
-    attron(COLOR_PAIR(pair));
-    mvaddnwstr(row, col, line.c_str(), n);
-    attroff(COLOR_PAIR(pair));
+    paint_.attron(paint::color_pair(pair));
+    paint_.mvaddnwstr(row, col, line, n);
+    paint_.attroff(paint::color_pair(pair));
 }
 
 void RenderEngine::draw_menu_frame(const menu::Rect& box, bool utf8) {
@@ -748,13 +773,13 @@ void RenderEngine::draw_menu_frame(const menu::Rect& box, bool utf8) {
     const std::string bottom_left = utf8 ? "\u2514" : "+";
     const std::string bottom_right = utf8 ? "\u2518" : "+";
 
-    attron(COLOR_PAIR(P_DIALOG));
+    paint_.attron(paint::color_pair(P_DIALOG));
     for (int row = box.y; row < box.y + box.h; ++row) {
-        move(row, box.x);
+        paint_.move(row, box.x);
         for (int i = 0; i < box.w; ++i)
-            addch(' ');
+            paint_.addch(' ');
     }
-    attroff(COLOR_PAIR(P_DIALOG));
+    paint_.attroff(paint::color_pair(P_DIALOG));
 
     put_menu_glyph(box.y, box.x, top_left, P_BAR_DIM);
     put_menu_hline(box.y, box.x + 1, box.w - 2, horizontal, P_BAR_DIM);
@@ -778,12 +803,12 @@ void RenderEngine::draw_menu_separator(const menu::Rect& box, int row, bool utf8
 void RenderEngine::draw_menu_row(const menu::Rect& box, int row, const menu::Item& item,
                                  bool chosen, bool utf8) {
     const int pair = chosen ? P_BUTTON_ACT : P_DIALOG;
-    const int attrs = chosen ? A_BOLD : 0;
-    attron(COLOR_PAIR(pair));
-    move(row, box.x + 1);
+    const int attrs = chosen ? paint::bold : 0;
+    paint_.attron(paint::color_pair(pair));
+    paint_.move(row, box.x + 1);
     for (int j = 0; j < box.w - 2; ++j)
-        addch(' ');
-    attroff(COLOR_PAIR(pair));
+        paint_.addch(' ');
+    paint_.attroff(paint::color_pair(pair));
     const bool children = !item.children.empty();
     int x = box.x + 2;
     const int budget = box.x + box.w - 2 - (children ? 1 : 0);
@@ -832,10 +857,11 @@ void RenderEngine::draw_menu_titles(int left_w, bool utf8) {
     menu_layout_ =
         menu::layout(tui_.menu_->model(), tui_.menu_->state(), left_w, top_rows(), height() - 2);
     int x = 0;
-    put_span(0, left_w, x, top_bar::app_mark(utf8), P_BRAND, A_BOLD);
+    put_span(0, left_w, x, top_bar::app_mark(utf8), P_BRAND, paint::bold);
     for (const auto& title : menu_layout_.titles) {
         const auto& label = tui_.menu_->model().menus[title.menu].label;
-        const int attrs = title.menu == tui_.menu_->state().menu ? (A_REVERSE | A_BOLD) : 0;
+        const int attrs =
+            title.menu == tui_.menu_->state().menu ? (paint::reverse | paint::bold) : 0;
         int tx = title.rect.x;
         put_span(0, left_w, tx, std::string(" ") + label + " ", P_BANNER, attrs);
     }
@@ -848,9 +874,9 @@ void RenderEngine::draw_top_bar() {
     const int w = width();
     const bool utf8 = agent::bar::utf8();
 
-    attron(COLOR_PAIR(P_BANNER));
-    mvhline(0, 0, ' ', w);
-    attroff(COLOR_PAIR(P_BANNER));
+    paint_.attron(paint::color_pair(P_BANNER));
+    paint_.mvhline(0, 0, ' ', w);
+    paint_.attroff(paint::color_pair(P_BANNER));
 
     const auto tops = top_segments();
     const std::time_t now = std::time(nullptr);
@@ -876,8 +902,9 @@ void RenderEngine::tick_clock() {
     if (std::time(nullptr) == last_top_second_)
         return;
     dirty_ = true;
+    begin_frame();
     draw_top_bar();
-    wnoutrefresh(stdscr);
+    present_frame();
 }
 
 namespace {
@@ -898,7 +925,7 @@ int role_pair(input_line_layout::Role r) {
 }
 
 int role_attrs(input_line_layout::Role r) {
-    return r == input_line_layout::Role::Decor ? A_DIM : 0;
+    return r == input_line_layout::Role::Decor ? paint::dim : 0;
 }
 
 } // namespace
@@ -911,14 +938,14 @@ void RenderEngine::put_input(int y, int w, int& x, const std::string& text, int 
     if (static_cast<int>(ws.size()) > room)
         ws.resize(static_cast<std::size_t>(room));
     if (attrs)
-        attron(COLOR_PAIR(pair) | attrs);
+        paint_.attron(paint::color_pair(pair) | attrs);
     else
-        attron(COLOR_PAIR(pair));
-    mvaddnwstr(y, x, ws.c_str(), static_cast<int>(ws.size()));
+        paint_.attron(paint::color_pair(pair));
+    paint_.mvaddnwstr(y, x, ws, static_cast<int>(ws.size()));
     if (attrs)
-        attroff(COLOR_PAIR(pair) | attrs);
+        paint_.attroff(paint::color_pair(pair) | attrs);
     else
-        attroff(COLOR_PAIR(pair));
+        paint_.attroff(paint::color_pair(pair));
     x += display_cols(text);
 }
 
@@ -935,7 +962,8 @@ int cursor_column(int cursor_col, int scroll_off, int w) {
 }
 
 // Paint the visible slice of the input, after the prompt, in the user pair.
-void draw_input_slice(int y, int w, int prompt_w, int scroll_off, const std::string& s) {
+void draw_input_slice(FramePainter& paint, int y, int w, int prompt_w, int scroll_off,
+                      const std::string& s) {
     const int input_start = std::max(0, prompt_w - scroll_off);
     if (input_start >= w)
         return;
@@ -944,22 +972,23 @@ void draw_input_slice(int y, int w, int prompt_w, int scroll_off, const std::str
     const int input_len = input_line_layout::visible_bytes(s, skip, w - input_start);
     if (input_len <= 0)
         return;
-    attron(COLOR_PAIR(P_USER));
-    mvaddnstr(y, input_start, s.c_str() + skip, input_len);
-    attroff(COLOR_PAIR(P_USER));
+    paint.attron(paint::color_pair(P_USER));
+    paint.mvaddnstr(y, input_start, s.c_str() + skip, input_len);
+    paint.attroff(paint::color_pair(P_USER));
 }
 
 } // namespace
 
 void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
+    begin_frame();
     draw_drawer(s);
     const int y = height() - 1;
     const int w = width();
     int x = 0;
 
-    move(y, 0);
-    clrtoeol();
+    paint_.move(y, 0);
+    paint_.clrtoeol();
 
     const auto git = git_state(); // one immutable snapshot for this frame
     for (const auto& piece : input_line_layout::prompt_pieces(
@@ -970,24 +999,24 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
     const int prompt_w = x;
     const input_line_layout::Scroll sc =
         input_line_layout::scroll_for(prompt_w, s, cursor, shadow, w);
-    draw_input_slice(y, w, prompt_w, sc.offset, s);
+    draw_input_slice(paint_, y, w, prompt_w, sc.offset, s);
     draw_input_shadow(y, w, prompt_w, sc.offset, s, cursor, shadow);
 
     if (s.empty() && shadow.empty() && !tui_.menu_->hint().empty()) {
         int hx = std::max(0, prompt_w - sc.offset);
         put_input(y, w, hx, tui_.menu_->hint(), P_HINT);
-        curs_set(0);
-        wnoutrefresh(stdscr);
+        paint_.show_cursor(false);
+        present_frame();
         return;
     }
     if (tui_.menu_->is_open()) {
-        curs_set(0);
-        wnoutrefresh(stdscr);
+        paint_.show_cursor(false);
+        present_frame();
         return;
     }
-    curs_set(1);
-    move(y, cursor_column(sc.cursor_col, sc.offset, w));
-    wnoutrefresh(stdscr);
+    paint_.show_cursor(true);
+    paint_.move(y, cursor_column(sc.cursor_col, sc.offset, w));
+    present_frame();
 }
 
 void RenderEngine::draw_input_shadow(int y, int w, int prompt_w, int scroll_off,
@@ -999,23 +1028,11 @@ void RenderEngine::draw_input_shadow(int y, int w, int prompt_w, int scroll_off,
     const int shadow_start = input_w - scroll_off;
     if (shadow_start < 0 || shadow_start >= w)
         return;
-    attron(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
-    mvaddnstr(y, shadow_start, shadow.c_str(),
-              std::min(static_cast<int>(shadow.size()), w - shadow_start));
-    attroff(A_DIM | COLOR_PAIR(P_INPUT_SHADOW));
+    paint_.attron(paint::dim | paint::color_pair(P_INPUT_SHADOW));
+    paint_.mvaddnstr(y, shadow_start, shadow,
+                     std::min(static_cast<int>(shadow.size()), w - shadow_start));
+    paint_.attroff(paint::dim | paint::color_pair(P_INPUT_SHADOW));
 }
-
-namespace {
-
-// Blank the rows in [from, to).
-void clear_rows(int from, int to) {
-    for (int row = from; row < to; ++row) {
-        move(row, 0);
-        clrtoeol();
-    }
-}
-
-} // namespace
 
 void RenderEngine::draw_drawer(const std::string& input) {
     // The flag mirrors CommandLine's drawer state, but the line is the fact: a
@@ -1026,7 +1043,10 @@ void RenderEngine::draw_drawer(const std::string& input) {
         return;
     const int bar_row = height() - 2;
     if (modal_open()) {
-        clear_rows(std::max(0, bar_row - 8), bar_row);
+        for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
+            paint_.move(row, 0);
+            paint_.clrtoeol();
+        }
         return;
     }
 
@@ -1051,7 +1071,7 @@ void RenderEngine::draw_drawer(const std::string& input) {
     // blit into that buffer; draw_input's wnoutrefresh and the loop's doupdate
     // present it with the rest of the frame.
     const Surface surface = paint_drawer(view, width());
-    terminal_.blit(surface, 0, top);
+    paint_.blit(surface, 0, top);
 }
 
 void RenderEngine::request_git_refresh(const std::string& root) {

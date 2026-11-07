@@ -3,9 +3,9 @@
 
 // Colour-pair identifiers used across the whole TUI. Pure: these are just ids,
 // so a module that only needs to *name* a pair (rich lines, markdown runs) can
-// include this without pulling in <ncurses.h>. The ncurses side lives in
-// widgets.h (init_pairs). Call init_pairs() once, after start_color(), to
-// register them.
+// include this without pulling in <ncurses.h>. The terminal adapter registers
+// the semantic role pairs and the grayscale ramp; every other module only
+// names an id.
 namespace tui {
 
 enum Pair {

@@ -7,6 +7,7 @@
 // measures, and later screens depend on the interface, not on curses types.
 
 #include "tui/geometry.h"
+#include "tui/keys.h"
 #include "tui/surface.h"
 
 #include <memory>
@@ -41,6 +42,11 @@ public:
     // which is how the drawer joins the frame the rest of the shell painted.
     void blit(const Surface& surface, int x, int y);
 
+    // Physical cursor. The shell paints a whole frame and then asks for the
+    // cursor it owns (the input line); a hidden cursor is the default.
+    void place_cursor(int x, int y);
+    void hide_cursor();
+
     void set_timeout(int milliseconds);
     // One non-blocking read (the modal paste probe).
     int read_key_now();
@@ -53,9 +59,20 @@ public:
     // uses this so cells with no damage cannot keep stale content.
     void clear_screen();
 
-    // Blocking read. Returns the ncurses key code (see tui/keys.h) or
-    // keys::kNone on a timeout/ERR.
+    // Read with the adapter's current timeout. Returns a key code from
+    // tui/keys.h, or keys::kNone on a timeout.
     int read_key();
+    // Read with a temporary timeout (the ESC/UTF-8 follow-up probes), restoring
+    // the shell's tick timeout afterwards.
+    int read_key_timeout(int milliseconds);
+    // Put a key back when a probe finds it is not part of the sequence.
+    void push_key(int key);
+    bool read_mouse(keys::MouseEvent& event);
+
+    // Mouse reporting is a terminal mode, not a key binding.
+    void set_mouse(bool enabled);
+    // Present what was written: one virtual-screen refresh and one doupdate().
+    void flush();
 
 private:
     struct Impl;

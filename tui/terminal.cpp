@@ -1,6 +1,7 @@
 #include "tui/terminal.h"
 
 #include "tui/keys.h"
+#include "tui/widgets.h"
 #include "tui/textutil.h"
 #include "tui/theme.h"
 
@@ -12,6 +13,33 @@
 #include <vector>
 
 namespace tui {
+// The ncurses codes the adapter reads are the codes the L1 vocabulary names.
+// If ncurses changes its ABI these fail the build, and the adapter must
+// translate instead of passing raw codes through.
+static_assert(tui::keys::kUp == KEY_UP, "ncurses KEY_UP drifted from tui::keys");
+static_assert(tui::keys::kDown == KEY_DOWN, "ncurses KEY_DOWN drifted from tui::keys");
+static_assert(tui::keys::kLeft == KEY_LEFT, "ncurses KEY_LEFT drifted from tui::keys");
+static_assert(tui::keys::kRight == KEY_RIGHT, "ncurses KEY_RIGHT drifted from tui::keys");
+static_assert(tui::keys::kHome == KEY_HOME, "ncurses KEY_HOME drifted from tui::keys");
+static_assert(tui::keys::kEnd == KEY_END, "ncurses KEY_END drifted from tui::keys");
+static_assert(tui::keys::kBackspace == KEY_BACKSPACE,
+              "ncurses KEY_BACKSPACE drifted from tui::keys");
+static_assert(tui::keys::kDelete == KEY_DC, "ncurses KEY_DC drifted from tui::keys");
+static_assert(tui::keys::kNPage == KEY_NPAGE, "ncurses KEY_NPAGE drifted from tui::keys");
+static_assert(tui::keys::kPPage == KEY_PPAGE, "ncurses KEY_PPAGE drifted from tui::keys");
+static_assert(tui::keys::kEnter == KEY_ENTER, "ncurses KEY_ENTER drifted from tui::keys");
+static_assert(tui::keys::kBtab == KEY_BTAB, "ncurses KEY_BTAB drifted from tui::keys");
+static_assert(tui::keys::kF10 == KEY_F(10), "ncurses KEY_F(10) drifted from tui::keys");
+static_assert(tui::keys::kMouse == KEY_MOUSE, "ncurses KEY_MOUSE drifted from tui::keys");
+static_assert(tui::keys::kResize == KEY_RESIZE, "ncurses KEY_RESIZE drifted from tui::keys");
+static_assert(tui::keys::kButton1 == BUTTON1_PRESSED,
+              "ncurses BUTTON1_PRESSED drifted from tui::keys");
+static_assert(tui::keys::kButton4 == BUTTON4_PRESSED,
+              "ncurses BUTTON4_PRESSED drifted from tui::keys");
+#ifdef BUTTON5_PRESSED
+static_assert(tui::keys::kButton5 == BUTTON5_PRESSED,
+              "ncurses BUTTON5_PRESSED drifted from tui::keys");
+#endif
 
 namespace {
 
@@ -50,7 +78,8 @@ int color_id(Color color) {
 
 int attr_for(const Style& style, const Theme& theme) {
     int attrs = 0;
-    const int pair = kPairBase + static_cast<int>(style.role);
+    const int pair =
+        style.exact_pair > 0 ? style.exact_pair : kPairBase + static_cast<int>(style.role);
     if (has_colors() && pair < COLOR_PAIRS)
         attrs |= COLOR_PAIR(pair);
     // The role carries the shipped emphasis (a title is bold, muted text is
@@ -93,6 +122,19 @@ struct Terminal::Impl {
             init_pair(static_cast<short>(pair), static_cast<short>(color_id(role.fg)),
                       static_cast<short>(color_id(role.bg)));
         }
+        // The welcome raster is xterm's 232..255 grayscale ramp, registered as
+        // fixed pairs rather than redefining palette entries (OSC 4 output).
+        init_pair(P_GRAY, 0, 0);
+        for (int i = 0; i < 24; ++i) {
+            const int pair = P_GRAY + 1 + i;
+            if (pair >= COLOR_PAIRS)
+                break;
+            if (COLORS >= 256)
+                init_pair(static_cast<short>(pair), static_cast<short>(232 + i),
+                          static_cast<short>(232 + i));
+            else
+                init_pair(static_cast<short>(pair), COLOR_WHITE, COLOR_BLACK);
+        }
     }
 };
 
@@ -108,12 +150,18 @@ void Terminal::start() {
     if (!initscr())
         throw std::runtime_error("initscr failed");
     impl_->started = true;
-    raw();
+    raw(); // Ctrl-C is a keypress, not SIGINT
     noecho();
     keypad(stdscr, TRUE);
-    meta(stdscr, TRUE);
-    curs_set(0);
+    meta(stdscr, TRUE); // the high-bit Alt+digit form
+    set_escdelay(25);
+    curs_set(1);
+    start_color();
+    use_default_colors();
+    use_legacy_coding(1);
     impl_->register_pairs();
+    set_mouse(true);
+    mouseinterval(0);
 }
 
 void Terminal::stop() {
@@ -126,6 +174,15 @@ void Terminal::stop() {
 
 void Terminal::adopt() {
     impl_->register_pairs();
+}
+
+void Terminal::place_cursor(int x, int y) {
+    move(y, x);
+    curs_set(1);
+}
+
+void Terminal::hide_cursor() {
+    curs_set(0);
 }
 
 void Terminal::set_timeout(int milliseconds) {
@@ -166,6 +223,34 @@ void Terminal::clear_screen() {
 int Terminal::read_key() {
     const int key = getch();
     return key == ERR ? keys::kNone : key;
+}
+
+int Terminal::read_key_timeout(int milliseconds) {
+    timeout(milliseconds);
+    const int key = getch();
+    timeout(kTickTimeoutMs);
+    return key == ERR ? keys::kNone : key;
+}
+
+void Terminal::push_key(int key) {
+    ungetch(key);
+}
+
+bool Terminal::read_mouse(keys::MouseEvent& event) {
+    MEVENT raw{};
+    if (getmouse(&raw) != OK)
+        return false;
+    event = keys::MouseEvent{raw.x, raw.y, static_cast<keys::MouseMask>(raw.bstate)};
+    return true;
+}
+
+void Terminal::set_mouse(bool enabled) {
+    mousemask(enabled ? (BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
+}
+
+void Terminal::flush() {
+    wnoutrefresh(stdscr);
+    doupdate();
 }
 
 void Terminal::overlay(const Surface& surface, int x, int y, int cursor_x, int cursor_y) {

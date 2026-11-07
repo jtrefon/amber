@@ -24,6 +24,7 @@
 #include "run_registry.h"
 #include "window_manager.h"
 #include "render_engine.h"
+#include "terminal.h"
 #include "session_controller.h"
 #include "slash_dispatcher.h"
 #include "log_retention_controller.h"
@@ -229,6 +230,7 @@ private:
     // ---- rendering (owned by RenderEngine) -------------------------------
     void draw();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
+    Terminal terminal_;
     std::unique_ptr<RenderEngine> render_engine_;
 
     // Commands started by the UI and not yet reported. Job handles are
@@ -407,7 +409,7 @@ private:
     bool cancel_active_run(int ch, CommandLine& cl);
     bool handle_ctrl_c(int ch, CommandLine& cl);
     bool handle_mouse(int ch, CommandLine& cl);
-    bool handle_tab_click(const MEVENT& ev);
+    bool handle_tab_click(const keys::MouseEvent& ev);
     bool scroll_mode_nav(int ch);
     detail::PromptOutcome route_to_command_line(int ch, CommandLine& cl,
                                                 CommandLine::Result& result);
