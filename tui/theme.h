@@ -57,6 +57,10 @@ struct RoleStyle {
     bool reverse = false;
 };
 
+// Semantic role for a legacy widgets pair id. Rich lines, markdown and the
+// shell's paint shim still name pairs; resolving them here keeps one mapping.
+Role role_for_pair(int pair) noexcept;
+
 class Theme {
 public:
     // The shipped palette. `mode` selects the glyph set; the colour roles are

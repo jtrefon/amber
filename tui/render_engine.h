@@ -2,9 +2,8 @@
 #define AMBER_TUI_RENDER_ENGINE_H
 
 #include "tui/drawer_tabs.h"
+#include "tui/frame_painter.h"
 #include "tui/terminal.h"
-
-#include <ncurses.h>
 
 #include <atomic>
 #include <chrono>
@@ -14,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "canvas.h"
+#include "text_canvas.h"
 #include "input_line_layout.h"
 #include "menu_view.h"
 #include "top_bar.h"
@@ -110,6 +109,9 @@ public:
     void tick_clock();
     void draw_input(const std::string& s, size_t cursor = 0, const std::string& shadow = "");
     void draw_drawer(const std::string& input);
+    void sync_chat_canvas(bool show_working) const;
+    void begin_frame();
+    void present_frame();
 
     static std::string drawer_token(const std::string& input);
     std::vector<const palette::Command*> filter_commands(const std::string& token);
@@ -135,7 +137,7 @@ public:
     bool dirty() const noexcept { return dirty_; }
     void mark_dirty() noexcept { dirty_ = true; }
     void clear_dirty() noexcept { dirty_ = false; }
-    void flush() const { doupdate(); }
+    void flush() { terminal_.flush(); }
     std::chrono::steady_clock::time_point last_status_tick() const noexcept {
         return last_status_tick_;
     }
@@ -204,7 +206,7 @@ private:
     std::string activity_verb() const;
 
     Tui& tui_;
-    Canvas chat_canvas_;
+    mutable TextCanvas chat_canvas_;
     md::Style md_style_;
     // Worker-side: the prompt's only git entry point (git_reads owns the
     // subprocesses). current_project_name() is a getcwd (no fork), used to seed
@@ -225,6 +227,8 @@ private:
     // The model picker's tab strip, empty when the open drawer has no tabs.
     DrawerTabStrip drawer_tabs_;
     Terminal terminal_;
+    Surface frame_{0, 0};
+    FramePainter paint_;
     // The provider the selected tab narrows the painted rows to ("" = All).
     std::string drawer_provider_;
     bool scroll_mode_ = false;

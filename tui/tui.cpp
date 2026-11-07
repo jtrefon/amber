@@ -4,7 +4,6 @@
 #include "confirm_panel.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
-#include "keys_ncurses.h"
 #include "help_page.h"
 #include "completion_context.h"
 #include "option_key_decode.h"
@@ -162,7 +161,7 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         load_key_bindings();
         restore_workspace();
     } catch (...) {
-        endwin();
+        terminal_.stop();
         g_terminal_guard.restore();
         throw;
     }
@@ -170,11 +169,11 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
 
 void Tui::toggle_mouse() {
     mouse_on_ = !mouse_on_;
+    terminal_.set_mouse(mouse_on_);
     // xterm mouse reporting is what replaces the terminal's own click-drag
     // selection. Turning it off is the plain way to select and copy (Cmd/Ctrl+C
     // as usual, no Shift chord); the wheel then scrolls the terminal instead of
     // the chat log, which is the trade-off being made consciously.
-    mousemask(mouse_on_ ? (BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED) : 0, nullptr);
     append_line(P_STATUS,
                 mouse_on_
                     ? "mouse: on — wheel scrolls, tab clicks switch, Alt+M gives selection back"
@@ -184,27 +183,10 @@ void Tui::toggle_mouse() {
 void Tui::init_terminal() {
     std::setlocale(LC_ALL, "");
     g_terminal_guard.capture();
-    initscr();
-    raw(); // capture Ctrl-C as keypress (ASCII 3) instead of SIGINT
-    noecho();
-    keypad(stdscr, TRUE);
-    meta(stdscr, TRUE); // receive the high-bit (0xB1..0xB9) Alt+number form
-    set_escdelay(25);
-    curs_set(1);
-    start_color();
-    // Wheel events scroll the chat log; button 1 clicks the top rail's tabs.
-    // Enabling mouse reporting replaces terminal-level click-drag selection —
-    // the trade-off documented in docs/architecture/scroll-design.md — but
-    // keeps wheel ticks distinct from arrow keys, so Up/Down stay
-    // prompt-history navigation instead of the xterm alt-scroll aliasing.
-    mousemask(BUTTON1_PRESSED | BUTTON4_PRESSED | BUTTON5_PRESSED, nullptr);
-    mouseinterval(0);
+    terminal_.start();
     // From here the terminal has modes that outlive the process: anything that
     // exits without endwin() must undo them itself.
     g_terminal_guard.arm();
-    use_default_colors();
-    use_legacy_coding(1);
-    init_pairs();
 }
 
 // The runtime needs the LIVE config: the Tui owns cfg_ by value, so a plugin
@@ -346,7 +328,7 @@ Tui::~Tui() {
         deny_all_pending_api_keys(router_->pending_api_keys());
     }
     runs_.join_all();
-    endwin();
+    terminal_.stop();
     session_controller_->save_window_sessions();
     session_controller_->save_workspace_now();
 }
@@ -675,8 +657,8 @@ void Tui::run() {
 
         const bool had_events = pump_io(cl);
 
-        int ch = getch();
-        if (ch == ERR) {
+        int ch = terminal_.read_key();
+        if (ch == keys::kNone) {
             idle_tick(had_events, cl);
             continue;
         }
@@ -731,7 +713,7 @@ void Tui::run_startup(CommandLine& cl) {
     });
     start_workspace_pass(); // git, but off this thread: reap, rebuild, record heads
     detect_server(false);
-    timeout(kTickTimeoutMs);
+    terminal_.set_timeout(kTickTimeoutMs);
 
     build_settings();
     (void)commands(); // force command tree build
@@ -785,7 +767,7 @@ void Tui::refresh_completion_context(CommandLine& cl) {
     }
     // endwin() first: the session-save progress writes to stderr and must not
     // interleave with a terminal ncurses still controls.
-    endwin();
+    terminal_.stop();
     // Workers observe their per-agent tokens and exit promptly; a truly wedged
     // worker (blocked read) may outlive us — bounded shutdown still beats a torn
     // save, so only idle windows save.
@@ -924,18 +906,16 @@ bool Tui::handle_option_key(int& ch, CommandLine& cl) {
     const int need = option_key_decode::continuation_bytes(static_cast<unsigned char>(ch));
     unsigned char seq[4] = {static_cast<unsigned char>(ch)};
     int got = 0;
-    timeout(50);
     for (; got < need; ++got) {
-        int b = getch();
-        if (b == ERR)
+        int b = terminal_.read_key_timeout(50);
+        if (b == keys::kNone)
             break;
         if ((b & 0xC0) != 0x80) {
-            ungetch(b); // not a continuation byte — don't eat the key
+            terminal_.push_key(b); // not a continuation byte — don't eat the key
             break;
         }
         seq[got + 1] = static_cast<unsigned char>(b);
     }
-    timeout(kTickTimeoutMs);
     if (got != need)
         return true; // partial sequence: consumed, nothing to act on
 
@@ -970,17 +950,15 @@ bool Tui::handle_key_binding(int ch, CommandLine& cl) {
 
     KeyRead kr{ch, std::nullopt};
     if (ch == 27) {
-        timeout(200);
-        int n = getch();
-        timeout(kTickTimeoutMs);
+        const int n = terminal_.read_key_timeout(200);
         // Only a key from the ESC vocabulary may be a prefix. Anything else
         // belongs to the line it was typed on: putting it back is what keeps a
         // Ctrl+C queued behind ESC (a fast Esc-then-quit) from being swallowed,
         // and keeps the character the user typed from vanishing.
-        if (n != ERR && esc_prefix_key(n))
+        if (n != keys::kNone && esc_prefix_key(n))
             kr.followup = n;
-        else if (n != ERR)
-            ungetch(n);
+        else if (n != keys::kNone)
+            terminal_.push_key(n);
     }
 
     const agent::KeyBinding binding = key_binder_->dispatch(kr, state);
@@ -1067,12 +1045,12 @@ bool Tui::handle_ctrl_c(int ch, CommandLine& cl) {
 // tab; the hit map is the one the last paint used, so a click cannot land on a
 // tab the user is not looking at.
 bool Tui::handle_mouse(int ch, CommandLine& cl) {
-    if (ch != KEY_MOUSE)
+    if (ch != keys::kMouse)
         return false;
-    MEVENT ev;
-    if (getmouse(&ev) != OK)
+    keys::MouseEvent ev;
+    if (!terminal_.read_mouse(ev))
         return true;
-    const bool click = (ev.bstate & BUTTON1_PRESSED) != 0;
+    const bool click = (ev.bstate & keys::kButton1) != 0;
     if (click && ev.y == 0 && ev.x == 0) {
         menu_->toggle();
         return true;
@@ -1100,7 +1078,7 @@ bool Tui::handle_mouse(int ch, CommandLine& cl) {
     return handle_tab_click(ev);
 }
 
-bool Tui::handle_tab_click(const MEVENT& ev) {
+bool Tui::handle_tab_click(const keys::MouseEvent& ev) {
     const auto close_id = render_engine_->tab_close_at(ev.x, ev.y);
     const auto id = close_id ? close_id : render_engine_->tab_at(ev.x, ev.y);
     if (!id)
@@ -1123,16 +1101,16 @@ bool Tui::scroll_mode_nav(int ch) {
     if (!render_engine_->scroll_mode())
         return false;
     switch (ch) {
-    case KEY_UP:
+    case keys::kUp:
         win().scroll_top = std::max(0, win().scroll_top - 1);
         break;
-    case KEY_DOWN:
+    case keys::kDown:
         win().scroll_top += 1;
         break;
-    case KEY_PPAGE:
+    case keys::kPPage:
         win().scroll_top = std::max(0, win().scroll_top - 10);
         break;
-    case KEY_NPAGE:
+    case keys::kNPage:
         win().scroll_top = std::min(render_engine_->max_scroll(), win().scroll_top + 10);
         break;
     default:
@@ -1150,15 +1128,15 @@ struct EditKey {
 };
 
 const EditKey kEditKeys[] = {
-    {'\t', &CommandLine::on_tab},        {KEY_UP, &CommandLine::on_up},
-    {KEY_DOWN, &CommandLine::on_down},   {KEY_LEFT, &CommandLine::on_left},
-    {KEY_RIGHT, &CommandLine::on_right}, {KEY_HOME, &CommandLine::on_home},
-    {KEY_END, &CommandLine::on_end},     {KEY_BACKSPACE, &CommandLine::on_backspace},
-    {127, &CommandLine::on_backspace},   {8, &CommandLine::on_backspace},
-    {1, &CommandLine::on_ctrl_a},        {5, &CommandLine::on_ctrl_e},
-    {11, &CommandLine::on_ctrl_k},       {20, &CommandLine::on_ctrl_t},
-    {21, &CommandLine::on_ctrl_u},       {23, &CommandLine::on_ctrl_w},
-    {25, &CommandLine::on_ctrl_y},       {31, &CommandLine::on_undo},
+    {'\t', &CommandLine::on_tab},           {keys::kUp, &CommandLine::on_up},
+    {keys::kDown, &CommandLine::on_down},   {keys::kLeft, &CommandLine::on_left},
+    {keys::kRight, &CommandLine::on_right}, {keys::kHome, &CommandLine::on_home},
+    {keys::kEnd, &CommandLine::on_end},     {keys::kBackspace, &CommandLine::on_backspace},
+    {127, &CommandLine::on_backspace},      {8, &CommandLine::on_backspace},
+    {1, &CommandLine::on_ctrl_a},           {5, &CommandLine::on_ctrl_e},
+    {11, &CommandLine::on_ctrl_k},          {20, &CommandLine::on_ctrl_t},
+    {21, &CommandLine::on_ctrl_u},          {23, &CommandLine::on_ctrl_w},
+    {25, &CommandLine::on_ctrl_y},          {31, &CommandLine::on_undo},
     {4, &CommandLine::on_ctrl_d},
 };
 
@@ -1185,7 +1163,7 @@ detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
         return detail::PromptOutcome::Routed;
     }
 
-    if (ch == 10 || ch == 13 || ch == KEY_ENTER) {
+    if (ch == 10 || ch == 13 || ch == keys::kEnter) {
         if (render_engine_->scroll_mode()) {
             render_engine_->set_scroll_mode(false);
             render_engine_->draw();
@@ -1345,7 +1323,7 @@ void Tui::load_session(const std::string& id) {
     session_controller_->load_session(id);
 }
 void Tui::flush() {
-    doupdate();
+    terminal_.flush();
 }
 
 void Tui::draw() {

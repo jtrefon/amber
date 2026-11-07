@@ -21,10 +21,14 @@ struct Style {
     bool italic = false;
     bool underline = false;
     bool reverse = false;
+    // A fixed widgets pair for a cell that is art, not a semantic role (the
+    // welcome raster). 0 means the role resolves to a colour pair.
+    int exact_pair = 0;
 
     bool operator==(const Style& other) const noexcept {
         return role == other.role && bold == other.bold && dim == other.dim &&
-               italic == other.italic && underline == other.underline && reverse == other.reverse;
+               italic == other.italic && underline == other.underline && reverse == other.reverse &&
+               exact_pair == other.exact_pair;
     }
     bool operator!=(const Style& other) const noexcept { return !(*this == other); }
 };

@@ -1,12 +1,6 @@
 {
   "_comment": "Files allowed to include ncurses; regenerate with tools/ncurses_ratchet.py --update.",
   "files": [
-    "tui/canvas.h",
-    "tui/keys_ncurses.h",
-    "tui/panel.h",
-    "tui/render_engine.h",
-    "tui/rich_paint.h",
-    "tui/terminal.cpp",
-    "tui/welcome.h"
+    "tui/terminal.cpp"
   ]
 }

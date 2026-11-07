@@ -12,10 +12,6 @@
 
 namespace tui {
 
-// Register all color pairs. Requires start_color() (and, ideally,
-// use_default_colors()) to have been called first.
-void init_pairs();
-
 // True while a modal owns the UI loop. ModalScope keeps a nesting depth, so the
 // host event loop can defer agent approvals instead of nesting dialogs or
 // deadlocking the worker. There is no pointer to an owner's member: the last

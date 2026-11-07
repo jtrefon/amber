@@ -12,6 +12,7 @@
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "tui/widgets.h"
+#include "tui/keys.h"
 #include "tui/drawer_rows.h"
 #include "tui/screen_view.h"
 #include "plugins/watch/watch_plugin.h"
@@ -456,7 +457,6 @@ void LearnSurface::panel() {
     }
 
     ModalScope scope;
-    curs_set(0);
     bool keep_open = true;
     while (keep_open) {
         const auto items = agent::learn_items(store, "");
@@ -471,7 +471,6 @@ void LearnSurface::panel() {
         else
             keep_open = panel_action(items[static_cast<std::size_t>(selected)], store);
     }
-    curs_set(1);
     ui_.draw();
 }
 
@@ -968,8 +967,8 @@ void load_skill_shelves(tui::SkillsExplorerOptions& opts) {
 }
 
 void Tui::configure_skills_explorer(tui::SkillsExplorerOptions& opts, const std::string& arg) {
-    opts.rows = LINES;
-    opts.cols = COLS;
+    opts.rows = render_engine_->height();
+    opts.cols = render_engine_->width();
     const agent::SkillScanPaths paths = agent::default_scan_paths();
     opts.repo_root = agent::Workspace::project_root();
     opts.project_root = paths.project;
@@ -3141,9 +3140,9 @@ struct WorkBoardState {
 };
 
 bool work_board_filter_key(int ch, WorkBoardState& state) {
-    if (ch == 27 || ch == '\n' || ch == '\r' || ch == KEY_ENTER) {
+    if (ch == 27 || ch == '\n' || ch == '\r' || ch == keys::kEnter) {
         state.filtering = false;
-    } else if (ch == 127 || ch == KEY_BACKSPACE) {
+    } else if (ch == 127 || ch == keys::kBackspace) {
         if (!state.filter.empty())
             state.filter.pop_back();
     } else if (ch >= 32 && ch <= 126) {
@@ -3157,19 +3156,19 @@ bool work_board_nav_key(int ch, WorkBoardState& state) {
     case '\t':
         state.cycle(1);
         return true;
-    case KEY_BTAB:
+    case keys::kBtab:
         state.cycle(-1);
         return true;
-    case KEY_UP:
+    case keys::kUp:
         state.move(-1);
         return true;
-    case KEY_DOWN:
+    case keys::kDown:
         state.move(1);
         return true;
-    case KEY_PPAGE:
+    case keys::kPPage:
         state.move(-10);
         return true;
-    case KEY_NPAGE:
+    case keys::kNPage:
         state.move(10);
         return true;
     case '/':
@@ -3189,7 +3188,7 @@ WorkBoardAction work_board_command_key(int ch, const WorkBoardState& state) {
         return WorkBoardAction::Close;
     case '\n':
     case '\r':
-    case KEY_ENTER:
+    case keys::kEnter:
     case 'a':
     case 'r':
         return state.current() ? WorkBoardAction::Open : WorkBoardAction::None;
@@ -4423,7 +4422,6 @@ void Tui::settings_screen() {
 
     // Step 2: select a provider, or the "Add new" action.
     ModalScope scope;
-    curs_set(0);
     int sel;
     {
         ListPanel lp("Providers (" + std::to_string(ids.size() - 1) + " configured)", rows);

@@ -19,6 +19,12 @@ struct Run {
     bool dim = false;
     bool italic = false;
     bool under = false;
+
+    bool operator==(const Run& other) const noexcept {
+        return text == other.text && pair == other.pair && bold == other.bold && dim == other.dim &&
+               italic == other.italic && under == other.under;
+    }
+    bool operator!=(const Run& other) const noexcept { return !(*this == other); }
 };
 
 // One display line, composed of one or more styled runs. A RichLine is the
@@ -30,6 +36,12 @@ struct Line {
     bool is_hr = false;    // horizontal rule
     bool is_table = false; // pre-formatted table row (never word-wrap)
     int heading = 0;       // 1..6 for heading lines (extra bold/space)
+
+    bool operator==(const Line& other) const noexcept {
+        return runs == other.runs && is_code == other.is_code && is_hr == other.is_hr &&
+               is_table == other.is_table && heading == other.heading;
+    }
+    bool operator!=(const Line& other) const noexcept { return !(*this == other); }
 };
 
 // Number of display columns occupied by a UTF-8 string (whole glyphs count

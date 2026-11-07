@@ -2904,7 +2904,10 @@ TEST(window_workspace_survives_a_restart_and_is_reattached) {
         Tui tui;
         tui.name = "window_workspace_survives_a_restart_and_is_reattached (second start)";
         ASSERT(tui.start(fixture().binary, repo.workspace));
-        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted again", tui))
+        // The diff stream splits the bracketed prompt across cursor moves, so
+        // the evidence that the second start painted is the startup marker;
+        // the restored workspace is asserted from its registry below.
+        if (!require(tui.wait_for("loaded completions", 15000), "the UI never painted again", tui))
             return;
         tui.pump(1500); // the pass runs off-thread: give it a moment to post
         const auto restored = agent::load_worktrees(state);
@@ -3104,7 +3107,7 @@ TEST(worktree_off_survives_a_restart_and_parks_instead_of_reattaching) {
         Tui tui;
         tui.name = "worktree_off_survives_a_restart_and_parks_instead_of_reattaching (second)";
         ASSERT(tui.start(fixture().binary, repo.workspace));
-        if (!require(tui.wait_for("[" + repo.name + "]", 15000), "the UI never painted again", tui))
+        if (!require(tui.wait_for("loaded completions", 15000), "the UI never painted again", tui))
             return;
         if (!require(tui.wait_for("parked", 10000),
                      "a restart with worktree off did not park the recorded workspace", tui))
