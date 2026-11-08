@@ -848,12 +848,29 @@ private:
             // generic task digest, while the legacy CLI --watch-wake path
             // still reports a watch directly.
             const bool approval_probe = body.find("approval probe") != std::string::npos;
+            const bool delegate_probe = body.find("delegate probe") != std::string::npos;
+            const bool worker_probe = body.find("worker approval probe") != std::string::npos;
+            const bool worker_report = body.find("WORKER-REPORT") != std::string::npos;
             const bool report = body.find("background task report") != std::string::npos ||
                                 body.find("background watch") != std::string::npos;
             const bool first = chat_calls_ == 1 && !report && !approval_probe;
             std::string message;
             std::string finish = "stop";
-            if (approval_probe) {
+            if (worker_report) {
+                message = R"({"role":"assistant","content":"PARENT-DONE"})";
+            } else if (worker_probe) {
+                if (body.find("call_worker_approval") == std::string::npos) {
+                    finish = "tool_calls";
+                    message =
+                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_worker_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo worker > /tmp/amber-pty-worker-approval\"}"}}]})";
+                } else {
+                    message = R"({"role":"assistant","content":"WORKER-REPORT"})";
+                }
+            } else if (delegate_probe) {
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_delegate","type":"function","function":{"name":"task","arguments":"{\"prompt\":\"worker approval probe: run the marker command\"}"}}]})";
+            } else if (approval_probe) {
                 // Give the user time to leave the window, so the approval is a
                 // background event rather than the active tab's dialog.
                 std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -3298,6 +3315,58 @@ TEST(approval_in_a_background_window_names_its_session) {
     require(ran, "the approved command did not run", tui);
 }
 
+// A delegated worker inherits the parent's tools, so its gated bash must ask the
+// window that owns the worker, not fail with "no approver attached". The outer
+// task call is approved first; the child's dialog then names the worker.
+TEST(subagent_gated_tool_asks_its_owner_window) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    const std::string marker = "/tmp/amber-pty-worker-approval";
+    std::error_code ec;
+    fs::remove(marker, ec);
+
+    Tui tui;
+    tui.name = "subagent_gated_tool_asks_its_owner_window";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("delegate probe\r");
+    if (!require(tui.wait_for("Approve action?", 20000), "the task approval never opened", tui))
+        return;
+    tui.send("1"); // Allow the delegated task itself.
+    if (!require(tui.wait_for("worker [", 20000), "the child's approval never opened", tui))
+        return;
+    if (!require(tui.text().find("worker [") != std::string::npos &&
+                     tui.text().find("worker \"worker") != std::string::npos,
+                 "the child's approval did not name the worker", tui))
+        return;
+
+    tui.send("1"); // Allow the child's gated command.
+    if (!require(tui.wait_for("PARENT-DONE", 20000), "the delegated turn did not finish", tui))
+        return;
+
+    bool ran = false;
+    for (int waited = 0; waited < 8000 && !ran; waited += 50) {
+        ran = fs::exists(marker);
+        if (!ran)
+            tui.pump(50);
+    }
+    fs::remove(marker, ec);
+    if (!require(ran, "the approved child command did not run", tui))
+        return;
+
+    tui.send("/tasks list\r");
+    if (!require(tui.wait_for("worker task-", 8000), "the worker was not listed in /tasks", tui))
+        return;
+    tui.send("/tasks show task-1\r");
+    require(tui.wait_for("[agent task-1]", 8000), "the worker detail did not open", tui);
+}
+
 // The contributed-panel viewer is a ScreenHost screen now: the registry console
 // paints through the same frame/rows/footer, Tab cycles and Esc restores the
 // prompt without leaving a modal behind.
@@ -4046,6 +4115,7 @@ int main(int argc, char** argv) {
     panel_view_cycles_and_returns_to_the_prompt();
     working_row_shows_the_narrated_intent();
     approval_in_a_background_window_names_its_session();
+    subagent_gated_tool_asks_its_owner_window();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();
