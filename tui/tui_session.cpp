@@ -130,9 +130,11 @@ void SessionController::autosave() {
 void SessionController::autosave(Window& w) {
     if (!w.dirty || !w.agent || w.agent->context().empty())
         return;
-    // Called from on_done (agent finished — quiescent) and shutdown paths,
-    // never mid-run. The single-owner rule is respected by the callers: the
-    // context is only snapshotted here when the worker is not mutating it.
+    // on_done for the PREVIOUS turn can arrive after a queued prompt has
+    // already started the next one. Snapshotting then races the new worker and
+    // trips Context's chain assert; that turn will autosave when it finishes.
+    if (tui_.runs_.busy(w.id))
+        return;
     agent::Session s = snapshot(w);
     if (store_for(w.project_root).save(s)) {
         w.session_id = s.id;
