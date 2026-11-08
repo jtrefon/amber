@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 
 namespace agent {
 
@@ -32,6 +33,15 @@ std::string& root_storage() {
     return root;
 }
 
+// The root is lazily resolved from the environment and can be set by a host
+// after startup. The startup mode pass runs on a worker, so every access goes
+// through this one lock: an unsynchronized string read/write here is a real
+// data race (and was reported by TSan at first use).
+std::mutex& root_mutex() {
+    static std::mutex mtx;
+    return mtx;
+}
+
 const std::string*& ui_project_root() {
     static thread_local const std::string* root = nullptr;
     return root;
@@ -44,6 +54,7 @@ std::string normalize(const fs::path& p) {
 }
 
 std::string ensure_project_root() {
+    std::scoped_lock lk(root_mutex());
     std::string& r = root_storage();
     if (!r.empty())
         return r;
@@ -124,7 +135,9 @@ std::string Workspace::workspace_root() {
 }
 
 void Workspace::set_root(const std::string& path) {
-    root_storage() = normalize(fs::absolute(fs::path(path)));
+    const std::string normalized = normalize(fs::absolute(fs::path(path)));
+    std::scoped_lock lk(root_mutex());
+    root_storage() = normalized;
 }
 
 std::string Workspace::local_dir() {
