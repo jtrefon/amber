@@ -304,6 +304,11 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.model = args.model;
     opts.temperature = args.temperature;
     opts.debug_dir = args.debug_dir;
+    if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
+        const int ms = std::atoi(join);
+        if (ms >= 0)
+            opts.task_join_ms = ms;
+    }
     apply_profile(opts, args.profile);
     return opts;
 }
@@ -320,6 +325,7 @@ bench::RunMeta build_run_meta(const CliOptions& args, const bench::RunOptions& o
     meta.timestamp = std::to_string(
         static_cast<long long>(std::chrono::system_clock::now().time_since_epoch().count()));
     meta.reasoning = opts.thinking.empty() ? "auto" : opts.thinking;
+    meta.task_policy = "join " + std::to_string(opts.task_join_ms) + "ms";
     return meta;
 }
 

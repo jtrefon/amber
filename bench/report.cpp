@@ -319,6 +319,8 @@ std::string render_text(const std::vector<ScenarioReport>& reports, const RunMet
     out << "amber-bench run " << meta.run_id << " [" << meta.mode << ", "
         << (meta.profile.empty() ? "default" : meta.profile) << ", " << meta.model << "]\n";
     out << "engine " << meta.engine_version << " @ " << meta.timestamp << "\n";
+    if (!meta.task_policy.empty())
+        out << "tasks: " << meta.task_policy << "\n";
     out << plugins_line(meta);
     out << "model score: " << (run_score(reports) * 10.0) << "/1000" << score_ci_suffix(reports)
         << "\n";
@@ -345,6 +347,7 @@ agent::json json_meta(const RunMeta& meta) {
     out["engine_version"] = meta.engine_version;
     out["timestamp"] = meta.timestamp;
     out["reasoning"] = meta.reasoning;
+    out["task_policy"] = meta.task_policy;
     agent::json plugs = agent::json::array();
     for (const auto& p : meta.plugins) {
         agent::json jp = agent::json::object();
@@ -816,6 +819,7 @@ void parse_run_meta(const agent::json& j, RunMeta& meta) {
     meta.engine_version = j.value("engine_version", "");
     meta.timestamp = j.value("timestamp", "");
     meta.reasoning = j.value("reasoning", "");
+    meta.task_policy = j.value("task_policy", "");
     if (!j.contains("plugins"))
         return;
     for (const auto& jp : j["plugins"]) {

@@ -1,6 +1,7 @@
 #include "agent/events.h"
 #include "agent/job.h"
 #include "agent/task.h"
+#include "agent/task_join.h"
 #include "agent/task_store.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
@@ -381,4 +382,75 @@ TEST(task_service_persists_each_transition) {
     ASSERT_EQ(record->state, agent::TaskState::Succeeded);
     ASSERT_EQ(record->result.summary, std::string("done"));
     ASSERT_EQ(record->delivered_at_ms, 0); // the inbox still owes the message
+}
+
+// A one-shot host waits on the inventory, not on a watch-specific list: the
+// completion event wakes the join and the record is returned exactly once.
+TEST(task_join_waits_for_a_completion_event) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    std::thread finisher([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        tasks.finish(id, agent::TaskState::Succeeded, {});
+    });
+    agent::CancellationToken token;
+    const auto joined =
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(2000), false}, token);
+    finisher.join();
+    ASSERT_EQ(joined.completed.size(), 1u);
+    ASSERT_EQ(joined.completed[0].id, id);
+    ASSERT_TRUE(joined.still_running.empty());
+}
+
+TEST(task_join_deadline_reports_what_remains) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    agent::CancellationToken token;
+    const auto started = std::chrono::steady_clock::now();
+    const auto joined =
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(80), false}, token);
+    const auto waited = std::chrono::steady_clock::now() - started;
+    ASSERT_EQ(joined.still_running.size(), 1u);
+    ASSERT_EQ(joined.still_running[0], id);
+    ASSERT(waited < std::chrono::seconds(5));
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
+}
+
+TEST(task_join_zero_deadline_samples_without_waiting) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    agent::CancellationToken token;
+    const auto started = std::chrono::steady_clock::now();
+    const auto joined =
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(0), false}, token);
+    const auto waited = std::chrono::steady_clock::now() - started;
+    ASSERT_EQ(joined.still_running.size(), 1u);
+    ASSERT(waited < std::chrono::milliseconds(100));
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
+}
+
+TEST(task_join_cancellation_ends_the_wait) {
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    agent::CancellationToken token;
+    std::thread canceller([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        token.request();
+    });
+    const auto started = std::chrono::steady_clock::now();
+    const auto joined =
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(5000), false}, token);
+    canceller.join();
+    const auto waited = std::chrono::steady_clock::now() - started;
+    ASSERT_EQ(joined.still_running.size(), 1u);
+    ASSERT(waited < std::chrono::seconds(2));
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
 }

@@ -225,6 +225,9 @@ int run_tui(TuiHost& host, agent::Config& cfg) {
                      host.plugin_runtime);
         tui.run();
     }
+    // The plugin runtime owns the watch workers; join them while the task
+    // inventory they report into is still alive.
+    host.plugin_runtime.shutdown();
     host.tasks.shutdown();
     // After the destructor: the terminal is restored, the sessions and the
     // workspace are saved. A harness waits for this instead of for a timeout.

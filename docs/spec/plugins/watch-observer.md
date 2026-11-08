@@ -2,7 +2,7 @@
 
 - **Status:** Implemented P1–P4 and shipped in v0.6.0 (process, PR and URL
   watches; observer; prompt assembly; tool/command/status/panel; TUI delivery;
-  CLI join/`--watch-wake`; restart re-emit/ack; attempt history;
+  CLI join/`--wait-tasks`; restart re-emit/ack; attempt history;
   retention/config). P5 remains optional.
 - **Tracking:** issue #318 (this feature), issue #317 (generic background
   tasks/workers; related, not a dependency), 0.6.0 release #331.
@@ -649,11 +649,15 @@ CLI:
 
 - Interactive CLI: print the headline and allow a new turn (same rules as the
   TUI, without windows).
-- One-shot `-p`: join running watches for up to 5 s, persist the report, and
-  print a note. It never runs a follow-up turn by itself.
-- `--watch-wake`: join for up to 30 s, then run one follow-up turn on the same
-  agent context with the pending report prompts; acknowledge only after that
-  turn succeeds.
+- One-shot `-p` with `--wait-tasks 0` (the default): do not wait. Print the
+  pending completions, persist every record, and exit `3` when any task is still
+  running. No follow-up turn is started.
+- `--wait-tasks N`: join tasks owned by the main conversation (commands,
+  watches and, once delegate lands, workers) for up to N seconds. A completion
+  produces one digest and one follow-up turn on the same agent context;
+  acknowledge only after that turn succeeds. A task still running at the
+  deadline is named, persisted, and exits `3`.
+- Exit codes: `0` nothing running, `3` tasks remain (persisted), `1` error.
 - No viewer: persist; the next turn/attach sees the pending report.
 
 This is a **turn-boundary** delivery, not mid-stream injection. The sealed
@@ -818,7 +822,8 @@ governor still protects the provider.
 - **W-19 `/plugin watch`**: list/show/report/stop return the expected text; status
   segment updates; no stale state.
 - **W-20 headless**: `-p` does not silently auto-wake; report persisted and
-  printed; `--watch-wake` opt-in test.
+  printed; exit `3` while the watch runs; `--wait-tasks N` joins it and runs one
+  follow-up; the command backend takes the same path.
 
 Hermetic tests use `FakeCommandRunner` and `FakeObserverModel`; no network,
 no real `gh`. PTY tests cover the host delivery/wake/focus rules.
@@ -833,7 +838,7 @@ no real `gh`. PTY tests cover the host delivery/wake/focus rules.
 | **P1** | Plugin skeleton, `WatchService`, process profile, journal/artifacts, `watch` tool, `/plugin watch`, status, system block/tool doc, host event/owner seam, approval/cancel, tests W-01/02/07/08/13/14/17/19 |
 | **P2** | PR profile: `gh` checks polling, failed-log extraction, head-SHA/attempt journal, changed-file evidence, deterministic report; tests W-03/04/W-16 |
 | **P3** | Observer: `ObserverModel`, `observer.md`, JSON parse/fallback, failure/change calls, serial queue; tests W-04/05/06/18 |
-| **P4** | TUI wake/delivery; CLI join/`--watch-wake`; restart re-emit/ack; read-only panel; URL profile; retention/config; tests W-09/10/11/12/15/20, PTY |
+| **P4** | TUI wake/delivery; CLI join/`--wait-tasks`; restart re-emit/ack; read-only panel; URL profile; retention/config; tests W-09/10/11/12/15/20, PTY |
 | **P5** | Optional: observer on status transitions, richer rolling summaries, rerun grouping; #317 mid-turn inbox |
 
 P1 can ship value without the observer (deterministic watch + failed-check

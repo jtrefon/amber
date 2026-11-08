@@ -150,6 +150,10 @@ Matcher rules:
 5. `run(prompt)` with wall-clock + per-phase timing around it; recorder
    collects the event stream (tool pairs, stats, state transitions, status
    strings parsed for retry/recovery/steer signals).
+5a. Force-join the scenario's background tasks (`AMBER_BENCH_JOIN_MS`, default
+   30000). A task still running at the cap fails the scenario by name; the
+   score never depends on whether a watch or command happened to finish first.
+   `RunMeta.task_policy` records the deadline.
 6. If `template`: run the static-template engine on the agent's artifact.
 7. Score → KPI record; append to history; teardown workspace.
 

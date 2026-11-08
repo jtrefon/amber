@@ -27,6 +27,9 @@ struct RunMeta {
     std::string profile;
     std::string model;
     std::string reasoning; // "on" | "off" | "auto" (cfg.thinking)
+    // What the run did with background work after each scenario: the join
+    // deadline, so a score can be read next to its policy.
+    std::string task_policy;
     std::string engine_version;
     std::string timestamp;
     std::vector<PluginRecord> plugins;
