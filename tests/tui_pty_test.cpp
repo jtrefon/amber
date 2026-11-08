@@ -769,6 +769,19 @@ private:
             req.append(buf, static_cast<size_t>(n));
         }
         const std::string body = req.substr(header_end + 4);
+        // The conversation is re-sent on every turn, so a marker from an earlier
+        // test's restored session would match the whole body. Script off the
+        // last user message, which is the prompt this request is answering.
+        std::string last_user;
+        {
+            const agent::json request = agent::json::parse(body, nullptr, false);
+            if (!request.is_discarded() && request.contains("messages") &&
+                request["messages"].is_array()) {
+                for (const auto& message : request["messages"])
+                    if (message.value("role", std::string()) == "user")
+                        last_user = message.value("content", std::string());
+            }
+        }
         // "GET /path HTTP/1.1" -> "/path" (query dropped: the anthropic
         // listing asks for one page with ?limit=1000, and the test asserts the
         // endpoint, not the query -- the dialect test pins the query).
@@ -800,7 +813,7 @@ private:
         } else if (path == "/v1/chat/completions") {
             ok = true;
             ++chat_calls_;
-            const bool intent_probe = body.find("intent probe") != std::string::npos;
+            const bool intent_probe = last_user.find("intent probe") != std::string::npos;
             const bool streaming = body.find("\"stream\":true") != std::string::npos;
             if (intent_probe && streaming) {
                 content_type = "text/event-stream";
@@ -847,16 +860,34 @@ private:
             // Both spellings during the transition: the TUI now delivers the
             // generic task digest, while the legacy CLI --watch-wake path
             // still reports a watch directly.
-            const bool approval_probe = body.find("approval probe") != std::string::npos;
-            const bool delegate_probe = body.find("delegate probe") != std::string::npos;
-            const bool worker_probe = body.find("worker approval probe") != std::string::npos;
+            const bool approval_probe = last_user.find("approval probe") != std::string::npos;
+            const bool delegate_probe = last_user.find("delegate probe") != std::string::npos;
+            const bool worker_probe = last_user.find("worker approval probe") != std::string::npos;
             const bool worker_report = body.find("WORKER-REPORT") != std::string::npos;
-            const bool report = body.find("background task report") != std::string::npos ||
-                                body.find("background watch") != std::string::npos;
+            const bool queue_probe = last_user.find("queue probe") != std::string::npos;
+            const bool clear_probe = last_user.find("clear probe") != std::string::npos;
+            const bool second_prompt = last_user.find("second prompt") != std::string::npos;
+            const bool doomed_prompt = last_user.find("doomed prompt") != std::string::npos;
+            const bool report = last_user.find("background task report") != std::string::npos ||
+                                last_user.find("background watch") != std::string::npos;
             const bool first = chat_calls_ == 1 && !report && !approval_probe;
             std::string message;
             std::string finish = "stop";
-            if (worker_report) {
+            if (queue_probe && chat_calls_ == 1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+                message = R"({"role":"assistant","content":"QUEUE-DONE"})";
+            } else if (queue_probe) {
+                message = R"({"role":"assistant","content":"NEXT-DONE"})";
+            } else if (clear_probe && chat_calls_ == 1) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+                message = R"({"role":"assistant","content":"CLEAR-QUEUE-DONE"})";
+            } else if (clear_probe) {
+                message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
+            } else if (second_prompt) {
+                message = R"({"role":"assistant","content":"NEXT-DONE"})";
+            } else if (doomed_prompt) {
+                message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
+            } else if (worker_report) {
                 message = R"({"role":"assistant","content":"PARENT-DONE"})";
             } else if (worker_probe) {
                 if (body.find("call_worker_approval") == std::string::npos) {
@@ -3367,6 +3398,83 @@ TEST(subagent_gated_tool_asks_its_owner_window) {
     require(tui.wait_for("[agent task-1]", 8000), "the worker detail did not open", tui);
 }
 
+// Input submitted while a window is busy is echoed in full with its queue
+// position, counted in the status bar, and can be recalled instead of silently
+// running. The recalled prompt must not run with the rest of the queue.
+TEST(queued_prompts_are_echoed_counted_and_recalled) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    Tui tui;
+    tui.name = "queued_prompts_are_echoed_counted_and_recalled";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("queue probe\r");
+    tui.pump(200);
+    tui.send("second prompt\r");
+    tui.send("third prompt\r");
+    if (!require(tui.wait_for("queued (1 in queue): > second prompt", 5000),
+                 "the first queued prompt was not echoed", tui))
+        return;
+    if (!require(tui.wait_for("queued (2 in queue): > third prompt", 5000),
+                 "the second queued prompt was not echoed with its depth", tui))
+        return;
+    tui.send("\x1bq"); // Alt+Q: recall the newest queued prompt.
+    if (!require(tui.wait_for("recalled queued prompt: > third prompt", 5000),
+                 "the queued prompt was not recalled", tui))
+        return;
+
+    if (!require(tui.wait_for("NEXT-DONE", 20000), "the remaining queued prompt did not run", tui))
+        return;
+    tui.pump(1000);
+    const std::string text = tui.text();
+    size_t occurrences = 0;
+    for (size_t at = text.find("NEXT-DONE"); at != std::string::npos;
+         at = text.find("NEXT-DONE", at + 9))
+        ++occurrences;
+    require(occurrences == 1, "the recalled prompt still ran", tui);
+}
+
+// Clearing is a deliberate discard: the confirmation names the count, and the
+// cleared prompts never run, while the running turn is untouched.
+TEST(queued_prompt_clear_discards_after_confirmation) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    Tui tui;
+    tui.name = "queued_prompt_clear_discards_after_confirmation";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("clear probe\r");
+    tui.pump(200);
+    tui.send("doomed prompt\r");
+    if (!require(tui.wait_for("queued (1 in queue): > doomed prompt", 5000),
+                 "the queued prompt was not echoed", tui))
+        return;
+    tui.send("\x1bx"); // ESC x: clear.
+    if (!require(tui.wait_for("Discard 1 queued prompt", 5000),
+                 "the clear confirmation did not open", tui))
+        return;
+    tui.send("y");
+    if (!require(tui.wait_for("discarded 1 queued prompt", 5000), "the queue was not cleared", tui))
+        return;
+    if (!require(tui.wait_for("CLEAR-QUEUE-DONE", 20000), "the running turn did not finish", tui))
+        return;
+    tui.pump(1000);
+    require(tui.text().find("CLEAR-NEXT-DONE") == std::string::npos, "a cleared prompt still ran",
+            tui);
+}
+
 // The contributed-panel viewer is a ScreenHost screen now: the registry console
 // paints through the same frame/rows/footer, Tab cycles and Esc restores the
 // prompt without leaving a modal behind.
@@ -4116,6 +4224,8 @@ int main(int argc, char** argv) {
     working_row_shows_the_narrated_intent();
     approval_in_a_background_window_names_its_session();
     subagent_gated_tool_asks_its_owner_window();
+    queued_prompts_are_echoed_counted_and_recalled();
+    queued_prompt_clear_discards_after_confirmation();
     worktree_setting_reports_itself_and_persists();
     window_workspace_is_prepared();
     window_workspace_survives_a_restart_and_is_reattached();
