@@ -161,6 +161,9 @@ Tui::Tui(agent::Config cfg, agent::ToolRegistry& reg, agent::JobService& jobs,
         menu_->load_data();
         load_key_bindings();
         restore_workspace();
+        // Completed tasks from the last process are delivered once. The owner
+        // ids come from the restored windows, so this must follow the restore.
+        task_runtime_->inbox.seed_undelivered();
     } catch (...) {
         terminal_.stop();
         g_terminal_guard.restore();

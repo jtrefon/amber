@@ -37,6 +37,19 @@ std::string one_line(const TaskRecord& record) {
     return clip(std::move(line), kLineCap);
 }
 
+TaskCompletion completion_from(const TaskRecord& record, std::string backend_id) {
+    TaskCompletion completion;
+    completion.task_id = record.id;
+    completion.backend_id = std::move(backend_id);
+    completion.owner_id = record.owner.owner_id;
+    completion.kind = record.kind;
+    completion.state = record.state;
+    completion.prompt_text = one_line(record);
+    completion.artifact_path = record.result.artifact_path;
+    completion.created_ms = record.created_ms;
+    return completion;
+}
+
 } // namespace
 
 std::string format_task_digest(const std::vector<TaskCompletion>& completions) {
@@ -69,16 +82,14 @@ void TaskInbox::on_completed(const TaskCompletedEvent& event) {
     auto record = tasks_.get(event.id);
     if (!record || record->notify == TaskNotify::Silent)
         return;
-    TaskCompletion completion;
-    completion.task_id = record->id;
-    completion.backend_id = tasks_.backend_id(record->id);
-    completion.owner_id = record->owner.owner_id;
-    completion.kind = record->kind;
-    completion.state = record->state;
-    completion.prompt_text = one_line(*record);
-    completion.artifact_path = record->result.artifact_path;
-    completion.created_ms = record->created_ms;
-    post(std::move(completion));
+    post(completion_from(*record, tasks_.backend_id(record->id)));
+}
+
+std::size_t TaskInbox::seed_undelivered() {
+    const std::vector<TaskRecord> records = tasks_.undelivered();
+    for (const auto& record : records)
+        post(completion_from(record, {}));
+    return records.size();
 }
 
 void TaskInbox::post(TaskCompletion completion) {
@@ -140,6 +151,11 @@ void TaskInbox::ack(const std::string& owner_id, const std::vector<std::string>&
         for (const auto& completion : acked)
             hook(completion);
     }
+    // The durable half of the ack: a message accepted by its owner is never
+    // delivered again, even after a restart. A posted completion with no task
+    // record (a producer-only path) simply finds nothing to mark.
+    for (const auto& completion : acked)
+        tasks_.mark_delivered(completion.task_id);
 }
 
 void TaskInbox::drop(const std::string& owner_id) {

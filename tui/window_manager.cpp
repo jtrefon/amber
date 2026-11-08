@@ -186,6 +186,11 @@ Window& WindowManager::open_welcome_window() {
     auto w = std::make_unique<Window>();
     w->id = next_id_++;
     w->title = "amber";
+    // A task started from the mural needs an owner that survives a crash: the
+    // workspace may never be saved, so a generated id would be gone by the next
+    // start. "amber" is stable, cannot collide with a generated session id, and
+    // is persisted with the window on a clean exit.
+    w->owner_id = "amber";
     w->read_only = true;
     w->welcome_art = true;
     windows_.push_back(std::move(w));

@@ -30,6 +30,12 @@ std::vector<ConfigPath> config_paths();
 // file itself appears only when diagnostics are on and something went wrong.
 std::string error_log_path();
 
+// The task inventory's two roots. TaskStore is constructed from a state root
+// and a cache root and drops these suffixes; the layout readout prints the same
+// functions, so the writer and `/get config paths` cannot disagree.
+std::string task_records_dir(const std::string& state_dir);
+std::string task_artifacts_dir(const std::string& cache_root);
+
 } // namespace agent
 
 #endif // AGENT_CONFIG_PATHS_H

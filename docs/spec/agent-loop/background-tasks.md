@@ -147,17 +147,44 @@ an event for the same fact is a duplicate, not a second opinion.
 
 ## Restart and persistence (#378)
 
-`TaskService` itself is in-memory. The persistent store is a separate concern,
-but it must obey:
+`TaskService` itself is in-memory; `TaskStore` is the durability boundary. Both
+hosts attach one (`TuiHost`, `CliHost`); bench and probe runs attach none, so a
+hermetic run writes no task files.
 
-- Records are written atomically (temp + fsync + rename) under the project
-  state dir; artifacts under the cache dir.
-- A record that was `Queued` or `Running` at write time restarts as `Unknown`;
-  a dead task never renders as running.
+- **Layout.** Records live in `<state>/tasks/<task_id>.json`, one private file
+  per task; artifacts (full output, worker transcript, watch journal) live in
+  `<cache>/tasks/<task_id>/`. Both suffixes come from `config_paths.cpp`, the
+  same functions `/get config paths` prints, so the readout and the writer
+  cannot drift.
+- **Write path.** Every transition saves the newest record before its event is
+  published. The save re-reads the record under the map lock and runs outside
+  it, serialized by a separate persistence mutex. The store never writes an
+  index: `list()` scans the directory, so no half-written index can exist.
+- **Atomicity.** `write_private_file` writes a temp file in the same directory,
+  fsyncs and renames; the record is always either the old file or the new one.
+  Files are `0600`, directories `0700`.
+- **Restart rules.** A `Running` record from a previous process becomes
+  `Unknown` (a process cannot be reattached), with `ended_ms` set to its last
+  activity and its progress preserved. A `Queued` record becomes `Cancelled`
+  with reason `host restarted before start`, because nothing ever ran. Terminal
+  states are immutable.
+- **Clean shutdown.** The host calls `TaskService::shutdown()` after its UI has
+  joined: `Running` becomes `Interrupted`, `Queued` becomes `Cancelled`. A
+  crash skips that pass and leaves the record `Running`, which the next start
+  turns into `Unknown`.
+- **Delivery.** `delivered_at_ms` is part of the record and is set only after
+  the inbox ack. The host seeds the inbox from terminal, undelivered records
+  after restoring the windows; a delivered record is never emitted again, so a
+  crash between publish and ack redelivers rather than loses. A `Silent` task
+  owes no message and is marked delivered when it finishes.
+- **Retention.** At startup the host prunes: newest 200 records per owner,
+  artifact files older than seven days or beyond 256 MB (oldest first). An
+  undelivered record and a non-terminal task's artifact are never removed. The
+  walk skips symlinks and counts errors instead of failing startup.
+- **Corruption.** A malformed or newer-schema record is skipped and counted by
+  `TaskStore::skipped()`; startup continues with the rest.
 - An id is never reused across a restart; the time+random form makes that a
   property, not a hope.
-- Delivery state is part of the record: `delivered_at_ms` is set only after the
-  inbox accepted the message.
 
 ## Non-goals
 

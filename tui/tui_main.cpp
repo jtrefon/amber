@@ -9,6 +9,7 @@
 #include "agent/global_config.h"
 #include "agent/plugin_runtime.h"
 #include "agent/task.h"
+#include "agent/task_store.h"
 #include "agent/bootstrap.h"
 #include "agent/data_path.h"
 
@@ -16,6 +17,7 @@
 #include "gallery_screen.h"
 
 #include <algorithm>
+#include <chrono>
 #include <clocale>
 #include <cstdio>
 #include <filesystem>
@@ -171,6 +173,9 @@ struct TuiHost {
     // Declared before the job service so a completion sink can finish its task
     // while the jobs are still being torn down.
     agent::TaskService tasks;
+    // The durable record store. Declared after the inventory it persists; the
+    // host attaches it before the UI exists so a restart can restore records.
+    agent::TaskStore task_store;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::ShapeQueue shapes;
@@ -180,6 +185,7 @@ struct TuiHost {
 
     explicit TuiHost(agent::Config& cfg)
         : plugin_runtime(registry, cfg, workspace), tasks(plugin_runtime.events()),
+          task_store(agent::Workspace::state_dir(), agent::cache_dir()),
           host_services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes, &tasks} {
         subagents.set_config(cfg);
         subagents.set_parallel(cfg.subagent_parallel);
@@ -193,6 +199,38 @@ struct TuiHost {
         plugin_runtime.attach_host_services(host_services);
     }
 };
+
+std::int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+// The restart contract: records load before any window exists, a task that was
+// Running in the last process becomes Unknown (never "still running"), and a
+// Queued task becomes Cancelled because nothing ever started it. The startup
+// prune is bounded and runs before the first paint.
+void restore_task_inventory(TuiHost& host) {
+    host.tasks.attach_store(&host.task_store);
+    host.tasks.restore_from_store();
+    host.task_store.prune(now_ms());
+}
+
+// Own the UI for one process: restore the inventory, run until quit, then mark
+// whatever is still running as Interrupted before the store is torn down.
+int run_tui(TuiHost& host, agent::Config& cfg) {
+    restore_task_inventory(host);
+    {
+        tui::Tui tui(cfg, host.registry, host.jobs, host.subagents, host.plugins,
+                     host.plugin_runtime);
+        tui.run();
+    }
+    host.tasks.shutdown();
+    // After the destructor: the terminal is restored, the sessions and the
+    // workspace are saved. A harness waits for this instead of for a timeout.
+    agent::announce_exit_ready();
+    return 0;
+}
 
 } // namespace
 
@@ -238,15 +276,7 @@ int main(int argc, char** argv) try {
     }
 
     TuiHost host(cfg);
-    {
-        tui::Tui tui(cfg, host.registry, host.jobs, host.subagents, host.plugins,
-                     host.plugin_runtime);
-        tui.run();
-    }
-    // After the destructor: the terminal is restored, the sessions and the
-    // workspace are saved. A harness waits for this instead of for a timeout.
-    agent::announce_exit_ready();
-    return 0;
+    return run_tui(host, cfg);
 } catch (const std::exception& e) {
     // Tui's destructor has already run endwin() by the time this executes, so
     // the terminal is restored and a plain message is safe.

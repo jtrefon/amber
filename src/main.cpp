@@ -2,6 +2,8 @@
 #include <agent.h>
 #include <agent/model_probe.h>
 #include <agent/task.h>
+#include <agent/task_inbox.h>
+#include <agent/task_store.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
 #include <agent/global_config.h>
@@ -649,6 +651,19 @@ int finish_watches(CliHost& host, agent::Agent& agent, bool wake) {
 // registry, streams its reply to stdout, and reports failure as an exit code.
 int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
                    const std::string& prompt, bool watch_wake) {
+    // The headless restart contract. The store is local to the run: a one-shot
+    // process attaches it, restores the previous inventory, and marks what is
+    // still running as interrupted on the way out. A hermetic host attaches no
+    // store, so bench and probe runs write nothing.
+    agent::TaskStore store(agent::Workspace::state_dir(), agent::cache_dir());
+    host.tasks.attach_store(&store);
+    host.tasks.restore_from_store();
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+    store.prune(now_ms);
+    agent::TaskInbox inbox(host.plugin_runtime.events(), host.tasks);
+    inbox.seed_undelivered();
     try {
         agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
                            std::move(host.gate), std::move(host.mem_store),
@@ -657,10 +672,14 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.set_shape_queue(&host.shapes);
         agent.set_events(host.plugin_runtime.events());
         agent.set_prompt_registry(host.plugin_runtime.prompts());
+        agent.set_inbox(&inbox);
         agent.set_owner_id("cli");
         run_turn(agent, host, prompt);
-        return finish_watches(host, agent, watch_wake);
+        const int rc = finish_watches(host, agent, watch_wake);
+        host.tasks.shutdown();
+        return rc;
     } catch (const std::exception& e) {
+        host.tasks.shutdown();
         std::cerr << "error: " << e.what() << "\n";
         return 1;
     }
