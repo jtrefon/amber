@@ -55,6 +55,29 @@ reuses `form_focus`'s documented key map, so its key behaviour cannot drift.
 | Form | title, fields, notice | Tab/arrow field navigation, printable insert, Backspace/Delete, Enter accept, Esc cancel | bool + edited values |
 | Custom sheet | a caller-owned `PaintedDialog` painter | `Accept`/`Cancel` from the handler; used by the skills install sheet and facet overlay | caller-defined |
 
+### Delegated-worker approvals
+
+A sub-agent inherits the parent's tool registry, so a gated tool inside a
+worker must reach the window that owns the worker — not the active tab, and not
+an empty hook. `worker_target.h` resolves the owner id through
+`WindowManager::by_owner_id` (the same stable mapping watch reports use):
+
+- **Owner active:** the dialog is addressed to that window.
+- **Owner inactive:** the dialog goes to the active window with the owner named
+  in the prompt (`worker [<owner title>]: worker "<label>": <summary>`), and
+  focus does not move.
+- **Owner gone, no window, or router shutting down:** the worker's hook returns
+  `Deny` immediately; the child's gated tool fails closed with the normal
+  no-approver reason. The active tab is never a substitute for a closed owner.
+
+The worker blocks on the same promise as a foreground approval, so the UI thread
+never waits. The executor records `blocked` and `awaiting approval: <tool>` on
+its task while the dialog is up, then `approval: <verdict>`; `/tasks list` and
+`/tasks show` include those worker rows. A blocked worker is live work for
+`work_auto_attach`, so its viewer stays open. Headless runs install no factory
+and keep `--yes`/no-TTY policy.
+
+
 The approval countdown **denies on expiry**. It never auto-confirms: the
 fail-safe is `ApprovalModel`'s invariant, not the panel's.
 
@@ -92,7 +115,13 @@ notification channel.
   bounds, form editing/paste/buttons, framed rendering at 80×24 and 120×40,
   selection/filter/notice/cursor placement and small-screen clamping.
 - `tests/tui_pty_test.cpp` — the real flows: confirm/cancel on a task, provider
-  API-key form (including paste), and a background-window approval that names
-  its window, keeps the active window, and whose approved command actually runs.
+  API-key form (including paste), a background-window approval that names
+  its window, keeps the active window, and whose approved command actually runs,
+  and a delegated worker whose gated `bash` asks its owner and then runs.
+- `tests/agent_loop_test.cpp` — the executor's owner hook factory: a gated tool
+  asks the owner, a denial never runs even when the child claims approval, and
+  no owner hooks fail closed.
+- `tests/tui_tests.cpp` — owner-vs-active target resolution and the blocked
+  worker's auto-attach liveness.
 - `tests/gates/` — no separate gate; the ncurses ratchet shrinks as the old
   dialog files stop including curses.

@@ -15,6 +15,12 @@ namespace {
 thread_local bool t_in_subagent = false;
 thread_local bool t_subagent_inherited = false;
 
+const char* approval_result(Approval approval) {
+    const bool allowed = approval == Approval::AllowOnce || approval == Approval::AllowSession ||
+                         approval == Approval::AlwaysAllow;
+    return allowed ? "allowed" : "denied";
+}
+
 } // namespace
 
 std::string worker_directive() {
@@ -106,7 +112,23 @@ void append_task_tail(std::string& tail, const std::string& line) {
 }
 
 AgentHooks SubAgentExecutor::progress_hooks(const std::string& task_id) {
-    AgentHooks hooks = sub_hooks_of();
+    AgentHooks hooks = sub_hooks_of(owner_of(task_id));
+    if (hooks.on_approval) {
+        // A gated tool in the child reports through the owner's hook. Record
+        // the wait on the task so /tasks can say why the worker is stuck, and
+        // the decision once it lands.
+        const auto inner = hooks.on_approval;
+        hooks.on_approval = [this, task_id, inner](const std::string& name, const json& args,
+                                                   const std::string& summary) {
+            update_task(task_id, "blocked", name);
+            append_tail(task_id, "awaiting approval: " + name);
+            const std::string labelled = "worker \"" + prompt_head_of(task_id) + "\": " + summary;
+            const Approval approval = inner(name, args, labelled);
+            update_task(task_id, "running", name);
+            append_tail(task_id, std::string("approval: ") + approval_result(approval));
+            return approval;
+        };
+    }
     hooks.on_tool_call = [this, task_id](const std::string& name, const json&) {
         update_task(task_id, "running", name);
         append_tail(task_id, "-> " + name);
@@ -118,6 +140,24 @@ AgentHooks SubAgentExecutor::progress_hooks(const std::string& task_id) {
     };
     hooks.on_stats = [this, task_id](const Stats& stats) { record_usage(task_id, stats); };
     return hooks;
+}
+
+std::string SubAgentExecutor::owner_of(const std::string& id) const {
+    std::scoped_lock lk(tasks_mutex_);
+    for (const auto& record : tasks_) {
+        if (record.id == id)
+            return record.owner_id;
+    }
+    return {};
+}
+
+std::string SubAgentExecutor::prompt_head_of(const std::string& id) const {
+    std::scoped_lock lk(tasks_mutex_);
+    for (const auto& record : tasks_) {
+        if (record.id == id)
+            return record.prompt_head;
+    }
+    return {};
 }
 
 void SubAgentExecutor::append_tail(const std::string& id, const std::string& line) {
@@ -179,10 +219,15 @@ std::vector<SubAgentTaskInfo> SubAgentExecutor::tasks() const {
 // Sub-agent hooks: approval and status passthrough only — tool calls, tokens and
 // state of the worker never leak into the parent's observers.
 AgentHooks SubAgentExecutor::sub_hooks_of() const {
+    return sub_hooks_of({});
+}
+
+AgentHooks SubAgentExecutor::sub_hooks_of(const std::string& owner_id) const {
+    const AgentHooks source = (hooks_for_ && !owner_id.empty()) ? hooks_for_(owner_id) : hooks_;
     AgentHooks sub_hooks;
-    sub_hooks.on_approval = hooks_.on_approval;
-    sub_hooks.on_status = hooks_.on_status;
-    sub_hooks.on_api_key = hooks_.on_api_key;
+    sub_hooks.on_approval = source.on_approval;
+    sub_hooks.on_status = source.on_status;
+    sub_hooks.on_api_key = source.on_api_key;
     return sub_hooks;
 }
 

@@ -9,7 +9,7 @@ bool job_running(agent::JobState state) {
 }
 
 bool task_running(const std::string& state) {
-    return state == "running" || state == "queued";
+    return state == "running" || state == "queued" || state == "blocked";
 }
 
 struct PlanInput {

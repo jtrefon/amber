@@ -3907,18 +3907,33 @@ void SlashDispatcher::cmd_tasks_list() {
         return;
     }
     auto records = tui_.tasks_->list(tui_.win().owner_id);
-    if (records.empty()) {
-        tui_.append_line(P_STATUS, "no background tasks");
-        return;
+    bool any = false;
+    if (!records.empty()) {
+        std::sort(records.begin(), records.end(),
+                  [](const agent::TaskRecord& a, const agent::TaskRecord& b) {
+                      if (a.created_ms != b.created_ms)
+                          return a.created_ms < b.created_ms;
+                      return a.id < b.id;
+                  });
+        for (const auto& record : records)
+            tui_.append_line(P_STATUS, agent::format_task_row(record));
+        any = true;
     }
-    std::sort(records.begin(), records.end(),
-              [](const agent::TaskRecord& a, const agent::TaskRecord& b) {
-                  if (a.created_ms != b.created_ms)
-                      return a.created_ms < b.created_ms;
-                  return a.id < b.id;
-              });
-    for (const auto& record : records)
-        tui_.append_line(P_STATUS, agent::format_task_row(record));
+    // Delegated workers are not TaskService records until #379 migrates the
+    // inventory, but they belong in the same list: a worker waiting on an
+    // approval must be visible where the user looks for background work.
+    for (const auto& worker : tui_.subagents_.tasks()) {
+        if (worker.owner_id != tui_.win().owner_id)
+            continue;
+        std::string line =
+            "worker " + worker.id + " | " + worker.state + " | " + worker.prompt_head;
+        if (!worker.current_tool.empty())
+            line += " | " + worker.current_tool;
+        tui_.append_line(P_STATUS, line);
+        any = true;
+    }
+    if (!any)
+        tui_.append_line(P_STATUS, "no background tasks");
 }
 
 void SlashDispatcher::refresh_task_feed() {
@@ -3932,13 +3947,31 @@ void SlashDispatcher::cmd_tasks_show(const std::string& id) {
         return;
     }
     auto record = tui_.tasks_->get(id);
-    if (!record || record->owner.owner_id != tui_.win().owner_id) {
-        tui_.append_line(P_STATUS, "no such task: " + id);
+    if (record) {
+        if (record->owner.owner_id != tui_.win().owner_id) {
+            tui_.append_line(P_STATUS, "no such task: " + id);
+            return;
+        }
+        std::istringstream detail(agent::format_task_detail(*record));
+        for (std::string line; std::getline(detail, line);)
+            tui_.append_line(P_STATUS, line);
         return;
     }
-    std::istringstream detail(agent::format_task_detail(*record));
-    for (std::string line; std::getline(detail, line);)
-        tui_.append_line(P_STATUS, line);
+    for (const auto& worker : tui_.subagents_.tasks()) {
+        if (worker.id != id || worker.owner_id != tui_.win().owner_id)
+            continue;
+        tui_.append_line(P_STATUS,
+                         "[agent " + worker.id + "] " + worker.state + "  " + worker.prompt_head);
+        if (!worker.current_tool.empty())
+            tui_.append_line(P_STATUS, "tool: " + worker.current_tool);
+        if (!worker.tail.empty()) {
+            std::istringstream tail(worker.tail);
+            for (std::string line; std::getline(tail, line);)
+                tui_.append_line(P_STATUS, line);
+        }
+        return;
+    }
+    tui_.append_line(P_STATUS, "no such task: " + id);
 }
 
 void SlashDispatcher::cmd_tasks_output(const std::string& id) {
@@ -3947,11 +3980,21 @@ void SlashDispatcher::cmd_tasks_output(const std::string& id) {
         return;
     }
     auto record = tui_.tasks_->get(id);
-    if (!record || record->owner.owner_id != tui_.win().owner_id) {
-        tui_.append_line(P_STATUS, "no such task: " + id);
+    if (record) {
+        if (record->owner.owner_id != tui_.win().owner_id) {
+            tui_.append_line(P_STATUS, "no such task: " + id);
+            return;
+        }
+        open_resource("task", id);
         return;
     }
-    open_resource("task", id);
+    for (const auto& worker : tui_.subagents_.tasks()) {
+        if (worker.id == id && worker.owner_id == tui_.win().owner_id) {
+            open_resource("agent", id);
+            return;
+        }
+    }
+    tui_.append_line(P_STATUS, "no such task: " + id);
 }
 
 void SlashDispatcher::cmd_tasks_cancel(const std::string& id) {

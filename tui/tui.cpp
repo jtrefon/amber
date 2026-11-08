@@ -9,6 +9,7 @@
 #include "option_key_decode.h"
 #include "signal_guard.h"
 #include "event_router.h"
+#include "worker_approval.h"
 #include "work_auto_attach.h"
 #include "feed_manager.h"
 #include "path_confine.h"
@@ -256,6 +257,12 @@ void Tui::apply_display_settings() {
 void Tui::build_managers() {
     window_manager_ = std::make_unique<WindowManager>(cfg_, reg_, &plugin_runtime_);
     router_ = std::make_unique<EventRouter>(*this);
+    // A delegated worker carries the owner id of the turn that spawned it, so
+    // its approval reaches that window (or the active one, named) instead of
+    // dying on an empty hook. Headless hosts keep set_hooks().
+    subagents_.set_hooks_for([this](const std::string& owner) {
+        return worker_hooks(*router_, *window_manager_, owner);
+    });
     render_engine_ = std::make_unique<RenderEngine>(*this);
     session_controller_ = std::make_unique<SessionController>(*this);
     slash_dispatcher_ = std::make_unique<SlashDispatcher>(*this);
@@ -355,6 +362,10 @@ Tui::~Tui() {
         deny_all_pending_api_keys(router_->pending_api_keys());
     }
     runs_.join_all();
+    // No worker can call the host's approval factory after the join. Clear it
+    // before the router and window manager members are destroyed: the factory
+    // captured `this`, and a late call would otherwise touch freed state.
+    subagents_.set_hooks_for({});
     terminal_.stop();
     session_controller_->save_window_sessions();
     session_controller_->save_workspace_now();
