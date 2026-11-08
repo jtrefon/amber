@@ -118,6 +118,7 @@ std::string strip_ansi(const std::string& in) {
 struct Tui {
     int master = -1;
     pid_t pid = -1;
+    int exit_code = -1;
     std::string raw;
     std::string name; // scenario name, reported if the session is force-killed
 
@@ -278,8 +279,12 @@ struct Tui {
             return true;
         int status = 0;
         const pid_t reaped = waitpid(pid, &status, WNOHANG);
-        if (reaped == pid || reaped < 0)
+        if (reaped == pid) {
+            exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
             pid = -1;
+        } else if (reaped < 0) {
+            pid = -1;
+        }
         return pid < 0;
     }
 
@@ -858,7 +863,7 @@ private:
                 return;
             }
             // Both spellings during the transition: the TUI now delivers the
-            // generic task digest, while the legacy CLI --watch-wake path
+            // generic task digest, while the legacy CLI --wait-tasks path
             // still reports a watch directly.
             const bool approval_probe = last_user.find("approval probe") != std::string::npos;
             const bool delegate_probe = last_user.find("delegate probe") != std::string::npos;
@@ -866,6 +871,7 @@ private:
             const bool worker_report = body.find("WORKER-REPORT") != std::string::npos;
             const bool queue_probe = last_user.find("queue probe") != std::string::npos;
             const bool clear_probe = last_user.find("clear probe") != std::string::npos;
+            const bool command_probe = last_user.find("command probe") != std::string::npos;
             const bool second_prompt = last_user.find("second prompt") != std::string::npos;
             const bool doomed_prompt = last_user.find("doomed prompt") != std::string::npos;
             const bool report = last_user.find("background task report") != std::string::npos ||
@@ -873,7 +879,13 @@ private:
             const bool first = chat_calls_ == 1 && !report && !approval_probe;
             std::string message;
             std::string finish = "stop";
-            if (queue_probe && chat_calls_ == 1) {
+            if (command_probe && chat_calls_ == 1) {
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 1; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
+            } else if (command_probe) {
+                message = R"({"role":"assistant","content":"COMMAND-STARTED"})";
+            } else if (queue_probe && chat_calls_ == 1) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(2500));
                 message = R"({"role":"assistant","content":"QUEUE-DONE"})";
             } else if (queue_probe) {
@@ -3567,7 +3579,7 @@ void watch_report_waits_for_a_draft_then_wakes() {
     require(tui.wait_for("REPORT-ACK", 15000), "the report turn did not complete", tui);
 }
 
-// W-20: one-shot CLI does not silently run a report turn; --watch-wake opts in
+// W-20: one-shot CLI does not silently run a report turn; --wait-tasks opts in
 // and uses the same persisted report. This drives the real amber-cli binary
 // against the same fake model as the TUI wake test.
 void watch_cli_does_not_wake_by_default_and_opts_in() {
@@ -3578,32 +3590,85 @@ void watch_cli_does_not_wake_by_default_and_opts_in() {
     const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
     ASSERT(fs::exists(cli));
 
-    for (const bool wake : {false, true}) {
+    for (const int wait : {0, 10}) {
         api.reset_chat();
         Tui child;
-        child.name = wake ? "watch_cli_watch_wake" : "watch_cli_default";
+        child.name = wait == 0 ? "wait_tasks_default" : "wait_tasks_wake";
         std::vector<std::string> args = {
-            "--api-base",  api.base() + "/v1", "--model",       "pty-test",
-            "--no-stream", "--prompt",         "start a watch", "--yolo"};
-        if (wake)
-            args.push_back("--watch-wake");
+            "--api-base", api.base() + "/v1", "--model", "pty-test",     "--no-stream",
+            "--prompt",   "start a watch",    "--yolo",  "--wait-tasks", std::to_string(wait)};
         ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
         if (!require(child.wait_for("WATCH-STARTED", 15000), "the CLI turn never finished", child))
             return;
-        if (!wake) {
-            if (!require(child.wait_for("[watch] report", 10000),
-                         "the CLI did not persist and report the watch", child))
+        if (wait == 0) {
+            if (!require(child.wait_for("[tasks] still running", 10000),
+                         "the CLI did not name the still-running watch", child))
                 return;
-            child.pump(1000);
+            if (!require(child.wait_exit(10000), "the CLI did not exit", child))
+                return;
+            if (!require(child.exit_code == 3,
+                         "a still-running task exited " + std::to_string(child.exit_code) +
+                             ", not 3",
+                         child))
+                return;
             if (child.text().find("REPORT-ACK") != std::string::npos) {
-                std::cerr << "FAIL: one-shot CLI ran a report turn without --watch-wake\n";
+                std::cerr << "FAIL: --wait-tasks 0 ran a report turn\n";
                 ++failed;
                 return;
             }
         } else {
             if (!require(child.wait_for("REPORT-ACK", 15000),
-                         "--watch-wake did not run the follow-up turn", child))
+                         "--wait-tasks did not run the follow-up turn", child))
                 return;
+            if (!require(child.wait_exit(10000), "the CLI did not exit after the follow-up", child))
+                return;
+            require(child.exit_code == 0, "a completed follow-up did not exit 0", child);
+        }
+    }
+}
+
+// The join covers command backends too: process_start's TaskService record is
+// finished by the job sink, and --wait-tasks turns that completion into one
+// follow-up request. Without the wait the record is persisted and exit is 3.
+TEST(cli_wait_tasks_joins_a_command) {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
+    ASSERT(fs::exists(cli));
+
+    for (const int wait : {0, 10}) {
+        api.reset_chat();
+        Tui child;
+        child.name = wait == 0 ? "wait_command_default" : "wait_command_wake";
+        std::vector<std::string> args = {
+            "--api-base", api.base() + "/v1", "--model", "pty-test",     "--no-stream",
+            "--prompt",   "command probe",    "--yolo",  "--wait-tasks", std::to_string(wait)};
+        ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
+        if (!require(child.wait_for("COMMAND-STARTED", 15000), "the command turn never finished",
+                     child))
+            return;
+        if (wait == 0) {
+            if (!require(child.wait_for("[tasks] still running", 10000),
+                         "the CLI did not name the still-running command", child))
+                return;
+            if (!require(child.wait_exit(10000), "the CLI did not exit", child))
+                return;
+            if (!require(child.exit_code == 3, "a still-running command did not exit 3", child))
+                return;
+            if (child.text().find("REPORT-ACK") != std::string::npos) {
+                std::cerr << "FAIL: --wait-tasks 0 ran a command follow-up\n";
+                ++failed;
+                return;
+            }
+        } else {
+            if (!require(child.wait_for("REPORT-ACK", 15000),
+                         "--wait-tasks did not follow up on the command", child))
+                return;
+            if (!require(child.wait_exit(10000), "the CLI did not exit after the command", child))
+                return;
+            require(child.exit_code == 0, "a completed command did not exit 0", child);
         }
     }
 }
@@ -4239,6 +4304,7 @@ int main(int argc, char** argv) {
     learn_panel_opens_and_returns_to_the_prompt();
     watch_report_waits_for_a_draft_then_wakes();
     watch_cli_does_not_wake_by_default_and_opts_in();
+    cli_wait_tasks_joins_a_command();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.
