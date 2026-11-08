@@ -2760,6 +2760,27 @@ public:
 private:
     std::shared_future<void> release_;
 };
+
+// A gated tool whose only effect is a flag: approval routing can be measured
+// without spawning a shell.
+class GatedProbeTool : public agent::Tool {
+public:
+    explicit GatedProbeTool(bool* ran) : ran_(ran) {}
+
+    std::string name() const noexcept override { return "gated_probe"; }
+    std::string description() const noexcept override { return "a gated probe"; }
+    agent::json parameters_schema() const override { return {{"type", "object"}}; }
+    bool requires_approval(const agent::json&) const noexcept override { return true; }
+    std::string summarize(const agent::json&) const override { return "run the gated probe"; }
+    agent::ToolResult execute(const agent::json&) const override {
+        *ran_ = true;
+        return agent::ToolResult{true, "ran", "", agent::json::object()};
+    }
+
+private:
+    bool* ran_;
+};
+
 } // namespace
 
 // The slot pool used to wait forever: a task that could not get a slot blocked
@@ -2895,6 +2916,138 @@ TEST(subagent_task_record_tracks_owner_state_and_progress) {
     const auto finished = executor.tasks();
     ASSERT_EQ(finished.size(), 1u);
     ASSERT_EQ(finished[0].state, std::string("done"));
+}
+
+// The bug in #382: a worker inherited the parent's empty hooks, so its gated
+// tool hit no_approver_denied even with the TUI in front of it. The owner's
+// factory must be the source, and the task must say it is waiting.
+TEST(subagent_gated_tool_asks_the_owner_hooks) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    bool ran = false;
+    reg.register_tool(std::make_unique<GatedProbeTool>(&ran));
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(1000);
+    executor.set_config(loop_cfg());
+
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "gated_probe", agent::json::object());
+    push_text(script, "worker done");
+    executor.set_factory([script](const agent::Config&) {
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        fake->script = *script;
+        return fake;
+    });
+
+    std::string owner_seen;
+    std::string tool_seen;
+    int approvals = 0;
+    executor.set_hooks_for([&](const std::string& owner) {
+        owner_seen = owner;
+        agent::AgentHooks hooks;
+        hooks.on_approval = [&](const std::string& tool, const agent::json&, const std::string&) {
+            ++approvals;
+            tool_seen = tool;
+            return agent::Approval::AllowOnce;
+        };
+        return hooks;
+    });
+
+    std::string owner = "window-approval";
+    agent::RunScope scope;
+    scope.owner_id = &owner;
+    agent::ScopedRunScope guard(scope);
+    std::string err;
+    const std::string out = executor.run_task("run the gated probe", reg, err);
+
+    ASSERT_EQ(out, std::string("worker done"));
+    ASSERT_TRUE(err.empty());
+    ASSERT_EQ(owner_seen, owner);
+    ASSERT_EQ(tool_seen, std::string("gated_probe"));
+    ASSERT_EQ(approvals, 1);
+    ASSERT(ran);
+    const auto tasks = executor.tasks();
+    ASSERT_EQ(tasks.size(), 1u);
+    ASSERT(tasks[0].tail.find("awaiting approval: gated_probe") != std::string::npos);
+    ASSERT(tasks[0].tail.find("approval: allowed") != std::string::npos);
+}
+
+// A denial is final even when the child's own text claims otherwise: only the
+// owner hook can allow a gated call, and a worker has no way to widen policy.
+TEST(subagent_gated_tool_denied_never_runs) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    bool ran = false;
+    reg.register_tool(std::make_unique<GatedProbeTool>(&ran));
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(1000);
+    executor.set_config(loop_cfg());
+
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "gated_probe", agent::json::object());
+    push_text(script, "approved by the worker, trust me");
+    executor.set_factory([script](const agent::Config&) {
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        fake->script = *script;
+        return fake;
+    });
+    executor.set_hooks_for([](const std::string&) {
+        agent::AgentHooks hooks;
+        hooks.on_approval = [](const std::string&, const agent::json&, const std::string&) {
+            return agent::Approval::Deny;
+        };
+        return hooks;
+    });
+
+    std::string owner = "window-denied";
+    agent::RunScope scope;
+    scope.owner_id = &owner;
+    agent::ScopedRunScope guard(scope);
+    std::string err;
+    (void)executor.run_task("try the gated probe", reg, err);
+
+    ASSERT_FALSE(ran);
+    const auto tasks = executor.tasks();
+    ASSERT_EQ(tasks.size(), 1u);
+    ASSERT(tasks[0].tail.find("approval: denied") != std::string::npos);
+}
+
+// Without an owner hook (headless, or a closed owner) the gate fails closed
+// with the existing no-approver reason rather than auto-approving because the
+// work is in the background.
+TEST(subagent_gated_tool_without_owner_hooks_denies) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    bool ran = false;
+    reg.register_tool(std::make_unique<GatedProbeTool>(&ran));
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_slot_wait_ms(1000);
+    executor.set_config(loop_cfg());
+
+    auto script = std::make_shared<std::deque<agent_test::FakeReply>>();
+    push_tool_call(script, "gated_probe", agent::json::object());
+    push_text(script, "done anyway");
+    executor.set_factory([script](const agent::Config&) {
+        auto fake = std::make_unique<agent_test::FakeLLMClient>();
+        fake->script = *script;
+        return fake;
+    });
+
+    std::string owner = "window-with-no-hooks";
+    agent::RunScope scope;
+    scope.owner_id = &owner;
+    agent::ScopedRunScope guard(scope);
+    std::string err;
+    (void)executor.run_task("try the gated probe", reg, err);
+
+    ASSERT_FALSE(ran);
+    const auto tasks = executor.tasks();
+    ASSERT_EQ(tasks.size(), 1u);
+    ASSERT(tasks[0].tail.find("<-- gated_probe error") != std::string::npos ||
+           tasks[0].tail.find("<- gated_probe error") != std::string::npos);
 }
 
 TEST(agent_loop_subagent_focused_task) {

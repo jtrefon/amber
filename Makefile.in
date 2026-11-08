@@ -281,6 +281,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/window_manager.o \
              $(BUILD_DIR)/tui/work_auto_attach.o \
              $(BUILD_DIR)/tui/event_router.o \
+             $(BUILD_DIR)/tui/worker_approval.o \
              $(BUILD_DIR)/tui/render_engine.o \
              $(BUILD_DIR)/tui/session_controller.o \
              $(BUILD_DIR)/tui/log_retention_controller.o \

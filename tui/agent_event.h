@@ -72,6 +72,12 @@ struct AgentEvent {
     // delivered to their origin window so switching windows mid-run never
     // bleeds one conversation's output into another.
     size_t window_id = std::string::npos;
+
+    // The stable owner of a background worker (empty for a foreground event).
+    // A worker's approval is denied when this owner no longer has a window:
+    // the approval belongs to that window, and the active tab is not a
+    // substitute for an owner that has closed.
+    std::string owner_id;
 };
 
 } // namespace tui

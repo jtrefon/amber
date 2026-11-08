@@ -347,6 +347,16 @@ void EventRouter::pump_pending_approvals() {
 }
 
 void EventRouter::resolve_approval(const AgentEvent& ev) {
+    // A background worker's approval belongs to the window that owns the
+    // worker. If that window closed while the question was queued, nobody can
+    // answer for it; the active tab is not a substitute.
+    if (!ev.owner_id.empty() && !tui_.window_manager_->by_owner_id(ev.owner_id)) {
+        tui_.append_line(P_STATUS, "approval denied: the worker's owner window has closed");
+        if (ev.approval_promise)
+            ev.approval_promise->set_value(agent::Approval::Deny);
+        clear_needs_input(ev);
+        return;
+    }
     // With concurrent per-window runs, name the asking window — an approval
     // dialog with no origin would be unanswerable ("who wants to run this?").
     std::string prompt = ev.text;
@@ -422,6 +432,13 @@ void EventRouter::resolve_api_key(const AgentEvent& ev) {
     // used by the provider editor, persist it to the active provider's
     // config, then hand the key back to the waiting agent worker. An empty
     // result means the user cancelled (Esc).
+    if (!ev.owner_id.empty() && !tui_.window_manager_->by_owner_id(ev.owner_id)) {
+        tui_.append_line(P_STATUS, "API key request cancelled: the worker's owner window closed");
+        if (ev.api_key_promise)
+            ev.api_key_promise->set_value(std::string());
+        clear_needs_input(ev);
+        return;
+    }
     std::string key = tui_.prompt_api_key(ev.text);
     if (!key.empty()) {
         tui_.append_line(P_STATUS,

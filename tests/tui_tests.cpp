@@ -47,6 +47,7 @@
 #include "tui/window_ops_port.h"
 #include "tui/key_binder.h"
 #include "tui/window_ops.h"
+#include "tui/worker_target.h"
 #include "tui/window_manager.h"
 #include "tui/run_registry.h"
 #include <nlohmann/json.hpp>
@@ -1930,6 +1931,46 @@ TEST(window_manager_finds_the_owner_chat) {
     ASSERT(wm.by_owner_id("owner-9") == &chat);
     ASSERT(wm.by_owner_id("owner-nope") == nullptr);
     ASSERT(wm.by_owner_id("") == nullptr);
+}
+
+// A worker's question routes by its stable owner, not by whichever tab is
+// active. An inactive owner keeps focus where the user left it; a closed owner
+// has no target, so the caller must fail closed.
+TEST(worker_approval_target_resolves_the_owner_not_the_active_window) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    tui::Window& alpha = wm.new_window("alpha");
+    alpha.owner_id = "owner-a";
+    tui::Window& beta = wm.new_window("beta");
+    beta.owner_id = "owner-b";
+    wm.set_active(0);
+
+    const tui::WorkerTarget active = tui::resolve_worker_target(wm, "owner-a");
+    ASSERT(active.ok);
+    ASSERT_EQ(active.window_id, alpha.id);
+    ASSERT_EQ(active.owner_title, std::string("alpha"));
+
+    const tui::WorkerTarget inactive = tui::resolve_worker_target(wm, "owner-b");
+    ASSERT(inactive.ok);
+    ASSERT_EQ(inactive.window_id, std::string::npos); // the active window at drain
+    ASSERT_EQ(inactive.owner_title, std::string("beta"));
+
+    ASSERT_FALSE(tui::resolve_worker_target(wm, "owner-closed").ok);
+}
+
+// A worker waiting on an approval is live work, not a finished task: the
+// auto-attach planner must not close its viewer while the user decides.
+TEST(auto_attach_treats_a_blocked_worker_as_live) {
+    agent::SubAgentTaskInfo blocked;
+    blocked.id = "task-1";
+    blocked.prompt_head = "awaiting permission";
+    blocked.state = "blocked";
+    const std::unordered_set<std::string> attached;
+    const auto none = [](const std::string&, const std::string&) { return false; };
+    const auto steps = tui::plan_auto_attach("agents", {}, {blocked}, attached, none);
+    ASSERT_EQ(steps.size(), 1u);
+    ASSERT(steps[0].action == tui::AutoAttachStep::Action::Open);
 }
 
 TEST(window_manager_clears_attention_when_a_window_is_activated) {

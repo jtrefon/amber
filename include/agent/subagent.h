@@ -16,6 +16,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -69,6 +70,13 @@ public:
 
     void set_config(const Config& cfg) { cfg_ = cfg; }
     void set_hooks(const AgentHooks& hooks) { hooks_ = hooks; }
+    // Per-owner hooks for delegated workers. A run carries the owner id of the
+    // turn that spawned it, so an approval reaches that window rather than
+    // whichever window happens to be active. set_hooks() stays the single
+    // owner fallback (headless runs and tests); an empty owner or no factory
+    // uses it.
+    using HooksFor = std::function<AgentHooks(const std::string& owner_id)>;
+    void set_hooks_for(HooksFor f) { hooks_for_ = std::move(f); }
     // Host sink for sub-agent usage (called on the worker thread). The host
     // tags it with UsageSource::Subagent; the executor also records the totals
     // on the task itself.
@@ -81,6 +89,9 @@ public:
     // `err` is set on hard failure (cap exceeded, transport, nesting).
     std::string run_task(const std::string& prompt, ToolRegistry& reg, std::string& err);
     AgentHooks sub_hooks_of() const;
+    // The hooks for one run: the factory's answer when one is installed and
+    // the owner is known, otherwise the single-owner hooks_ fallback.
+    AgentHooks sub_hooks_of(const std::string& owner_id) const;
     void record_usage(const std::string& task_id, const Stats& stats);
     Config sub_config() const;
 
@@ -96,6 +107,10 @@ private:
     void update_task(const std::string& id, const std::string& state,
                      const std::string& current_tool = {}, const std::string& result = {});
     void append_tail(const std::string& id, const std::string& line);
+    // The owner captured when the run was admitted; empty before add_task().
+    std::string owner_of(const std::string& id) const;
+    // The bounded prompt head, used as the worker's label in an approval.
+    std::string prompt_head_of(const std::string& id) const;
     // The child's progress hooks: state, per-task usage and a tool-level tail;
     // never per-token events.
     AgentHooks progress_hooks(const std::string& task_id);
@@ -130,6 +145,7 @@ private:
     std::vector<TaskRecord> tasks_;
     Config cfg_;
     AgentHooks hooks_;
+    HooksFor hooks_for_;
     std::function<void(const UsageSample&)> usage_sink_;
     LLMClientFactory factory_;
     std::timed_mutex serial_mutex_;
