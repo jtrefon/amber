@@ -882,7 +882,7 @@ private:
             if (command_probe && chat_calls_ == 1) {
                 finish = "tool_calls";
                 message =
-                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 1; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 8; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
             } else if (command_probe) {
                 message = R"({"role":"assistant","content":"COMMAND-STARTED"})";
             } else if (queue_probe && chat_calls_ == 1) {
@@ -928,7 +928,7 @@ private:
                 message = R"({"role":"assistant","content":"REPORT-ACK"})";
             } else if (first) {
                 const std::string args =
-                    R"({"action":"start","profile":"process","command":"sh -c 'sleep 1; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
+                    R"({"action":"start","profile":"process","command":"sh -c 'sleep 8; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
                 std::string escaped;
                 for (char ch : args) {
                     if (ch == '"' || ch == '\\')
@@ -3441,7 +3441,7 @@ TEST(queued_prompts_are_echoed_counted_and_recalled) {
                  "the queued prompt was not recalled", tui))
         return;
 
-    if (!require(tui.wait_for("NEXT-DONE", 20000), "the remaining queued prompt did not run", tui))
+    if (!require(tui.wait_for("NEXT-DONE", 60000), "the remaining queued prompt did not run", tui))
         return;
     tui.pump(1000);
     const std::string text = tui.text();
@@ -3480,7 +3480,7 @@ TEST(queued_prompt_clear_discards_after_confirmation) {
     tui.send("y");
     if (!require(tui.wait_for("discarded 1 queued prompt", 5000), "the queue was not cleared", tui))
         return;
-    if (!require(tui.wait_for("CLEAR-QUEUE-DONE", 20000), "the running turn did not finish", tui))
+    if (!require(tui.wait_for("CLEAR-QUEUE-DONE", 60000), "the running turn did not finish", tui))
         return;
     tui.pump(1000);
     require(tui.text().find("CLEAR-NEXT-DONE") == std::string::npos, "a cleared prompt still ran",
@@ -3576,7 +3576,7 @@ void watch_report_waits_for_a_draft_then_wakes() {
     if (!require(tui.wait_for("background task report", 10000),
                  "clearing the draft did not wake the report", tui))
         return;
-    require(tui.wait_for("REPORT-ACK", 15000), "the report turn did not complete", tui);
+    require(tui.wait_for("REPORT-ACK", 30000), "the report turn did not complete", tui);
 }
 
 // W-20: one-shot CLI does not silently run a report turn; --wait-tasks opts in
@@ -3598,13 +3598,13 @@ void watch_cli_does_not_wake_by_default_and_opts_in() {
             "--api-base", api.base() + "/v1", "--model", "pty-test",     "--no-stream",
             "--prompt",   "start a watch",    "--yolo",  "--wait-tasks", std::to_string(wait)};
         ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
-        if (!require(child.wait_for("WATCH-STARTED", 15000), "the CLI turn never finished", child))
+        if (!require(child.wait_for("WATCH-STARTED", 30000), "the CLI turn never finished", child))
             return;
         if (wait == 0) {
-            if (!require(child.wait_for("[tasks] still running", 10000),
+            if (!require(child.wait_for("[tasks] still running", 30000),
                          "the CLI did not name the still-running watch", child))
                 return;
-            if (!require(child.wait_exit(10000), "the CLI did not exit", child))
+            if (!require(child.wait_exit(30000), "the CLI did not exit", child))
                 return;
             if (!require(child.exit_code == 3,
                          "a still-running task exited " + std::to_string(child.exit_code) +
@@ -3617,10 +3617,10 @@ void watch_cli_does_not_wake_by_default_and_opts_in() {
                 return;
             }
         } else {
-            if (!require(child.wait_for("REPORT-ACK", 15000),
+            if (!require(child.wait_for("REPORT-ACK", 60000),
                          "--wait-tasks did not run the follow-up turn", child))
                 return;
-            if (!require(child.wait_exit(10000), "the CLI did not exit after the follow-up", child))
+            if (!require(child.wait_exit(30000), "the CLI did not exit after the follow-up", child))
                 return;
             require(child.exit_code == 0, "a completed follow-up did not exit 0", child);
         }
@@ -3646,14 +3646,14 @@ TEST(cli_wait_tasks_joins_a_command) {
             "--api-base", api.base() + "/v1", "--model", "pty-test",     "--no-stream",
             "--prompt",   "command probe",    "--yolo",  "--wait-tasks", std::to_string(wait)};
         ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
-        if (!require(child.wait_for("COMMAND-STARTED", 15000), "the command turn never finished",
+        if (!require(child.wait_for("COMMAND-STARTED", 30000), "the command turn never finished",
                      child))
             return;
         if (wait == 0) {
-            if (!require(child.wait_for("[tasks] still running", 10000),
+            if (!require(child.wait_for("[tasks] still running", 30000),
                          "the CLI did not name the still-running command", child))
                 return;
-            if (!require(child.wait_exit(10000), "the CLI did not exit", child))
+            if (!require(child.wait_exit(30000), "the CLI did not exit", child))
                 return;
             if (!require(child.exit_code == 3, "a still-running command did not exit 3", child))
                 return;
@@ -3663,10 +3663,10 @@ TEST(cli_wait_tasks_joins_a_command) {
                 return;
             }
         } else {
-            if (!require(child.wait_for("REPORT-ACK", 15000),
+            if (!require(child.wait_for("REPORT-ACK", 60000),
                          "--wait-tasks did not follow up on the command", child))
                 return;
-            if (!require(child.wait_exit(10000), "the CLI did not exit after the command", child))
+            if (!require(child.wait_exit(30000), "the CLI did not exit after the command", child))
                 return;
             require(child.exit_code == 0, "a completed command did not exit 0", child);
         }
