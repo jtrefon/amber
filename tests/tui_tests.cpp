@@ -1596,11 +1596,10 @@ TEST(keybinder_esc_states_use_the_same_escape_action) {
     ASSERT_EQ(kb.dispatch({27, std::nullopt}, idle).action, std::string("ui.escape"));
 }
 
-// ESC is a prefix over a closed vocabulary only. The input loop reads one byte
-// to resolve it, so the vocabulary is what decides whether that byte is part of
-// an escape sequence or a key of its own: a byte outside it is put back, which
-// is why Ctrl+C queued behind ESC still quits. Listing the negatives is the
-// point — each one used to be swallowed and turned into a scroll-mode toggle.
+// ESC is a prefix over a closed vocabulary: digits and letters. The input loop
+// reads one byte to resolve it, so the vocabulary is what decides whether that
+// byte is part of an escape sequence or a key of its own: a byte outside it is
+// put back, which is why Ctrl+C queued behind ESC still quits.
 TEST(keybinder_esc_prefix_vocabulary_is_closed) {
     ASSERT(tui::esc_prefix_key('1'));
     ASSERT(tui::esc_prefix_key('9'));
@@ -1608,12 +1607,20 @@ TEST(keybinder_esc_prefix_vocabulary_is_closed) {
     ASSERT(tui::esc_prefix_key('B'));
     ASSERT(tui::esc_prefix_key('m'));
     ASSERT(tui::esc_prefix_key('M'));
+    ASSERT(tui::esc_prefix_key('a')); // Alt+letter chords, e.g. queue recall
+    ASSERT(tui::esc_prefix_key('q'));
 
     ASSERT(!tui::esc_prefix_key('0'));  // no window 0
-    ASSERT(!tui::esc_prefix_key('a'));  // a typed character
     ASSERT(!tui::esc_prefix_key('\t')); // completion
     ASSERT(!tui::esc_prefix_key(27));   // ESC itself
     ASSERT(!tui::esc_prefix_key(3));    // Ctrl+C quits
+}
+
+TEST(keybinder_queue_keys_map_to_queue_actions) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
+    ASSERT_EQ(kb.dispatch({27, 'q'}, state).action, std::string("ui.queue.recall"));
+    ASSERT_EQ(kb.dispatch({27, 'x'}, state).action, std::string("ui.queue.clear"));
 }
 
 TEST(keybinder_ctrl_n_maps_to_new_window) {
@@ -2413,6 +2420,34 @@ TEST(run_registry_pending_isolated_per_window) {
     ASSERT_TRUE(reg.has_pending(1));
     ASSERT_FALSE(reg.has_pending(2));
     ASSERT_FALSE(reg.pop_pending(2).has_value());
+}
+
+// The queue is inspectable (snapshot/depth), recallable newest-first, and
+// clearable per window; a recall is not a drain, so FIFO is unchanged.
+TEST(run_registry_pending_depth_snapshot_recall_and_clear) {
+    tui::RunRegistry reg;
+    reg.enqueue(1, "first");
+    reg.enqueue(1, "second");
+    reg.enqueue(2, "other");
+
+    ASSERT_EQ(reg.pending_count(1), 2u);
+    ASSERT_EQ(reg.pending_count(2), 1u);
+    ASSERT_EQ(reg.pending_total(), 3u);
+    const auto snapshot = reg.pending_snapshot(1);
+    ASSERT_EQ(snapshot.size(), 2u);
+    ASSERT_EQ(snapshot[0], std::string("first"));
+    ASSERT_EQ(snapshot[1], std::string("second"));
+
+    const auto recalled = reg.pop_back_pending(1);
+    ASSERT_TRUE(recalled.has_value());
+    ASSERT_EQ(*recalled, std::string("second"));
+    ASSERT_EQ(reg.pending_count(1), 1u);
+    ASSERT_EQ(*reg.pop_pending(1), std::string("first"));
+    ASSERT_FALSE(reg.pop_back_pending(1).has_value());
+
+    reg.clear_pending(2);
+    ASSERT_EQ(reg.pending_count(2), 0u);
+    ASSERT_EQ(reg.pending_total(), 0u);
 }
 
 TEST(run_registry_erase_idle_slot) {

@@ -350,6 +350,13 @@ std::vector<RenderEngine::Seg> RenderEngine::bar_segments() const {
         segs.push_back({std::move(segment.text), tone_pair(segment.tone), segment.drop_priority,
                         segment.align, segment.id});
     }
+    // One global hint, not per window: queued prompts are per window, but the
+    // bar's job is to say that input is waiting somewhere. It leads the left
+    // zone and is never dropped: losing it is losing the user's input.
+    const size_t queued = tui_.runs_.pending_total();
+    if (queued > 0)
+        segs.insert(segs.begin(), {"queued " + std::to_string(queued), P_STATUS, 0,
+                                   agent::StatusAlign::Left, "queue"});
     return segs;
 }
 

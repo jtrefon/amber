@@ -30,7 +30,7 @@ terminal, and manage the command drawer, input line, and status bar.
 5. Terminal resize is detected every frame via `getmaxyx(stdscr)` — no `SIGWINCH` handler.
 6. The input line cursor is always repositioned after every draw.
 7. Auto-scroll keeps the viewport at the bottom when new content arrives and the user hasn't scrolled up.
-8. `pending_prompt_` preserves at most one queued message (last one wins).
+8. Each window's `RunSlot` keeps a FIFO prompt queue. A submit while busy echoes the full prompt with its queue position; the status bar shows the global count; `Alt+Q` recalls the newest into the composer and `Alt+X` clears the window's queue after a confirmation. A queued prompt only starts when that same window is free.
 9. The compress worker thread is detached and cannot be cancelled.
 
 ---

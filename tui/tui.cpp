@@ -434,7 +434,14 @@ void Tui::send_async_to(Window& w, const std::string& raw_prompt, bool harness) 
     // dispatch immediately — "agent is running" is a per-window fact.
     if (runs_.busy(w.id)) {
         runs_.enqueue(w.id, raw_prompt);
-        append_line_to(w, P_STATUS, "queued");
+        const std::string depth = std::to_string(runs_.pending_count(w.id));
+        // The prompt is never merely "queued": echo the whole text with its
+        // position so the user can see it was captured. A background report is
+        // already long; it keeps a short marker.
+        append_line_to(w, P_STATUS,
+                       harness ? "queued background report (" + depth + " in queue)"
+                               : "queued (" + depth + " in queue): > " + raw_prompt);
+        render_engine_->draw();
         return;
     }
     runs_.join(w.id); // harvest the previous worker

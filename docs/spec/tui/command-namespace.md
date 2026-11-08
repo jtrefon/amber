@@ -34,6 +34,7 @@ not roots.
 |---|---|---|
 | `session` | conversations | `list`, `new`, `load`, `save`, `remove`, `fork`, `rename`, `compress` |
 | `window` | screens and attachment | `list`, `new`, `close`, `switch`, `rename`, `attach`, `detach` |
+| `queue` | prompts waiting for a busy window | `recall`, `clear` |
 | `tasks` | background work (commands, watches, workers) | `list`, `start`, `show`, `output`, `cancel`, `wait` |
 | `agent` | background model workers (subagents) | `list`, `show`, `stop` |
 | `watch` | long-running command/PR/URL polls (plugin) | `list`, `show`, `report`, `stop` |

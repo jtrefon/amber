@@ -212,8 +212,7 @@ private:
     // register_builtin_actions() is a facade over these per-domain groups, so
     // each stays well under the size limit and a domain is edited in one place.
     void register_core_actions();
-    void register_worktree_actions();
-    void register_provider_actions();
+    void register_worktree_actions(), register_provider_actions();
     void register_os_actions();
     void register_config_set_actions();
     void register_config_get_actions();
@@ -223,6 +222,7 @@ private:
     void register_window_actions();
     void register_core_task_actions();
     void register_tab_actions(), register_view_actions(), register_input_actions();
+    void register_queue_actions();
     void register_set_engine_actions();
     void register_set_policy_actions();
     void register_set_feature_actions();

@@ -55,7 +55,7 @@ int macos_option_digit(uint32_t codepoint) {
 }
 
 bool esc_prefix_key(int ch) noexcept {
-    return (ch >= '1' && ch <= '9') || ch == 'b' || ch == 'B' || ch == 'm' || ch == 'M';
+    return (ch >= '1' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
 }
 
 KeyBinder::KeyBinder(nlohmann::json bindings, std::vector<agent::KeyBinding> extra) {
