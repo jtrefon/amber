@@ -427,7 +427,8 @@ TEST(task_join_zero_deadline_samples_without_waiting) {
     ASSERT_TRUE(tasks.started(id, 1));
     agent::CancellationToken token;
     const auto started = std::chrono::steady_clock::now();
-    const auto joined = agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(0), false}, token);
+    const auto joined =
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(0), false}, token);
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
     ASSERT(waited < std::chrono::milliseconds(100));
