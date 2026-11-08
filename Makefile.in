@@ -100,6 +100,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
             $(BUILD_DIR)/lib/task_service.o \
+            $(BUILD_DIR)/lib/task_join.o \
             $(BUILD_DIR)/lib/task_store.o \
             $(BUILD_DIR)/lib/task_job.o \
             $(BUILD_DIR)/lib/task_format.o \

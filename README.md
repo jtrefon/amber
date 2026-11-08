@@ -94,7 +94,10 @@ Run:
 
   Pass --yes to auto-approve the bash tool for the session (headless CLI);
   otherwise amber-cli prompts before each shell command on an interactive
-  terminal and denies shell execution when stdin is not a TTY.
+  terminal and denies shell execution when stdin is not a TTY. Pass
+  --wait-tasks N to wait up to N seconds for background commands and watches;
+  a completion brings one follow-up turn, and a task still running at the
+  deadline exits 3 with its record persisted.
 
 Streaming:
   The LLM client supports OpenAI-compatible SSE streaming; token deltas are

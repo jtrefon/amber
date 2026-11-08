@@ -1,6 +1,8 @@
 
 #include "bench/runner.h"
 
+#include "agent/task_join.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -369,6 +371,7 @@ void pin_prompt_paths(agent::Config& cfg) {
 // queue is where the `context` tool leaves a plan. A host that skips this
 // measures a harness without the tools those services install.
 void wire_run_services(agent::Agent& agent, RunHost& host) {
+    agent.set_owner_id("bench");
     agent.set_prompt_registry(host.plugins.prompts());
     agent.set_shape_queue(&host.shapes);
     agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
@@ -397,6 +400,20 @@ bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& com
         error = std::string("agent run threw: ") + e.what();
         return false;
     }
+}
+
+// Force-join the scenario's background work before scoring. A task that
+// outlives the cap is named, not silently timed into the score.
+bool join_background(RunHost& host, const RunOptions& opts, std::string& reason) {
+    const agent::JoinResult joined = agent::join_tasks(
+        host.tasks, "bench", {std::chrono::milliseconds(opts.task_join_ms), false},
+        host.cfg.cancel_token);
+    if (joined.still_running.empty())
+        return true;
+    reason = "background task did not finish:";
+    for (const auto& id : joined.still_running)
+        reason += " " + id;
+    return false;
 }
 
 // Where the oracle's last matched call landed, in ms from the run's start.
@@ -652,6 +669,41 @@ void fill_report(ScenarioReport& rep, const Scenario& s, const agent::Config& cf
     fill_failures(rep, s, oracle, checks_ok, rep.kpi);
 }
 
+// Bring the run's plugin runtime up exactly as a host does: services first,
+// then config, then activation and the sub-agent limits.
+bool start_scenario_host(const Scenario& s, const RunOptions& opts, RunHost& host, RunMeta& meta,
+                         std::string& err) {
+    host.plugins.attach_host_services(host.host_services);
+    host.plugins.attach_config(host.cfg);
+    if (!setup_plugins(opts, host.plugins, host.host_services, host.registry, meta, err))
+        return false;
+    prepare_subagents(s, opts, host);
+    return true;
+}
+
+struct ScenarioOutcome {
+    const Scenario* scenario = nullptr;
+    RunHost* host = nullptr;
+    RunComponents* comps = nullptr;
+    std::string final_text;
+    long wall_ms = 0;
+    long t0 = 0;
+    const fs::path* workspace = nullptr;
+    const RunOptions* opts = nullptr;
+};
+
+void join_and_score(ScenarioReport& rep, const ScenarioOutcome& out) {
+    std::string reason;
+    const bool joined = join_background(*out.host, *out.opts, reason);
+    out.comps->meter.stop();
+    fill_report(rep, *out.scenario, out.host->cfg, *out.comps, out.final_text, out.wall_ms, out.t0,
+                *out.workspace);
+    if (!joined) {
+        rep.failures.push_back(std::move(reason));
+        rep.kpi.success = false;
+    }
+}
+
 } // namespace
 
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMeta& meta,
@@ -674,11 +726,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     // path. Plugin state comes with it, which is what makes "run the suite with
     // tool_search off" a real experiment rather than a cosmetic flag.
     RunHost host(build_run_config(s, opts));
-    host.plugins.attach_host_services(host.host_services);
-    host.plugins.attach_config(host.cfg);
-    if (!setup_plugins(opts, host.plugins, host.host_services, host.registry, meta, err))
+    if (!start_scenario_host(s, opts, host, meta, err))
         return {};
-    prepare_subagents(s, opts, host);
 
     RunComponents comps(host.cfg);
     comps.meter.start();
@@ -694,9 +743,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
         fs::remove_all(ws);
         return rep;
     }
-    comps.meter.stop();
-
-    fill_report(rep, s, host.cfg, comps, final_text, wall_ms, t0, ws);
+    join_and_score(rep, {&s, &host, &comps, final_text, wall_ms, t0, &ws, &opts});
     fs::remove_all(ws);
     return rep;
 }

@@ -29,6 +29,10 @@ struct RunOptions {
     std::string thinking;     // "" = leave default; "on"/"off"/"auto"
     int thinking_budget = -1; // <0 = leave default
     std::string debug_dir;    // per-scenario wire + conversation logs
+    // Force-join the scenario's background tasks before scoring. A task still
+    // running at this cap fails the scenario by name instead of changing the
+    // score with timing. AMBER_BENCH_JOIN_MS overrides it.
+    int task_join_ms = 30000;
     // Plugins this run switches off, applied without persisting. A run that
     // disables nothing measures the shipped configuration.
     std::vector<std::string> disable_plugins;

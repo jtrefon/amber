@@ -1890,7 +1890,9 @@ TEST(repeat_json_roundtrip_preserves_fields) {
     bench::RunMeta meta;
     meta.mode = "hermetic";
     meta.model = "fake";
+    meta.task_policy = "join 12345ms";
     const std::string json = bench::render_json(agg, meta);
+    ASSERT(bench::render_text(agg, meta).find("tasks: join 12345ms") != std::string::npos);
 
     agent::json j = agent::json::parse(json, nullptr, false);
     ASSERT(!j.is_discarded());
@@ -1902,6 +1904,7 @@ TEST(repeat_json_roundtrip_preserves_fields) {
     ASSERT_NEAR(back[0].score_median, 95.0, 0.01);
     ASSERT(back[0].score_stddev > 0.0);
     ASSERT_EQ(back[0].repeat_scores.size(), 3u);
+    ASSERT_EQ(meta2.task_policy, std::string("join 12345ms"));
 
     // Legacy file: score_median defaults to score.
     agent::json legacy = agent::json::object();
@@ -1911,6 +1914,7 @@ TEST(repeat_json_roundtrip_preserves_fields) {
     ASSERT(bench::parse_report_json(legacy, meta2, legacy_back));
     ASSERT_EQ(legacy_back[0].repeat_n, 1);
     ASSERT_NEAR(legacy_back[0].score_median, 91.0, 0.01);
+    ASSERT_EQ(meta2.task_policy, std::string());
 }
 
 // The failures list and per-call telemetry must survive the JSON round trip

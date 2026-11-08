@@ -3,6 +3,7 @@
 #include <agent/model_probe.h>
 #include <agent/task.h>
 #include <agent/task_inbox.h>
+#include <agent/task_join.h>
 #include <agent/task_store.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
@@ -41,8 +42,9 @@ void print_usage(const char* prog) {
               << "  --api-key KEY      API key (env AMBER_API_KEY)\n"
               << "  --model NAME       Model name (env AMBER_MODEL)\n"
               << "  --no-plugins       Run without the bundled plugins\n"
-              << "  --watch-wake       After the turn, join running watches (up to 30s) and\n"
-              << "                     run one follow-up turn with their reports\n"
+              << "  --wait-tasks SEC   After the turn, wait up to SEC for background\n"
+              << "                     tasks; a completion brings one follow-up turn.\n"
+              << "                     Exit 3 when tasks are still running (default 0).\n"
               << "  skills <verb>      Find, install, update and remove skills (run\n"
               << "                     'amber-cli skills' for the verb list; --json supported)\n"
               << "  update             Upgrade the installed package with the system package\n"
@@ -152,7 +154,8 @@ struct CliArgs {
     bool auto_approve = false;
     bool mcp_list_only = false;
     bool no_plugins = false;
-    bool watch_wake = false;
+    // Seconds to wait for background work after the turn; 0 samples only.
+    int wait_tasks_s = 0;
     std::string mcp_connect_name;
     std::string mcp_prompt_server;
     std::string mcp_prompt_name;
@@ -176,7 +179,19 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
         cfg.tools_prompt_path = next("");
     else if (a == "--config")
         out.config_file = next("");
-    else if (a == "--prompt")
+    else if (a == "--wait-tasks") {
+        const std::string value = next("");
+        std::size_t used = 0;
+        long seconds = 0;
+        try {
+            seconds = std::stol(value, &used);
+        } catch (const std::exception&) {
+            seconds = -1;
+        }
+        out.wait_tasks_s = (used == value.size() && seconds >= 0 && seconds <= 86400)
+                               ? static_cast<int>(seconds)
+                               : -1;
+    } else if (a == "--prompt")
         out.prompt = next("");
     else if (a == "--mcp-connect")
         out.mcp_connect_name = next("");
@@ -189,8 +204,6 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
 bool apply_switch_flag(const std::string& a, agent::Config& cfg, CliArgs& out) {
     if (a == "--no-plugins")
         out.no_plugins = true;
-    else if (a == "--watch-wake")
-        out.watch_wake = true;
     else if (a == "--yes")
         out.auto_approve = true;
     else if (a == "--yolo") {
@@ -245,6 +258,10 @@ std::optional<int> parse_args(int argc, char** argv, agent::Config& cfg, CliArgs
         if (apply_value_flag(a, next, cfg, out) || apply_switch_flag(a, cfg, out))
             continue;
         append_prompt_word(out, a);
+    }
+    if (out.wait_tasks_s < 0) {
+        std::cerr << "error: --wait-tasks expects a number of seconds (0-86400)\n";
+        return 2;
     }
     return std::nullopt;
 }
@@ -592,78 +609,77 @@ void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
         std::cout << "\n" << reply << "\n";
 }
 
-std::string report_prompt(agent::plugins::WatchPlugin& watch,
-                          const std::vector<agent::plugins::WatchReport>& reports) {
-    std::string prompt;
-    for (const auto& report : reports) {
-        const std::string task = watch.task_id(report.watch_id);
-        const std::string handle = task.empty() ? report.watch_id : task;
-        if (!prompt.empty())
-            prompt += "\n";
-        prompt += "[harness] background watch " + report.watch_id + " " +
-                  agent::plugins::watch_state_name(report.state) + ": " + report.headline +
-                  ". Use tasks output " + handle + " for evidence and the artifact.";
+// The one-shot delivery contract. `--wait-tasks` waits for the tasks owned by
+// the main conversation; a completion brings one follow-up turn on the same
+// context. Without the wait, completions are printed and a still-running task
+// is a named exit 3, never a silent drop.
+int finish_tasks(agent::Config& cfg, CliHost& host, agent::Agent& agent, agent::TaskInbox& inbox,
+                 int wait_seconds) {
+    const agent::JoinResult joined = agent::join_tasks(
+        host.tasks, "cli",
+        {std::chrono::seconds(wait_seconds > 0 ? wait_seconds : 0), wait_seconds > 0},
+        cfg.cancel_token);
+    auto completions = inbox.take("cli");
+    std::vector<std::string> ids;
+    ids.reserve(completions.size());
+    for (const auto& completion : completions)
+        ids.push_back(completion.task_id);
+    if (!completions.empty()) {
+        const std::string digest = agent::format_task_digest(completions);
+        if (wait_seconds > 0) {
+            std::cerr << "[tasks] " << completions.size()
+                      << " completion(s); following up (tasks output <id> for evidence)\n";
+            run_turn(agent, host, digest);
+        } else {
+            std::cerr << digest;
+        }
+        inbox.ack("cli", ids);
     }
-    return prompt;
+    if (!joined.still_running.empty()) {
+        std::cerr << "[tasks] still running (records persisted):";
+        for (const auto& id : joined.still_running)
+            std::cerr << " " << id;
+        std::cerr << "\n";
+        return 3;
+    }
+    return 0;
 }
 
-// One-shot delivery contract: no wake by default; print and persist. With
-// --watch-wake, join running watches for bounded time, then run one follow-up
-// turn on the SAME agent context and acknowledge only after that turn succeeds.
-int finish_watches(CliHost& host, agent::Agent& agent, bool wake) {
-    auto* watch = dynamic_cast<agent::plugins::WatchPlugin*>(host.plugin_runtime.find("watch"));
-    if (!watch)
-        return 0;
-    // One-shot joins what is already running so its report is persisted, even
-    // without --watch-wake. The opt-in only controls the follow-up turn.
-    const int join_seconds = wake ? 30 : 5;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(join_seconds);
-    while (watch->running_count() > 0 && std::chrono::steady_clock::now() < deadline)
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    auto pending = watch->pending_reports();
-    if (!wake) {
-        for (const auto& report : pending)
-            std::cerr << "[watch] report " << report.watch_id << " pending: " << report.headline
-                      << " (run with --watch-wake to follow up)\n";
-        if (watch->running_count() > 0)
-            std::cerr << "[watch] " << watch->running_count()
-                      << " watch(es) still running; report persisted\n";
-        return 0;
+std::int64_t wall_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+// Attach the durable inventory, restore the previous process's records, prune,
+// and seed the inbox. The watch producer is acked through the same hook the TUI
+// uses, so a completion is delivered once and its journal agrees.
+void restore_cli_tasks(CliHost& host, agent::TaskStore& store, agent::TaskInbox& inbox) {
+    host.tasks.attach_store(&store);
+    host.tasks.restore_from_store();
+    store.prune(wall_now_ms());
+    if (auto* watch =
+            dynamic_cast<agent::plugins::WatchPlugin*>(host.plugin_runtime.find("watch"))) {
+        inbox.set_ack_hook([watch](const agent::TaskCompletion& completion) {
+            if (completion.kind == agent::TaskKind::Watch)
+                watch->ack(completion.backend_id.empty() ? completion.task_id
+                                                         : completion.backend_id);
+        });
     }
-    if (pending.empty()) {
-        if (watch->running_count() > 0)
-            std::cerr << "[watch] " << watch->running_count()
-                      << " watch(es) still running after the join window; report persisted\n";
-        return 0;
-    }
-    try {
-        run_turn(agent, host, report_prompt(*watch, pending));
-    } catch (const std::exception& e) {
-        std::cerr << "error: watch follow-up: " << e.what() << "\n";
-        return 1;
-    }
-    for (const auto& report : pending)
-        watch->ack(report.watch_id);
-    return 0;
+    inbox.seed_undelivered();
 }
 
 // One headless run: the agent gets the plugin runtime's events and prompt
 // registry, streams its reply to stdout, and reports failure as an exit code.
 int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
-                   const std::string& prompt, bool watch_wake) {
+                   const std::string& prompt, int wait_tasks_s) {
     // The headless restart contract. The store is local to the run: a one-shot
     // process attaches it, restores the previous inventory, and marks what is
-    // still running as interrupted on the way out. A hermetic host attaches no
-    // store, so bench and probe runs write nothing.
+    // still running on the way out. A hermetic host attaches no store, so bench
+    // and probe runs write nothing.
     agent::TaskStore store(agent::Workspace::state_dir(), agent::cache_dir());
-    host.tasks.attach_store(&store);
-    host.tasks.restore_from_store();
-    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-    store.prune(now_ms);
     agent::TaskInbox inbox(host.plugin_runtime.events(), host.tasks);
-    inbox.seed_undelivered();
+    restore_cli_tasks(host, store, inbox);
     try {
         agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
                            std::move(host.gate), std::move(host.mem_store),
@@ -675,10 +691,15 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.set_inbox(&inbox);
         agent.set_owner_id("cli");
         run_turn(agent, host, prompt);
-        const int rc = finish_watches(host, agent, watch_wake);
+        const int rc = finish_tasks(cfg, host, agent, inbox, wait_tasks_s);
+        // Join the watch workers before the inventory they finish into is
+        // destroyed: the runtime is declared before TaskService, so its
+        // destructor would otherwise run after it.
+        host.plugin_runtime.shutdown();
         host.tasks.shutdown();
         return rc;
     } catch (const std::exception& e) {
+        host.plugin_runtime.shutdown();
         host.tasks.shutdown();
         std::cerr << "error: " << e.what() << "\n";
         return 1;
@@ -703,9 +724,9 @@ void prune_logs_before_run(const agent::Config& cfg) {
 // one return: a harness waits for the process to say it finished, instead of
 // guessing how long a one-shot turn takes on the machine it is running on.
 int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
-                   const std::string& prompt, bool watch_wake) {
+                   const std::string& prompt, int wait_tasks_s) {
     prune_logs_before_run(cfg);
-    const int rc = run_agent_turn(cfg, host, hooks, prompt, watch_wake);
+    const int rc = run_agent_turn(cfg, host, hooks, prompt, wait_tasks_s);
     agent::announce_exit_ready();
     return rc;
 }
@@ -783,7 +804,7 @@ int main(int argc, char** argv) try {
             return 1;
         }
     }
-    return run_agent_once(cfg, host, hooks, args.prompt, args.watch_wake);
+    return run_agent_once(cfg, host, hooks, args.prompt, args.wait_tasks_s);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";
     return 1;
