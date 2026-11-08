@@ -57,6 +57,10 @@ public:
     void set_ack_hook(AckHook hook);
 
     void post(TaskCompletion completion);
+    // Turn every restored, terminal, undelivered record into a pending
+    // completion. Called once after TaskService::restore_from_store(); acks are
+    // durable, so a delivered record is never seeded again.
+    std::size_t seed_undelivered();
     std::vector<TaskCompletion> take(const std::string& owner_id);
     void ack(const std::string& owner_id, const std::vector<std::string>& ids);
     // Drop everything an owner has pending (window close); the producer is

@@ -17,6 +17,7 @@
 namespace agent {
 
 class EventBus;
+class TaskStore;
 
 // One identity for every unit of background work. The execution engines
 // (JobService, WatchService, SubAgentExecutor) remain backends; this is the
@@ -63,6 +64,9 @@ struct TaskRecord {
     std::string cwd;
     std::int64_t created_ms = 0;
     std::int64_t started_ms = 0;
+    // Last evidence of life (start or the newest progress line). A crash turns
+    // Running into Unknown with this as ended_ms; a clean exit overwrites it.
+    std::int64_t last_activity_ms = 0;
     std::int64_t ended_ms = 0;
     std::string progress;
     TaskResult result;
@@ -144,6 +148,25 @@ public:
     std::uint64_t generation() const;
     TaskLimits limits() const;
 
+    // Durable records. Attach during host construction; a hermetic host (bench,
+    // a probe) attaches none, and every save becomes a no-op. A transition is
+    // saved before its event is published, so a crash after the event can lose
+    // the message but never the outcome.
+    void attach_store(TaskStore* store) noexcept { store_ = store; }
+    // Load the store into the inventory and apply the restart rules: Running
+    // becomes Unknown (ended at its last activity), Queued becomes Cancelled.
+    // Returns how many records were restored.
+    std::size_t restore_from_store();
+    // A clean exit: Running becomes Interrupted, Queued becomes Cancelled, and
+    // each change is saved. A crash skips this and leaves Unknown on restore.
+    void shutdown();
+    // Terminal records whose completion nobody has accepted yet, newest first.
+    // The inbox seeds these on startup; delivery is idempotent by task id.
+    std::vector<TaskRecord> undelivered() const;
+    // The owner accepted this completion. Saves delivered_at_ms and returns
+    // false when the record is missing or was already delivered.
+    bool mark_delivered(const std::string& id, std::int64_t at_ms = 0);
+
 private:
     struct Entry {
         TaskRecord record;
@@ -159,6 +182,9 @@ private:
     // Caller holds mtx_. Returns the event to publish after unlocking.
     enum class EventKind { None, Started, Progress, Completed, Cancelled };
     EventKind transition_locked(Entry& entry, TaskState to, EventKind event) noexcept;
+    // The newest snapshot of `id`, saved under store_mtx_. Never called while
+    // mtx_ is held: save() is I/O and must not block a reader or a transition.
+    void persist(const std::string& id);
 
     mutable std::mutex mtx_;
     mutable std::condition_variable cv_;
@@ -170,6 +196,11 @@ private:
     // task id -> backend handle (job id, watch id, worker handle).
     std::map<std::string, std::string> backends_;
     EventBus* events_ = nullptr;
+    TaskStore* store_ = nullptr;
+    // Serializes saves. Each save re-reads the record under mtx_, so the last
+    // save to run always writes the newest state, even when two workers finish
+    // a transition out of order.
+    mutable std::mutex store_mtx_;
     TaskLimits limits_;
     std::uint64_t generation_ = 0;
 };

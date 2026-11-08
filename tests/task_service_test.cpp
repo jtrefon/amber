@@ -1,6 +1,8 @@
 #include "agent/events.h"
 #include "agent/job.h"
 #include "agent/task.h"
+#include "agent/task_store.h"
+#include "agent/workspace.h"
 #include "tests/test_util.h"
 
 #include <atomic>
@@ -317,4 +319,66 @@ TEST(job_completion_sink_fires_once_on_exit) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     ASSERT_EQ(calls.load(), 1);
     ASSERT_EQ(code.load(), 3);
+}
+
+// The durability boundary: a completion is on disk before its event reaches a
+// subscriber, so a crash between the two can lose the message but never the
+// outcome.
+TEST(task_service_saves_completion_before_publishing) {
+    agent::test::XdgGuard xdg("task_service_persist_order");
+    agent::TaskStore store(agent::Workspace::state_dir(), agent::cache_dir());
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    tasks.attach_store(&store);
+
+    bool on_disk = false;
+    auto subscription = agent::Events(bus).subscribe<agent::TaskCompletedEvent>(
+        [&](const agent::TaskCompletedEvent& ev) {
+            const auto record = store.load(ev.id);
+            on_disk = record.has_value() && record->state == agent::TaskState::Succeeded &&
+                      record->result.exit_code == 0;
+        });
+
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    ASSERT_TRUE(tasks.started(id, 1));
+    agent::TaskResult result;
+    result.exit_code = 0;
+    result.summary = "built";
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, result));
+    ASSERT_TRUE(on_disk);
+}
+
+TEST(task_service_persists_each_transition) {
+    agent::test::XdgGuard xdg("task_service_persist_transitions");
+    agent::TaskStore store(agent::Workspace::state_dir(), agent::cache_dir());
+    agent::EventBus bus;
+    agent::TaskService tasks(bus);
+    tasks.attach_store(&store);
+
+    const std::string id = tasks.create(make_record(agent::TaskKind::Command, "w", "build"));
+    auto record = store.load(id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->state, agent::TaskState::Queued);
+
+    ASSERT_TRUE(tasks.started(id, 1000));
+    record = store.load(id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->state, agent::TaskState::Running);
+    ASSERT_EQ(record->started_ms, 1000);
+
+    ASSERT_TRUE(tasks.progress(id, "step 4"));
+    record = store.load(id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->progress, std::string("step 4"));
+    ASSERT_TRUE(record->last_activity_ms >= 1000);
+
+    agent::TaskResult result;
+    result.exit_code = 0;
+    result.summary = "done";
+    ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, result));
+    record = store.load(id);
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->state, agent::TaskState::Succeeded);
+    ASSERT_EQ(record->result.summary, std::string("done"));
+    ASSERT_EQ(record->delivered_at_ms, 0); // the inbox still owes the message
 }

@@ -3,6 +3,7 @@
 #include "agent/event_bus.h"
 #include "agent/events.h"
 #include "agent/run_scope.h"
+#include "agent/task_store.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -61,12 +62,39 @@ void normalize(TaskRecord& record) {
         record.id = make_id();
     if (record.created_ms == 0)
         record.created_ms = now_ms();
+    if (record.last_activity_ms == 0)
+        record.last_activity_ms = record.created_ms;
     record.state = TaskState::Queued;
     record.label = clip(std::move(record.label), kLabelCap);
     record.progress = clip(std::move(record.progress), kProgressCap);
     record.error = clip(std::move(record.error), kErrorCap);
     record.result.summary = clip(std::move(record.result.summary), kSummaryCap);
     record.result.output_tail = clip(std::move(record.result.output_tail), kOutputTailCap);
+}
+
+// The restart rules, in one testable place. Returns true when the record
+// changed and must be written back.
+bool apply_restart_rule(TaskRecord& record) {
+    if (record.state == TaskState::Running) {
+        record.state = TaskState::Unknown;
+        record.ended_ms =
+            record.last_activity_ms != 0 ? record.last_activity_ms : record.created_ms;
+        if (record.error.empty())
+            record.error = "host exited before the task finished";
+        return true;
+    }
+    if (record.state == TaskState::Queued) {
+        record.state = TaskState::Cancelled;
+        record.ended_ms = now_ms();
+        record.cancel_reason = "host restarted before start";
+        return true;
+    }
+    if (record.notify == TaskNotify::Silent && record.delivered_at_ms == 0) {
+        // A silent task owes no message; mark it so retention can age it.
+        record.delivered_at_ms = record.ended_ms != 0 ? record.ended_ms : now_ms();
+        return true;
+    }
+    return false;
 }
 
 } // namespace
@@ -164,6 +192,7 @@ std::string TaskService::create(TaskRecord record, std::string* error) {
         tasks_[id] = Entry{std::move(record), {}};
         ++generation_;
     }
+    persist(id);
     return id;
 }
 
@@ -215,11 +244,13 @@ bool TaskService::started(const std::string& id, std::int64_t started_at) {
             EventKind::None)
             return false;
         it->second.record.started_ms = started_at == 0 ? now_ms() : started_at;
+        it->second.record.last_activity_ms = it->second.record.started_ms;
         event.id = id;
         event.kind = it->second.record.kind;
         event.owner_id = it->second.record.owner.owner_id;
         event.label = it->second.record.label;
     }
+    persist(id);
     if (events_)
         Events(*events_).publish(event);
     return true;
@@ -233,10 +264,12 @@ bool TaskService::progress(const std::string& id, std::string line) {
         if (it == tasks_.end() || task_state_terminal(it->second.record.state))
             return false;
         it->second.record.progress = clip(std::move(line), kProgressCap);
+        it->second.record.last_activity_ms = now_ms();
         ++generation_;
         event.id = id;
         event.line = it->second.record.progress;
     }
+    persist(id);
     if (events_)
         Events(*events_).publish(event);
     return true;
@@ -261,12 +294,15 @@ bool TaskService::finish(const std::string& id, TaskState state, TaskResult resu
         it->second.record.result.output_tail = clip(std::move(result.output_tail), kOutputTailCap);
         it->second.record.result.artifact_path = std::move(result.artifact_path);
         it->second.record.error = clip(std::move(error), kErrorCap);
+        if (it->second.record.notify == TaskNotify::Silent)
+            it->second.record.delivered_at_ms = it->second.record.ended_ms;
         event.id = id;
         event.state = state;
         event.exit_code = it->second.record.result.exit_code;
         event.summary = it->second.record.result.summary;
         event.error = it->second.record.error;
     }
+    persist(id);
     cv_.notify_all();
     if (events_)
         Events(*events_).publish(event);
@@ -314,6 +350,8 @@ bool TaskService::finish_cancel(const std::string& id, bool stopped, const std::
             return false;
         it->second.record.ended_ms = now_ms();
         it->second.record.cancel_reason = reason;
+        if (it->second.record.notify == TaskNotify::Silent)
+            it->second.record.delivered_at_ms = it->second.record.ended_ms;
         if (stopped) {
             cancelled.id = id;
             cancelled.reason = reason;
@@ -324,6 +362,7 @@ bool TaskService::finish_cancel(const std::string& id, bool stopped, const std::
             unknown.error = reason;
         }
     }
+    persist(id);
     cv_.notify_all();
     if (events_) {
         if (stopped)
@@ -425,6 +464,106 @@ std::uint64_t TaskService::generation() const {
 TaskLimits TaskService::limits() const {
     std::scoped_lock lk(mtx_);
     return limits_;
+}
+
+std::size_t TaskService::restore_from_store() {
+    if (!store_)
+        return 0;
+    const std::vector<TaskRecord> records = store_->list();
+    std::vector<TaskRecord> changed;
+    std::size_t restored = 0;
+    {
+        std::scoped_lock lk(mtx_);
+        for (const auto& stored : records) {
+            if (tasks_.count(stored.id) > 0)
+                continue; // a live record always wins
+            TaskRecord record = stored;
+            const bool dirty = apply_restart_rule(record);
+            const std::string restored_id = record.id;
+            tasks_[restored_id] = Entry{std::move(record), {}};
+            ++generation_;
+            ++restored;
+            if (dirty)
+                changed.push_back(tasks_[restored_id].record);
+        }
+    }
+    for (const auto& record : changed)
+        store_->save(record);
+    return restored;
+}
+
+void TaskService::shutdown() {
+    std::vector<std::string> changed;
+    {
+        std::scoped_lock lk(mtx_);
+        for (auto& [id, entry] : tasks_) {
+            TaskRecord& record = entry.record;
+            if (record.state == TaskState::Running) {
+                record.state = TaskState::Interrupted;
+                record.ended_ms = now_ms();
+                if (record.error.empty())
+                    record.error = "host shut down before the task finished";
+            } else if (record.state == TaskState::Queued) {
+                record.state = TaskState::Cancelled;
+                record.ended_ms = now_ms();
+                record.cancel_reason = "host shut down before start";
+            } else {
+                continue;
+            }
+            ++generation_;
+            changed.push_back(id);
+        }
+    }
+    for (const auto& id : changed)
+        persist(id);
+}
+
+std::vector<TaskRecord> TaskService::undelivered() const {
+    std::vector<TaskRecord> out;
+    {
+        std::scoped_lock lk(mtx_);
+        for (const auto& [id, entry] : tasks_) {
+            (void)id;
+            const TaskRecord& record = entry.record;
+            if (record.delivered_at_ms == 0 && record.notify != TaskNotify::Silent &&
+                task_state_terminal(record.state))
+                out.push_back(record);
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const TaskRecord& a, const TaskRecord& b) {
+        if (a.created_ms != b.created_ms)
+            return a.created_ms > b.created_ms;
+        return a.id > b.id;
+    });
+    return out;
+}
+
+bool TaskService::mark_delivered(const std::string& id, std::int64_t at_ms) {
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = tasks_.find(id);
+        if (it == tasks_.end() || it->second.record.delivered_at_ms != 0)
+            return false;
+        it->second.record.delivered_at_ms = at_ms == 0 ? now_ms() : at_ms;
+        ++generation_;
+    }
+    persist(id);
+    return true;
+}
+
+void TaskService::persist(const std::string& id) {
+    if (!store_)
+        return;
+    std::scoped_lock store_lk(store_mtx_);
+    std::optional<TaskRecord> snapshot;
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = tasks_.find(id);
+        if (it == tasks_.end())
+            return;
+        snapshot = it->second.record;
+    }
+    store_->save(*snapshot);
 }
 
 } // namespace agent

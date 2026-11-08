@@ -100,6 +100,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/process.o \
             $(BUILD_DIR)/lib/job.o \
             $(BUILD_DIR)/lib/task_service.o \
+            $(BUILD_DIR)/lib/task_store.o \
             $(BUILD_DIR)/lib/task_job.o \
             $(BUILD_DIR)/lib/task_format.o \
             $(BUILD_DIR)/lib/task_inbox.o \
@@ -349,6 +350,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/text_canvas_test.o \
                $(BUILD_DIR)/tests/frame_painter_test.o \
                $(BUILD_DIR)/tests/task_service_test.o \
+               $(BUILD_DIR)/tests/task_store_test.o \
                $(BUILD_DIR)/tests/tasks_tool_test.o \
                $(BUILD_DIR)/tests/task_inbox_test.o \
                $(BUILD_DIR)/tests/web_test.o \

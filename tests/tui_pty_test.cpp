@@ -123,9 +123,29 @@ struct Tui {
 
     ~Tui() { stop(); }
 
+    // Every scenario is a fresh process with a fresh inventory. The durable task
+    // store would otherwise seed the previous scenario's completions into this
+    // one, which is correct on a real restart and noise in a scenario harness.
+    // A test that exercises a restart opts out and keeps the state.
+    static void reset_task_inventory(const std::string& workspace) {
+        std::error_code ec;
+        const fs::path projects = fs::path(workspace) / "state" / "amber" / "projects";
+        for (const auto& project : fs::directory_iterator(projects, ec)) {
+            if (ec)
+                break;
+            std::error_code ignored;
+            if (project.is_directory(ignored))
+                fs::remove_all(project.path() / "tasks", ignored);
+        }
+        std::error_code ignored;
+        fs::remove_all(fs::path(workspace) / "cache" / "amber" / "tasks", ignored);
+    }
+
     bool start(const std::string& binary, const std::string& workspace,
                const std::string& path_prefix = "", int rows = 0, int cols = 0,
-               const std::vector<std::string>& extra_args = {}) {
+               const std::vector<std::string>& extra_args = {}, bool preserve_task_state = false) {
+        if (!preserve_task_state)
+            reset_task_inventory(workspace);
         std::vector<std::string> argv_strings;
         argv_strings.push_back(binary);
         argv_strings.insert(argv_strings.end(), extra_args.begin(), extra_args.end());
