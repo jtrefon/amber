@@ -1992,7 +1992,10 @@ TEST(gallery_dev_screen_renders_switches_and_quits) {
     if (!require(tui.wait_for("Amber render gallery", 8000), "the gallery never painted", tui))
         return;
     require(tui.text().find("Frame:") != std::string::npos, "the gallery lost its primitives", tui);
-    require(tui.text().find("a: ASCII") != std::string::npos, "the footer is missing", tui);
+    // The first frame can arrive in pieces under a sanitizer; wait for the
+    // footer cell rather than sampling one paint.
+    if (!require(tui.wait_for("a: ASCII", 10000), "the footer is missing", tui))
+        return;
 
     // The adapter blits a diff, so the repaint carries only changed cells: the
     // footer prefix "a: " is unchanged and the mode word is what moved.
