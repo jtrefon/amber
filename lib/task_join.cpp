@@ -86,10 +86,8 @@ JoinResult join_tasks(TaskService& tasks, EventBus& events, const std::string& o
         return {};
 
     const auto all_done = [&] {
-        for (const auto& id : ids)
-            if (state->finished.count(id) == 0)
-                return false;
-        return true;
+        return std::all_of(ids.begin(), ids.end(),
+                           [&](const std::string& id) { return state->finished.count(id) != 0; });
     };
     const auto deadline = std::chrono::steady_clock::now() + policy.deadline;
     std::unique_lock lk(state->mtx);
