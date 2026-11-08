@@ -9,6 +9,8 @@
 
 namespace agent {
 
+class EventBus;
+
 // How long a one-shot host waits for its background work before returning.
 // `wake` is the caller's policy (run one follow-up turn or not); the join
 // helper only waits, so the same helper serves the CLI and the bench.
@@ -25,11 +27,12 @@ struct JoinResult {
 };
 
 // Wait for the tasks owned by `owner` that were live when the call started.
-// The wait re-reads the inventory every 50 ms; a zero deadline only samples
-// the current state. Cancellation ends the wait the same way a deadline does,
-// and the result reports what remains.
-JoinResult join_tasks(TaskService& tasks, const std::string& owner, JoinPolicy policy,
-                      const CancellationToken& token);
+// Completion and cancellation events wake the wait. The subscription is
+// installed before the live set is snapshotted, so a task that finishes during
+// the join cannot be missed; a zero deadline only samples the current state.
+// Cancellation ends the wait the same way a deadline does.
+JoinResult join_tasks(TaskService& tasks, EventBus& events, const std::string& owner,
+                      JoinPolicy policy, const CancellationToken& token);
 
 } // namespace agent
 

@@ -616,7 +616,7 @@ void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
 int finish_tasks(agent::Config& cfg, CliHost& host, agent::Agent& agent, agent::TaskInbox& inbox,
                  int wait_seconds) {
     const agent::JoinResult joined = agent::join_tasks(
-        host.tasks, "cli",
+        host.tasks, host.plugin_runtime.events(), "cli",
         {std::chrono::seconds(wait_seconds > 0 ? wait_seconds : 0), wait_seconds > 0},
         cfg.cancel_token);
     auto completions = inbox.take("cli");

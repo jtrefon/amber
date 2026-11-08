@@ -397,7 +397,7 @@ TEST(task_join_waits_for_a_completion_event) {
     });
     agent::CancellationToken token;
     const auto joined =
-        agent::join_tasks(tasks, "w", {std::chrono::milliseconds(2000), false}, token);
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(2000), false}, token);
     finisher.join();
     ASSERT_EQ(joined.completed.size(), 1u);
     ASSERT_EQ(joined.completed[0].id, id);
@@ -412,7 +412,7 @@ TEST(task_join_deadline_reports_what_remains) {
     agent::CancellationToken token;
     const auto started = std::chrono::steady_clock::now();
     const auto joined =
-        agent::join_tasks(tasks, "w", {std::chrono::milliseconds(80), false}, token);
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(80), false}, token);
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
     ASSERT_EQ(joined.still_running[0], id);
@@ -427,7 +427,7 @@ TEST(task_join_zero_deadline_samples_without_waiting) {
     ASSERT_TRUE(tasks.started(id, 1));
     agent::CancellationToken token;
     const auto started = std::chrono::steady_clock::now();
-    const auto joined = agent::join_tasks(tasks, "w", {std::chrono::milliseconds(0), false}, token);
+    const auto joined = agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(0), false}, token);
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
     ASSERT(waited < std::chrono::milliseconds(100));
@@ -446,7 +446,7 @@ TEST(task_join_cancellation_ends_the_wait) {
     });
     const auto started = std::chrono::steady_clock::now();
     const auto joined =
-        agent::join_tasks(tasks, "w", {std::chrono::milliseconds(5000), false}, token);
+        agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(5000), false}, token);
     canceller.join();
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);

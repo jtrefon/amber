@@ -1,7 +1,12 @@
 #include "agent/task_join.h"
 
+#include "agent/event_bus.h"
+#include "agent/events.h"
+
 #include <algorithm>
-#include <thread>
+#include <condition_variable>
+#include <mutex>
+#include <set>
 #include <utility>
 
 namespace agent {
@@ -48,24 +53,44 @@ constexpr std::chrono::milliseconds kTick{50};
 
 } // namespace
 
-JoinResult join_tasks(TaskService& tasks, const std::string& owner, JoinPolicy policy,
-                      const CancellationToken& token) {
+JoinResult join_tasks(TaskService& tasks, EventBus& events, const std::string& owner,
+                      JoinPolicy policy, const CancellationToken& token) {
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::set<std::string> finished;
+    // Subscribe before the snapshot: a task that finishes between the two would
+    // otherwise be terminal without our having seen its event, and the inbox
+    // would not be populated yet when the caller drains it.
+    auto note = [&](const std::string& id) {
+        {
+            std::scoped_lock lk(mtx);
+            finished.insert(id);
+        }
+        cv.notify_all();
+    };
+    const Subscription completed = Events(events).subscribe<TaskCompletedEvent>(
+        [&](const TaskCompletedEvent& event) { note(event.id); });
+    const Subscription cancelled = Events(events).subscribe<TaskCancelledEvent>(
+        [&](const TaskCancelledEvent& event) { note(event.id); });
+
     const std::vector<std::string> ids = live_owned(tasks, owner);
     if (ids.empty())
         return {};
 
     const auto all_done = [&] {
-        return std::all_of(ids.begin(), ids.end(), [&](const std::string& id) {
-            const auto record = tasks.get(id);
-            return !record || !live(*record);
-        });
+        for (const auto& id : ids)
+            if (finished.count(id) == 0)
+                return false;
+        return true;
     };
     const auto deadline = std::chrono::steady_clock::now() + policy.deadline;
+    std::unique_lock lk(mtx);
     while (!all_done() && !token.is_requested()) {
         if (policy.deadline.count() <= 0 || std::chrono::steady_clock::now() >= deadline)
             break;
-        std::this_thread::sleep_for(kTick);
+        cv.wait_until(lk, std::min(deadline, std::chrono::steady_clock::now() + kTick));
     }
+    lk.unlock();
     return collect(tasks, ids);
 }
 

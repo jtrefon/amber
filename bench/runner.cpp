@@ -406,7 +406,7 @@ bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& com
 // outlives the cap is named, not silently timed into the score.
 bool join_background(RunHost& host, const RunOptions& opts, std::string& reason) {
     const agent::JoinResult joined = agent::join_tasks(
-        host.tasks, "bench", {std::chrono::milliseconds(opts.task_join_ms), false},
+        host.tasks, host.bus, "bench", {std::chrono::milliseconds(opts.task_join_ms), false},
         host.cfg.cancel_token);
     if (joined.still_running.empty())
         return true;
