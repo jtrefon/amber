@@ -174,6 +174,7 @@ jobs:
 
       - uses: mamba-org/setup-micromamba@v3
         with:
+          micromamba-version: 2.8.1-0
           environment-name: cppcheck
           create-args: cppcheck=2.22.0
           cache-environment: true
