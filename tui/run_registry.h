@@ -10,6 +10,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 namespace tui {
 
@@ -54,6 +55,13 @@ public:
     // busy wait here and are dispatched when its run finishes.
     void enqueue(size_t window_id, std::string prompt);
     std::optional<std::string> pop_pending(size_t window_id);
+    // The newest queued prompt, taken back for editing (LIFO).
+    std::optional<std::string> pop_back_pending(size_t window_id);
+    std::vector<std::string> pending_snapshot(size_t window_id) const;
+    size_t pending_count(size_t window_id) const;
+    // Every window's queue, for the status bar's global hint.
+    size_t pending_total() const;
+    void clear_pending(size_t window_id);
     bool has_pending(size_t window_id) const;
 
     // Drop a slot when its window closes. Callers guarantee the slot is

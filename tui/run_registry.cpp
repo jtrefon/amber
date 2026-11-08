@@ -109,6 +109,57 @@ std::optional<std::string> RunRegistry::pop_pending(size_t window_id) {
     return out;
 }
 
+std::optional<std::string> RunRegistry::pop_back_pending(size_t window_id) {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return std::nullopt;
+    RunSlot& s = *it->second;
+    std::scoped_lock slk(s.mtx);
+    if (s.pending.empty())
+        return std::nullopt;
+    std::string out = std::move(s.pending.back());
+    s.pending.pop_back();
+    return out;
+}
+
+std::vector<std::string> RunRegistry::pending_snapshot(size_t window_id) const {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return {};
+    std::scoped_lock slk(it->second->mtx);
+    return {it->second->pending.begin(), it->second->pending.end()};
+}
+
+size_t RunRegistry::pending_count(size_t window_id) const {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return 0;
+    std::scoped_lock slk(it->second->mtx);
+    return it->second->pending.size();
+}
+
+size_t RunRegistry::pending_total() const {
+    std::scoped_lock lk(map_mtx_);
+    size_t total = 0;
+    for (const auto& kv : slots_) {
+        std::scoped_lock slk(kv.second->mtx);
+        total += kv.second->pending.size();
+    }
+    return total;
+}
+
+void RunRegistry::clear_pending(size_t window_id) {
+    std::scoped_lock lk(map_mtx_);
+    auto it = slots_.find(window_id);
+    if (it == slots_.end())
+        return;
+    std::scoped_lock slk(it->second->mtx);
+    it->second->pending.clear();
+}
+
 bool RunRegistry::has_pending(size_t window_id) const {
     std::scoped_lock lk(map_mtx_);
     auto it = slots_.find(window_id);

@@ -1537,6 +1537,43 @@ void SlashDispatcher::register_input_actions() {
         if (active_input_.cl)
             tui_.handle_ctrl_c(active_input_.key, *active_input_.cl);
     });
+    register_queue_actions();
+}
+
+void SlashDispatcher::register_queue_actions() {
+    register_action("ui.queue.recall", [this](const std::string&) {
+        auto queued = tui_.runs_.pop_back_pending(tui_.win().id);
+        if (!queued) {
+            tui_.append_line(P_STATUS, "no queued prompts");
+            tui_.draw();
+            return;
+        }
+        if (active_input_.cl) {
+            const bool replaced = !active_input_.cl->text().empty();
+            active_input_.cl->set_text(*queued);
+            tui_.append_line(P_STATUS, std::string(replaced ? "replaced the draft with " : "") +
+                                           "recalled queued prompt: > " + *queued);
+            tui_.draw();
+            tui_.draw_input(active_input_.cl->text(), active_input_.cl->cursor(),
+                            active_input_.cl->shadow());
+        }
+    });
+    register_action("ui.queue.clear", [this](const std::string&) {
+        const size_t queued = tui_.runs_.pending_count(tui_.win().id);
+        if (queued == 0) {
+            tui_.append_line(P_STATUS, "no queued prompts");
+            tui_.draw();
+            return;
+        }
+        tui::ConfirmPanel confirm("Queued prompts",
+                                  "Discard " + std::to_string(queued) +
+                                      " queued prompt(s)? This cannot be undone.");
+        if (!confirm.run())
+            return;
+        tui_.runs_.clear_pending(tui_.win().id);
+        tui_.append_line(P_STATUS, "discarded " + std::to_string(queued) + " queued prompt(s)");
+        tui_.draw();
+    });
 }
 
 // /window*: screen lifecycle and resource attachment.

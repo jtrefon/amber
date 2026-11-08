@@ -39,6 +39,8 @@ guess keys.
   "version": 2,
   "bindings": [
     {"key": "alt+1", "action": "core.window.set", "arg": "1", "scope": "global"},
+    {"key": "esc+q", "action": "ui.queue.recall", "scope": "global"},
+    {"key": "esc+x", "action": "ui.queue.clear", "scope": "global"},
     {"key": "ctrl+w", "action": "ui.input.delete_word", "scope": "input"},
     {"key": "esc", "when": "busy", "action": "ui.escape", "arg": "busy", "scope": "global"}
   ]

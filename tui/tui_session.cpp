@@ -453,6 +453,17 @@ void Tui::switch_to(size_t idx) {
 }
 
 void Tui::close_window() {
+    // A close while the agent is running is rejected by WindowOps and the queue
+    // survives; when the window is idle but still owns queued prompts (a narrow
+    // race after a cancel), confirm before the slot erase drops them.
+    const size_t queued = runs_.pending_count(win().id);
+    if (queued > 0 && !runs_.busy(win().id)) {
+        tui::ConfirmPanel confirm("Close window", std::to_string(queued) +
+                                                      " queued prompt(s) will be discarded. "
+                                                      "Close anyway?");
+        if (!confirm.run())
+            return;
+    }
     const WindowOpResult result = window_ops_->close_window();
     if (!result.ok && !result.msg.empty())
         append_line(P_STATUS, result.msg);

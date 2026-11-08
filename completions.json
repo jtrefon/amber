@@ -1129,6 +1129,23 @@
    ],
    "short": "p"
   },
+  "queue": {
+   "action": "ui.queue.recall",
+   "help": "Manage prompts queued for the running agent.",
+   "man": "While a window's agent is running, a submitted prompt is queued and echoed with its position. '/queue' recalls the newest queued prompt into the composer so it can be edited; '/queue clear' discards every queued prompt after a confirmation. A queued prompt only runs when its own window is free, and user prompts always drain before background reports. Keys: Alt+Q recalls, Alt+X clears.",
+   "children": {
+    "recall": {
+     "action": "ui.queue.recall",
+     "help": "Recall the newest queued prompt into the composer.",
+     "man": "Takes the last prompt from this window's queue and puts its full text back in the input line. The prompt will not run until it is submitted again. If the composer already had a draft, the recall replaces it and says so in the status line."
+    },
+    "clear": {
+     "action": "ui.queue.clear",
+     "help": "Discard every queued prompt for this window.",
+     "man": "Shows a confirmation naming how many prompts will be lost, then empties this window's queue. The running turn is untouched; to stop it, use Ctrl+C or '/session stop'."
+    }
+   }
+  },
   "tasks": {
    "action": "core.tasks",
    "help": "One inventory for background work.",
