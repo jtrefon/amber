@@ -43,14 +43,15 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
         agent_cfg.load(agent::Workspace::settings_path_for(project_root));
     }
     w->agent = make_agent(std::move(agent_cfg));
-    // codeql[cpp/path-injection] -- state_dir_for() reduces the project root
-    // to an alphanumeric slug plus a fixed hash under XDG state; the file
-    // access cannot escape that directory.
-
-    if (project_root.empty())
+    // state_dir_for() reduces the project root to an alphanumeric slug plus a
+    // fixed hash under XDG state; the file access cannot escape that directory.
+    if (project_root.empty()) {
+        // codeql[cpp/path-injection]
         w->agent->policy().init(agent::Workspace::policy_path());
-    else
+    } else {
+        // codeql[cpp/path-injection]
         w->agent->policy().init(agent::Workspace::policy_path_for(project_root));
+    }
     wire_agent(*w, project_root);
     windows_.push_back(std::move(w));
     set_active(windows_.size() - 1);
