@@ -453,10 +453,42 @@ TEST(runtime_tool_plugins_are_active_on_a_default_config) {
     ASSERT_TRUE((bool)f.tools.find("search"));
     ASSERT_TRUE((bool)f.tools.find("bash"));
     ASSERT_TRUE((bool)f.tools.find("process_start"));
-    // The plan and task tools are ordinary plugin contributions now: present
+    // The plan and delegate tools are ordinary plugin contributions now: present
     // by default, absent when their plugin is switched off.
     ASSERT_TRUE((bool)f.tools.find("todowrite"));
-    ASSERT_TRUE((bool)f.tools.find("task"));
+    ASSERT_TRUE((bool)f.tools.find("delegate"));
+}
+
+// The plugin rename is a state migration, not a reset: a user who disabled the
+// old tool_task plugin keeps it disabled under tool_delegate.
+TEST(runtime_migrates_tool_task_state_to_tool_delegate) {
+    ScratchConfig scratch("delegate-migration");
+    const fs::path old_dir = fs::path(scratch.root()) / "amber" / "plugins" / "tool_task";
+    fs::create_directories(old_dir);
+    {
+        std::ofstream f(old_dir / "plugin.conf");
+        f << "# amber plugin state: tool_task\nenabled=0\n";
+    }
+    Fixture f;
+    JobService jobs;
+    TodoStore todos;
+    SubAgentExecutor subagents;
+    HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_host_services(host);
+    runtime.add_bundled();
+    runtime.start();
+
+    const fs::path moved =
+        fs::path(scratch.root()) / "amber" / "plugins" / "tool_delegate" / "plugin.conf";
+    ASSERT(fs::exists(moved));
+    std::ifstream migrated(moved);
+    std::stringstream text;
+    text << migrated.rdbuf();
+    ASSERT(text.str().find("enabled=0") != std::string::npos);
+    // The migration copies; the historical file is not destroyed.
+    ASSERT(fs::exists(old_dir / "plugin.conf"));
+    ASSERT_FALSE((bool)f.tools.find("delegate"));
 }
 
 TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
@@ -473,12 +505,12 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
     runtime.start();
 
     ASSERT_TRUE((bool)f.tools.find("todowrite"));
-    ASSERT_TRUE((bool)f.tools.find("task"));
+    ASSERT_TRUE((bool)f.tools.find("delegate"));
 
     // Disabling the plugin takes its tool back out, and only its tool.
     ASSERT_TRUE(runtime.set_state("tool_plan", false));
     ASSERT_FALSE((bool)f.tools.find("todowrite"));
-    ASSERT_TRUE((bool)f.tools.find("task"));
+    ASSERT_TRUE((bool)f.tools.find("delegate"));
 }
 
 // The model's own trim ships as a tool plugin, bound to the host's queue. The

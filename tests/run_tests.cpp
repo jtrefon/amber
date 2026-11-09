@@ -5210,11 +5210,11 @@ TEST(sec02_write_tool_patch_no_approval) {
     ASSERT_FALSE(tool->requires_approval(patch));
 }
 
-TEST(sec02_task_tool_requires_approval) {
+TEST(sec02_delegate_tool_requires_approval) {
     agent::SubAgentExecutor executor;
     agent::ToolRegistry reg;
-    auto tool = agent::make_task_tool(executor, reg);
-    // TaskTool spawns a sub-agent with full tool access — always prompt.
+    auto tool = agent::make_delegate_tool(executor, reg);
+    // DelegateTool spawns a worker with full tool access — always prompt.
     ASSERT_TRUE(tool->requires_approval({{"prompt", "anything"}}));
     ASSERT_TRUE(tool->requires_approval({}));
 }
@@ -9857,13 +9857,13 @@ TEST(todowrite_tool_rejects_invalid_status) {
 // The plan and task tools ship enabled like every other bundled tool plugin;
 // what used to be a config flag is now plugin state, switched with
 // `/set plugin tool_plan off`.
-TEST(todowrite_and_task_ship_with_the_default_tool_set) {
+TEST(todowrite_and_delegate_ship_with_the_default_tool_set) {
     agent::ToolRegistry reg;
     agent::JobService jobs;
     agent::TodoStore todos;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{});
     ASSERT(reg.find("todowrite") != nullptr);
-    ASSERT(reg.find("task") != nullptr);
+    ASSERT(reg.find("delegate") != nullptr);
 }
 
 TEST(compression_gate_large_window_fires_at_threshold_fraction) {

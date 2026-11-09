@@ -5,22 +5,13 @@
 #include "agent/task_store.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
+#include "tests/task_state_print.h"
 
 #include <atomic>
 #include <chrono>
 #include <set>
 #include <string>
 #include <thread>
-
-// The failure message prints the record's enums by name.
-namespace agent {
-inline std::ostream& operator<<(std::ostream& os, TaskState state) {
-    return os << task_state_name(state);
-}
-inline std::ostream& operator<<(std::ostream& os, TaskKind kind) {
-    return os << task_kind_name(kind);
-}
-} // namespace agent
 
 namespace {
 

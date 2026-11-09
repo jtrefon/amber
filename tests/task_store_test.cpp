@@ -6,6 +6,7 @@
 #include "agent/task_store.h"
 #include "agent/workspace.h"
 #include "tests/test_util.h"
+#include "tests/task_state_print.h"
 
 #include <chrono>
 #include <cstdint>
@@ -13,27 +14,6 @@
 #include <fstream>
 #include <string>
 #include <sys/stat.h>
-
-// The failure message prints the record's enums by name.
-namespace agent {
-inline std::ostream& operator<<(std::ostream& os, TaskState state) {
-    return os << task_state_name(state);
-}
-inline std::ostream& operator<<(std::ostream& os, TaskKind kind) {
-    return os << task_kind_name(kind);
-}
-inline std::ostream& operator<<(std::ostream& os, TaskNotify notify) {
-    switch (notify) {
-    case TaskNotify::Auto:
-        return os << "auto";
-    case TaskNotify::Digest:
-        return os << "digest";
-    case TaskNotify::Silent:
-        return os << "silent";
-    }
-    return os << "auto";
-}
-} // namespace agent
 
 namespace {
 
@@ -115,6 +95,9 @@ TEST(task_store_round_trips_record) {
     r.error = "exit 3";
     r.cancel_reason = "not cancelled";
     r.delivered_at_ms = 140;
+    r.prompt_tokens = 900;
+    r.completion_tokens = 120;
+    r.usage_measured = true;
 
     ASSERT_TRUE(f.store.save(r));
     const auto loaded = f.store.load("task_round");
@@ -142,6 +125,9 @@ TEST(task_store_round_trips_record) {
     ASSERT_EQ(loaded->error, r.error);
     ASSERT_EQ(loaded->cancel_reason, r.cancel_reason);
     ASSERT_EQ(loaded->delivered_at_ms, r.delivered_at_ms);
+    ASSERT_EQ(loaded->prompt_tokens, r.prompt_tokens);
+    ASSERT_EQ(loaded->completion_tokens, r.completion_tokens);
+    ASSERT_EQ(loaded->usage_measured, r.usage_measured);
 
     ASSERT_EQ(f.store.list("w1").size(), 1u);
     ASSERT_EQ(f.store.list("other").size(), 0u);

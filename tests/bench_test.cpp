@@ -974,6 +974,30 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT(rep.kpi.wall_ms >= 0);
 }
 
+// The shipped delegate scenario runs end to end: the parent calls delegate
+// twice, each worker runs on its own thread with its own script, the parent
+// ends without waiting, and the suite's force-join makes the result
+// deterministic before scoring.
+TEST(e2e_hermetic_delegate_scenario) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/delegate/d-01-two-area-survey.json", err);
+    ASSERT(s.has_value());
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(rep.failures.size(), 0u);
+    ASSERT(rep.kpi.success);
+    ASSERT_EQ(rep.kpi.bullseye, 1.0);
+    ASSERT_EQ(rep.suite, std::string("delegate"));
+    int delegates = 0;
+    for (const auto& call : rep.tool_calls)
+        delegates += call.first.rfind("delegate", 0) == 0 ? 1 : 0;
+    ASSERT_EQ(delegates, 2);
+}
+
 // run_one_scenario must restore the workspace root it overrode for the
 // scenario's temp workspace. Without the restore, a serial multi-scenario
 // run (and the harness probes running after scenarios) sees a root that
@@ -1422,7 +1446,7 @@ TEST(recorder_counts_compressions) {
     ASSERT_EQ(rec.stream().retries.size(), 1u);
 }
 
-// The task tool's sub-agent work must never leak into the parent's observer
+// The delegate tool's worker must never leak into the parent's observer
 // hooks: the recorder sees exactly the one task call, not the sub-agent's
 // nested tool calls or its internal exchanges.
 TEST(subagent_hooks_do_not_leak) {
@@ -1452,7 +1476,9 @@ TEST(subagent_hooks_do_not_leak) {
         {{{"id", "call_1"},
           {"type", "function"},
           {"function",
-           {{"name", "task"}, {"arguments", R"({"prompt":"explore the workspace"})"}}}}});
+           {{"name", "delegate"},
+            {"arguments",
+             R"({"goal":"explore the workspace","context":"the repository","expect":"a report"})"}}}}});
     script->push_back(std::move(task_call));
     auto script2 = sub_script;
     bench::BenchReply sub_read;
@@ -1493,7 +1519,7 @@ TEST(subagent_hooks_do_not_leak) {
     std::string reply = ag.run("delegate an exploration");
     ASSERT_EQ(reply, "done");
     ASSERT_EQ(rec.stream().tools.size(), 1u);
-    ASSERT_EQ(rec.stream().tools[0].name, "task");
+    ASSERT_EQ(rec.stream().tools[0].name, "delegate");
     ASSERT(rec.stream().tools[0].ok);
 }
 

@@ -83,7 +83,7 @@ public:
 
 class StubTaskTool final : public Tool {
 public:
-    std::string name() const noexcept override { return "task"; }
+    std::string name() const noexcept override { return "delegate"; }
     std::string description() const noexcept override { return "delegate a task"; }
     json parameters_schema() const override { return json::object(); }
     ToolResult execute(const json&) const override { return {true, "", "", json::object()}; }
@@ -897,7 +897,7 @@ TEST(watch_plugin_contributes_prompt_and_tool_then_unwinds) {
     ASSERT_TRUE(runtime.panels().find("watch") == nullptr);
 }
 
-TEST(watch_plugin_delegation_fragment_follows_the_task_tool) {
+TEST(watch_plugin_delegation_fragment_follows_the_delegate_tool) {
     ScratchEnv env("plugin_delegate");
     ToolRegistry tools;
     tools.register_tool(std::make_unique<StubTaskTool>(), "test",

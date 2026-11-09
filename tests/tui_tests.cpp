@@ -931,7 +931,7 @@ struct DisplayRegistry {
         add("process_start", "spawning");
         add("tasks", "tasks");
         add("todowrite", "planning");
-        add("task", "delegating");
+        add("delegate", "delegating");
     }
 };
 
@@ -1862,12 +1862,14 @@ TEST(usage_report_lists_measured_sources_tasks_and_windows) {
     ledger.compression.add(3000, 300);
     ledger.watch.add(4000, 400);
     ledger.inherited.add(5000, 500);
-    agent::SubAgentTaskInfo task;
+    agent::TaskRecord task;
+    task.kind = agent::TaskKind::Worker;
     task.id = "task-7";
     task.prompt_tokens = 111;
     task.completion_tokens = 22;
     task.usage_measured = true;
-    agent::SubAgentTaskInfo quiet;
+    agent::TaskRecord quiet;
+    quiet.kind = agent::TaskKind::Worker;
     quiet.id = "task-8";
     std::vector<std::pair<std::string, agent::UsageTotals>> windows;
     agent::UsageTotals first;
@@ -1969,10 +1971,12 @@ TEST(worker_approval_target_resolves_the_owner_not_the_active_window) {
 // A worker waiting on an approval is live work, not a finished task: the
 // auto-attach planner must not close its viewer while the user decides.
 TEST(auto_attach_treats_a_blocked_worker_as_live) {
-    agent::SubAgentTaskInfo blocked;
+    agent::TaskRecord blocked;
+    blocked.kind = agent::TaskKind::Worker;
     blocked.id = "task-1";
-    blocked.prompt_head = "awaiting permission";
-    blocked.state = "blocked";
+    blocked.label = "awaiting permission";
+    blocked.state = agent::TaskState::Running;
+    blocked.progress = "awaiting approval: bash";
     const std::unordered_set<std::string> attached;
     const auto none = [](const std::string&, const std::string&) { return false; };
     const auto steps = tui::plan_auto_attach("agents", {}, {blocked}, attached, none);
@@ -2025,10 +2029,11 @@ TEST(auto_attach_plan_opens_new_running_work_and_is_mode_scoped) {
     agent::JobInfo done;
     done.id = "2";
     done.state = agent::JobState::Done;
-    agent::SubAgentTaskInfo task;
+    agent::TaskRecord task;
+    task.kind = agent::TaskKind::Worker;
     task.id = "task-1";
-    task.prompt_head = "price it";
-    task.state = "running";
+    task.label = "price it";
+    task.state = agent::TaskState::Running;
     std::unordered_set<std::string> attached;
     const auto none = [](const std::string&, const std::string&) { return false; };
 
