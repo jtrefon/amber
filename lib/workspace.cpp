@@ -256,7 +256,6 @@ std::string Workspace::policy_path_for(const std::string& project_root) {
     }
     return dst;
 }
-
 bool Workspace::confine(const std::string& path, std::string& resolved, std::string& error) {
     if (path.empty()) {
         error = "empty path";

@@ -370,11 +370,23 @@ void pin_prompt_paths(agent::Config& cfg) {
 // prompt registry carries every tool plugin's documentation, and the shaping
 // queue is where the `context` tool leaves a plan. A host that skips this
 // measures a harness without the tools those services install.
-void wire_run_services(agent::Agent& agent, RunHost& host) {
+void wire_run_services(agent::IAgent& agent, RunHost& host) {
     agent.set_owner_id("bench");
     agent.set_prompt_registry(host.plugins.prompts());
     agent.set_shape_queue(&host.shapes);
     agent.policy().init(agent::Workspace::local_dir() + "/policy.json");
+}
+
+// Build the one agent a scenario runs, from the components a host would wire.
+std::unique_ptr<agent::IAgent> make_scenario_agent(RunHost& host, RunComponents& comps,
+                                                   std::unique_ptr<agent::LLMClient> client) {
+    agent::AgentDeps deps;
+    deps.compressor = std::move(comps.compressor);
+    deps.gate = std::move(comps.gate);
+    deps.memory_store = std::move(comps.mem_store);
+    deps.retriever = std::move(comps.retriever);
+    deps.client = std::move(client);
+    return std::make_unique<agent::Agent>(host.cfg, host.registry, comps.hooks, std::move(deps));
 }
 
 // Run the agent with the workspace as CWD (the env card advertises getcwd()).
@@ -385,15 +397,13 @@ bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& com
     try {
         pin_prompt_paths(host.cfg);
         CwdGuard cwd(ws);
-        agent::Agent agent(host.cfg, host.registry, comps.hooks, std::move(comps.compressor),
-                           std::move(comps.gate), std::move(comps.mem_store),
-                           std::move(comps.retriever), std::move(client));
+        const auto agent = make_scenario_agent(host, comps, std::move(client));
         // The runtime's prompt registry carries the documentation each tool
         // plugin contributes, exactly as it does in every host: a run measures
         // the prompt a user would see, not one silently missing its docs.
-        wire_run_services(agent, host);
+        wire_run_services(*agent, host);
         t0 = now_ms();
-        final_text = agent.run(s.prompt);
+        final_text = agent->run(s.prompt);
         wall_ms = now_ms() - t0;
         return true;
     } catch (const std::exception& e) {

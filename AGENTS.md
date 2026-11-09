@@ -1164,7 +1164,13 @@ evidence about a prompt.
   name for the agent loop and the LLM `tools[]` schema.
 - **Observer**: `AgentHooks` (via `std::function` callbacks) lets UIs observe
   the agent loop without the core knowing about them. More precise than "Template
-  Method" since the hooks are set, not subclassed.
+  Method" since the hooks are set, not subclassed. The aggregate can be built
+  from role interfaces (`IAgentObserver`, `IToolApproval`, `IApiKeyProvider`,
+  `ITelemetrySink`, `IDebugSink`), so a host implements only what it uses.
+- **Port**: `IAgent` is the host-facing agent interface (`run`, `context`,
+  `config_snapshot`, `request_cancel`, model/mode switches, hooks). Hosts hold
+  `IAgent`, not the concrete engine; `AgentDeps` keeps the constructor below the
+  parameter cap.
 - **Command**: `ProcessStartTool` / `ProcessReadTool` / `ProcessStopTool` each
   encapsulate a background-process request as an object with a uniform `execute()`.
 - **Protection Proxy**: `Workspace::confine()` guards filesystem access behind

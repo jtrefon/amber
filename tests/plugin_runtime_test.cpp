@@ -3191,7 +3191,7 @@ TEST(runtime_bundled_plugin_observes_a_real_turn) {
     fake->script.push_back(done);
 
     agent::ToolRegistry reg;
-    agent::Agent ag(f.cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(f.cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(runtime.events());
     ag.run("say hello");
 

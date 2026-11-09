@@ -16,7 +16,7 @@
       },
       "bench::run_agent_in_workspace": {
         "ccn": 2,
-        "nloc": 19,
+        "nloc": 17,
         "param": 9
       }
     },
@@ -25,13 +25,6 @@
         "ccn": 8,
         "nloc": 20,
         "param": 7
-      }
-    },
-    "lib/agent.cpp": {
-      "agent::Agent::Agent": {
-        "ccn": 4,
-        "nloc": 24,
-        "param": 10
       }
     },
     "lib/agent_helpers.cpp": {

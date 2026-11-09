@@ -159,7 +159,9 @@ TEST(tool_budget_reduces_resent_bytes) {
         agent_test::FakeLLMClient* raw = fake.get();
         push_tool_call(*fake, "read", {{"path", "big.log"}, {"limit", 2000}});
         push_text(*fake, "done");
-        agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+        agent::Agent ag(
+            cfg, reg, {},
+            agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
         const std::string reply = ag.run("read the log");
         ASSERT_EQ(reply, std::string("done"));
         ASSERT(!raw->requests.empty());
@@ -186,7 +188,7 @@ TEST(agent_loop_plain_reply) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "hello there");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "hello there");
@@ -213,7 +215,7 @@ TEST(agent_loop_tool_roundtrip) {
     agent_test::FakeLLMClient* raw = fake.get();
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("read the Makefile");
     ASSERT_EQ(reply, "done reading");
@@ -249,7 +251,7 @@ TEST(agent_loop_mixed_reply_dispatches_tools) {
     mixed.tool_calls = agent_test::tool_call_msg("read", {{"path", "Makefile"}}, "c1").tool_calls;
     fake->script.push_back(std::move(mixed));
     push_text(*fake, "verified");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("check the build file");
     ASSERT_EQ(reply, "verified");
@@ -279,7 +281,8 @@ TEST(agent_loop_max_tool_iterations) {
     std::string announced;
     agent::AgentHooks hooks;
     hooks.on_assistant = [&announced](const std::string& text) { announced = text; };
-    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, std::move(hooks),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("read many files");
     ASSERT_FALSE(reply.empty()); // graceful fallback, not a crash
@@ -307,7 +310,7 @@ TEST(agent_loop_empty_after_tools_is_reported) {
     push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c1");
     for (int i = 0; i < 2; ++i)
         fake->script.push_back(agent_test::FakeReply{}); // silent, no tool calls
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("read the Makefile");
     ASSERT(reply.find("agent stopped") != std::string::npos);
@@ -355,7 +358,8 @@ TEST(agent_loop_text_loop_detection) {
                 .tool_calls;
         fake->script.push_back(std::move(r));
     }
-    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, std::move(hooks),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("do the thing");
     ASSERT(steered);
@@ -391,7 +395,9 @@ TEST(agent_loop_compression_trigger) {
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "hello after compression");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
     std::string big_prompt(8000, 'x');
@@ -451,7 +457,7 @@ TEST(agent_turn_recovers_from_a_rate_limit) {
     agent_test::FakeReply recovered;
     recovered.content = "recovered";
     raw->script.push_back(std::move(recovered));
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     const std::string out = ag.run("hello");
     ASSERT_EQ(raw->chat_calls, 2);
     ASSERT_EQ(out, "recovered");
@@ -477,7 +483,7 @@ TEST(agent_turn_survives_exhausted_rate_limits) {
     finished.content = "waited and finished";
     raw->script.push_back(std::move(finished));
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     const std::string out = ag.run("hello");
     ASSERT_EQ(raw->chat_calls, 4);
     ASSERT_EQ(out, "waited and finished");
@@ -495,7 +501,7 @@ TEST(agent_set_mode_publishes_the_status_snapshot) {
     cfg.mode = agent::AgentMode::Write;
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.set_mode(agent::AgentMode::Yolo);
     auto snapshot = ag.config_snapshot();
@@ -518,7 +524,7 @@ TEST(agent_set_model_scopes_an_unpinned_window) {
     cfg.context_explicit = false;
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.set_model("other");
     auto snapshot = ag.config_snapshot();
@@ -538,7 +544,7 @@ TEST(agent_set_model_carries_capabilities) {
     agent::Config cfg = loop_cfg();
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     agent::ModelCapabilities full = caps(1000);
     full.max_output = 8192;
@@ -574,7 +580,7 @@ TEST(agent_user_pin_survives_context_resolution) {
     cfg.context_explicit = true;
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.set_model("big", caps(524288));
     auto snapshot = ag.config_snapshot();
@@ -606,7 +612,7 @@ TEST(agent_set_provider_and_context_window_adopt_the_resolution) {
     cfg.context_explicit = false;
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     agent::Config resolved = cfg;
     resolved.provider_name = "other";
@@ -633,7 +639,7 @@ TEST(agent_pin_and_clear_context_window) {
     cfg.context_explicit = false;
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.set_model("first", caps(65536));
     ag.pin_context_window(200000);
@@ -695,7 +701,9 @@ TEST(agent_loop_learned_window_clamps_gate) {
     }
     push_text(*fake, R"({"memories":[],"skills":[]})");
     push_text(*fake, "compressed after learned clamp");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
 
@@ -869,7 +877,7 @@ TEST(agent_applies_a_shape_plan_at_the_next_request) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "after shaping");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     agent::ShapeQueue queue;
     ag.set_shape_queue(&queue);
 
@@ -945,7 +953,7 @@ TEST(agent_shapes_once_per_user_turn) {
     push_tool_call(*fake, "context", {{"op", "drop"}, {"result_ids", {"bbbbbbbbbbbbbbbb"}}}, "c2");
     push_text(*fake, "done");
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_shape_queue(&queue);
 
     std::vector<agent::Message> msgs;
@@ -1331,8 +1339,10 @@ TEST(compression_without_ops_still_decays) {
     push_text(*fake, R"({"memories":[],"skills":[]})");
 
     agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), {}, store, std::move(retriever), std::move(fake), {}, {}});
     ag.run("hello");
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
@@ -1363,8 +1373,10 @@ TEST(freshly_confirmed_item_keeps_threshold_evidence) {
                      R"("tags":["fresh"],"action":"upsert"}],"skills":[]})");
 
     agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), {}, store, std::move(retriever), std::move(fake), {}, {}});
     ag.run("hello");
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
@@ -1396,8 +1408,10 @@ TEST(learned_skill_is_discoverable_and_readable_after_extraction) {
                      R"("action":"upsert"}]})");
 
     agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
-                    std::move(fake), {}, skills);
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), {}, store, std::move(retriever), std::move(fake), {}, skills});
     ag.run("hello");
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
@@ -1440,8 +1454,10 @@ TEST(compression_extracts_persists_and_injects_memories) {
     push_text(*fake, "done");
 
     agent::ToolRegistry reg;
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, store, std::move(retriever),
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), {}, store, std::move(retriever), std::move(fake), {}, {}});
     ag.run("hello");
     auto r = ag.compress_now();
     ASSERT(r.error.empty());
@@ -1725,7 +1741,9 @@ TEST(compression_failure_reports_real_error_not_no_compressor) {
     agent_test::FakeReply err;
     err.error = "simulated server failure";
     fake->script.push_back(std::move(err));
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
     std::vector<agent::Message> msgs;
     agent::Message sys;
     sys.role = "system";
@@ -1776,7 +1794,8 @@ TEST(compression_target_budget_enforced) {
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
 
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor), {}, {}, {}, std::move(fake), {}, {}});
     // Seed a large context (~200k estimated tokens).
     std::vector<agent::Message> msgs;
     agent::Message sys;
@@ -1833,7 +1852,8 @@ TEST(compression_keep_last_prompts_and_prune_tail) {
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
 
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor), {}, {}, {}, std::move(fake), {}, {}});
     std::vector<agent::Message> msgs;
     agent::Message sys;
     sys.role = "system";
@@ -1897,7 +1917,8 @@ TEST(compression_strips_reasoning_and_ignores_probes) {
     agent_test::FakeReply extract;
     extract.content = R"({"memories":[],"skills":[]})";
     fake->script.push_back(std::move(extract));
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor), {}, {}, {}, std::move(fake), {}, {}});
 
     std::vector<agent::Message> msgs;
     agent::Message sys;
@@ -1957,7 +1978,7 @@ TEST(agent_loop_hash_chain_intact) {
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
     push_text(*fake, "second turn");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.run("read the Makefile");
     // Multiple reads over the live stack; each get_all() verifies the chain.
     (void)ag.context().get_all();
@@ -1987,7 +2008,7 @@ TEST(agent_loop_retry_then_success) {
     f2.retryable = true;
     fake->script.push_back(std::move(f2));
     push_text(*fake, "ok after retries");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "ok after retries");
@@ -2007,7 +2028,7 @@ TEST(agent_loop_non_retryable_fails_fast) {
     bad.retryable = false;
     fake->script.push_back(std::move(bad));
     push_text(*fake, "I cannot reach the server with the current key.");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "I cannot reach the server with the current key.");
@@ -2039,7 +2060,7 @@ TEST(agent_loop_retries_exhausted) {
         fake->script.push_back(std::move(f));
     }
     push_text(*fake, "the server is down; nothing ran.");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "the server is down; nothing ran.");
@@ -2079,7 +2100,7 @@ TEST(agent_loop_repeated_failures_stop_the_turn) {
         f.retryable = true;
         fake->script.push_back(std::move(f));
     }
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("hi");
     ASSERT(reply.find("agent stopped") != std::string::npos);
@@ -2140,7 +2161,7 @@ TEST(agent_loop_client_notices_reach_the_model) {
     NoticingFake* raw = fake.get();
     push_text(*fake, "noted");
     push_text(*fake, "second turn");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ASSERT_EQ(ag.run("first"), "noted");
     bool in_context = false;
@@ -2171,7 +2192,7 @@ TEST(agent_loop_budget_note_precedes_the_cap) {
     const char* paths[] = {"Makefile", "Makefile.in", "lib/llm.cpp", "lib/agent.cpp", "README.md"};
     for (const char* path : paths)
         push_tool_call(*fake, "read", {{"path", path}});
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.run("read everything");
     // The notice rides the request the model actually sees, and it arrives
@@ -2200,7 +2221,7 @@ TEST(agent_loop_repeat_is_reported_not_reenforced) {
     for (int i = 0; i < 3; ++i)
         push_tool_call(*fake, "read", {{"path", "Makefile"}}, "c" + std::to_string(i));
     push_text(*fake, "I read the same file three times; closing.");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     const std::string reply = ag.run("read the Makefile");
     ASSERT_EQ(reply, "I read the same file three times; closing.");
@@ -2245,7 +2266,7 @@ TEST(agent_loop_done_marker_is_part_of_the_answer) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "summary of findings. **done.**");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ASSERT_EQ(ag.run("hi"), "summary of findings. **done.**");
     ASSERT_EQ(raw->chat_calls, 1);
@@ -2267,7 +2288,7 @@ TEST(agent_loop_recovered_outage_is_silent) {
         fake->script.push_back(std::move(f));
     }
     push_text(*fake, "answer after the hiccup");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     const std::string reply = ag.run("hi"); // must not throw
     ASSERT_EQ(reply, "answer after the hiccup");
@@ -2292,7 +2313,7 @@ TEST(agent_loop_cancel_during_backoff) {
         usleep(150 * 1000);
         cfg.cancel_token.request();
     });
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     auto t0 = std::chrono::steady_clock::now();
     std::string reply = ag.run("hi");
     canceller.join();
@@ -2327,7 +2348,9 @@ TEST(agent_loop_unknown_context_never_auto_fires) {
         push_text(*fake, "warm");
     }
     push_text(*fake, "direct reply");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
     for (int i = 0; i < 5; ++i)
         ag.run("warm " + std::to_string(i));
 
@@ -2356,7 +2379,7 @@ TEST(agent_set_model_swaps_client) {
         seen_models.push_back(c.model);
         return std::make_unique<agent_test::FakeLLMClient>();
     };
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, {}, factory);
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, factory, {}});
     ASSERT_EQ(seen_models.size(), 1u);
     ASSERT_EQ(seen_models[0], "old-model");
     ag.set_model("ornith-35b");
@@ -2380,7 +2403,7 @@ TEST(agent_template_parser_400_recovers_without_tools) {
     fail.retryable = false;
     fake->script.push_back(std::move(fail));
     push_text(*fake, "hello there");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "hello there");
     // Generation attempt 1 carried tools; the adapted retry dropped them.
@@ -2406,7 +2429,7 @@ TEST(agent_unrecoverable_request_reports_instead_of_throwing) {
         fake->script.push_back(std::move(fail));
     }
     push_text(*fake, "the template cannot parse tool calls here.");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     const std::string reply = ag.run("hi"); // must not throw
     ASSERT_EQ(reply, "the template cannot parse tool calls here.");
     ASSERT_EQ(raw->chat_calls, 5); // two exhausted requests, then the answer
@@ -2442,7 +2465,7 @@ TEST(agent_loop_attribute_xml_tool_call_executes) {
                 "</parameter>\n</function>\n</tool_call>";
     fake->script.push_back(std::move(r));
     push_text(*fake, "done reading");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     std::string reply = ag.run("read the Makefile");
     ASSERT_EQ(reply, "done reading");
     const auto& ctx = ag.context().get_all();
@@ -2471,7 +2494,7 @@ TEST(agent_xml_tool_call_fires_hook_once) {
     int tool_call_hook_count = 0;
     agent::AgentHooks hooks;
     hooks.on_tool_call = [&](const std::string&, const agent::json&) { ++tool_call_hook_count; };
-    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, hooks, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.run("read the Makefile");
     ASSERT_EQ(tool_call_hook_count, 1);
 }
@@ -2496,7 +2519,7 @@ TEST(agent_loop_todowrite_state_persists) {
                      {{{"id", "p1"}, {"text", "fix parsing"}, {"status", "completed"}},
                       {{"id", "p2"}, {"text", "write tests"}, {"status", "pending"}}}}});
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::string reply = ag.run("track the work");
     ASSERT_EQ(reply, "done");
@@ -2562,7 +2585,8 @@ TEST(agent_loop_tool_envelope_lean) {
         {{{"old", ""}, {"new", std::string(300, 'L')}}}); // > 120 chars -> args must not echo
     push_tool_call(*fake, "write", {{"path", "bench_envelope_test.txt"}, {"edits", edits}});
     push_text(*fake, "done writing");
-    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.run("create bench_envelope_test.txt");
     std::remove("bench_envelope_test.txt");
@@ -2589,7 +2613,7 @@ TEST(agent_loop_tool_envelope_small_args_echoed) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     push_tool_call(*fake, "read", {{"path", "Makefile"}});
     push_text(*fake, "done reading");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.run("read the Makefile");
     const auto& ctx = ag.context().get_all();
@@ -2697,7 +2721,7 @@ TEST(agent_loop_auth_401_recovers_with_new_key) {
     };
     agent::AgentHooks hooks;
     hooks.on_api_key = [](const std::string&) { return std::string("sk-new"); };
-    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, {}, factory);
+    agent::Agent ag(cfg, reg, hooks, agent::AgentDeps{{}, {}, {}, {}, {}, factory, {}});
 
     std::string reply = ag.run("hi");
     ASSERT_EQ(reply, "recovered after key");
@@ -2732,7 +2756,7 @@ TEST(agent_loop_auth_401_declined_key_degrades) {
         prompted = true;
         return std::string(); // user cancelled
     };
-    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, {}, factory);
+    agent::Agent ag(cfg, reg, hooks, agent::AgentDeps{{}, {}, {}, {}, {}, factory, {}});
 
     std::string reply = ag.run("hi");
     ASSERT(prompted);
@@ -3060,7 +3084,8 @@ TEST(delegate_parent_turn_ends_before_child) {
     parent->script = parent_script;
     parent->track = std::make_shared<FakeTrack>();
 
-    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(parent));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(parent), {}, {}});
     ag.set_owner_id("owner-parent");
     ASSERT_EQ(ag.run("delegate the survey"), "parent done");
 
@@ -3331,7 +3356,7 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
         usleep(150 * 1000);
         cfg.cancel_token.request();
     });
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     std::string reply = ag.run("hi");
     canceller.join();
 
@@ -3386,7 +3411,9 @@ TEST(session_brief_extracted_on_compression) {
                      R"("done":["found bug"],"next":"write test",)"
                      R"("avoid":["rewrite parser"]}})");
     push_text(*fake, "hello after compression");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
     for (int i = 0; i < 21; ++i)
         ag.run("warm " + std::to_string(i));
 
@@ -3440,7 +3467,9 @@ TEST(session_brief_survives_compression) {
                      R"("done":["step1"],"next":"refined next",)"
                      R"("avoid":["dead end A"]}})");
     push_text(*fake, "after");
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), {}, {}, std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{std::move(compressor), std::move(gate), {}, {}, std::move(fake), {}, {}});
 
     // Seed the brief store before compression fires.
     auto* brief_store = ag.session_brief_store();
@@ -3571,8 +3600,14 @@ TEST(agent_keeps_injected_blocks_when_compression_fires) {
 
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("how do I build this?");
 
@@ -3593,7 +3628,8 @@ TEST(agent_counts_user_turns_not_llm_calls) {
     push_tool_call(*fake, "read", json{{"path", "a.txt"}});
     push_tool_call(*fake, "read", json{{"path", "a.txt"}}, "c2");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.run("read twice");
 
     ASSERT_EQ(ag.user_turn_counter(), size_t{1});
@@ -3617,8 +3653,14 @@ TEST(agent_compression_replays_the_injected_prefix_and_tools) {
 
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = agent::make_compressor();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("how do I build this?");
 
@@ -3657,8 +3699,14 @@ TEST(agent_compression_classify_replays_the_live_wire_prefix) {
 
     auto gate = std::make_unique<CompressAfterFirstTurnGate>();
     auto compressor = agent::make_compressor();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("how do I build this?");
     ag.run("and now compress it");
@@ -3717,8 +3765,14 @@ TEST(agent_injects_in_memory_blocks_without_compression) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("how do I build this?");
 
@@ -3744,8 +3798,14 @@ TEST(agent_never_rewrites_the_system_prompt_for_memory) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("first");
     ag.run("second");
@@ -3790,7 +3850,8 @@ TEST(agent_places_system_blocks_inside_the_system_prompt) {
         [] { return std::string("## search\n\nSYSTEM-BLOCK-MARKER"); },
         agent::PromptPlacement::System);
 
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("go");
 
@@ -3833,7 +3894,8 @@ TEST(tool_doc_blocks_reproduce_the_prompt_they_replaced) {
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("go");
 
@@ -3879,7 +3941,8 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     agent_test::FakeLLMClient* raw = fake.get();
     push_text(*fake, "one");
     push_text(*fake, "two");
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(runtime.prompts());
     ag.run("go");
 
@@ -3918,7 +3981,9 @@ TEST(discovery_block_follows_the_read_skill_tool) {
         auto fake = std::make_unique<agent_test::FakeLLMClient>();
         agent_test::FakeLLMClient* raw = fake.get();
         push_text(*fake, "done");
-        agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+        agent::Agent ag(
+            cfg, reg, {},
+            agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
         ag.run("go");
         ASSERT(!raw->requests.empty());
         return raw->requests.front();
@@ -3967,7 +4032,8 @@ TEST(agent_runs_a_turn_with_the_skill_plugin_disabled) {
     push_tool_call(*fake, "bash", {{"command", "echo x"}});
     push_text(*fake, "done");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, auto_approve_hooks(), {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, auto_approve_hooks(),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_prompt_registry(runtime.prompts());
     ASSERT_EQ(ag.run("do it"), "done");
 
@@ -4003,7 +4069,8 @@ TEST(agent_rebuilds_the_system_prompt_when_a_contribution_goes_away) {
         "tool_search", "search_doc", 500, [] { return std::string("SEARCH-DOC-MARKER"); },
         agent::PromptPlacement::System);
 
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("first");
 
@@ -4053,7 +4120,8 @@ TEST(agent_keeps_tail_placement_as_the_default) {
     agent::PromptRegistry prompts;
     prompts.add("plug", "note", 1000, [] { return std::string("TAIL NOTE"); });
 
-    agent::Agent ag(cfg, reg, {}, nullptr, nullptr, nullptr, nullptr, std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{nullptr, nullptr, nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("go");
 
@@ -4080,8 +4148,14 @@ TEST(agent_orders_injected_blocks_as_documented) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
     ag.set_prompt_registry(prompts);
     agent::SessionBrief fresh;
     fresh.intent = "wire the prompt blocks";
@@ -4133,8 +4207,10 @@ TEST(agent_placed_injected_blocks_after_the_system_prompt_keeps_the_prefix) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), std::move(gate), nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     agent::SessionBrief first;
     first.intent = "first intent";
@@ -4184,8 +4260,14 @@ TEST(agent_places_injected_blocks_after_the_system_prompt) {
 
     auto gate = std::make_unique<AlwaysCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), std::move(mem.store),
-                    std::move(retriever), std::move(fake));
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
 
     ag.run("how do I build this?");
 
@@ -4258,8 +4340,10 @@ TEST(wire_breakpoint_sits_on_the_conversation_not_the_tail) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), std::move(gate), nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
 
     agent::SessionBrief first;
@@ -4443,8 +4527,10 @@ TEST(wire_prefix_survives_a_long_multitool_session) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), std::move(gate), nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts_reg);
 
     for (std::size_t i = 0; i < prompts.size(); ++i) {
@@ -4510,7 +4596,7 @@ TEST(agent_runs_with_an_empty_tool_registry) {
     push_text(*fake, "I have no tools");
     push_text(*fake, "done");
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     const std::string reply = ag.run("what can you do?");
 
     ASSERT_EQ(reply, "I have no tools");
@@ -4581,7 +4667,7 @@ TEST(agent_loop_cancel_reaches_in_flight_tool) {
     push_tool_call(*fake, "wait_cancel", {{"x", 1}});
     push_text(*fake, "done");
     push_text(*fake, "done");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     std::thread canceller([&] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -4618,7 +4704,7 @@ TEST(agent_loop_internal_failure_is_recovered) {
     hooks.on_tool_result = [](const std::string&, const agent::ToolResult&, const agent::json&) {
         throw std::runtime_error("host callback exploded");
     };
-    agent::Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, hooks, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ASSERT_EQ(ag.run("read the Makefile"), std::string("carried on"));
     ASSERT(reported);
@@ -4656,7 +4742,7 @@ TEST(agent_empty_reply_is_judged_by_this_turn_not_history) {
     push_text(*fake, "done reading");
     push_text(*fake, ""); // turn 2: a silent reply gets one nudge
     push_text(*fake, ""); // ... then the silence bound ends the turn
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ASSERT_EQ(ag.run("read it"), "done reading");
     const std::string stopped = ag.run("what else?");
@@ -4686,7 +4772,8 @@ TEST(agent_failed_request_is_named_in_the_stop_and_shown) {
     std::vector<std::string> status;
     agent::AgentHooks hooks;
     hooks.on_status = [&status](const std::string& line) { status.push_back(line); };
-    agent::Agent ag(cfg, reg, std::move(hooks), {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, std::move(hooks),
+                    agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     const std::string stopped = ag.run("suggest features");
     ASSERT(stopped.find("the last request failed") != std::string::npos);
@@ -4726,7 +4813,7 @@ TEST(agent_prompt_names_a_detached_worktree) {
     agent::ToolRegistry reg;
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
     push_text(*fake, "ok");
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.run("hi");
 
     ASSERT(ag.context().get_all()[0].content.find("detached git worktree") != std::string::npos);
@@ -4758,8 +4845,10 @@ TEST(wire_stable_prefix_is_identical_for_every_dialect) {
 
     auto gate = std::make_unique<NeverCompressGate>();
     auto compressor = std::make_unique<SystemOnlyCompressor>();
-    agent::Agent ag(cfg, reg, {}, std::move(compressor), std::move(gate), nullptr, nullptr,
-                    std::move(fake));
+    agent::Agent ag(
+        cfg, reg, {},
+        agent::AgentDeps{
+            std::move(compressor), std::move(gate), nullptr, nullptr, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
 
     const std::array<std::string, 3> run_prompts{"one", "two", "three"};
@@ -4875,7 +4964,7 @@ TEST(agent_drains_inbox_before_the_first_request) {
     agent::EventBus bus;
     agent::TaskService tasks(bus);
     agent::TaskInbox inbox(bus, tasks);
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_owner_id("w");
     ag.set_inbox(&inbox);
 
@@ -4920,7 +5009,7 @@ TEST(agent_drains_inbox_after_a_tool_batch) {
     fake->script.push_back(std::move(first));
     push_text(*fake, "after");
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_owner_id("w");
     ag.set_inbox(&inbox);
     ag.run("go");
