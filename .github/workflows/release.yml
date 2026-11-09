@@ -38,8 +38,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # A dispatch builds the TAG's sources with the selected branch's
-          # workflow; a tag push checks out the tag it fired on.
+          # workflow; a tag push checks out the tag it fired on. Full history
+          # and tags so the benchmark gate can diff against the previous tag.
           ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
 
       - name: Resolve version
         id: ver
@@ -79,6 +81,21 @@ jobs:
             echo "stamp version.txt and commit it before cutting the tag"
             exit 1
           }
+
+      - name: Benchmark release gate
+        # An engine-touching tag must carry the committed live baseline for
+        # this engine. Docs/website/packaging-only tags skip; a missing or
+        # stale artifact is a hard failure, never a silent pass.
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          previous="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          if [[ -n "${previous}" ]]; then
+            git diff --name-only "${previous}" "${tag}" > /tmp/release-changed.txt
+          else
+            git diff --name-only "$(git rev-list --max-parents=0 HEAD)" "${tag}" \
+              > /tmp/release-changed.txt
+          fi
+          make bench-release-check VERSION="${tag#v}" CHANGED_PATHS=/tmp/release-changed.txt
 
       - name: Configure
         run: ./configure --prefix=/usr

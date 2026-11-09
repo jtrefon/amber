@@ -7,8 +7,40 @@ failure classes.
 
 ## When
 
-At every release (tag-driven, `vX.Y.Z`) — after the release branch is cut
-and before merge to main. Target: run within a few hours, single GPU.
+At every **engine** release (tag-driven, `vX.Y.Z`) — after the release branch
+is cut and before the tag. Docs/website/packaging-only tags skip the live run;
+the release workflow decides with the changed-path list and
+`make bench-release-check` fails closed when an engine tag has no artifact.
+
+## Minimum for the gate
+
+One live run on the fixed local profile with `--repeat 3`, committed as
+`bench/results/releases/<version>/local-<model>-r3.json`:
+
+```sh
+./amber-bench run --live --profile qwen38-27b-mtp --repeat 3 \
+  --out bench/results/releases/<version>/local-qwen38-27b-mtp-r3.json
+make bench-release-check VERSION=<version>
+```
+
+The gate rejects a non-live run, a different engine, a short corpus, a failed
+scenario, and a score drop beyond the recorded band. The full model population
+below is still the documented release review; the minimum is what blocks a tag.
+
+## Pending validations (re-scoped while the service is down)
+
+The session brief, the 32 KB tool-result budget on a live long read, and
+plan/task default-on each need a live model. Their procedures are:
+
+1. Brief: a compression run with and without the brief; compare redundant calls
+   and post-compression continuation.
+2. Budget: the long-read scenario with `AMBER_MAX_TOOL_RESULT_BYTES=0` vs
+   `32768`; compare last-request bytes, tokens, steps and success.
+3. Default-on plan/task: the same engine with `--disable tool_plan,tool_task`
+   vs the default; compare score, tool calls, redundant calls and failures.
+
+They are not claimed as run. The local service is inviolate and was inactive;
+hermetic evidence is the only measurement until it is confirmed up.
 
 ## What runs
 

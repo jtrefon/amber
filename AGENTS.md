@@ -194,6 +194,15 @@ driven by an OpenAI-compatible LLM API.
   dependency install fails in minutes instead of sitting until GitHub's 6 h
   job ceiling. Jobs that need only `./configure`'s probes (complexity) pass
   `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config.
+- **A live benchmark is a release gate, not a dashboard.** `make
+  bench-release-check VERSION=X` requires a committed live artifact under
+  `bench/results/releases/X/`: mode live, engine X, the model corpus covered,
+  zero failed scenarios, and no score drop beyond the recorded band against the
+  previous release. No artifact prints `NOT MEASURED` and exits non-zero;
+  docs/website/packaging-only tags skip via `CHANGED_PATHS`, which
+  `release.yml` computes from the previous tag. The gate is tested in
+  `tests/gates/test_bench_release_check.py`. The live run itself still follows
+  `docs/release-benchmark.md`, and the inference service remains inviolate.
 - **Fuzzing** (`make fuzz-run`) is the only gate that reaches input nobody wrote.
   Everything else -- the unit suite (`./run_tests --list` prints the current
   set), ASan/UBSan, TSan -- runs a fixed corpus, so a
