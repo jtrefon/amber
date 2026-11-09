@@ -65,13 +65,14 @@ prints `NOT MEASURED` and exits non-zero. Docs/website/packaging-only tags may
 skip via `CHANGED_PATHS`; the release workflow computes that list from the
 previous tag. The gate tests live in `tests/gates/test_bench_release_check.py`.
 
-**Status 2026-11-09: green on the cloud minimum.** The committed
-`bench/results/releases/0.8.8/cloud-deepseek-chat-r3.json` is a live, repeat-3,
-51-scenario run on `deepseek-chat`: **657.9/1000** (95% CI ±16.1), 37 passed.
-The fixed local `llama-turboq` service was inactive and is inviolate, so the
-release records one configured cloud profile as its live minimum; the local
-fixed profile remains the full-population review target. `0.8.8/README.md`
-records the run and the local command.
+**Status 2026-11-09: 0.8.9 is green on the cloud minimum.**
+`bench/results/releases/0.8.9/cloud-deepseek-chat-r3.json` is a live, repeat-3,
+51-scenario run on `deepseek-chat`: **675.9/1000** (95% CI ±11.3), 37 passed,
+**+18.0** against 0.8.8 (657.9/1000, ±16.1). The fixed local `llama-turboq`
+service was inactive and is inviolate, so the release records one configured
+cloud profile as its live minimum; the local fixed profile remains the
+full-population review target. The 0.8.8 and 0.8.9 READMEs record the runs and
+the local command.
 
 The three validations BENCHMARK.md has carried since 0.8 — the session brief,
 the 32 KB tool-result budget on a live long read, and plan/task default-on —
