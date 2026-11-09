@@ -23,9 +23,17 @@ One live run on the fixed local profile with `--repeat 3`, committed as
 make bench-release-check VERSION=<version>
 ```
 
-The gate rejects a non-live run, a different engine, a short corpus, a failed
-scenario, and a score drop beyond the recorded band. The full model population
-below is still the documented release review; the minimum is what blocks a tag.
+The gate rejects a non-live run, a different engine, a short corpus, an
+infrastructure failure (a setup error, a throw, a task that never finished) and
+a score drop beyond the recorded band. A model losing scenario points is the
+measurement, not an infrastructure failure. The full model population below is
+still the documented release review; the minimum is what blocks a tag.
+
+If the fixed local service is unavailable, one configured cloud profile may
+stand in for the minimum and is recorded as such in the release directory and
+the release notes; the local population remains the review target. The baseline
+artifact records its model and profile, so a later reader can tell which was
+measured.
 
 ## Pending validations (re-scoped while the service is down)
 

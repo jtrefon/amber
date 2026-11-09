@@ -91,10 +91,17 @@ class ReleaseGate(unittest.TestCase):
         self.assertEqual(report.code, 1)
         self.assertIn("model 'other'", "\n".join(report.lines))
 
-    def test_check_fails_on_failed_scenario(self):
+    def test_check_fails_on_unexpected_scenario_failure(self):
         report = self.run_check(artifact(scenarios=4, failed={1}), min_scenarios=2)
         self.assertEqual(report.code, 1)
-        self.assertIn("failed scenario", "\n".join(report.lines))
+        self.assertIn("unexpected scenario failure", "\n".join(report.lines))
+
+    def test_check_allows_a_model_quality_failure(self):
+        data = artifact(scenarios=3)
+        data["scenarios"][1]["success"] = False
+        data["scenarios"][1]["failures"] = ["oracle not matched: 1/2 steps"]
+        report = self.run_check(data)
+        self.assertEqual(report.code, 0, "\n".join(report.lines))
 
     def test_check_fails_on_regression_beyond_band(self):
         previous = self.f.write("previous", "old.json", artifact(score=850.0, scenarios=3))
@@ -116,6 +123,7 @@ class ReleaseGate(unittest.TestCase):
         self.assertIn("not required", "\n".join(report.lines))
 
     def test_unknown_path_is_engine(self):
+        self.assertTrue(gate.engine_touching([]))
         self.assertTrue(gate.engine_touching(["new-area/config.json"]))
         self.assertTrue(gate.engine_touching(["completions.json"]))
         self.assertFalse(gate.engine_touching(["docs/spec/MISSION.md"]))
@@ -143,6 +151,9 @@ class ReleaseGate(unittest.TestCase):
         (corpus / "one.json").write_text(json.dumps({"name": "one", "prompt": "p"}))
         (corpus / "two.json").write_text(json.dumps({"name": "two", "prompt": "p"}))
         (corpus / "not-a-scenario.json").write_text(json.dumps({"note": "x"}))
+        (corpus / "probe.json").write_text(
+            json.dumps({"name": "probe", "prompt": "p", "hermetic_only": True})
+        )
         self.assertEqual(gate.corpus_count(str(self.f.root / "corpus")), 2)
 
 

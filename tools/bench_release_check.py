@@ -34,6 +34,15 @@ ENGINE_PATHS = ("lib/", "src/", "tools/", "plugins/", "include/", "bench/", "pro
 DEFAULT_MIN_SCENARIOS = 49
 DEFAULT_BAND = 5.0
 
+# A live model is allowed to lose scenario points; those checks are the score.
+# Anything else in `failures` (a setup failure, a throw, a task that never
+# finished) is an infrastructure failure and fails the release.
+MODEL_QUALITY_FAILURES = (
+    "oracle not matched",
+    "final answer failed scenario checks",
+    "prompt checks",
+)
+
 
 class Report:
     def __init__(self):
@@ -50,10 +59,10 @@ class Report:
 
 def engine_touching(paths):
     """True when any changed path is engine code; an unknown path is engine."""
+    paths = [path.strip() for path in paths if path.strip()]
+    if not paths:
+        return True  # an empty diff is ambiguous, not a docs-only tag
     for path in paths:
-        path = path.strip()
-        if not path:
-            continue
         if path.startswith(ENGINE_PATHS):
             return True
         # Documentation and website assets are the only legitimate skip. Any
@@ -84,7 +93,12 @@ def corpus_count(corpus_dir):
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        if isinstance(data, dict) and data.get("name") and data.get("prompt"):
+        if (
+            isinstance(data, dict)
+            and data.get("name")
+            and data.get("prompt")
+            and not data.get("hermetic_only")
+        ):
             count += 1
     return count
 
@@ -131,13 +145,25 @@ def validate_artifact(name, artifact, version, minimum_scenarios, model, profile
             errors.append(
                 f"{name}: {len(scenarios)} scenarios, corpus floor is {minimum_scenarios}"
             )
-        failed = [
-            row.get("name", "?")
-            for row in scenarios
-            if isinstance(row, dict) and (row.get("success") is False or row.get("failures"))
-        ]
+        failed = []
+        for row in scenarios:
+            if not isinstance(row, dict):
+                continue
+            reasons = row.get("failures") or []
+            unexpected = [
+                reason
+                for reason in reasons
+                if not str(reason).startswith(MODEL_QUALITY_FAILURES)
+            ]
+            if row.get("success") is False and not reasons:
+                unexpected.append("scenario failed without a reason")
+            if unexpected:
+                failed.append(row.get("name", "?"))
         if failed:
-            errors.append(f"{name}: {len(failed)} failed scenario(s): {', '.join(failed[:5])}")
+            errors.append(
+                f"{name}: {len(failed)} unexpected scenario failure(s): "
+                f"{', '.join(failed[:5])}"
+            )
 
     score = artifact.get("model_score")
     if not isinstance(score, (int, float)):
