@@ -375,7 +375,7 @@ Branch `refactor/retire-tool-flags`, stacked on the tools-domain work.
 
 - `Config::plan_tool` / `Config::task_tool`, their `AMBER_*` env vars and the
   config-file keys are deleted, along with the two trailing `bool` parameters of
-  `register_default_tools`. `plugins/tool_plan` and `plugins/tool_task` no
+  `register_default_tools`. `plugins/tool_plan` and `plugins/tool_delegate` no
   longer read config: presence is plugin state, switched with
   `/set plugin tool_plan off`.
 - `prompts/tools_planning.md` becomes `prompts/tools/plan.md`, contributed by
@@ -427,7 +427,7 @@ asked for, and the model-facing documentation can no longer disagree with the
 tool schema.
 
 - **Split (§3.1):** `tool_search`, `tool_read`, `tool_write`, `tool_bash`,
-  `tool_process`, `tool_plan`, `tool_task`; `plugins/core_tools` deleted.
+  `tool_process`, `tool_plan`, `tool_delegate`; `plugins/core_tools` deleted.
   `register_default_tools` installs the same per-tool definitions for hosts
   with no runtime, and now takes the prompt registry so a tool and its prose
   arrive together on both paths.
@@ -545,7 +545,7 @@ of three).
   the registry. `HostServices` carries those as pointers and is attached like
   the config (`attach_host_services`), so the runtime never owns host state.
 - **A declining capability is not a failure.** `InstallResult::declined` marks
-  "nothing to install". Without it, `todowrite`/`task`, absent by default,
+  "nothing to install". Without it, `todowrite`/`delegate`, absent by default,
   failed the plugin, which deactivated `core_tools` and left the agent with **no
   tools at all** on a default config. Caught in the live TUI, not by the unit
   suite: the install path was only covered per-capability, never through

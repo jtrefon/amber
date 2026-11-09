@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "agent/compact.h"
-#include "agent/subagent.h"
+#include "agent/task.h"
 #include "usage_ledger.h"
 
 namespace tui {
@@ -38,7 +38,7 @@ inline std::string usage_line(const char* label, const agent::UsageTotals& usage
 // sub-agents that reported usage, and every chat window's total when more than
 // one window exists. Pure, so the formatting is unit-tested without a terminal.
 inline std::vector<std::string>
-usage_report_lines(const UsageLedger& ledger, const std::vector<agent::SubAgentTaskInfo>& tasks,
+usage_report_lines(const UsageLedger& ledger, const std::vector<agent::TaskRecord>& tasks,
                    const std::vector<std::pair<std::string, agent::UsageTotals>>& windows) {
     std::vector<std::string> lines;
     lines.push_back(usage_line("tree", ledger.tree()));
@@ -52,7 +52,7 @@ usage_report_lines(const UsageLedger& ledger, const std::vector<agent::SubAgentT
     if (ledger.inherited.measured)
         lines.push_back(usage_line("inherited", ledger.inherited));
     for (const auto& task : tasks) {
-        if (!task.usage_measured)
+        if (task.kind != agent::TaskKind::Worker || !task.usage_measured)
             continue;
         agent::UsageTotals usage;
         usage.prompt_tokens = task.prompt_tokens;

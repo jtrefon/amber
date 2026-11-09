@@ -335,7 +335,7 @@ std::string Agent::render_system_prompt() const {
     if (!cfg_.git_prompt_path.empty())
         append_optional_section(system, load_prompt(cfg_.git_prompt_path));
     // A worker runs this same assembly plus the role boundary: rendered here,
-    // not composed by the task tool, so the prompt rebuild cannot lose it.
+    // not composed by the delegate tool, so the prompt rebuild cannot lose it.
     if (in_subagent())
         append_section(system, worker_directive());
     return system;
@@ -771,7 +771,11 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
                             const CompressionRequestPrefix* prefix) {
     // Same scope as a turn: compression may run on its own worker thread,
     // where it still needs this agent's cancel token and catalog.
-    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
+    // A worker's token belongs to the worker run: if it was already requested,
+    // clearing it here would erase the cancel the executor is waiting on. A
+    // top-level agent clears its own between turns.
+    if (!in_subagent())
+        cfg_.cancel_token.clear();
     RunScope scope;
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();
@@ -1441,12 +1445,14 @@ void Agent::open_turn(const std::string& user_prompt) {
 }
 
 std::string Agent::run(const std::string& user_prompt) {
-    // Fresh turn: a cancel requested before this run must not abort it.
-    cfg_.cancel_token.clear();
+    // Fresh turn: a cancel requested before this run must not abort it. The
+    // exception is a worker, whose token may already be requested by the task
+    // inventory before the child starts.
+    if (!in_subagent())
+        cfg_.cancel_token.clear();
     // Install this agent's run scope so shared tools resolve OUR cancel
     // token, skill catalog, and activation sink — not whichever objects
     // were bound at registration.
-    cfg_.cancel_token.clear(); // a requested flag must not outlive its run
     RunScope scope;
     scope.cancel_token = &cfg_.cancel_token;
     scope.skills = skills_.get();

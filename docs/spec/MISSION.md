@@ -159,7 +159,7 @@ the history stays honest.
 | Full ncurses component shell (cell surface, themes, screen migration) | Implementation | P3 | 🔧 | #512, #513-#519 |
 | Profiles and git-integrated checkpoints | Strategy | P3 | ❓ | #440, #441 |
 | 0.8 live benchmark baseline and a release gate | Implementation | P2 | 🔧 | #371 |
-| Multi-agent orchestration beyond `task` | Strategy | P3 | ❓ | #379 (detached workers) |
+| Multi-agent orchestration beyond `delegate` | Strategy | P3 | ❓ | #379 (detached workers) |
 
 ---
 

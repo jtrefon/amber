@@ -79,7 +79,7 @@ built around.
 - The observer editing files, running commands, or approving tools.
 - A new provider/model service. The observer uses the configured local model
   through the existing transport and governor.
-- Replacing `todo_write`, the `delegate`/`task` worker, or the `/job` process
+- Replacing `todo_write`, the `delegate` worker, or the `/job` process
   surface.
 
 ---
@@ -282,7 +282,7 @@ caps.push_back(std::make_unique<PromptBlockCapability>(
   state. It sits in the cached prefix.
 - The block is installed by the capability only while the plugin is active; the
   ledger removes it on disable.
-- `has_delegate()` checks `services.tools().find("task")`. If the task plugin
+- `has_delegate()` checks `services.tools().find("delegate")`. If the delegate plugin
   is off, the delegation fragment is absent; the block does not advertise a
   tool the agent cannot call. A task-plugin toggle changes the toolset and the
   block; `ensure_system_prompt()` rebuilds the system prompt in the same
@@ -341,7 +341,7 @@ on the local model.
 | File | Placement | Purpose |
 |---|---|---|
 | `prompts/watch/system.md` | System, 600 | main-agent policy: what/when/how/limits |
-| `prompts/watch/delegation.md` | System, appended | only when `task`/`delegate` is enabled |
+| `prompts/watch/delegation.md` | System, appended | only when `delegate` is enabled |
 | `prompts/watch/observer.md` | not in main prompt | observer role, evidence rules, JSON contract |
 | `prompts/tools/watch.md` | System, 590 | tool reference: actions, args, examples, errors |
 
@@ -797,7 +797,7 @@ governor still protects the provider.
   and a deterministic summary; no retry storm.
 - **W-06 no tools in observer**: the fake observer model asserts the call had
   no tool schemas; the observer prompt is `observer.md`.
-- **W-07 prompt block**: enabled → `system.md` + delegation (when `task`
+- **W-07 prompt block**: enabled → `system.md` + delegation (when `delegate`
   present); disabled → block absent; toggling the task plugin changes the block
   and rebuilds the system prompt; no live watch state in it.
 - **W-08 owner routing**: watch started in window A; report event owner=A; the
@@ -856,7 +856,7 @@ names + log path). P2/P3 make it a sentry.
 - [ ] **Delivery boundary**: turn boundary, queued while busy (recommended for
       v1) vs mid-turn injection through the #317 inbox.
 - [ ] **Observer independence**: the observer is a plugin-local one-shot
-      capability, separate from `delegate`/`task` (recommended); `watch.conf`
+      capability, separate from `delegate` (recommended); `watch.conf`
       `observer=auto|off` controls it. It is not a subagent and does not use
       the subagent slots.
 - [ ] **Plugin default**: enabled, observer `auto` (failure/terminal only)

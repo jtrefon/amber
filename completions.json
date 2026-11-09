@@ -517,7 +517,7 @@
     "subagent": {
      "action": "core.config.get.subagent",
      "help": "Show sub-agent execution settings.",
-     "man": "Shows whether the task tool runs sub-agents in parallel and the maximum concurrency cap."
+     "man": "Shows whether the delegate tool runs workers in parallel and the maximum concurrency cap."
     },
     "reasoning": {
      "action": "core.config.get.reasoning",
@@ -907,13 +907,13 @@
     },
     "subagent": {
      "action": "core.config.set.subagent",
-     "help": "Sub-agent (task tool) execution settings.",
-     "man": "Controls how the task tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm — important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
+     "help": "Delegated worker (delegate tool) execution settings.",
+     "man": "Controls how the delegate tool runs focused worker agents. Parallel runs concurrent sub-agents, capped by max. Serial runs them one at a time: sequential requests share the system-prompt prefix, which keeps provider prompt caches warm — important for cache-sensitive providers (e.g. DeepSeek discounts cached hits ~90%; parallel requests with distinct prefixes pay full price each).",
      "children": {
       "parallel": {
        "action": "core.config.set.subagent.parallel",
        "help": "Run sub-agents concurrently (on) or serially (off).",
-       "man": "When on, task calls run in parallel up to the max cap. When off, task calls run one at a time in request order — cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
+       "man": "When on, delegate calls run in parallel up to the max cap. When off, delegate calls run one at a time in request order — cache-friendly for providers that discount cached prompt tokens. Toggle with 'toggle'.",
        "choices": [
         "on",
         "off",

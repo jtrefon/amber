@@ -910,9 +910,13 @@ private:
                     message = R"({"role":"assistant","content":"WORKER-REPORT"})";
                 }
             } else if (delegate_probe) {
-                finish = "tool_calls";
-                message =
-                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_delegate","type":"function","function":{"name":"task","arguments":"{\"prompt\":\"worker approval probe: run the marker command\"}"}}]})";
+                if (body.find("call_delegate") == std::string::npos) {
+                    finish = "tool_calls";
+                    message =
+                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_delegate","type":"function","function":{"name":"delegate","arguments":"{\"goal\":\"worker approval probe: run the marker command\",\"context\":\"the workspace\",\"expect\":\"a report\"}"}}]})";
+                } else {
+                    message = R"({"role":"assistant","content":"DELEGATE-STARTED"})";
+                }
             } else if (approval_probe) {
                 // Give the user time to leave the window, so the approval is a
                 // background event rather than the active tab's dialog.
@@ -3407,10 +3411,7 @@ TEST(subagent_gated_tool_asks_its_owner_window) {
         return;
 
     tui.send("/tasks list\r");
-    if (!require(tui.wait_for("worker task-", 8000), "the worker was not listed in /tasks", tui))
-        return;
-    tui.send("/tasks show task-1\r");
-    require(tui.wait_for("[agent task-1]", 8000), "the worker detail did not open", tui);
+    require(tui.wait_for("| worker |", 8000), "the worker was not listed in /tasks", tui);
 }
 
 // Input submitted while a window is busy is echoed in full with its queue

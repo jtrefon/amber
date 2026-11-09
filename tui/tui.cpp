@@ -869,7 +869,7 @@ bool resource_ever_focused(const WindowManager& windows, const std::string& kind
 
 void Tui::auto_attach_resources() {
     const auto steps =
-        plan_auto_attach(cfg_.work_auto_attach, jobs_.list(), subagents_.tasks(), auto_attached_,
+        plan_auto_attach(cfg_.work_auto_attach, jobs_.list(), tasks_->all(), auto_attached_,
                          [this](const std::string& kind, const std::string& id) {
                              return resource_ever_focused(*window_manager_, kind, id);
                          });

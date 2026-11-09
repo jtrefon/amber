@@ -4,6 +4,7 @@
 #include <agent/task.h>
 #include <agent/task_inbox.h>
 #include <agent/task_join.h>
+#include <agent/config_paths.h>
 #include <agent/task_store.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
@@ -502,6 +503,8 @@ struct CliHost {
         subagents.set_config(cfg);
         subagents.set_parallel(cfg.subagent_parallel);
         subagents.set_max(cfg.subagent_max);
+        subagents.set_tasks(&tasks);
+        subagents.set_artifact_root(agent::task_artifacts_dir(agent::cache_dir()));
     }
 };
 

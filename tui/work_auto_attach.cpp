@@ -8,8 +8,8 @@ bool job_running(agent::JobState state) {
     return state == agent::JobState::Running || state == agent::JobState::Starting;
 }
 
-bool task_running(const std::string& state) {
-    return state == "running" || state == "queued" || state == "blocked";
+bool worker_live(const agent::TaskRecord& task) {
+    return task.kind == agent::TaskKind::Worker && !agent::task_state_terminal(task.state);
 }
 
 struct PlanInput {
@@ -36,7 +36,7 @@ void plan_one(const std::string& kind, const std::string& id, const std::string&
 
 std::vector<AutoAttachStep>
 plan_auto_attach(const std::string& mode, const std::vector<agent::JobInfo>& jobs,
-                 const std::vector<agent::SubAgentTaskInfo>& tasks,
+                 const std::vector<agent::TaskRecord>& tasks,
                  const std::unordered_set<std::string>& attached,
                  const std::function<bool(const std::string&, const std::string&)>& ever_focused) {
     std::vector<AutoAttachStep> steps;
@@ -50,8 +50,8 @@ plan_auto_attach(const std::string& mode, const std::vector<agent::JobInfo>& job
     }
     if (mode == "agents" || mode == "all") {
         for (const auto& task : tasks)
-            plan_one("agent", task.id, "agent " + task.id + " \u2014 " + task.prompt_head,
-                     task_running(task.state), in, steps);
+            plan_one("agent", task.id, "agent " + task.id + " \u2014 " + task.label,
+                     worker_live(task), in, steps);
     }
     return steps;
 }

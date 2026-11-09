@@ -1,5 +1,5 @@
-#ifndef AGENT_PLUGINS_TOOL_TOOL_TASK_H
-#define AGENT_PLUGINS_TOOL_TOOL_TASK_H
+#ifndef AGENT_PLUGINS_TOOL_TOOL_DELEGATE_H
+#define AGENT_PLUGINS_TOOL_TOOL_DELEGATE_H
 
 #include "agent/extensions.h"
 #include "agent/plugin_core.h"
@@ -13,15 +13,15 @@ namespace agent::plugins {
 // The tool capabilities this plugin contributes. Exposed as a free function so
 // a host with no plugin runtime (register_default_tools) can install exactly
 // the same set: one definition, two install paths.
-std::vector<std::unique_ptr<Capability>> make_task_tool_capabilities();
+std::vector<std::unique_ptr<Capability>> make_delegate_tool_capabilities();
 
-class ToolTaskPlugin : public IPlugin {
+class ToolDelegatePlugin : public IPlugin {
 public:
-    std::string id() const override { return "tool_task"; }
-    std::string version() const override { return "0.4.0"; }
-    std::string name() const override { return "Task tool"; }
+    std::string id() const override { return "tool_delegate"; }
+    std::string version() const override { return "0.5.0"; }
+    std::string name() const override { return "Delegate tool"; }
     std::string description() const override {
-        return "The task tool: delegate work to a sub-agent.";
+        return "Detached workers: delegate a self-contained task with fresh context.";
     }
     std::string category() const override { return plugin_category::kTools; }
 
@@ -29,10 +29,10 @@ public:
     void shutdown() override {}
 
     std::vector<std::unique_ptr<Capability>> capabilities() override {
-        return make_task_tool_capabilities();
+        return make_delegate_tool_capabilities();
     }
 };
 
 } // namespace agent::plugins
 
-#endif // AGENT_PLUGINS_TOOL_TOOL_TASK_H
+#endif // AGENT_PLUGINS_TOOL_TOOL_DELEGATE_H

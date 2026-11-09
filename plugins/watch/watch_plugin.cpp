@@ -126,7 +126,7 @@ std::string WatchPlugin::policy_block() const {
     std::string out = load_optional_prompt("prompts/watch/system.md");
     if (out.empty())
         return out;
-    if (tools_ && tools_->find("task")) {
+    if (tools_ && tools_->find("delegate")) {
         const std::string delegation = load_optional_prompt("prompts/watch/delegation.md");
         if (!delegation.empty())
             out += "\n\n" + delegation;

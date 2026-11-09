@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "agent/job.h"
-#include "agent/subagent.h"
+#include "agent/task.h"
 
 namespace tui {
 
@@ -30,8 +30,7 @@ struct AutoAttachStep {
 // Focus is never part of a step, by construction.
 std::vector<AutoAttachStep> plan_auto_attach(
     const std::string& mode, const std::vector<agent::JobInfo>& jobs,
-    const std::vector<agent::SubAgentTaskInfo>& tasks,
-    const std::unordered_set<std::string>& attached,
+    const std::vector<agent::TaskRecord>& tasks, const std::unordered_set<std::string>& attached,
     const std::function<bool(const std::string& kind, const std::string& id)>& ever_focused);
 
 } // namespace tui

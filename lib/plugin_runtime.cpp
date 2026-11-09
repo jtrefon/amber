@@ -121,10 +121,24 @@ bool write_enabled(const std::string& id, bool enabled) {
     return static_cast<bool>(f);
 }
 
+// Renaming a plugin must not reset a deliberate choice. A missing new state
+// file plus an existing old one is the one-time migration; once the new file
+// exists it wins, and the old file is left as the historical record.
+void migrate_plugin_state(const std::string& from, const std::string& to) {
+    std::error_code ec;
+    if (fs::exists(state_path(to), ec) || !fs::exists(state_path(from), ec))
+        return;
+    fs::create_directories(plugin_dir(to), ec);
+    if (ec)
+        return;
+    fs::copy_file(state_path(from), state_path(to), fs::copy_options::overwrite_existing, ec);
+}
+
 } // namespace
 
 PluginRuntime::PluginRuntime(ToolRegistry& tools, Config config, const Workspace& workspace)
     : config_(std::move(config)), workspace_(&workspace) {
+    migrate_plugin_state("tool_task", "tool_delegate");
     services_ = std::make_unique<PluginServices>(tools, prompts_, status_, panels_, wallets_,
                                                  search_backends_, bus_, commands_);
     services_->set_keybindings(&keybindings_);

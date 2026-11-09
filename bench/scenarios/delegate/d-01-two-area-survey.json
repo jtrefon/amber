@@ -1,7 +1,7 @@
 {
   "name": "d-01-two-area-survey",
   "suite": "delegate",
-  "description": "two independent modules to survey \u2014 delegation (task tool) is the efficient path; measures whether the model splits the work",
+  "description": "two independent modules to survey \u2014 delegation is the efficient path; measures whether the model splits the work",
   "platforms": [
     "linux",
     "darwin"
@@ -22,8 +22,8 @@
           "id": "c1",
           "type": "function",
           "function": {
-            "name": "task",
-            "arguments": "{\"prompt\":\"survey lib/parser.cpp\"}"
+            "name": "delegate",
+            "arguments": "{\"goal\": \"survey error handling in lib/parser.cpp\", \"context\": \"the workspace file lib/parser.cpp\", \"expect\": \"one paragraph on how strict the module is\"}"
           }
         }
       ]
@@ -34,8 +34,8 @@
           "id": "c3",
           "type": "function",
           "function": {
-            "name": "task",
-            "arguments": "{\"prompt\":\"survey tui/scroll.cpp\"}"
+            "name": "delegate",
+            "arguments": "{\"goal\": \"survey error handling in tui/scroll.cpp\", \"context\": \"the workspace file tui/scroll.cpp\", \"expect\": \"one paragraph on how strict the module is\"}"
           }
         }
       ]
@@ -49,11 +49,11 @@
   ],
   "oracle": [
     {
-      "tool": "task",
+      "tool": "delegate",
       "unordered": true
     },
     {
-      "tool": "task",
+      "tool": "delegate",
       "unordered": true
     }
   ],
@@ -64,7 +64,7 @@
     ]
   },
   "optimal_plan": {
-    "task": 2
+    "delegate": 2
   },
   "budget": {
     "max_steps": 30,

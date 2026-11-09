@@ -52,9 +52,9 @@ struct Config {
     long max_wall_ms = 0; // 0 = unlimited; loop deadline (engine-enforced)
     double temperature = 0.2;
     size_t max_tokens = 16384;
-    bool stream = true;            // use SSE streaming when supported
-    bool subagent_parallel = true; // sub-agents run concurrently (env AMBER_SUBAGENT_PARALLEL)
-    int subagent_max = 4;          // max concurrent sub-agents (env AMBER_SUBAGENT_MAX)
+    bool stream = true;             // use SSE streaming when supported
+    bool subagent_parallel = false; // workers run concurrently (env AMBER_SUBAGENT_PARALLEL)
+    int subagent_max = 1;           // max concurrent workers (env AMBER_SUBAGENT_MAX)
     // Background work viewers: off | agents | jobs | all (default off). When
     // on, the TUI opens a viewer for newly running work without stealing
     // focus, and closes it on completion unless it was focused.

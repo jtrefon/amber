@@ -43,7 +43,7 @@ Rules:
   task, so a second watch counter would be two numbers for one set.
 - The undelivered count comes from the owner's `TaskInbox` (`pending`), not from
   a UI-local copy.
-- `[a…]` is hidden when the `task` tool is unavailable or subagents are disabled.
+- `[a…]` is hidden when the `delegate` tool is unavailable or workers are disabled.
 - `[s…]` counts chat windows only; resource viewers never inflate it.
 
 ## 3. Work board
