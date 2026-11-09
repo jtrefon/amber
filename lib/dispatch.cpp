@@ -398,7 +398,7 @@ Call prepare_call(const json& raw, const Config& cfg, ToolRegistry& registry,
 }
 
 // Launch every approved call on a worker so they run concurrently. Nesting
-// state must survive the thread hop: the task tool runs inside sub-agents on
+// state must survive the thread hop: the delegate tool runs inside workers on
 // dispatch workers, and a nested task call would otherwise bypass the
 // in_subagent guard. Each worker inherits the caller's state. The run scope
 // lives on the calling (agent) thread; tools execute on workers that would

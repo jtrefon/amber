@@ -196,7 +196,7 @@ std::vector<std::unique_ptr<agent::Capability>> GreetPlugin::capabilities() {
 
 A factory returning an empty list *declines*: the tool is simply absent and the
 plugin stays active. That is the shape a tool gated on configuration uses (the
-core tool set ships `todowrite` and `task` that way). Returning several tools
+core tool set ships `todowrite` and `delegate` that way). Returning several tools
 makes them one contribution, the ledger records one entry, so disabling the
 plugin takes them all back out together.
 
@@ -702,7 +702,7 @@ wait), `plugins/tool_context/` (the
 `context` tool, which lets the model name tool results the conversation has
 stopped needing and leaves the plan on the host's shaping queue for the agent
 to apply at its next request boundary), `plugins/tool_plan/`,
-`plugins/tool_task/`, `plugins/tool_skills/` and `plugins/tool_rate/` (the
+`plugins/tool_delegate/` (the `delegate` tool, a detached worker), `plugins/tool_skills/` and `plugins/tool_rate/` (the
 `wait` and `throttle` tools, which expose the provider governor's one-off pause
 and its interval/ceiling controls) (read_skill, list_skills and
 write_skill, plus the prose that documents them — the tools resolve the running

@@ -81,10 +81,10 @@ want to switch independently.
 | `tool_bash` | `bash` | Its own approval semantics; switchable alone |
 | `tool_process` | `process_start/read/stop` | Three tools, one shared job service and lifecycle — splitting would be ceremony |
 | `tool_plan` | `todowrite` | Already conditional; see below |
-| `tool_task` | `task` | Already conditional; see below |
+| `tool_delegate` | `delegate` | Already conditional; see below |
 | `tool_skills` | `read_skill`, `list_skills`, `write_skill` | One catalog, three views (and it moves registration out of `lib/agent.cpp`) |
 
-**Bonus that falls out:** `todowrite` and `task` are enabled today by the
+**Bonus that falls out:** `todowrite` and `delegate` are enabled today by the
 `plan_tool`/`task_tool` config flags, which exist only because those tools can
 be absent. Once each is a plugin, **plugin state *is* the flag** — two config
 booleans and their plumbing delete themselves. That is D17 ("one write path")
@@ -261,7 +261,7 @@ Implemented (branch `docs/tools-domain`):
 
 - **§3.1** — the set is one plugin per tunable unit: `tool_search`, `tool_read`,
   `tool_write`, `tool_bash`, `tool_process` (three tools, one binding),
-  `tool_plan`, `tool_task`. `core_tools` is gone; `register_default_tools`
+  `tool_plan`, `tool_delegate`. `core_tools` is gone; `register_default_tools`
   installs the same definitions for hosts with no runtime, so both paths still
   share one definition per tool.
 - **§3.3 / §4.9** — the display verb is capability data in `ToolRegistry`.
@@ -302,7 +302,7 @@ The items this plan listed, with their outcome:
 - **§5.3 (delete `plan_tool`/`task_tool`)** — **done**. The two config keys,
   their env vars, and the two trailing `bool` parameters of
   `register_default_tools` are gone; `plugins/tool_plan` and
-  `plugins/tool_task` contribute unconditionally, so plugin state is the only
+  `plugins/tool_delegate` contribute unconditionally, so plugin state is the only
   control. `prompts/tools_planning.md` moved to `prompts/tools/plan.md` and is
   contributed as the plan tool's own `System` block (`tool_doc_priority::kPlan`)
   — it now travels with the tool it describes. Consequence, deliberate: the

@@ -593,29 +593,6 @@ std::vector<std::string> task_resource_lines(agent::TaskService& tasks, agent::J
     return lines;
 }
 
-std::vector<std::string> agent_resource_lines(agent::SubAgentExecutor& subagents,
-                                              const std::string& id) {
-    std::vector<std::string> lines;
-    const auto tasks = subagents.tasks();
-    const auto it =
-        std::find_if(tasks.begin(), tasks.end(), [&](const auto& task) { return task.id == id; });
-    if (it == tasks.end()) {
-        lines = {"agent " + id + " is no longer available"};
-        return lines;
-    }
-    lines.push_back("[agent " + it->id + "] " + it->state + "  " + it->prompt_head);
-    if (!it->owner_id.empty())
-        lines.push_back("owner: " + it->owner_id);
-    if (!it->current_tool.empty())
-        lines.push_back("tool: " + it->current_tool);
-    lines.push_back("elapsed: " + std::to_string(it->elapsed_s) + "s");
-    if (!it->result.empty()) {
-        lines.emplace_back();
-        split_lines(it->result, lines, 200);
-    }
-    return lines;
-}
-
 std::vector<std::string> watch_resource_lines(agent::PluginRuntime& runtime,
                                               const std::string& id) {
     std::vector<std::string> lines;
@@ -634,12 +611,10 @@ void Tui::refresh_active_resource() {
         return;
 
     std::vector<std::string> lines;
-    if (w.resource_kind == "task")
+    if (w.resource_kind == "task" || w.resource_kind == "agent")
         lines = task_resource_lines(*tasks_, jobs_, w.resource_id);
     else if (w.resource_kind == "job")
         lines = job_resource_lines(jobs_, w.resource_id);
-    else if (w.resource_kind == "agent")
-        lines = agent_resource_lines(subagents_, w.resource_id);
     else if (w.resource_kind == "watch")
         lines = watch_resource_lines(plugin_runtime_, w.resource_id);
     else

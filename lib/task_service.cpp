@@ -275,6 +275,38 @@ bool TaskService::progress(const std::string& id, std::string line) {
     return true;
 }
 
+bool TaskService::set_artifact(const std::string& id, std::string path) {
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = tasks_.find(id);
+        if (it == tasks_.end() || task_state_terminal(it->second.record.state))
+            return false;
+        it->second.record.result.artifact_path = std::move(path);
+        ++generation_;
+    }
+    persist(id);
+    return true;
+}
+
+bool TaskService::add_usage(const std::string& id, long prompt_tokens, long completion_tokens,
+                            bool measured) {
+    {
+        std::scoped_lock lk(mtx_);
+        auto it = tasks_.find(id);
+        if (it == tasks_.end())
+            return false;
+        if (prompt_tokens > 0)
+            it->second.record.prompt_tokens += prompt_tokens;
+        if (completion_tokens > 0)
+            it->second.record.completion_tokens += completion_tokens;
+        if (measured)
+            it->second.record.usage_measured = true;
+        ++generation_;
+    }
+    persist(id);
+    return true;
+}
+
 bool TaskService::finish(const std::string& id, TaskState state, TaskResult result,
                          std::string error) {
     if (!task_state_terminal(state) || state == TaskState::Cancelled)
@@ -303,9 +335,12 @@ bool TaskService::finish(const std::string& id, TaskState state, TaskResult resu
         event.error = it->second.record.error;
     }
     persist(id);
-    cv_.notify_all();
+    // Publish before waking a waiter: a caller that observes the terminal
+    // record (wait_for_terminal, join_tasks) must also see the completion in
+    // the inbox, or the wait can return one event ahead of delivery.
     if (events_)
         Events(*events_).publish(event);
+    cv_.notify_all();
     return true;
 }
 
@@ -363,13 +398,13 @@ bool TaskService::finish_cancel(const std::string& id, bool stopped, const std::
         }
     }
     persist(id);
-    cv_.notify_all();
     if (events_) {
         if (stopped)
             Events(*events_).publish(cancelled);
         else
             Events(*events_).publish(unknown);
     }
+    cv_.notify_all();
     return true;
 }
 

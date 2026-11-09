@@ -321,7 +321,7 @@ std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptio
                                                agent::SubAgentExecutor& subagents) {
     if (opts.live)
         return nullptr;
-    // Shared script: the parent and any sub-agents (task tool) each take a copy
+    // Shared script: the parent and any workers (delegate tool) each take a copy
     // at construction time, so hermetic runs stay deterministic and never touch
     // the network.
     auto script = std::make_shared<std::deque<BenchReply>>();
@@ -630,9 +630,10 @@ void prepare_workspace(const fs::path& ws, const Scenario& s) {
 // Wire the sub-agent executor and the scenario's step/wall budgets.
 void prepare_subagents(const Scenario& s, const RunOptions& opts, RunHost& host) {
     host.subagents.set_config(host.cfg);
+    host.subagents.set_tasks(&host.tasks);
     // Single-GPU constraint: the local inference service has ONE slot, and
     // concurrent requests pay a long prefill penalty. Bench runs must never fire
-    // parallel LLM requests — sub-agents (task tool) run serially.
+    // parallel LLM requests — delegated workers run serially.
     host.subagents.set_parallel(false);
     host.subagents.set_max(host.cfg.subagent_max);
     apply_run_budgets(s, opts, host.cfg);
@@ -728,6 +729,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     RunHost host(build_run_config(s, opts));
     if (!start_scenario_host(s, opts, host, meta, err))
         return {};
+    host.subagents.set_artifact_root((ws / "tasks").string());
 
     RunComponents comps(host.cfg);
     comps.meter.start();

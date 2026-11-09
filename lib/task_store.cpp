@@ -124,7 +124,30 @@ nlohmann::json to_json(const TaskRecord& record) {
     j["error"] = record.error;
     j["cancel_reason"] = record.cancel_reason;
     j["delivered_at_ms"] = record.delivered_at_ms;
+    j["prompt_tokens"] = record.prompt_tokens;
+    j["completion_tokens"] = record.completion_tokens;
+    j["usage_measured"] = record.usage_measured;
     return j;
+}
+
+void read_owner(const nlohmann::json& j, TaskOwner& owner) {
+    if (!j.contains("owner") || !j["owner"].is_object())
+        return;
+    const auto& object = j["owner"];
+    owner.owner_id = object.value("owner_id", std::string());
+    owner.project_root = object.value("project_root", std::string());
+    owner.worktree = object.value("worktree", std::string());
+}
+
+void read_result(const nlohmann::json& j, TaskResult& result) {
+    if (!j.contains("result") || !j["result"].is_object())
+        return;
+    const auto& object = j["result"];
+    result.exit_code = object.value("exit_code", -1);
+    result.signal = object.value("signal", 0);
+    result.summary = object.value("summary", std::string());
+    result.output_tail = object.value("output_tail", std::string());
+    result.artifact_path = object.value("artifact_path", std::string());
 }
 
 std::optional<TaskRecord> from_json(const nlohmann::json& j) {
@@ -140,12 +163,7 @@ std::optional<TaskRecord> from_json(const nlohmann::json& j) {
     record.state = state_from(j.value("state", std::string("unknown")));
     record.notify = notify_from(j.value("notify", std::string("auto")));
     record.label = j.value("label", std::string());
-    if (j.contains("owner") && j["owner"].is_object()) {
-        const auto& owner = j["owner"];
-        record.owner.owner_id = owner.value("owner_id", std::string());
-        record.owner.project_root = owner.value("project_root", std::string());
-        record.owner.worktree = owner.value("worktree", std::string());
-    }
+    read_owner(j, record.owner);
     record.command = j.value("command", std::string());
     record.goal = j.value("goal", std::string());
     record.cwd = j.value("cwd", std::string());
@@ -154,17 +172,13 @@ std::optional<TaskRecord> from_json(const nlohmann::json& j) {
     record.last_activity_ms = j.value("last_activity_ms", 0LL);
     record.ended_ms = j.value("ended_ms", 0LL);
     record.progress = j.value("progress", std::string());
-    if (j.contains("result") && j["result"].is_object()) {
-        const auto& result = j["result"];
-        record.result.exit_code = result.value("exit_code", -1);
-        record.result.signal = result.value("signal", 0);
-        record.result.summary = result.value("summary", std::string());
-        record.result.output_tail = result.value("output_tail", std::string());
-        record.result.artifact_path = result.value("artifact_path", std::string());
-    }
+    read_result(j, record.result);
     record.error = j.value("error", std::string());
     record.cancel_reason = j.value("cancel_reason", std::string());
     record.delivered_at_ms = j.value("delivered_at_ms", 0LL);
+    record.prompt_tokens = j.value("prompt_tokens", 0L);
+    record.completion_tokens = j.value("completion_tokens", 0L);
+    record.usage_measured = j.value("usage_measured", false);
     return record;
 }
 

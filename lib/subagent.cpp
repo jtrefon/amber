@@ -1,12 +1,13 @@
-
 #include "agent/subagent.h"
 
-#include <chrono>
+#include "agent/event_bus.h"
+#include "agent/private_file.h"
+#include "agent/run_scope.h"
+#include "agent/task_store.h"
 
 #include <algorithm>
-
-#include "agent/agent.h"
-#include "agent/run_scope.h"
+#include <chrono>
+#include <filesystem>
 
 namespace agent {
 
@@ -15,10 +16,89 @@ namespace {
 thread_local bool t_in_subagent = false;
 thread_local bool t_subagent_inherited = false;
 
+constexpr std::size_t kFieldCap = std::size_t{16} * 1024;
+constexpr std::size_t kLabelCap = 128;
+constexpr std::size_t kReportCap = std::size_t{8} * 1024;
+constexpr int kCancelWaitMs = 5000;
+
+std::int64_t now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
+std::string clip(std::string text, std::size_t cap) {
+    if (text.size() > cap)
+        text.resize(cap);
+    return text;
+}
+
+std::string head_of(const std::string& text, std::size_t cap) {
+    if (text.size() <= cap)
+        return text;
+    return text.substr(0, cap > 3 ? cap - 3 : cap) + "...";
+}
+
 const char* approval_result(Approval approval) {
     const bool allowed = approval == Approval::AllowOnce || approval == Approval::AllowSession ||
                          approval == Approval::AlwaysAllow;
     return allowed ? "allowed" : "denied";
+}
+
+std::string compose_prompt(const SpawnRequest& request) {
+    return "## Task\n\n" + request.goal + "\n\n## Context\n\n" + request.context +
+           "\n\n## Report\n\n" + request.expect;
+}
+
+std::string message_line(const Message& message) {
+    json j;
+    j["role"] = message.role;
+    j["content"] = message.content;
+    if (!message.reasoning.empty())
+        j["reasoning"] = message.reasoning;
+    if (!message.tool_call_id.empty())
+        j["tool_call_id"] = message.tool_call_id;
+    if (!message.name.empty())
+        j["name"] = message.name;
+    if (!message.tool_calls.is_null())
+        j["tool_calls"] = message.tool_calls;
+    if (message.harness)
+        j["harness"] = true;
+    return j.dump();
+}
+
+std::string serialize_context(const Context& context) {
+    std::string out;
+    for (const auto& message : context.get_all()) {
+        out += message_line(message);
+        out += "\n";
+    }
+    return out;
+}
+
+bool validate_request(const SpawnRequest& request, std::string& err) {
+    if (request.goal.empty()) {
+        err = "delegate: goal is required";
+        return false;
+    }
+    if (request.context.empty()) {
+        err = "delegate: context is required (the worker does not see the parent conversation)";
+        return false;
+    }
+    if (request.expect.empty()) {
+        err = "delegate: expect is required (state the report shape and success criteria)";
+        return false;
+    }
+    if (request.goal.size() > kFieldCap || request.context.size() > kFieldCap ||
+        request.expect.size() > kFieldCap) {
+        err = "delegate: goal, context and expect are each limited to 16 KiB";
+        return false;
+    }
+    if (request.max_turns < 0 || request.max_turns > 1000) {
+        err = "delegate: max_turns must be between 0 and 1000";
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -26,10 +106,11 @@ const char* approval_result(Approval approval) {
 std::string worker_directive() {
     return "## Worker directive\n\n"
            "You are a focused worker agent executing one task on behalf of "
-           "the main agent. The task below is yours alone — complete it with "
-           "the available tools, working autonomously. When the task is "
-           "complete, reply with a concise report: what you did, what you "
-           "found, and what remains if anything.";
+           "the main agent. You do not see the main conversation; the task "
+           "below carries everything you need. Work autonomously with the "
+           "available tools. When the task is complete, reply with the report "
+           "the task asks for: what you did, what you found, and what remains "
+           "if anything.";
 }
 
 bool in_subagent() noexcept {
@@ -38,55 +119,6 @@ bool in_subagent() noexcept {
 
 void set_subagent_inherited(bool value) noexcept {
     t_subagent_inherited = value;
-}
-
-bool SubAgentExecutor::acquire_slot() {
-    std::unique_lock<std::mutex> lk(slot_mutex_);
-    // Bounded wait: a task that cannot get a slot reports back rather than
-    // waiting forever. An unbounded wait here hangs the parent for as long as
-    // the slots stay taken — which is exactly what "a task that never finishes"
-    // looks like from outside.
-    if (!slot_cv_.wait_for(lk, std::chrono::milliseconds(slot_wait_ms_.load()),
-                           [this] { return active_ < max_.load(); }))
-        return false;
-    ++active_;
-    return true;
-}
-
-void SubAgentExecutor::release_slot() noexcept {
-    {
-        std::scoped_lock lk(slot_mutex_);
-        --active_;
-    }
-    slot_cv_.notify_one();
-}
-
-int SubAgentExecutor::active() const noexcept {
-    std::scoped_lock lk(slot_mutex_);
-    return active_;
-}
-
-std::string SubAgentExecutor::add_task(const std::string& prompt) {
-    TaskRecord record;
-    record.id = "task-" + std::to_string(++next_task_);
-    if (const auto* scope = current_run_scope();
-        scope && scope->leaf.owner_id && !scope->leaf.owner_id->empty())
-        record.owner_id = *scope->leaf.owner_id;
-    record.prompt_head = prompt.size() > 100 ? prompt.substr(0, 97) + "..." : prompt;
-    record.state = "queued";
-    record.started = std::chrono::steady_clock::now();
-    std::scoped_lock lk(tasks_mutex_);
-    if (tasks_.size() >= 64) {
-        const auto done = std::find_if(tasks_.begin(), tasks_.end(), [](const TaskRecord& r) {
-            return r.state != "running" && r.state != "queued";
-        });
-        if (done != tasks_.end())
-            tasks_.erase(done);
-        else
-            tasks_.erase(tasks_.begin());
-    }
-    tasks_.push_back(std::move(record));
-    return tasks_.back().id;
 }
 
 void append_task_tail(std::string& tail, const std::string& line) {
@@ -111,113 +143,200 @@ void append_task_tail(std::string& tail, const std::string& line) {
     }
 }
 
+SubAgentExecutor::SubAgentExecutor() = default;
+
+SubAgentExecutor::~SubAgentExecutor() {
+    shutdown();
+}
+
+void SubAgentExecutor::set_tasks(TaskService* tasks) noexcept {
+    std::scoped_lock lk(queue_mutex_);
+    tasks_ = tasks;
+    internal_tasks_.reset();
+    internal_bus_.reset();
+}
+
+void SubAgentExecutor::ensure_workers() {
+    std::scoped_lock lk(queue_mutex_);
+    const int target = parallel_.load() ? max_.load() : 1;
+    while (worker_count_ < target) {
+        workers_.emplace_back([this] { worker_loop(); });
+        ++worker_count_;
+    }
+}
+
+int SubAgentExecutor::active() const noexcept {
+    std::scoped_lock lk(queue_mutex_);
+    return static_cast<int>(running_.size());
+}
+
+int SubAgentExecutor::waiting() const noexcept {
+    std::scoped_lock lk(queue_mutex_);
+    return static_cast<int>(queue_.size());
+}
+
+std::vector<TaskRecord> SubAgentExecutor::tasks() const {
+    if (!tasks_)
+        return {};
+    std::vector<TaskRecord> out;
+    for (auto& record : tasks_->all()) {
+        if (record.kind == TaskKind::Worker)
+            out.push_back(std::move(record));
+    }
+    return out;
+}
+
+std::string SubAgentExecutor::transcript_path(const std::string& task_id) const {
+    if (artifact_root_.empty() || task_id.empty())
+        return {};
+    return artifact_root_ + "/" + task_id + "/transcript.jsonl";
+}
+
+void SubAgentExecutor::ensure_tasks() {
+    std::scoped_lock lk(queue_mutex_);
+    if (tasks_)
+        return;
+    internal_bus_ = std::make_unique<EventBus>();
+    internal_tasks_ = std::make_unique<TaskService>(*internal_bus_);
+    tasks_ = internal_tasks_.get();
+}
+
+TaskOwner SubAgentExecutor::resolve_owner(const SpawnRequest& request) const {
+    if (!request.owner.owner_id.empty())
+        return request.owner;
+    return task_owner_from_scope();
+}
+
+std::string SubAgentExecutor::create_worker_record(const SpawnRequest& request,
+                                                   const TaskOwner& owner, std::string& err) {
+    TaskRecord record;
+    record.kind = TaskKind::Worker;
+    record.owner = owner;
+    record.label =
+        clip(request.label.empty() ? head_of(request.goal, 80) : request.label, kLabelCap);
+    record.goal = request.goal;
+    record.cwd = owner.worktree.empty() ? owner.project_root : owner.worktree;
+    record.notify = TaskNotify::Auto;
+    return tasks_->create(std::move(record), &err);
+}
+
+void SubAgentExecutor::enqueue_work(const std::string& task_id, SpawnRequest request,
+                                    ToolRegistry& reg) {
+    Work work;
+    work.task_id = task_id;
+    work.request = std::move(request);
+    work.registry = &reg;
+    {
+        std::scoped_lock lk(queue_mutex_);
+        tokens_[task_id] = CancellationToken{};
+        queue_.push_back(std::move(work));
+    }
+    queue_cv_.notify_all();
+}
+
+std::string SubAgentExecutor::spawn(SpawnRequest request, ToolRegistry& reg, std::string& err) {
+    err.clear();
+    if (t_in_subagent) {
+        err = "delegate cannot be nested inside a worker";
+        return {};
+    }
+    if (!validate_request(request, err))
+        return {};
+    ensure_tasks();
+
+    const TaskOwner owner = resolve_owner(request);
+    request.owner = owner;
+    std::string id = create_worker_record(request, owner, err);
+    if (id.empty())
+        return {};
+    if (const std::string path = transcript_path(id); !path.empty())
+        tasks_->set_artifact(id, path);
+    enqueue_work(id, std::move(request), reg);
+    tasks_->attach_cancel(id, [this, id](const CancellationToken&) { return cancel_work(id); });
+    launched_.fetch_add(1);
+    ensure_workers();
+    return id;
+}
+
+bool SubAgentExecutor::cancel_work(const std::string& task_id) {
+    CancellationToken token;
+    bool running = false;
+    {
+        std::scoped_lock lk(queue_mutex_);
+        auto it = tokens_.find(task_id);
+        if (it == tokens_.end())
+            return true; // already finished; the terminal transition wins
+        token = it->second;
+        running = running_.count(task_id) > 0;
+    }
+    token.request();
+    if (!running)
+        return true; // a queued worker is skipped by its consumer
+
+    std::unique_lock lk(queue_mutex_);
+    const auto stopped = idle_cv_.wait_for(lk, std::chrono::milliseconds(kCancelWaitMs),
+                                           [&] { return running_.count(task_id) == 0; });
+    return stopped;
+}
+
+void SubAgentExecutor::append_tail(const std::string& task_id, const std::string& line) {
+    std::scoped_lock lk(tails_mutex_);
+    append_task_tail(tails_[task_id], line);
+}
+
+std::string SubAgentExecutor::take_tail(const std::string& task_id) {
+    std::scoped_lock lk(tails_mutex_);
+    auto it = tails_.find(task_id);
+    if (it == tails_.end())
+        return {};
+    std::string tail = std::move(it->second);
+    tails_.erase(it);
+    return tail;
+}
+
 AgentHooks SubAgentExecutor::progress_hooks(const std::string& task_id) {
-    AgentHooks hooks = sub_hooks_of(owner_of(task_id));
+    std::string owner;
+    std::string label;
+    if (tasks_) {
+        if (const auto record = tasks_->get(task_id)) {
+            owner = record->owner.owner_id;
+            label = record->label;
+        }
+    }
+    AgentHooks hooks = sub_hooks_of(owner);
     if (hooks.on_approval) {
         // A gated tool in the child reports through the owner's hook. Record
         // the wait on the task so /tasks can say why the worker is stuck, and
         // the decision once it lands.
         const auto inner = hooks.on_approval;
-        hooks.on_approval = [this, task_id, inner](const std::string& name, const json& args,
-                                                   const std::string& summary) {
-            update_task(task_id, "blocked", name);
+        hooks.on_approval = [this, task_id, label, inner](const std::string& name, const json& args,
+                                                          const std::string& summary) {
+            if (tasks_)
+                tasks_->progress(task_id, "awaiting approval: " + name);
             append_tail(task_id, "awaiting approval: " + name);
-            const std::string labelled = "worker \"" + prompt_head_of(task_id) + "\": " + summary;
+            const std::string labelled = "worker \"" + label + "\": " + summary;
             const Approval approval = inner(name, args, labelled);
-            update_task(task_id, "running", name);
+            if (tasks_)
+                tasks_->progress(task_id, "running");
             append_tail(task_id, std::string("approval: ") + approval_result(approval));
             return approval;
         };
     }
     hooks.on_tool_call = [this, task_id](const std::string& name, const json&) {
-        update_task(task_id, "running", name);
+        if (tasks_)
+            tasks_->progress(task_id, "tool: " + name);
         append_tail(task_id, "-> " + name);
     };
     hooks.on_tool_result = [this, task_id](const std::string& name, const ToolResult& result,
                                            const json&) {
-        update_task(task_id, "running");
+        if (tasks_)
+            tasks_->progress(task_id, "running");
         append_tail(task_id, "<- " + name + (result.ok ? " ok" : " error"));
     };
     hooks.on_stats = [this, task_id](const Stats& stats) { record_usage(task_id, stats); };
     return hooks;
 }
 
-std::string SubAgentExecutor::owner_of(const std::string& id) const {
-    std::scoped_lock lk(tasks_mutex_);
-    for (const auto& record : tasks_) {
-        if (record.id == id)
-            return record.owner_id;
-    }
-    return {};
-}
-
-std::string SubAgentExecutor::prompt_head_of(const std::string& id) const {
-    std::scoped_lock lk(tasks_mutex_);
-    for (const auto& record : tasks_) {
-        if (record.id == id)
-            return record.prompt_head;
-    }
-    return {};
-}
-
-void SubAgentExecutor::append_tail(const std::string& id, const std::string& line) {
-    std::scoped_lock lk(tasks_mutex_);
-    for (auto& record : tasks_) {
-        if (record.id != id)
-            continue;
-        append_task_tail(record.tail, line);
-        return;
-    }
-}
-
-void SubAgentExecutor::update_task(const std::string& id, const std::string& state,
-                                   const std::string& current_tool, const std::string& result) {
-    std::scoped_lock lk(tasks_mutex_);
-    for (auto& record : tasks_) {
-        if (record.id != id)
-            continue;
-        record.state = state;
-        if (!current_tool.empty())
-            record.current_tool = current_tool;
-        else if (state == "running")
-            record.current_tool.clear();
-        if (!result.empty())
-            record.result = result.size() > 400 ? result.substr(0, 397) + "..." : result;
-        return;
-    }
-}
-
-void SubAgentExecutor::fail_task(const std::string& id, const std::string& error) {
-    waiting_.fetch_sub(1);
-    update_task(id, "failed", {}, error);
-}
-
-std::vector<SubAgentTaskInfo> SubAgentExecutor::tasks() const {
-    std::scoped_lock lk(tasks_mutex_);
-    std::vector<SubAgentTaskInfo> out;
-    const auto now = std::chrono::steady_clock::now();
-    for (const auto& record : tasks_) {
-        SubAgentTaskInfo info;
-        info.id = record.id;
-        info.owner_id = record.owner_id;
-        info.prompt_head = record.prompt_head;
-        info.state = record.state;
-        info.current_tool = record.current_tool;
-        info.result = record.result;
-        info.tail = record.tail;
-        info.prompt_tokens = record.prompt_tokens;
-        info.completion_tokens = record.completion_tokens;
-        info.usage_measured = record.usage_measured;
-        info.elapsed_s =
-            std::chrono::duration_cast<std::chrono::seconds>(now - record.started).count();
-        info.slot = record.slot;
-        out.push_back(std::move(info));
-    }
-    return out;
-}
-
-// Sub-agent hooks: approval and status passthrough only — tool calls, tokens and
-// state of the worker never leak into the parent's observers.
 AgentHooks SubAgentExecutor::sub_hooks_of() const {
     return sub_hooks_of({});
 }
@@ -231,10 +350,6 @@ AgentHooks SubAgentExecutor::sub_hooks_of(const std::string& owner_id) const {
     return sub_hooks;
 }
 
-// The sub-agent's config: a fresh cancel flag and the iteration cap. Sibling
-// sub-agents of one parent must not share the flag (cancelling one would kill
-// the other); parent cancel still reaches a sub through the RunScope ancestor
-// chain.
 Config SubAgentExecutor::sub_config() const {
     Config sub_cfg = cfg_;
     sub_cfg.cancel_token = CancellationToken{};
@@ -243,22 +358,10 @@ Config SubAgentExecutor::sub_config() const {
     return sub_cfg;
 }
 
-// Serial mode: one sub-agent at a time (cache-friendly request ordering).
-// Bounded like the slot wait, so a wedged sibling cannot hold the parent
-// forever. Returns false with `err` set when the wait expires.
-bool SubAgentExecutor::enter_serial_mode(std::unique_lock<std::timed_mutex>& guard,
-                                         std::string& err) {
-    if (parallel_.load())
-        return true;
-    if (guard.try_lock_for(std::chrono::milliseconds(slot_wait_ms_.load())))
-        return true;
-    err = "another sub-agent is still running; retry shortly";
-    return false;
-}
-
-std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegistry& reg,
-                                            const Config& sub_cfg, const AgentHooks& sub_hooks,
-                                            std::string& err) {
+std::string SubAgentExecutor::run_sub_agent(ToolRegistry& reg, const Config& sub_cfg,
+                                            const AgentHooks& sub_hooks,
+                                            const SpawnRequest& request, std::string& err,
+                                            std::string* transcript) {
     try {
         // The sub shares the parent's registry, where the skill tools are
         // already installed. Its own runs resolve this sub's catalog through
@@ -266,7 +369,13 @@ std::string SubAgentExecutor::run_sub_agent(const std::string& prompt, ToolRegis
         // Its system prompt is rendered by the Agent itself — the same assembly
         // as the parent's, plus the worker directive for running in a sub.
         Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_);
-        return sub.run(prompt);
+        sub.set_project_root(request.owner.project_root);
+        sub.set_workspace_root(request.owner.worktree);
+        sub.set_owner_id(request.owner.owner_id);
+        const std::string reply = sub.run(compose_prompt(request));
+        if (transcript)
+            *transcript = serialize_context(sub.context());
+        return reply;
     } catch (const std::exception& e) {
         err = std::string("sub-agent failed: ") + e.what();
         return {};
@@ -281,63 +390,172 @@ void SubAgentExecutor::record_usage(const std::string& task_id, const Stats& sta
     sample.cache_read_tokens = stats.cache_read_tokens;
     sample.cache_write_tokens = stats.cache_write_tokens;
     sample.task_id = task_id;
-    {
-        std::scoped_lock lk(tasks_mutex_);
-        for (auto& record : tasks_) {
-            if (record.id != task_id)
-                continue;
-            if (stats.prompt_tokens >= 0) {
-                record.prompt_tokens += stats.prompt_tokens;
-                record.usage_measured = true;
-            }
-            if (stats.completion_tokens >= 0) {
-                record.completion_tokens += stats.completion_tokens;
-                record.usage_measured = true;
-            }
-            sample.owner_id = record.owner_id;
-            break;
-        }
+    if (tasks_) {
+        tasks_->add_usage(task_id, stats.prompt_tokens, stats.completion_tokens, stats.valid);
+        if (const auto record = tasks_->get(task_id))
+            sample.owner_id = record->owner.owner_id;
     }
     if (stats.valid && usage_sink_)
         usage_sink_(sample);
 }
 
+bool SubAgentExecutor::begin_work(const Work& work, const CancellationToken& token) {
+    if (token.is_requested())
+        return false;
+    if (!tasks_)
+        return true;
+    tasks_->started(work.task_id, now_ms());
+    tasks_->progress(work.task_id, "starting");
+    const auto record = tasks_->get(work.task_id);
+    return record && !task_state_terminal(record->state) && !token.is_requested();
+}
+
+std::string SubAgentExecutor::execute_child(const Work& work, const CancellationToken& token,
+                                            std::string& err, std::string* transcript) {
+    Config sub_cfg = sub_config();
+    sub_cfg.cancel_token = token;
+    if (work.request.max_turns > 0)
+        sub_cfg.max_tool_iterations = work.request.max_turns;
+    const AgentHooks sub_hooks = progress_hooks(work.task_id);
+    t_in_subagent = true;
+    const std::string reply =
+        run_sub_agent(*work.registry, sub_cfg, sub_hooks, work.request, err, transcript);
+    t_in_subagent = false;
+    return reply;
+}
+
+void SubAgentExecutor::finish_work(const Work& work, const CancellationToken& token,
+                                   const std::string& reply, const std::string& err,
+                                   std::string transcript) {
+    const std::string path = transcript_path(work.task_id);
+    if (!path.empty()) {
+        const std::string dir = artifact_root_ + "/" + work.task_id;
+        if (ensure_private_dir(dir)) {
+            if (transcript.empty()) {
+                Message message;
+                message.role = "assistant";
+                message.content = err.empty() ? reply : err;
+                transcript = message_line(message) + "\n";
+            }
+            write_private_file(path, transcript);
+        }
+    }
+
+    TaskResult result;
+    result.exit_code = err.empty() ? 0 : 1;
+    result.summary = clip(err.empty() ? reply : err, kReportCap);
+    result.output_tail = take_tail(work.task_id);
+    result.artifact_path = path;
+    if (!tasks_)
+        return;
+    if (token.is_requested()) {
+        // cancel() owns the terminal transition; the artifact already carries
+        // whatever the child produced before it stopped.
+        tasks_->progress(work.task_id, "cancelled");
+        return;
+    }
+    tasks_->finish(work.task_id, err.empty() ? TaskState::Succeeded : TaskState::Failed,
+                   std::move(result), err);
+}
+
+void SubAgentExecutor::cleanup_work(const std::string& task_id) {
+    {
+        std::scoped_lock lk(queue_mutex_);
+        running_.erase(task_id);
+        tokens_.erase(task_id);
+    }
+    idle_cv_.notify_all();
+}
+
+void SubAgentExecutor::run_work(const Work& work) {
+    CancellationToken token;
+    {
+        std::scoped_lock lk(queue_mutex_);
+        auto it = tokens_.find(work.task_id);
+        if (it == tokens_.end())
+            return;
+        token = it->second;
+    }
+    if (!begin_work(work, token)) {
+        cleanup_work(work.task_id);
+        return;
+    }
+
+    std::string err;
+    std::string transcript;
+    const std::string reply = execute_child(work, token, err, &transcript);
+    finish_work(work, token, reply, err, std::move(transcript));
+    cleanup_work(work.task_id);
+}
+
+void SubAgentExecutor::worker_loop() {
+    for (;;) {
+        Work work;
+        {
+            std::unique_lock lk(queue_mutex_);
+            queue_cv_.wait(lk, [&] { return shutting_down_ || !queue_.empty(); });
+            if (queue_.empty())
+                return; // shutting down with nothing left to start
+            work = std::move(queue_.front());
+            queue_.pop_front();
+            running_.insert(work.task_id);
+        }
+        run_work(work);
+    }
+}
+
 std::string SubAgentExecutor::run_task(const std::string& prompt, ToolRegistry& reg,
                                        std::string& err) {
-    err.clear();
-    if (t_in_subagent) {
-        err = "task cannot be nested inside a sub-agent";
-        return "";
+    SpawnRequest request;
+    request.goal = prompt;
+    request.context = "This is a focused task from the parent conversation.";
+    request.expect = "Reply with a concise report of what you did and found.";
+    request.owner = task_owner_from_scope();
+    const std::string id = spawn(std::move(request), reg, err);
+    if (id.empty())
+        return {};
+    const CancellationToken token;
+    const auto record = tasks_->wait_for_terminal(id, 24 * 60 * 60 * 1000, token);
+    if (!record) {
+        err = "delegate: worker did not finish";
+        return {};
     }
-
-    const std::string task_id = add_task(prompt);
-    waiting_.fetch_add(1);
-    std::unique_lock<std::timed_mutex> serial_guard(serial_mutex_, std::defer_lock);
-    if (!enter_serial_mode(serial_guard, err)) {
-        fail_task(task_id, err);
-        return "";
+    if (record->state != TaskState::Succeeded) {
+        err = record->error.empty() ? record->result.summary : record->error;
+        return {};
     }
-    if (!acquire_slot()) {
-        err = "all sub-agent slots are busy; retry shortly";
-        fail_task(task_id, err);
-        return "";
+    return record->result.summary;
+}
+
+void SubAgentExecutor::shutdown() {
+    std::vector<std::string> live;
+    {
+        std::scoped_lock lk(queue_mutex_);
+        if (shutting_down_ && workers_.empty())
+            return;
+        shutting_down_ = true;
+        for (const auto& work : queue_)
+            live.push_back(work.task_id);
+        for (const auto& id : running_)
+            live.push_back(id);
     }
-    waiting_.fetch_sub(1);
-    struct SlotGuard {
-        SubAgentExecutor* self;
-        ~SlotGuard() { self->release_slot(); }
-    } slot_guard{this};
-
-    update_task(task_id, "running");
-    const AgentHooks sub_hooks = progress_hooks(task_id);
-    const Config sub_cfg = sub_config();
-
-    launched_.fetch_add(1);
-    t_in_subagent = true;
-    const std::string result = run_sub_agent(prompt, reg, sub_cfg, sub_hooks, err);
-    t_in_subagent = false;
-    update_task(task_id, err.empty() ? "done" : "failed", {}, result);
-    return result;
+    if (tasks_) {
+        for (const auto& id : live)
+            tasks_->cancel(id, "executor shut down", cfg_.cancel_token);
+    }
+    queue_cv_.notify_all();
+    for (auto& worker : workers_) {
+        if (worker.joinable())
+            worker.join();
+    }
+    workers_.clear();
+    {
+        std::scoped_lock lk(queue_mutex_);
+        worker_count_ = 0;
+        queue_.clear();
+        running_.clear();
+        tokens_.clear();
+    }
 }
 
 } // namespace agent

@@ -14,7 +14,7 @@ Amber already runs three kinds of work with three identities:
 |---|---|---|---|
 | command | `JobService` | monotonic counter, host-global | no owner, label, completion or inventory |
 | watch | `WatchService` | watch id, owner, journal | own store and report; a second inventory |
-| worker | `SubAgentExecutor` | none (synchronous) | no task id, no detached lifetime |
+| worker | `SubAgentExecutor` | TaskService id from `delegate` | detached; fresh context; report through the inbox |
 
 A second queue beside the watch report path is the failure this contract
 prevents. There is **one** inventory (`TaskService`), **one** owner model, and
@@ -99,11 +99,13 @@ A cap counts **non-terminal** records only.
 |---|---:|---:|
 | command | 20 | 64 |
 | watch | 20 | 64 |
-| worker | 1 | 4 |
+| worker | 8 | 32 |
 | total | 32 | 96 |
 
-Over a cap the create call returns an empty id and an error that ends with
-`do not retry`; retrying a full queue cannot succeed and must not become a
+Worker admission allows a visible queue (8 per owner, 32 global); the
+executor's `subagent_parallel`/`subagent_max` setting decides how many run at
+once. Over a cap the create call returns an empty id and an error that ends
+with `do not retry`; retrying a full queue cannot succeed and must not become a
 spin.
 
 ## Safe delivery boundaries
@@ -186,9 +188,25 @@ hermetic run writes no task files.
 - An id is never reused across a restart; the time+random form makes that a
   property, not a hope.
 
+## Delegated workers (#379)
+
+`delegate` is the worker spawn tool. It requires `goal`, `context` and `expect`
+(the child does not see the parent), creates a `Worker` record, enqueues it, and
+returns the task id; the tool call never waits for a slot. The executor's
+threads pop the queue, mark the record `Running`, build a child `Agent` with
+the parent's tools/mode/policy/workspace and the owner's approval hooks, and run
+it with a fresh `Context`.
+
+Only the bounded final reply enters the parent, through `TaskInbox` at a safe
+boundary. The full child conversation is
+`<cache>/tasks/<task_id>/transcript.jsonl` (also for a cancelled worker), and
+the bounded tool tail rides `result.output_tail`. The record's
+`prompt_tokens`/`completion_tokens` are the worker's measured usage, so `/usage`
+reads the same row `/tasks` shows.
+
 ## Non-goals
 
 - Durable execution or reattaching to a running process after restart.
 - A scheduler, a distributed queue, or a second governor.
 - Replacing `JobService`, `WatchService` or `SubAgentExecutor`.
-- A model-facing `tasks` tool in this contract; that is #377/#380.
+- A second worker inventory; `SubAgentTaskInfo` is gone.

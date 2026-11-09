@@ -73,6 +73,12 @@ struct TaskRecord {
     std::string error;
     std::string cancel_reason;
     std::int64_t delivered_at_ms = 0;
+    // Worker usage, updated by the executor's stats hook. Zero and unmeasured
+    // for commands and watches; the usage report reads these from the one
+    // record instead of a second worker inventory.
+    long prompt_tokens = 0;
+    long completion_tokens = 0;
+    bool usage_measured = false;
 };
 
 // Injected at construction; v1 has no config keys for these.
@@ -81,8 +87,10 @@ struct TaskLimits {
     int command_global = 64;
     int watch_per_owner = 20;
     int watch_global = 64;
-    int worker_per_owner = 1;
-    int worker_global = 4;
+    // Admission allows a visible queue; the executor's serial/parallel setting
+    // governs how many of these actually run at once.
+    int worker_per_owner = 8;
+    int worker_global = 32;
     int total_per_owner = 32;
     int total_global = 96;
 };
@@ -112,6 +120,16 @@ public:
 
     // Replace the one-line progress field. Ignored after a terminal state.
     bool progress(const std::string& id, std::string line);
+
+    // Name the artifact a task will produce before it finishes (a worker's
+    // transcript is known at spawn, so even a cancelled record points at its
+    // partial evidence). Ignored after a terminal state.
+    bool set_artifact(const std::string& id, std::string path);
+
+    // Add one measured stats sample to the record. Persisted, so /usage can
+    // read a worker's cost from the same row /tasks shows.
+    bool add_usage(const std::string& id, long prompt_tokens, long completion_tokens,
+                   bool measured);
 
     // Running -> a terminal state. `Cancelled` must go through cancel(); this
     // rejects it so a backend cannot claim a cancel it did not perform.

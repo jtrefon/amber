@@ -312,7 +312,7 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
         snapshot.undelivered_tasks =
             static_cast<int>(tui_.task_runtime_->inbox.pending(w.owner_id));
     }
-    if (tui_.reg_.find("task")) {
+    if (tui_.reg_.find("delegate")) {
         snapshot.subagents_available = true;
         snapshot.active_agents = tui_.subagents_.active();
         snapshot.waiting_agents = tui_.subagents_.waiting();

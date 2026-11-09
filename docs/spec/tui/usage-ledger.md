@@ -31,7 +31,7 @@ plugin accumulates observer spend per owner.
 - `↑` is the sum of per-request prompt tokens; `↓` is the sum of completions.
   Neither is derived from the context size.
 - The bar shows the active chat window's tree total. A resource viewer shows
-  that resource's own usage (a task viewer reads `SubAgentTaskInfo`).
+  that resource's own usage (a worker row reads its `TaskRecord`).
 
 ### Persistence and reset
 

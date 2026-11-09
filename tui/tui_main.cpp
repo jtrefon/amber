@@ -3,6 +3,7 @@
 
 #include "agent/private_file.h"
 #include "agent/exit_ready.h"
+#include "agent/config_paths.h"
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
 #include "agent/context_shape.h"
@@ -190,6 +191,8 @@ struct TuiHost {
         subagents.set_config(cfg);
         subagents.set_parallel(cfg.subagent_parallel);
         subagents.set_max(cfg.subagent_max);
+        subagents.set_tasks(&tasks);
+        subagents.set_artifact_root(agent::task_artifacts_dir(agent::cache_dir()));
         plugins.discover();
         // The v2 runtime: bundled plugins register here, their state comes from
         // ~/.config/amber/plugins/<id>/plugin.conf, and activation installs what

@@ -105,6 +105,7 @@ constexpr int prompt_band_end(PromptBand band) noexcept {
     X(kReadResult, 515, PromptBand::ToolDoc)                                                       \
     X(kWrite, 520, PromptBand::ToolDoc)                                                            \
     X(kBash, 530, PromptBand::ToolDoc)                                                             \
+    X(kDelegate, 538, PromptBand::ToolDoc)                                                         \
     X(kProcess, 540, PromptBand::ToolDoc)                                                          \
     X(kTasks, 542, PromptBand::ToolDoc)                                                            \
     X(kContext, 545, PromptBand::ToolDoc)                                                          \

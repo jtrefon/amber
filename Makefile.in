@@ -162,7 +162,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/tool_tasks/tool_tasks_plugin.o \
               $(BUILD_DIR)/plugins/tool_context/tool_context_plugin.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
-              $(BUILD_DIR)/plugins/tool_task/tool_task_plugin.o \
+              $(BUILD_DIR)/plugins/tool_delegate/tool_delegate_plugin.o \
               $(BUILD_DIR)/plugins/tool_skills/tool_skills_plugin.o \
               $(BUILD_DIR)/plugins/watch/watch_plugin.o \
               $(BUILD_DIR)/plugins/watch/watch_service.o \
@@ -216,7 +216,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/bash_tool.o \
              $(BUILD_DIR)/tools/todowrite_tool.o \
              $(BUILD_DIR)/tools/context_tool.o \
-             $(BUILD_DIR)/tools/task_tool.o \
+             $(BUILD_DIR)/tools/delegate_tool.o \
              $(BUILD_DIR)/lib/subagent.o \
              $(BUILD_DIR)/lib/providers_service.o \
              $(BUILD_DIR)/lib/providers_repo_files.o \
