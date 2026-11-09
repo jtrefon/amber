@@ -95,7 +95,7 @@ public:
     // spawn. Without one the executor owns a private service so a bare test or
     // a probe still has a working queue; a host never takes that path.
     void set_tasks(TaskService* tasks) noexcept;
-    TaskService* task_service() noexcept { return tasks_; }
+    TaskService* task_service() noexcept;
     // Derives <root>/<task_id>/transcript.jsonl. Empty means no transcript is
     // written (the record still carries the report).
     void set_artifact_root(std::string root) { artifact_root_ = std::move(root); }

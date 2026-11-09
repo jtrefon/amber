@@ -175,11 +175,21 @@ int SubAgentExecutor::waiting() const noexcept {
     return static_cast<int>(queue_.size());
 }
 
+TaskService* SubAgentExecutor::task_service() noexcept {
+    std::scoped_lock lk(queue_mutex_);
+    return tasks_;
+}
+
 std::vector<TaskRecord> SubAgentExecutor::tasks() const {
-    if (!tasks_)
+    TaskService* service = nullptr;
+    {
+        std::scoped_lock lk(queue_mutex_);
+        service = tasks_;
+    }
+    if (!service)
         return {};
     std::vector<TaskRecord> out;
-    for (auto& record : tasks_->all()) {
+    for (auto& record : service->all()) {
         if (record.kind == TaskKind::Worker)
             out.push_back(std::move(record));
     }
