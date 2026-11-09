@@ -1179,6 +1179,21 @@ bench: $(BUILD_DIR)/$(BENCH_BIN)
 bench-reap: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) reap-state
 
+# Release gate: the tagged engine must carry a committed live baseline. A
+# docs/packaging-only tag passes via CHANGED_PATHS; an engine tag with no
+# artifact prints NOT MEASURED and fails. Not part of `make check` (it reads a
+# committed run, not a build).
+VERSION ?= $(shell cat $(SRC_DIR)/version.txt)
+BENCH_RESULTS_DIR ?=
+BENCH_PREVIOUS_DIR ?=
+CHANGED_PATHS ?=
+bench-release-check:
+	@python3 $(SRC_DIR)/tools/bench_release_check.py --root "$(SRC_DIR)" \
+		--version "$(VERSION)" \
+		$(if $(BENCH_RESULTS_DIR),--results-dir "$(BENCH_RESULTS_DIR)") \
+		$(if $(BENCH_PREVIOUS_DIR),--previous-dir "$(BENCH_PREVIOUS_DIR)") \
+		$(if $(CHANGED_PATHS),--changed-paths-file "$(CHANGED_PATHS)")
+
 bench-reap-apply: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) reap-state --apply
 

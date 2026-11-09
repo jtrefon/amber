@@ -54,6 +54,31 @@ is reaped with `make bench-reap` (dry run) or `make bench-reap-apply`.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Release gate (0.8+): a committed live baseline, or no release
+
+`make bench-release-check VERSION=<x.y.z>` requires a live artifact under
+`bench/results/releases/<x.y.z>/` whose `engine_version` is that version, whose
+`mode` is `live`, whose scenario count covers the model corpus, and whose
+scenarios all succeeded. A drop larger than the recorded band against the
+previous release's artifact is a failure. The check fails closed: no artifact
+prints `NOT MEASURED` and exits non-zero. Docs/website/packaging-only tags may
+skip via `CHANGED_PATHS`; the release workflow computes that list from the
+previous tag. The gate tests live in `tests/gates/test_bench_release_check.py`.
+
+**Status 2026-11-09: green on the cloud minimum.** The committed
+`bench/results/releases/0.8.8/cloud-deepseek-chat-r3.json` is a live, repeat-3,
+51-scenario run on `deepseek-chat`: **657.9/1000** (95% CI ±16.1), 37 passed.
+The fixed local `llama-turboq` service was inactive and is inviolate, so the
+release records one configured cloud profile as its live minimum; the local
+fixed profile remains the full-population review target. `0.8.8/README.md`
+records the run and the local command.
+
+The three validations BENCHMARK.md has carried since 0.8 — the session brief,
+the 32 KB tool-result budget on a live long read, and plan/task default-on —
+remain **re-scoped, not executed** for the same reason: each needs a live
+model, and the service is inviolate. Their hermetic evidence is recorded in
+the sections below; they are not claimed as validated live.
+
 ## Baseline review (2026-08-11): the first live v2 calibration run
 
 First real run under v2 scoring (difficulty-weighted aggregate over 43

@@ -94,5 +94,10 @@
   "model": "deepseek-chat",
   "temperature": 0.2,
   "thinking": "on"
+ },
+ "deepseek-chat": {
+  "model": "deepseek-chat",
+  "temperature": 0.2,
+  "thinking": "off"
  }
 }
