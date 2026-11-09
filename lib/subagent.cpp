@@ -378,7 +378,9 @@ std::string SubAgentExecutor::run_sub_agent(ToolRegistry& reg, const Config& sub
         // the run scope, so nothing is rebound here and nothing can dangle.
         // Its system prompt is rendered by the Agent itself — the same assembly
         // as the parent's, plus the worker directive for running in a sub.
-        Agent sub(sub_cfg, reg, sub_hooks, {}, {}, {}, {}, {}, factory_);
+        AgentDeps deps;
+        deps.client_factory = factory_;
+        Agent sub(sub_cfg, reg, sub_hooks, std::move(deps));
         sub.set_project_root(request.owner.project_root);
         sub.set_workspace_root(request.owner.worktree);
         sub.set_owner_id(request.owner.owner_id);

@@ -42,6 +42,18 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
         agent_cfg.load_workspace_defaults(project_root + "/amber.conf");
         agent_cfg.load(agent::Workspace::settings_path_for(project_root));
     }
+    w->agent = make_agent(std::move(agent_cfg));
+    if (project_root.empty())
+        w->agent->policy().init(agent::Workspace::policy_path());
+    else
+        w->agent->policy().init(agent::Workspace::policy_path_for(project_root));
+    wire_agent(*w, project_root);
+    windows_.push_back(std::move(w));
+    set_active(windows_.size() - 1);
+    return *windows_.back();
+}
+
+std::unique_ptr<agent::IAgent> WindowManager::make_agent(agent::Config agent_cfg) {
     // The gate reads the LIVE config on every check (threshold_exceeded uses
     // agent_cfg.context_size), so it is safe to build from the current cfg:
     // a late /set model or an autodetect window reaches the gate through the
@@ -58,32 +70,34 @@ Window& WindowManager::new_window(const std::string& title, const std::string& p
     // Give this window's agent a fresh flag so cancelling one run can
     // never cancel a sibling's.
     agent_cfg.cancel_token = agent::CancellationToken{};
-    agent::Agent a(std::move(agent_cfg), reg_, agent::AgentHooks{}, std::move(compressor),
-                   std::move(gate), std::move(mem_store), std::move(retriever), {}, {},
-                   shared_skills());
-    w->agent = std::make_unique<agent::Agent>(std::move(a));
+    agent::AgentDeps deps;
+    deps.compressor = std::move(compressor);
+    deps.gate = std::move(gate);
+    deps.memory_store = std::move(mem_store);
+    deps.retriever = std::move(retriever);
+    deps.skills = shared_skills();
+    return std::make_unique<agent::Agent>(std::move(agent_cfg), reg_, agent::AgentHooks{},
+                                          std::move(deps));
+}
+
+void WindowManager::wire_agent(Window& w, const std::string& project_root) {
     // The watch plugin routes a background report back to the window that
     // started it. The owner id is persisted with the window and survives a
     // restart, unlike the in-process window index.
     if (!project_root.empty())
-        w->agent->set_project_root(project_root);
-    w->agent->set_owner_id(w->owner_id);
+        w.agent->set_project_root(project_root);
+    w.agent->set_owner_id(w.owner_id);
     // Shaping is per-process, like the task list: the tool pushes a plan and the
     // agent whose history carries those ids applies it. A window in a runtime
     // with no queue simply has no `context` tool installed.
     if (plugin_runtime_)
-        w->agent->set_shape_queue(plugin_runtime_->host_services().shape);
-    w->agent->policy().init(agent::Workspace::policy_path_for(
-        project_root.empty() ? agent::Workspace::project_root() : project_root));
+        w.agent->set_shape_queue(plugin_runtime_->host_services().shape);
     // Attach the harness bus so plugins observe this window's turns. Without a
     // runtime (tests, headless hosts) the agent simply publishes nothing.
     if (plugin_runtime_) {
-        w->agent->set_events(plugin_runtime_->events());
-        w->agent->set_prompt_registry(plugin_runtime_->prompts());
+        w.agent->set_events(plugin_runtime_->events());
+        w.agent->set_prompt_registry(plugin_runtime_->prompts());
     }
-    windows_.push_back(std::move(w));
-    set_active(windows_.size() - 1);
-    return *windows_.back();
 }
 
 Window& WindowManager::new_resource_window(const std::string& kind, const std::string& id,

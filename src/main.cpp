@@ -603,7 +603,7 @@ agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool a
 
 // One turn on the persistent headless agent. Streamed tokens already reached
 // stdout; a buffered reply (or a harness stop) is printed once here.
-void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
+void run_turn(agent::IAgent& agent, CliHost& host, const std::string& prompt) {
     host.streamed = false;
     const std::string reply = agent.run(prompt);
     if (host.streamed)
@@ -616,7 +616,7 @@ void run_turn(agent::Agent& agent, CliHost& host, const std::string& prompt) {
 // the main conversation; a completion brings one follow-up turn on the same
 // context. Without the wait, completions are printed and a still-running task
 // is a named exit 3, never a silent drop.
-int finish_tasks(agent::Config& cfg, CliHost& host, agent::Agent& agent, agent::TaskInbox& inbox,
+int finish_tasks(agent::Config& cfg, CliHost& host, agent::IAgent& agent, agent::TaskInbox& inbox,
                  int wait_seconds) {
     const agent::JoinResult joined = agent::join_tasks(
         host.tasks, host.plugin_runtime.events(), "cli",
@@ -684,9 +684,12 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
     agent::TaskInbox inbox(host.plugin_runtime.events(), host.tasks);
     restore_cli_tasks(host, store, inbox);
     try {
-        agent::Agent agent(cfg, host.registry, hooks, std::move(host.compressor),
-                           std::move(host.gate), std::move(host.mem_store),
-                           std::move(host.retriever));
+        agent::AgentDeps deps;
+        deps.compressor = std::move(host.compressor);
+        deps.gate = std::move(host.gate);
+        deps.memory_store = std::move(host.mem_store);
+        deps.retriever = std::move(host.retriever);
+        agent::Agent agent(cfg, host.registry, hooks, std::move(deps));
         agent.policy().init(agent::Workspace::policy_path());
         agent.set_shape_queue(&host.shapes);
         agent.set_events(host.plugin_runtime.events());

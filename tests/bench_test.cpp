@@ -1515,7 +1515,7 @@ TEST(subagent_hooks_do_not_leak) {
     executor.set_config(cfg);
     executor.set_hooks(hooks);
 
-    Agent ag(cfg, reg, hooks, {}, {}, {}, {}, std::move(parent));
+    Agent ag(cfg, reg, hooks, agent::AgentDeps{{}, {}, {}, {}, std::move(parent), {}, {}});
     std::string reply = ag.run("delegate an exploration");
     ASSERT_EQ(reply, "done");
     ASSERT_EQ(rec.stream().tools.size(), 1u);

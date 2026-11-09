@@ -10,6 +10,7 @@
 namespace agent {
 struct Config;
 struct ExperienceConfig;
+class IAgent;
 class ToolRegistry;
 class PluginRuntime;
 class SkillCatalog;
@@ -34,6 +35,13 @@ public:
     bool close_resource_window(const std::string& kind, const std::string& id);
     bool focus_resource(const std::string& kind, const std::string& id);
     Window& open_welcome_window();
+    // Attach the window's owner, shaping queue, policy and observability after
+    // its agent exists. Split from new_window so the construction path stays
+    // inside the size cap.
+    void wire_agent(Window& w, const std::string& project_root);
+    // Build the window's engine from the live config template. Kept out of
+    // new_window so the construction path stays inside the size cap.
+    std::unique_ptr<agent::IAgent> make_agent(agent::Config agent_cfg);
     Window& ensure_chat_window();
     Window& win();
     const Window& win() const;

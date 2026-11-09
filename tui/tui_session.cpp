@@ -105,7 +105,7 @@ agent::Session SessionController::snapshot(Window& w) const {
     if (w.agent) {
         const auto& ctx = w.agent->context().get_all();
         s.messages.assign(ctx.begin(), ctx.end());
-        s.meta = w.agent->meta_;
+        s.meta = w.agent->meta();
     }
     // Persist UI state so it survives exit/reload.
     s.meta["ctx_used"] = w.ctx_used.load();
@@ -188,7 +188,7 @@ void SessionController::fork_session() {
     fork.ledger.inherited = src.ledger.tree();
     fork.usage = fork.ledger.tree();
     fork.agent->fork_from(*src.agent);
-    fork.agent->meta_["forked_from"] = src.session_id.empty() ? src.title : src.session_id;
+    fork.agent->meta()["forked_from"] = src.session_id.empty() ? src.title : src.session_id;
     fork.dirty = true;
     autosave(src);
     autosave(fork);
@@ -238,7 +238,7 @@ void SessionController::restore_stats(Window& w, const agent::Session& s) {
 void SessionController::restore_into(Window& w, const agent::Session& s) {
     w.agent->set_context(s.messages);
     if (!s.meta.empty())
-        w.agent->meta_ = s.meta;
+        w.agent->meta() = s.meta;
     restore_stats(w, s);
     w.lines.clear();
     // Spinner rows belong to the old scrollback - drop only this window's.
@@ -264,7 +264,7 @@ void SessionController::load_session(const std::string& id) {
     w.agent->set_context(s.messages);
     maybe_background_compress(w, s);
     if (!s.meta.empty())
-        w.agent->meta_ = s.meta;
+        w.agent->meta() = s.meta;
     restore_stats(w, s);
 
     std::vector<SessionController::RestoredCall> pending;

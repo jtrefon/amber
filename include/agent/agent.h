@@ -75,6 +75,61 @@ struct UsageSample {
     std::string owner_id;
 };
 
+// The host roles behind AgentHooks. A host implements only what it needs and
+// constructs the aggregate from the subset; every observer/telemetry/debug
+// method has a no-op default, so an unimplemented role costs nothing.
+class IAgentObserver {
+public:
+    virtual ~IAgentObserver() = default;
+    virtual void on_assistant(const std::string&) {}
+    virtual void on_token(const std::string&) {}
+    virtual void on_reasoning(const std::string&) {}
+    virtual void on_tool_call(const std::string&, const json&) {}
+    virtual void on_tool_result(const std::string&, const ToolResult&, const json&) {}
+    virtual void on_status(const std::string&) {}
+    virtual void on_state(RunState) {}
+};
+
+class IToolApproval {
+public:
+    virtual ~IToolApproval() = default;
+    virtual Approval approve(const std::string& tool, const json& args,
+                             const std::string& summary) = 0;
+};
+
+class IApiKeyProvider {
+public:
+    virtual ~IApiKeyProvider() = default;
+    virtual std::string api_key(const std::string& reason) = 0;
+};
+
+class ITelemetrySink {
+public:
+    virtual ~ITelemetrySink() = default;
+    virtual void on_stats(const Stats&) {}
+    virtual void on_usage(const UsageSample&) {}
+    virtual void on_compression(const CompressionResult&) {}
+};
+
+class IDebugSink {
+public:
+    virtual ~IDebugSink() = default;
+    virtual void on_debug(const std::string&) {}
+};
+
+// Everything the agent's run needs besides Config, the registry and hooks.
+// Grouped so the constructor stays small and a host names only the piece it
+// injects; the rest default to the same values the old parameter list used.
+struct AgentDeps {
+    std::unique_ptr<CompressionStrategy> compressor;
+    std::unique_ptr<CompressionGate> gate;
+    std::shared_ptr<MemoryStore> memory_store;
+    std::unique_ptr<MemoryRetriever> retriever;
+    std::unique_ptr<LLMClient> client;
+    LLMClientFactory client_factory;
+    std::shared_ptr<SkillCatalog> skills;
+};
+
 struct AgentHooks {
     std::function<void(const std::string&)> on_assistant; // final text msg
     std::function<void(const std::string&)> on_token;     // streamed text delta
@@ -116,6 +171,47 @@ struct AgentHooks {
     // mirror the agent's internals to the screen without the core knowing
     // about rendering. The default no-op is used by headless runs.
     std::function<void(const std::string&)> on_debug;
+
+    AgentHooks() = default;
+    // Build the aggregate from the roles a host actually implements. Passing
+    // nullptr for a role leaves its callbacks empty, which the agent treats as
+    // "not supported" (fail-closed for approval and API keys).
+    AgentHooks(IAgentObserver* observer, IToolApproval* approval = nullptr,
+               IApiKeyProvider* keys = nullptr, ITelemetrySink* telemetry = nullptr,
+               IDebugSink* debug = nullptr) {
+        if (observer) {
+            on_assistant = [observer](const std::string& text) { observer->on_assistant(text); };
+            on_token = [observer](const std::string& text) { observer->on_token(text); };
+            on_reasoning = [observer](const std::string& text) { observer->on_reasoning(text); };
+            on_tool_call = [observer](const std::string& name, const json& args) {
+                observer->on_tool_call(name, args);
+            };
+            on_tool_result = [observer](const std::string& name, const ToolResult& result,
+                                        const json& args) {
+                observer->on_tool_result(name, result, args);
+            };
+            on_status = [observer](const std::string& text) { observer->on_status(text); };
+            on_state = [observer](RunState state) { observer->on_state(state); };
+        }
+        if (approval) {
+            on_approval = [approval](const std::string& tool, const json& args,
+                                     const std::string& summary) {
+                return approval->approve(tool, args, summary);
+            };
+        }
+        if (keys) {
+            on_api_key = [keys](const std::string& reason) { return keys->api_key(reason); };
+        }
+        if (telemetry) {
+            on_stats = [telemetry](const Stats& stats) { telemetry->on_stats(stats); };
+            on_usage = [telemetry](const UsageSample& sample) { telemetry->on_usage(sample); };
+            on_compression = [telemetry](const CompressionResult& result) {
+                telemetry->on_compression(result);
+            };
+        }
+        if (debug)
+            on_debug = [debug](const std::string& text) { debug->on_debug(text); };
+    }
 };
 
 // The core agent loop. Given an initial user prompt it drives the conversation:
@@ -125,7 +221,61 @@ struct AgentHooks {
 //      or max_tool_iterations is reached.
 class TaskInbox;
 
-class Agent {
+// The port hosts use for the agent itself. Agent implements it; a host holds
+// this instead of the concrete class, so the run/control surface is one
+// documented interface and a test double is a small subclass rather than the
+// full engine. Configuration that is genuinely host-only (connection repair)
+// stays on Agent.
+class IAgent {
+public:
+    virtual ~IAgent() = default;
+
+    virtual std::string run(const std::string& user_prompt) = 0;
+    virtual void set_hooks(AgentHooks hooks) = 0;
+    virtual const Context& context() const = 0;
+    virtual void set_context(std::vector<Message> messages) = 0;
+    virtual std::shared_ptr<const Config> config_snapshot() const = 0;
+    virtual void request_cancel() = 0;
+
+    virtual void set_model(const std::string& model, const ModelCapabilities& caps = {}) = 0;
+    virtual void set_model_capabilities(const ModelCapabilities& caps) = 0;
+    virtual void set_provider(const Config& resolved, const std::string& model) = 0;
+    virtual void set_context_window(int window) = 0;
+    virtual void pin_context_window(int window) = 0;
+    virtual void clear_context_pin() = 0;
+    virtual void set_reasoning_effort(const std::string& effort) = 0;
+    virtual void set_thinking(const std::string& thinking) = 0;
+    virtual void set_mode(AgentMode mode) = 0;
+    virtual void set_detection_loop(bool on) = 0;
+    virtual void set_detection_duplicate(bool on) = 0;
+    virtual void set_compression_threshold(double threshold) = 0;
+    virtual void set_compression_min_turns(int turns) = 0;
+    virtual void set_compression_target_pct(int pct) = 0;
+    virtual void set_compression_keep_last_prompts(int prompts) = 0;
+
+    virtual void set_project_root(std::string root) = 0;
+    virtual void set_workspace_root(std::string root) = 0;
+    virtual void set_owner_id(std::string id) = 0;
+    virtual void set_shape_queue(ShapeQueue* queue) = 0;
+    virtual ShapeQueue* shape_queue() const = 0;
+    virtual void set_prompt_registry(PromptRegistry& prompts) = 0;
+    virtual void set_events(EventBus& bus) = 0;
+    virtual void set_inbox(TaskInbox* inbox) = 0;
+
+    virtual PolicyStore& policy() = 0;
+    virtual SkillCatalog& skills() = 0;
+    virtual MemoryStore* memory_store() = 0;
+    virtual const ExperienceConfig& experience_config() const = 0;
+    virtual std::vector<ActivatedSkill> activated_skills() const = 0;
+    virtual std::string learn_forget(const std::string& id) = 0;
+    virtual std::string learn_pin(const std::string& id, bool pinned) = 0;
+    virtual ConversationLog& log() = 0;
+    virtual CompressionResult compress_now(std::function<void()> progress_cb = {}) = 0;
+    virtual json& meta() = 0;
+    virtual void fork_from(const IAgent& src) = 0;
+};
+
+class Agent : public IAgent {
 public:
     // A prompt block waiting to be placed, ordered by (priority, insertion).
     struct PromptBlock {
@@ -134,12 +284,7 @@ public:
         std::string text;
     };
 
-    Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {},
-          std::unique_ptr<CompressionStrategy> compressor = {},
-          std::unique_ptr<CompressionGate> gate = {},
-          std::shared_ptr<MemoryStore> memory_store = {},
-          std::unique_ptr<MemoryRetriever> retriever = {}, std::unique_ptr<LLMClient> client = {},
-          LLMClientFactory client_factory = {}, std::shared_ptr<SkillCatalog> skills = {});
+    Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {}, AgentDeps deps = {});
     // `memory_store`/`skills` are shared_ptr because a project scopes them:
     // every agent on one workspace shares ONE catalog and ONE store. The
     // catalog is the RUNNING agent's — the skill tools resolve it through
@@ -152,31 +297,31 @@ public:
     // Run one turn to completion, appending to the ongoing conversation.
     // Context from previous turns is retained (the agent is stateful). Returns
     // the final assistant reply text.
-    std::string run(const std::string& user_prompt);
+    std::string run(const std::string& user_prompt) override;
 
     // The turn's diagnostics sink. The host records the failures that escape
     // run() — they never reach a recovery path inside the agent — through the
     // same journal the agent writes.
-    ConversationLog& log() noexcept { return log_; }
+    ConversationLog& log() noexcept override { return log_; }
 
     // Read-only access to the conversation context stack.
     // Used by UIs to persist a session.
-    const Context& context() const { return context_; }
+    const Context& context() const override { return context_; }
 
     // Replace the conversation with a previously saved one (e.g. loaded from a
     // session file). Clears telemetry log association.
-    void set_context(std::vector<Message> messages);
+    void set_context(std::vector<Message> messages) override;
 
     // The host's shaping queue: the model's plan waits here until the next
     // request boundary. Null means the host did not wire shaping.
-    void set_shape_queue(ShapeQueue* queue) { shape_queue_ = queue; }
-    ShapeQueue* shape_queue() const { return shape_queue_; }
+    void set_shape_queue(ShapeQueue* queue) override { shape_queue_ = queue; }
+    ShapeQueue* shape_queue() const override { return shape_queue_; }
 
     // Force immediate compression of the conversation history, bypassing
     // the gate.  The compressed history replaces the full history (via
     // stack pop-all + push); this is a one-way operation.  Returns a
     // summary of what was saved.
-    CompressionResult compress_now(std::function<void()> progress_cb = {});
+    CompressionResult compress_now(std::function<void()> progress_cb = {}) override;
 
     // Run the compression pipeline (gate already decided). Rebuilds the
     // context only on success — a failed pipeline leaves the context
@@ -187,29 +332,30 @@ public:
     // Internal metadata — never sent to the LLM.  Persisted alongside
     // history_ in the session file for future internal use.
     json meta_ = json::object();
+    json& meta() override { return meta_; }
 
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
     // each turn (e.g. a TUI window rebinding lambdas that capture live state).
-    void set_hooks(AgentHooks hooks) { hooks_ = std::move(hooks); }
+    void set_hooks(AgentHooks hooks) override { hooks_ = std::move(hooks); }
 
     // Enable or disable detection subsystems at runtime (/set detection namespace).
-    void set_detection_loop(bool on) { cfg_.detection_loop = on; }
-    void set_detection_duplicate(bool on) { cfg_.detection_duplicate = on; }
+    void set_detection_loop(bool on) override { cfg_.detection_loop = on; }
+    void set_detection_duplicate(bool on) override { cfg_.detection_duplicate = on; }
 
     // The project this agent belongs to. Empty means the process default.
     // Installed into every run scope so state, instructions and tools resolve
     // against the window's project rather than the one amber was started in.
-    void set_project_root(std::string root);
+    void set_project_root(std::string root) override;
 
     // Confine this agent's tools to `root` (a window's worktree). Empty means
     // the project root. Installed into every run scope, so tools running on
     // dispatch workers confine to the same tree as the agent.
-    void set_workspace_root(std::string root);
+    void set_workspace_root(std::string root) override;
 
     // The host's stable identity for this agent's window/session. It travels
     // in the run scope so a tool that starts work outliving the turn can route
     // its completion back to the right window.
-    void set_owner_id(std::string id) { owner_id_ = std::move(id); }
+    void set_owner_id(std::string id) override { owner_id_ = std::move(id); }
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the
@@ -218,24 +364,24 @@ public:
     // resolution never becomes a user pin: when the model changes and the
     // window is unknown the previous model's value is cleared rather than
     // reused. A user pin (context_explicit) survives.
-    void set_model(const std::string& model, const ModelCapabilities& caps = {});
+    void set_model(const std::string& model, const ModelCapabilities& caps = {}) override;
 
     // Apply the active model's advertised capabilities after a catalogue
     // refresh. Rebuilds the client (it holds a Config snapshot) and publishes.
-    void set_model_capabilities(const ModelCapabilities& caps);
+    void set_model_capabilities(const ModelCapabilities& caps) override;
 
     // Apply a probed window (or a provider default) to the current model
     // without rebuilding the client. Used when a catalogue arrives after the
     // model was chosen, and by the host after a provider switch. Ignored when
     // the user pinned context_size explicitly.
-    void set_context_window(int window);
+    void set_context_window(int window) override;
     // A deliberate override: /set model context. The pin survives model and
     // provider switches and is persisted by the host. clear_context_pin drops
     // it and re-resolves from the current model's known window or the learned
     // overflow clamp; unknown stays 0.
-    void pin_context_window(int window);
-    void clear_context_pin();
-    void set_reasoning_effort(const std::string& effort);
+    void pin_context_window(int window) override;
+    void clear_context_pin() override;
+    void set_reasoning_effort(const std::string& effort) override;
     void set_connection(const std::string& api_base, const std::string& api_key,
                         const std::string& model);
 
@@ -248,25 +394,25 @@ public:
     // rebuilt client speaks flavor. A switch that moves only some of them shows
     // the old owner beside the new model -- and routes that model to the old
     // endpoint, which is a kilo model requested from openrouter.
-    void set_provider(const Config& resolved, const std::string& model);
+    void set_provider(const Config& resolved, const std::string& model) override;
 
-    void set_compression_threshold(double t) {
+    void set_compression_threshold(double t) override {
         cfg_.compression_threshold = t;
         cfg_.compression_threshold_explicit = true;
         if (gate_)
             gate_->set_threshold(t);
     }
-    void set_compression_min_turns(int n) {
+    void set_compression_min_turns(int n) override {
         cfg_.compression_min_turns = n;
         cfg_.compression_min_turns_explicit = true;
         if (gate_)
             gate_->set_min_turns(n);
     }
-    void set_compression_target_pct(int pct) {
+    void set_compression_target_pct(int pct) override {
         cfg_.compression_target_pct = pct;
         cfg_.compression_target_pct_explicit = true;
     }
-    void set_compression_keep_last_prompts(int n) {
+    void set_compression_keep_last_prompts(int n) override {
         cfg_.compression_keep_last_prompts = n;
         cfg_.compression_keep_last_prompts_explicit = true;
     }
@@ -281,14 +427,14 @@ public:
     // publishes a fresh copy, so a reader can never observe a half-written
     // std::string. Internal counters (turn_counter, prompt_tokens_used) are
     // deliberately not published: nothing outside the worker reads them.
-    std::shared_ptr<const Config> config_snapshot() const {
+    std::shared_ptr<const Config> config_snapshot() const override {
         return std::atomic_load_explicit(&published_cfg_, std::memory_order_acquire);
     }
 
     // Ask the running turn to stop (the loop polls between iterations and
     // cancellable tools consult it through RunScope). Each agent owns its
     // token — cancelling one window never touches a sibling's run.
-    void request_cancel() { cfg_.cancel_token.request(); }
+    void request_cancel() override { cfg_.cancel_token.request(); }
 
     // Rebind this agent to be an independent copy of `src`: identical
     // conversation context, runtime config, approvals, model windows, turn
@@ -297,26 +443,28 @@ public:
     // cleanly. The fork keeps its own cancel token, hooks, log, and event
     // wiring. Caller guarantees `src` is quiescent (Context is
     // single-owner; never fork mid-run).
-    void fork_from(const Agent& src);
+    void fork_from(const IAgent& src) override;
 
     // Switch the operational mode at runtime (/mode). Mode feeds tool
     // availability and approval policy, both read from cfg_ per turn, so
     // the next run picks it up — and the system prompt renders from cfg_,
     // which makes a mode change a new wire prefix for the next request.
     // Publishes the config snapshot so the status bar reflects it immediately.
-    void set_mode(AgentMode mode);
-    void set_thinking(const std::string& thinking) { cfg_.thinking = thinking; }
+    void set_mode(AgentMode mode) override;
+    void set_thinking(const std::string& thinking) override { cfg_.thinking = thinking; }
 
     // Session-activated skill bodies (own list — see inject_prompt_blocks).
     // Snapshot, not a reference: the sink is written from tool workers.
-    std::vector<ActivatedSkill> activated_skills() const { return activated_skills_.snapshot(); }
+    std::vector<ActivatedSkill> activated_skills() const override {
+        return activated_skills_.snapshot();
+    }
 
     // Policy store for tool approval rules.
-    PolicyStore& policy() { return policy_; }
+    PolicyStore& policy() override { return policy_; }
     const PolicyStore& policy() const { return policy_; }
 
     // Runtime skill catalog (union view + overrides + body cache).
-    SkillCatalog& skills() { return *skills_; }
+    SkillCatalog& skills() override { return *skills_; }
     const SkillCatalog& skills() const { return *skills_; }
 
     // Subscribe to context change events (token count + message count).
@@ -328,19 +476,21 @@ public:
     // no-op, so a plugin subscription costs the loop nothing until it exists.
     // Events are observable; hidden internal exchanges (the confirmation
     // probe) are never published.
-    void set_events(EventBus& bus) noexcept { event_bus_ = &bus; }
+    void set_events(EventBus& bus) noexcept override { event_bus_ = &bus; }
     // Optional: the owner-keyed completion inbox. The agent drains it only at
     // the top of a loop iteration, on its own worker thread.
-    void set_inbox(TaskInbox* inbox) noexcept { inbox_ = inbox; }
+    void set_inbox(TaskInbox* inbox) noexcept override { inbox_ = inbox; }
 
     // Attach the contribution registries. Optional, like the bus: with none
     // attached the agent builds its prompt from the core blocks alone.
-    void set_prompt_registry(PromptRegistry& prompts) noexcept { prompt_registry_ = &prompts; }
+    void set_prompt_registry(PromptRegistry& prompts) noexcept override {
+        prompt_registry_ = &prompts;
+    }
 
     // The session's experience store (nullptr when experience is disabled).
     // Read-only use by the UI; mutation goes through learn_forget/learn_pin
     // so persistence stays in the core.
-    MemoryStore* memory_store() { return memory_store_.get(); }
+    MemoryStore* memory_store() override { return memory_store_.get(); }
     const MemoryStore* memory_store() const { return memory_store_.get(); }
 
     // The session brief store (always present — the brief is harness-owned,
@@ -352,12 +502,12 @@ public:
     size_t user_turn_counter() const noexcept { return user_turn_counter_; }
 
     // The resolved experience configuration (store path, budgets).
-    const ExperienceConfig& experience_config() const { return experience_cfg_; }
+    const ExperienceConfig& experience_config() const override { return experience_cfg_; }
 
     // Remove / pin one learned item, persisting to the experience store.
     // Returns "" on success or a typed error string.
-    std::string learn_forget(const std::string& id);
-    std::string learn_pin(const std::string& id, bool pinned);
+    std::string learn_forget(const std::string& id) override;
+    std::string learn_pin(const std::string& id, bool pinned) override;
 
 private:
     // The root this agent's tools are confined to, when it is not the project

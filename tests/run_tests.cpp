@@ -7096,8 +7096,14 @@ TEST(compress_uses_the_providers_window_not_a_stale_configured_one) {
     auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {
         return std::make_unique<agent_test::FakeLLMClient>();
     };
-    agent::Agent ag(cfg, reg, {}, agent::make_compressor(), agent::make_compression_gate(cc), {},
-                    {}, nullptr, factory);
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{agent::make_compressor(),
+                                     agent::make_compression_gate(cc),
+                                     {},
+                                     {},
+                                     nullptr,
+                                     factory,
+                                     {}});
     agent::ModelCapabilities kilo_caps;
     kilo_caps.context = 131072;
     ag.set_model("kilo-auto/free", kilo_caps); // the selected provider's catalogue window
@@ -8696,7 +8702,7 @@ TEST(learn_agent_forget_persists) {
     store->save(path);
 
     agent::ToolRegistry reg;
-    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    agent::Agent agent(cfg, reg, {}, agent::AgentDeps{{}, {}, std::move(store), {}, {}, {}, {}});
     auto* s = agent.memory_store();
     ASSERT(s != nullptr);
     ASSERT_TRUE(s->load(path));
@@ -8728,7 +8734,7 @@ TEST(learn_agent_forget_unknown) {
     store->save(path);
 
     agent::ToolRegistry reg;
-    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    agent::Agent agent(cfg, reg, {}, agent::AgentDeps{{}, {}, std::move(store), {}, {}, {}, {}});
     ASSERT_TRUE(agent.memory_store()->load(path));
     std::string err = agent.learn_forget("zzz");
     ASSERT_FALSE(err.empty());
@@ -8753,7 +8759,7 @@ TEST(learn_agent_pin_persists) {
     store->save(path);
 
     agent::ToolRegistry reg;
-    agent::Agent agent(cfg, reg, {}, {}, {}, std::move(store));
+    agent::Agent agent(cfg, reg, {}, agent::AgentDeps{{}, {}, std::move(store), {}, {}, {}, {}});
     ASSERT_TRUE(agent.memory_store()->load(path));
     std::string id = agent.memory_store()->all_skills()[0].id;
 
@@ -10061,7 +10067,7 @@ TEST(agent_set_reasoning_effort_rebuilds_client) {
         factory_seen = c.reasoning_effort;
         return std::make_unique<agent::HttpLLMClient>(c);
     };
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, nullptr, factory, {}});
     ag.set_reasoning_effort("high");
     ASSERT_EQ(factory_seen, "high");
 }
@@ -11028,7 +11034,7 @@ TEST(agent_request_cancel_is_per_agent) {
     cfg_a.cancel_token = agent::CancellationToken{};
     cfg_b.cancel_token = agent::CancellationToken{};
     agent::Agent a(cfg_a, reg);
-    agent::Agent b(cfg_b, reg, {}, {}, {}, {}, {}, {}, {});
+    agent::Agent b(cfg_b, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     a.request_cancel();
     ASSERT_TRUE(a.config_snapshot()->cancel_token.is_requested());
     ASSERT_FALSE(b.config_snapshot()->cancel_token.is_requested());
@@ -11066,7 +11072,7 @@ TEST(agent_fork_copies_identical_context) {
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
+    agent::Agent dst(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     dst.fork_from(src);
     auto& s = src.context().get_all();
     auto& d = dst.context().get_all();
@@ -11082,7 +11088,7 @@ TEST(agent_fork_legs_diverge_independently) {
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
+    agent::Agent dst(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     dst.fork_from(src);
     // Push on the fork must not touch the parent's sealed stack.
     agent::Message m;
@@ -11100,7 +11106,7 @@ TEST(agent_fork_copies_runtime_state) {
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
     src.meta_["origin"] = "test";
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
+    agent::Agent dst(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     dst.fork_from(src);
     // Same wire prefix requires the same model/mode/thinking — cfg follows.
     ASSERT_EQ(dst.config_snapshot()->model, "parent-model");
@@ -11111,7 +11117,7 @@ TEST(agent_fork_keeps_own_cancel_token) {
     agent::Config cfg;
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
-    agent::Agent dst(cfg, reg, {}, {}, {}, {}, {}, {}, {});
+    agent::Agent dst(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     dst.fork_from(src);
     // Cancelling the fork must not cancel the parent — tokens stay separate.
     dst.request_cancel();

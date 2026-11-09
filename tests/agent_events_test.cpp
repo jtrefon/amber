@@ -66,7 +66,7 @@ TEST(agent_follows_a_provider_switch) {
     auto factory = [](const agent::Config&) -> std::unique_ptr<agent::LLMClient> {
         return std::make_unique<agent_test::FakeLLMClient>();
     };
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, nullptr, factory);
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, nullptr, factory, {}});
 
     agent::Config selected = cfg;
     selected.provider_name = "kilocode";
@@ -117,7 +117,7 @@ TEST(agent_publishes_turn_and_message_events) {
     auto s4 = events.subscribe<agent::LlmResponseEvent>(
         [&](const agent::LlmResponseEvent&) { ++responses; });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     std::string reply = ag.run("say hello");
 
@@ -150,7 +150,7 @@ TEST(agent_every_model_round_trip_is_published) {
             ++assistant_messages;
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     ag.run("go");
 
@@ -177,7 +177,7 @@ TEST(agent_turn_start_interceptor_rewrites_the_prompt) {
         return true;
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     ag.run("original");
 
@@ -210,7 +210,7 @@ TEST(agent_publishes_tool_events) {
             saw_ok_result = true;
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     ag.run("read the Makefile");
 
@@ -241,7 +241,7 @@ TEST(agent_tool_interceptor_can_veto_a_call) {
         return true;
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     ag.run("read the Makefile");
 
@@ -270,7 +270,7 @@ TEST(agent_tool_interceptor_can_rewrite_arguments) {
         return true;
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_events(bus);
     ag.run("read the readme");
 
@@ -294,7 +294,7 @@ TEST(agent_sends_contributed_prompt_blocks) {
     prompts.add("plug", "facts", 400, [] { return std::string("PLUGIN FACTS"); });
     prompts.add("plug", "silent", 500, [] { return std::string(); });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("hello");
 
@@ -325,7 +325,7 @@ TEST(agent_prompt_blocks_are_stable_across_turns) {
         return std::string("STABLE BLOCK");
     });
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     ag.set_prompt_registry(prompts);
     ag.run("first");
     ag.run("second");
@@ -359,7 +359,7 @@ TEST(agent_without_bus_runs_unchanged) {
     push_text(*fake, "no bus here");
     push_text(*fake, "done");
 
-    agent::Agent ag(cfg, reg, {}, {}, {}, {}, {}, std::move(fake));
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     std::string reply = ag.run("hello");
     ASSERT_EQ(reply, std::string("no bus here"));
 }

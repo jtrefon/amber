@@ -45,6 +45,25 @@ The loop lives in `Agent::run()` (`lib/agent.cpp`). Each iteration:
 4. **Loop** — go back to step 1 for up to `cfg_.max_tool_iterations` turns.
 5. **Return** — the final text reply is returned to the caller.
 
+### Host ports and role hooks
+
+`Agent` implements `IAgent`, the port hosts hold and run: `run`, `context`,
+`config_snapshot`, `request_cancel`, the model/mode switches, the registries it
+attaches to, policy/skills access, and `set_hooks`. The TUI's `Window` stores
+`unique_ptr<IAgent>`; the CLI and benchmark take `IAgent&` on the run path. A
+host test double therefore implements one interface, not the engine.
+
+`AgentHooks` remains the aggregate the loop calls. It is now constructible from
+the roles a host actually implements — `IAgentObserver`, `IToolApproval`,
+`IApiKeyProvider`, `ITelemetrySink`, `IDebugSink` — and any role left null
+leaves its callbacks empty. Approval and API-key roles stay fail-closed when
+absent; telemetry, debug and the UI stream are no-ops. Hosts that set
+individual lambdas keep working unchanged.
+
+`AgentDeps` groups the seven optional collaborators (compressor, gate, memory
+store, retriever, client, client factory, skill catalog), so the constructor is
+`Agent(Config, ToolRegistry&, AgentHooks, AgentDeps)`.
+
 ### Thread Model
 
 ```

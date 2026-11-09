@@ -80,15 +80,11 @@ std::unique_ptr<LLMClient> make_client(const Config& cfg, const LLMClientFactory
 
 } // namespace
 
-Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
-             std::unique_ptr<CompressionStrategy> compressor, std::unique_ptr<CompressionGate> gate,
-             std::shared_ptr<MemoryStore> memory_store, std::unique_ptr<MemoryRetriever> retriever,
-             std::unique_ptr<LLMClient> client, LLMClientFactory client_factory,
-             std::shared_ptr<SkillCatalog> skills)
-    : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(client_factory)),
-      client_(std::move(client)), hooks_(std::move(hooks)), compression_(std::move(compressor)),
-      gate_(std::move(gate)), memory_store_(std::move(memory_store)),
-      retriever_(std::move(retriever)) {
+Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks, AgentDeps deps)
+    : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(deps.client_factory)),
+      client_(std::move(deps.client)), hooks_(std::move(hooks)),
+      compression_(std::move(deps.compressor)), gate_(std::move(deps.gate)),
+      memory_store_(std::move(deps.memory_store)), retriever_(std::move(deps.retriever)) {
     if (!client_)
         client_ = make_client(cfg_, client_factory_);
     // A window's workspace may be a detached worktree; the prompt says so before
@@ -96,8 +92,8 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks,
     // worktree note (the check is a file test, not a git call, in that case).
     workspace_note_ = worktree_session_note(Workspace::project_root());
     experience_cfg_ = load_experience_config(cfg_);
-    if (skills) {
-        skills_ = std::move(skills);
+    if (deps.skills) {
+        skills_ = std::move(deps.skills);
     } else {
         skills_ = std::make_shared<SkillCatalog>(cfg_);
         std::vector<Skill> learned;
@@ -396,7 +392,13 @@ void Agent::set_context(std::vector<Message> messages) {
     emit_context_event(context_events_, context_);
 }
 
-void Agent::fork_from(const Agent& src) {
+void Agent::fork_from(const IAgent& src_port) {
+    // The port is implemented by Agent in every host; a foreign implementation
+    // has no conversation to copy and is ignored rather than guessed at.
+    const auto* source = dynamic_cast<const Agent*>(&src_port);
+    if (!source)
+        return;
+    const Agent& src = *source;
     // The message stack copies through the integrity-checked snapshot; the
     // seal/hash chain is rebuilt by set_context, so both legs keep a valid
     // chain and diverge independently afterward.

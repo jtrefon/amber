@@ -58,7 +58,7 @@ struct Window {
     std::string worktree;
     std::string base_oid;
 
-    std::unique_ptr<agent::Agent> agent; // retains conversation across turns
+    std::unique_ptr<agent::IAgent> agent; // the run port; retains conversation across turns
 
     // Scrollback as rich (multi-run) lines. Markdown assistant messages and
     // styled tool/status lines both live here; the canvas wraps and renders
