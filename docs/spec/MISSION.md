@@ -84,20 +84,20 @@ read/write/search/bash/process tools, session save/load, config file + env
 resolution, and the terminal UI's scrollback, input and status bar are in
 `main` and covered by the suite.
 
-### Phase 2, UX and reliability (shipped foundation, active work)
+### Phase 2, UX and reliability (shipped foundation, 1.0 hardening)
 The command tree (`completions.json`), autosuggest shadow, readline editing,
 `?`-at-depth, aliases, all CRUD namespaces (`/session`, `/provider`, `/model`,
-`/job`, `/files`, `/system`), the plugin framework (PF-1..PF-4, providers,
-tools, prompts, status segments, panels, wallets), MCP, skills and memory are
-shipped. The active work is the full ncurses shell (#512), asynchronous
-background work (#366), input ergonomics (#445), profiles (#440), git
-checkpoints (#441), and the 0.8 live benchmark gate (#371).
+`/job`, `/files`, `/system`), the plugin framework (PF-1..PF-5, providers,
+tools, prompts, status segments, panels, wallets), MCP, skills and memory, the
+full ncurses shell (#512), asynchronous background work (#366) and the 0.8 live
+benchmark gate (#371) are shipped. The 1.0 work is the plugin contract and
+release truth (#562), plus the C++ API stability decision (#274). Input
+ergonomics (#445), profiles (#440) and git checkpoints (#441) are post-1.0.
 
 ### Phase 3, Long haul
-Release gates that measure the product (the live benchmark, patch coverage),
-multi-agent orchestration beyond detached workers, and the shell hardening
-that follows the component migration. These are tracked as issues, not as a
-second roadmap.
+Plugins loaded at runtime (PF-6), multi-agent orchestration beyond detached
+workers, the remaining domain extraction and the shell's long-tail
+accessibility work. These are tracked as issues, not as a second roadmap.
 
 ---
 
@@ -144,10 +144,13 @@ the history stays honest.
 | Skills acquisition (explorer, install gate, updates, CLI) | #413, #414, #449, #454, #457, #458, #460; `docs/skills-acquisition.md` |
 | Hermetic agent-loop tests with a scripted LLM port | `tests/agent_loop_test.cpp`; `docs/spec/llm-client/agent-loop-reliability.md` |
 | MCP client (tools/resources/prompts, HTTP + stdio) | `plugins/mcp/`; `docs/spec/mcp/`; activation is off the startup path (#368) |
-| Plugin framework: capabilities, ledger, typed events, providers, status/panels/wallets | PF-1..PF-4; `docs/spec/plugins/plugin-framework.md`; `docs/plugin-framework-tracker.md` |
+| Plugin framework: capabilities, ledger, typed events, providers, status/panels/wallets | PF-1..PF-5; `docs/spec/plugins/plugin-framework.md`; `docs/plugin-framework-tracker.md` |
 | Per-project state and legacy adoption | `agent::config_paths()`; `docs/spec/memory/memory-store.md` |
 | Compression progress visible while it runs | `Window::compressing`; the activity verb in `tui/render_engine.cpp` |
 | Embedded file open (resource window, not a pager) | `/files open`; `tui/` resource viewer |
+| Async background work: one task inventory, delivery/wake, persistence | #366, #375-#383; `lib/task_service.cpp`; `docs/spec/tasks/` |
+| Full ncurses component shell (cell surface, themes, screen migration) | #512, #513-#519; `docs/plan/tui-shell.md` |
+| 0.8 live benchmark baseline and a release gate | #371; `bench/results/`; `BENCHMARK.md` |
 
 ### Open
 
@@ -155,11 +158,8 @@ the history stays honest.
 |-----|-------|-------|--------|----------|
 | Ctrl-R reverse history search is still a stub | Implementation | P2 | 🔧 | #445 (input ergonomics) |
 | File-path Tab completion (bash/zsh standard) | Implementation | P2 | 🔧 | #445 |
-| Async background work: one task inventory, delivery/wake, persistence | Implementation | P3 | 🔧 | #366, #375-#383 |
-| Full ncurses component shell (cell surface, themes, screen migration) | Implementation | P3 | 🔧 | #512, #513-#519 |
 | Profiles and git-integrated checkpoints | Strategy | P3 | ❓ | #440, #441 |
-| 0.8 live benchmark baseline and a release gate | Implementation | P2 | 🔧 | #371 |
-| Multi-agent orchestration beyond `delegate` | Strategy | P3 | ❓ | #379 (detached workers) |
+| 1.0 plugin contract, external tier and release truth | Implementation | P2 | 🔧 | #562 |
 
 ---
 

@@ -2,14 +2,15 @@
 
 - **Status:** ✅ Historical record. Open work lives in GitHub issues only.
 - **Open-work register:** <https://github.com/jtrefon/amber/issues> (milestone
-  `0.8.0`, epic #366)
-- **Last updated:** 2026-11-03
+  `1.0` for the release gate, epic #562; `post-1.0` for deferred work)
+- **Last updated:** 2026-11-10
 - **Owner:** Jacek Trefon
 - **Tolerance:** Zero technical debt, every issue must be refactored, not patched
 
 > **⚠ Historical record only.** The rows below document what was found and
-> fixed; they are not a second open-work list. New findings go to GitHub, and
-> the issue tracker is the only place a gap can be open.
+> fixed; they are not a second open-work list. Several "open" rows are retained
+> for their evidence and are tracked in GitHub under #562. New findings go to
+> GitHub.
 
 > **🆕 Current open issues.** Registered 2026-07-31 during the tool-prompt /
 > agent-empowerment review. Items I-1..I-3 + I-6 + I-9 are completed;

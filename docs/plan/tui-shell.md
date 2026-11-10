@@ -1,5 +1,9 @@
 # TUI shell — full ncurses interface
 
+**Status: shipped.** The seven milestone issues (#513–#519) are closed and the
+epic #512 is closed (2026-11-10). This document remains the delivery plan and
+the shell-gate record; regressions belong in new issues.
+
 **Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
 
 - **Status:** Agreed 2026-11-02. Delivery plan for the ncurses shell; the

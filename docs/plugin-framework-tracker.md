@@ -1,13 +1,10 @@
 # amber, Plugin Framework Tracker
 
-- **Status:** 🟢 PF-1..PF-4 complete, **PF-5.2 complete** (every provider amber
-  ships — custom, openrouter, kilocode, anthropic, gemini, opencode_go,
-  opencode_zen, commandcode, deepseek — is a plugin; the core declares none;
-  switching one off removes it live), **PF-6 deferred** (runtime `dlopen`
-  loading); 1762 tests green at 0.8.8. 0.7 shipped the framework; 0.8 builds
-  background work on the same capability/ledger seam. **The single status
-  surface is the availability table in
-  `docs/spec/plugins/developer-guide.md`**; this tracker is the engineering log.
+- **Status:** 🟢 PF-1..PF-5 complete, **PF-5.1/5.3/5.4 closed for 1.0** (accurate
+  guide, API compatibility policy, external-tier decision: tools-only), **PF-6
+  deferred** (runtime loading); every provider amber ships — custom, openrouter,
+  kilocode, anthropic, gemini, opencode_go, opencode_zen, commandcode, deepseek
+  — is a plugin; the core declares none; switching one off removes it live.
 - **Direction (stated 2026-09-10):** the long-term target is a microkernel,
   amber as orchestrator + plugin registry, with *everything else* (not just
   providers) arriving as a plugin. The phases below are the path there, and no
@@ -1360,10 +1357,10 @@ framework source.
 
 | Task | Scope |
 |---|---|
-| **PF-5.1** Developer guide finalized | Availability table accurate, examples compile, threading rules explicit |
-| **PF-5.2** Scaffold | `plugins/_template/` with a minimal, tested plugin and build wiring |
-| **PF-5.3** API compatibility policy | What `kPluginApiVersion` covers, how breaking changes are staged |
-| **PF-5.4** External-tier review | Decide whether/when non-tool capabilities cross the process boundary, the entry condition for PF-6 |
+| **PF-5.1** Developer guide finalized | ✅ 1.0: availability table matches the 12 capability kinds, lifecycle events, external tools-only tier and spec paths |
+| **PF-5.2** Scaffold | ✅ `plugins/_template/` |
+| **PF-5.3** API compatibility policy | ✅ 1.0: `docs/spec/plugins/api-compatibility.md` |
+| **PF-5.4** External-tier review | ✅ 1.0: external tier is tools-only; non-tool capabilities stay in-process |
 
 ---
 

@@ -386,11 +386,6 @@ watch action=wait id=watch_... timeout_s=60
 
 ### 6.2 `/plugin watch`
 
-A `CommandCapability` with `list`, `show`, `report`, `stop`, `wait`; handlers
-return text, print via the host. This is the human surface; it does not start a
-watch (the model starts through the tool). The root shows usage and the current
-watches.
-
 **Namespace:** the watch plugin no longer contributes a command workspace. The
 old `/watch` inspect verbs and the `/plugin watch` namespace are removed; the
 `tasks` tool and `/tasks` command namespace are the one inspect surface. The
