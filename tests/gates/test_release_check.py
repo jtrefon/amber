@@ -62,6 +62,27 @@ class Comparison(unittest.TestCase):
         self.assertIsNotNone(release.compare("0.8.2", "0.8.3"))
 
 
+class FormulaVersion(unittest.TestCase):
+    def test_the_formula_version_is_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.makedirs(os.path.join(root, "homebrew"))
+            with open(os.path.join(root, "homebrew", "amber.rb"), "w", encoding="utf-8") as handle:
+                handle.write('  version "1.0.0"\n')
+            self.assertEqual(release.read_formula_version(root), "1.0.0")
+
+    def test_a_missing_formula_is_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.assertIsNone(release.read_formula_version(root))
+
+    def test_a_stale_formula_is_a_mismatch(self):
+        problem = release.compare_formula("0.7.0", "1.0.0")
+        self.assertIn("0.7.0", problem)
+        self.assertIn("1.0.0", problem)
+
+    def test_a_matching_formula_is_accepted(self):
+        self.assertIsNone(release.compare_formula("1.0.0", "1.0.0"))
+
+
 class StampedVersion(unittest.TestCase):
     def test_the_version_is_read_from_the_first_line(self):
         with tempfile.TemporaryDirectory() as root:

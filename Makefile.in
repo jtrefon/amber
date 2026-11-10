@@ -845,7 +845,7 @@ commit-lint:
 # which is what happened to v0.8.3.
 release-check:
 	@test -n "$(TAG)" || { echo "release-check: set TAG=vX.Y.Z"; exit 2; }
-	@python3 "$(SRC_DIR)/tools/release_check.py" --tag "$(TAG)"
+	@python3 "$(SRC_DIR)/tools/release_check.py" --tag "$(TAG)" --check-formula
 
 # Shared by `complexity` and `nesting`: both parse lizard's -w output with a regex
 # and both judge success from that output, never from lizard's exit status.

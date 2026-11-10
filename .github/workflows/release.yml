@@ -82,6 +82,9 @@ jobs:
             exit 1
           }
 
+      - name: Verify Homebrew formula version
+        run: python3 tools/release_check.py --tag "${{ inputs.tag || github.ref_name }}" --check-formula
+
       - name: Benchmark release gate
         # An engine-touching tag must carry the committed live baseline for
         # this engine. Docs/website/packaging-only tags skip; a missing or
