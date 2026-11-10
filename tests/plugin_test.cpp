@@ -422,6 +422,50 @@ TEST(plugin_discover_ignores_state_dirs) {
     ASSERT(mgr.find("fake") != nullptr);
 }
 
+// A response line over the 64 KiB cap fails closed instead of growing the
+// parser's buffer without bound.
+TEST(plugin_response_line_is_capped) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    std::string dir = base + "/plugins/big";
+    std::filesystem::create_directories(dir);
+    {
+        std::ofstream f(dir + "/manifest.json");
+        f << R"({"id":"big","name":"Big","version":"1.0.0","protocol_version":1,
+                 "main":"big.py","tools":[{"name":"huge","description":"huge",
+                 "schema":{"type":"object","properties":{}}}]})";
+    }
+    {
+        std::ofstream f(dir + "/big.py");
+        f << "#!/usr/bin/env python3\n"
+             "import json, sys\n"
+             "for line in sys.stdin:\n"
+             "    m = json.loads(line)\n"
+             "    if m.get('method') == 'initialize':\n"
+             "        print(json.dumps({'id': m['id'], 'result': "
+             "{'protocol_version': 1, 'ok': True}}), flush=True)\n"
+             "    elif m.get('method') == 'tool.call':\n"
+             "        print(json.dumps({'id': m['id'], 'result': "
+             "{'ok': True, 'output': 'x' * 70000}}), flush=True)\n"
+             "    elif m.get('method') == 'shutdown':\n"
+             "        sys.exit(0)\n";
+    }
+    chmod((dir + "/big.py").c_str(), 0755);
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("big", reg));
+    auto tool = reg.find("plugin_big_huge");
+    ASSERT(tool != nullptr);
+    auto r = tool->execute({});
+    ASSERT(!r.ok);
+    ASSERT(r.error.find("64 KiB") != std::string::npos);
+    ASSERT(mgr.disable("big", reg));
+}
+
 int main() {
     plugin_discover_loads_valid_and_flags_invalid();
     plugin_discover_ignores_state_dirs();
@@ -429,6 +473,7 @@ int main() {
     plugin_state_persists_across_manager_instances();
     plugin_install_stages_archive();
     plugin_advertisement_lists_enabled_tools();
+    plugin_response_line_is_capped();
     sec05_manifest_rejects_parent_escape_main();
     sec05_manifest_rejects_absolute_main();
     sec05_manifest_rejects_symlink_main();

@@ -5,6 +5,7 @@
 #include "agent/plugin_console.h"
 #include "agent/plugins_bundled.h"
 #include "agent/plugin_external_adapter.h"
+#include "agent/private_file.h"
 
 #include <algorithm>
 #include <chrono>
@@ -111,14 +112,11 @@ bool read_enabled(const std::string& id, bool default_value) {
 }
 
 bool write_enabled(const std::string& id, bool enabled) {
-    std::error_code ec;
-    fs::create_directories(plugin_dir(id), ec);
-    std::ofstream f(state_path(id), std::ios::trunc);
-    if (!f)
-        return false;
-    f << "# amber plugin state: " << id << "\n";
-    f << "enabled=" << (enabled ? 1 : 0) << "\n";
-    return static_cast<bool>(f);
+    std::string body = "# amber plugin state: " + id + "\n";
+    body += "enabled=";
+    body += enabled ? "1" : "0";
+    body += "\n";
+    return write_private_file(state_path(id), body);
 }
 
 // Renaming a plugin must not reset a deliberate choice. A missing new state
@@ -171,12 +169,18 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     detail::Entry entry;
     entry.plugin = std::move(plugin);
     entry.bundled = bundled;
+    entry.seq = next_seq_++;
     // Declarations are a property of the plugin, not of its activation: a
     // plugin that ships switched off still declares what it would provide, so a
     // provider file pointing at that flavor - or a search `mode` naming that
     // backend - reports "the plugin is disabled" rather than silently falling
-    // back or reading as unknown.
-    entry.declared = entry.plugin->capabilities();
+    // back or reading as unknown. A throwing declaration is a broken plugin,
+    // not a broken harness.
+    try {
+        entry.declared = entry.plugin->capabilities();
+    } catch (...) {
+        return false;
+    }
     for (const auto& capability : entry.declared) {
         if (!capability)
             continue;
@@ -204,6 +208,17 @@ void PluginRuntime::add_external(PluginManager& manager) {
         add(std::move(plugin), /*bundled=*/false);
 }
 
+bool PluginRuntime::remove_external(const std::string& id) {
+    auto it = plugins_.find(id);
+    if (it == plugins_.end() || it->second.bundled)
+        return false;
+    if (registry_.state(id) == PluginRegistry::State::Active)
+        deactivate(id);
+    registry_.unregister_plugin(id);
+    plugins_.erase(it);
+    return true;
+}
+
 void PluginRuntime::attach_config(const Config& config) {
     live_config_ = &config;
     context_->config = &config;
@@ -229,11 +244,11 @@ void PluginRuntime::attach_host_services(const HostServices& host) noexcept {
 }
 
 void PluginRuntime::tick() {
-    for (const auto& [id, entry] : plugins_) {
+    for (const auto& id : ordered_ids()) {
         if (registry_.state(id) != PluginRegistry::State::Active)
             continue;
         try {
-            entry.plugin->tick();
+            plugins_.at(id).plugin->tick();
         } catch (...) {
             // A plugin's tick must never take the host down; the next frame
             // simply shows whatever state it left behind.
@@ -485,10 +500,24 @@ void PluginRuntime::maybe_refresh_wallet() {
     schedule_wallet_fetch();
 }
 
+std::vector<std::string> PluginRuntime::ordered_ids() const {
+    std::vector<std::pair<std::size_t, std::string>> rows;
+    rows.reserve(plugins_.size());
+    for (const auto& [id, entry] : plugins_)
+        rows.emplace_back(entry.seq, id);
+    std::sort(rows.begin(), rows.end());
+    std::vector<std::string> ids;
+    ids.reserve(rows.size());
+    for (auto& row : rows)
+        ids.push_back(std::move(row.second));
+    return ids;
+}
+
 void PluginRuntime::start(bool use_persisted_state) {
-    for (const auto& [id, entry] : plugins_) {
+    for (const auto& id : ordered_ids()) {
         if (registry_.state(id) == PluginRegistry::State::Active)
             continue;
+        const detail::Entry& entry = plugins_.at(id);
         const bool on =
             use_persisted_state ? read_enabled(id, /*default_value=*/entry.bundled) : entry.bundled;
         if (on)
@@ -497,9 +526,10 @@ void PluginRuntime::start(bool use_persisted_state) {
 }
 
 void PluginRuntime::shutdown() {
-    for (const auto& [id, entry] : plugins_) {
-        if (registry_.state(id) == PluginRegistry::State::Active)
-            deactivate(id);
+    const std::vector<std::string> ids = ordered_ids();
+    for (auto it = ids.rbegin(); it != ids.rend(); ++it) {
+        if (registry_.state(*it) == PluginRegistry::State::Active)
+            deactivate(*it);
     }
 }
 
@@ -508,10 +538,14 @@ std::vector<PluginRuntime::PluginStatus> PluginRuntime::list() const {
     for (const auto& [id, entry] : plugins_) {
         PluginStatus status;
         status.id = id;
-        status.version = entry.plugin->version();
         status.tier = entry.bundled ? "bundled" : "external";
-        status.description = entry.plugin->description();
-        status.category = entry.plugin->category();
+        try {
+            status.version = entry.plugin->version();
+            status.description = entry.plugin->description();
+            status.category = entry.plugin->category();
+        } catch (...) {
+            status.description = "(plugin metadata unavailable)";
+        }
         status.enabled = registry_.state(id) == PluginRegistry::State::Active;
         for (const auto& item : ledger_.contributions(id)) {
             status.contributions.push_back({item.kind, id, item.name, std::string{}});
@@ -635,7 +669,20 @@ bool PluginRuntime::install_capabilities(const std::string& id, IPlugin&, std::s
     for (auto& capability : it->second.declared) {
         if (!capability)
             continue;
-        InstallResult result = capability->install(*services_);
+        InstallResult result;
+        try {
+            result = capability->install(*services_);
+        } catch (const std::exception& e) {
+            if (error)
+                *error = capability->name() + " threw: " + e.what();
+            services_->set_tool_port(nullptr);
+            return false;
+        } catch (...) {
+            if (error)
+                *error = capability->name() + " threw";
+            services_->set_tool_port(nullptr);
+            return false;
+        }
         if (result.declined)
             continue; // nothing to install is not a reason to fail the plugin
         if (!result.ok) {

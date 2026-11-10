@@ -99,9 +99,20 @@ class Layering(unittest.TestCase):
 
     def test_core_may_not_include_a_client_or_adapter(self):
         for include in ('#include "src/main.h"', '#include "tools/read_tool.h"',
-                        '#include <tools/search/semantic_index.h>'):
+                        '#include <tools/search/semantic_index.h>',
+                        '#include "plugins/tool_read/tool_read_plugin.h"'):
             self.assertEqual(len(hg.layering_findings("lib/a.cpp", include + "\n")), 1,
                              include)
+
+    def test_only_the_composition_roots_may_name_a_bundled_plugin(self):
+        self.assertEqual(
+            hg.layering_findings("lib/plugins_bundled.cpp",
+                                 '#include "plugins/tool_read/tool_read_plugin.h"\n'),
+            [])
+        self.assertEqual(
+            hg.layering_findings("lib/tools_default.cpp",
+                                 '#include "plugins/tool_read/tool_read_plugin.h"\n'),
+            [])
 
     def test_core_may_include_its_own_ports(self):
         self.assertEqual(hg.layering_findings("lib/a.cpp", '#include "agent/tool.h"\n'), [])

@@ -53,11 +53,21 @@ bool EventBus::fire(EventType type, Event& event) {
         }
     }
     for (auto it = interceptors.rbegin(); it != interceptors.rend(); ++it) {
-        if (!it->handler(event))
+        try {
+            if (!it->handler(event))
+                return false;
+        } catch (...) {
+            // An interceptor is plugin/host code. A throw means "do not
+            // continue", not "take the publisher down".
             return false;
+        }
     }
     for (auto& e : observers) {
-        e.handler(event);
+        try {
+            e.handler(event);
+        } catch (...) {
+            // One observer's failure must not starve the others.
+        }
     }
     return true;
 }

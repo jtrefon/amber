@@ -334,6 +334,25 @@ struct TestHarness {
 
 } // namespace
 
+TEST(tool_registry_refuses_cross_owner_shadowing) {
+    ToolRegistry reg;
+    reg.register_tool(std::make_unique<SilentTool>("shared"), "alpha");
+    reg.register_tool(std::make_unique<SilentTool>("shared"), "beta");
+    ASSERT(reg.find("shared") != nullptr);
+    // Beta's registration was refused; only alpha can unwind it.
+    ASSERT(!reg.remove_owned_tool("shared", "beta"));
+    ASSERT(reg.remove_owned_tool("shared", "alpha"));
+    ASSERT(reg.find("shared") == nullptr);
+}
+
+TEST(tool_registry_host_may_take_a_name_back) {
+    ToolRegistry reg;
+    reg.register_tool(std::make_unique<SilentTool>("shared"), "alpha");
+    reg.register_tool(std::make_unique<SilentTool>("shared"), "");
+    ASSERT(!reg.remove_owned_tool("shared", "alpha"));
+    ASSERT(reg.remove_tool("shared"));
+}
+
 TEST(capability_install_reports_the_contribution) {
     StubCapability cap;
     TestHarness h;
@@ -611,16 +630,16 @@ TEST(tool_capability_unwind_cannot_remove_another_plugins_tool) {
     InstallResult b = beta.install(h.services);
     ASSERT_TRUE(b.ok);
 
-    // beta's instance replaced alpha's under the same name: the registered tool
-    // belongs to beta now, and alpha's contribution is already superseded.
+    // beta's registration is refused: a plugin may not shadow another plugin's
+    // tool. The live "shared.tool" still belongs to alpha.
     ASSERT_TRUE((bool)h.tools.find("shared.tool"));
 
-    // Unwinding alpha must not remove beta's tool.
-    a.contribution.remove();
-    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
-
-    // Unwinding beta removes its own.
+    // Unwinding beta removes nothing; alpha's tool stays.
     b.contribution.remove();
+    ASSERT_TRUE((bool)h.tools.find("shared.tool"));
+
+    // Unwinding alpha removes its own.
+    a.contribution.remove();
     ASSERT_FALSE((bool)h.tools.find("shared.tool"));
 }
 

@@ -1,6 +1,6 @@
 #include "agent/plugin_external_adapter.h"
 
-#include <utility>
+#include "agent/extensions.h"
 
 namespace agent {
 
@@ -8,21 +8,30 @@ ExternalPluginAdapter::ExternalPluginAdapter(PluginManager& manager, std::string
                                              std::string version)
     : manager_(&manager), id_(std::move(plugin_id)), version_(std::move(version)) {}
 
-bool ExternalPluginAdapter::initialize(const PluginContext& ctx) {
-    // The v1 manager owns the process lifecycle and registers the plugin's
-    // tools. The context hands out a const registry (plugins cannot write to
-    // the harness directly), so the manager's own entry point takes the
-    // registry the host owns - remembered here for the matching disable.
-    tools_ = const_cast<ToolRegistry*>(&ctx.tools);
-    enabled_ = manager_->enable(id_, *tools_);
-    return enabled_;
+bool ExternalPluginAdapter::initialize(const PluginContext&) {
+    const PluginInfo* info = manager_->find(id_);
+    if (!info || info->state == PluginState::Incompatible)
+        return false;
+    initialized_ = true;
+    return true;
 }
 
 void ExternalPluginAdapter::shutdown() {
-    if (!enabled_ || !tools_)
+    if (!initialized_)
         return;
-    manager_->disable(id_, *tools_);
-    enabled_ = false;
+    manager_->disable(id_);
+    initialized_ = false;
+}
+
+std::vector<std::unique_ptr<Capability>> ExternalPluginAdapter::capabilities() {
+    std::vector<std::unique_ptr<Capability>> caps;
+    // The manager registers the manifest's tools through the port. The runtime
+    // owns the port and tags every registration with this plugin's id, so a
+    // disable removes exactly this set and no other plugin's tools.
+    caps.push_back(std::make_unique<ToolSourceCapability>(
+        "tools", [this](PluginServices&, ToolPort& port) { manager_->enable(id_, port); },
+        [this] { manager_->disable(id_); }));
+    return caps;
 }
 
 std::vector<std::shared_ptr<IPlugin>> make_v1_plugin_adapters(PluginManager& manager) {

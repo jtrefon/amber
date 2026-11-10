@@ -2,6 +2,8 @@
 #include "agent/plugin.h"
 
 #include "agent/data_path.h"
+#include "agent/extensions.h"
+#include "agent/private_file.h"
 #include "agent/version.h"
 #include "agent/workspace.h"
 #include "agent/archive_util.h"
@@ -33,6 +35,9 @@ namespace {
 
 constexpr int kProtocolVersion = 1;
 constexpr int kCallTimeoutSec = 60;
+// The plugin protocol is one JSON object per line. A line larger than this is
+// a broken/malicious plugin, not a response the harness can use.
+constexpr std::size_t kMaxPluginLine = 65536;
 
 std::string config_base() {
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
@@ -273,6 +278,12 @@ bool PluginManager::plugin_info_at(const std::string& dir, PluginInfo& out) {
         out = std::move(info);
         return true;
     }
+    if (info.manifest.id != id) {
+        info.state = PluginState::Incompatible;
+        info.error = "manifest id '" + info.manifest.id + "' does not match directory '" + id + "'";
+        out = std::move(info);
+        return true;
+    }
     info.version = info.manifest.version;
     if (state_.contains(id) && read_bool(state_[id], "enabled", false))
         info.state = PluginState::Enabled;
@@ -321,11 +332,8 @@ void PluginManager::load_state() {
 }
 
 void PluginManager::save_state() {
-    std::error_code ec;
-    std::filesystem::create_directories(state_path().substr(0, state_path().find_last_of('/')), ec);
-    std::ofstream f(state_path());
-    if (f)
-        f << state_.dump(2);
+    if (!write_private_file(state_path(), state_.dump(2)))
+        return;
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +390,14 @@ bool PluginManager::spawn_child(PluginInfo& info, Session& s) {
     if (pid == 0) {
         dup2(to_child[0], STDIN_FILENO);
         dup2(from_child[1], STDOUT_FILENO);
+        // A plugin's diagnostics must not paint over the TUI. The protocol
+        // owns stdout; stderr is discarded unless a future version gives it a
+        // log destination.
+        const int devnull = ::open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            dup2(devnull, STDERR_FILENO);
+            ::close(devnull);
+        }
         close(to_child[0]);
         close(to_child[1]);
         close(from_child[0]);
@@ -436,6 +452,8 @@ bool PluginManager::read_initialize_reply(PluginInfo& info, Session& s) {
         if (n <= 0)
             return fail_handshake(info, s, "plugin exited during handshake");
         s.in_buf.append(buf, (size_t)n);
+        if (s.in_buf.size() > kMaxPluginLine)
+            return fail_handshake(info, s, "plugin initialize response exceeds 64 KiB");
     }
     const size_t nl = s.in_buf.find('\n');
     const std::string resp_line = s.in_buf.substr(0, nl);
@@ -499,7 +517,10 @@ public:
     bool requires_approval(const json&) const noexcept override { return true; }
 
     ToolResult execute(const json& args) const override {
-        return mgr_->call_tool(*mgr_->find(id_), name_, args);
+        const PluginInfo* info = mgr_->find(id_);
+        if (!info)
+            return {false, "", "plugin not installed: " + id_};
+        return mgr_->call_tool(*info, name_, args);
     }
 
 private:
@@ -530,8 +551,12 @@ ToolResult PluginManager::read_call_reply(Session& s) {
         if (n <= 0)
             return {false, "", "plugin exited during call"};
         s.in_buf.append(buf, (size_t)n);
+        if (s.in_buf.size() > kMaxPluginLine)
+            return {false, "", "plugin response exceeds 64 KiB"};
     }
     const size_t nl = s.in_buf.find('\n');
+    if (nl > kMaxPluginLine)
+        return {false, "", "plugin response exceeds 64 KiB"};
     const std::string resp_line = s.in_buf.substr(0, nl);
     s.in_buf.erase(0, nl + 1);
     const json resp = json::parse(resp_line, nullptr, false);
@@ -556,6 +581,8 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
             infos = &p;
     if (!infos)
         return {false, "", "plugin not found"};
+    if (infos->state != PluginState::Enabled)
+        return {false, "", "plugin is disabled"};
     std::shared_ptr<Session> s = session(*infos);
     if (s->pid < 0)
         return {false, "", "plugin not running: " + infos->error};
@@ -569,6 +596,59 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
         return {false, "", "plugin write failed (process died?)"};
 
     return read_call_reply(*s);
+}
+
+bool PluginManager::enable(const std::string& id, ToolPort& port) {
+    PluginInfo* info = find(id);
+    if (!info)
+        return false;
+    if (info->state == PluginState::Incompatible)
+        return false;
+    if (info->state == PluginState::Enabled)
+        return true;
+
+    // Register the declared tools now; the process starts on the first tool
+    // call. Activation therefore never performs a handshake on the host's
+    // thread, and a plugin that never runs costs nothing.
+    for (const auto& t : info->manifest.tools) {
+        if (!t.is_object() || !t.contains("name") || !t["name"].is_string())
+            continue;
+        const std::string name = t["name"].get<std::string>();
+        const std::string desc = t.contains("description") && t["description"].is_string()
+                                     ? t["description"].get<std::string>()
+                                     : std::string();
+        const json schema = t.contains("schema") ? t["schema"] : json::object();
+        port.add(std::make_unique<plugin_internal::PluginTool>(this, id, name, desc, schema));
+    }
+    info->state = PluginState::Enabled;
+    state_[id]["enabled"] = true;
+    save_state();
+    return true;
+}
+
+bool PluginManager::disable(const std::string& id) {
+    PluginInfo* info = find(id);
+    if (!info)
+        return false;
+    if (info->state == PluginState::Disabled)
+        return true;
+    std::shared_ptr<Session> session;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        auto it = sessions_.find(id);
+        if (it != sessions_.end()) {
+            session = it->second;
+            sessions_.erase(it);
+        }
+    }
+    if (session) {
+        std::scoped_lock lk(session->mtx);
+        shutdown_session(*session);
+    }
+    info->state = PluginState::Disabled;
+    state_[id]["enabled"] = false;
+    save_state();
+    return true;
 }
 
 bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {

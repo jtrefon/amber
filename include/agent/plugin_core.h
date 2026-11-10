@@ -68,11 +68,11 @@ public:
     // Must not block — schedule slow work on the plugin's own thread.
     virtual void tick() {}
 
-    // What this plugin contributes. Called once, at activation: the runtime
-    // installs each capability and records the returned handle in its ledger,
-    // so the plugin hands over ownership and never registers anything itself.
-    // The default is a plugin that contributes nothing yet still participates
-    // in the lifecycle (the metrics observer is one).
+    // What this plugin contributes. Called once at registration (D19): the
+    // runtime installs each capability at activation and records the returned
+    // handle in its ledger, so a plugin that ships switched off still declares
+    // what it would provide. A declaration must be data-only; it runs before
+    // initialize() and before the live config is attached.
     virtual std::vector<std::unique_ptr<Capability>> capabilities() { return {}; }
 };
 

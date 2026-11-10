@@ -64,9 +64,10 @@ class ToolRegistry {
 public:
     // Register a tool under an owner. `owner` is the contributing plugin's id;
     // empty means the host. Ownership is what makes unwinding precise: a
-    // plugin's removal can only ever reach its own tools, even when two plugins
-    // contribute the same name (the later registration replaces the earlier
-    // one, and the replacement carries its own owner).
+    // plugin's removal can only ever reach its own tools. A plugin may replace
+    // its own registration, but it may not shadow a host tool or another
+    // plugin's tool; the host may take a name back. This is the 1.0 no-shadow
+    // policy; a per-name shadow stack is post-1.0.
     void register_tool(std::unique_ptr<Tool> tool, std::string owner = {}, ToolMeta meta = {});
     // Shared lease: the caller keeps the tool alive across a concurrent
     // unregister/replacement (dispatch holds the lease through execute()).
