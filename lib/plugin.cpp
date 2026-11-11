@@ -728,8 +728,11 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
             infos = &p;
     if (!infos)
         return {false, "", "plugin not found"};
-    if (infos->state != PluginState::Enabled)
-        return {false, "", "plugin is disabled"};
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        if (infos->state != PluginState::Enabled)
+            return {false, "", "plugin is disabled"};
+    }
     std::shared_ptr<Session> s = session(*infos);
     if (s->pid < 0)
         return {false, "", "plugin not running: " + infos->error};
@@ -737,7 +740,12 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
     std::scoped_lock lock(s->mtx);
     // disable() may have won the race while the process was spawning; the
     // session was inserted after disable looked for it, so drop it here.
-    if (infos->state != PluginState::Enabled) {
+    bool enabled = false;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        enabled = infos->state == PluginState::Enabled;
+    }
+    if (!enabled) {
         discard_session(infos->id, s);
         return {false, "", "plugin is disabled"};
     }
@@ -762,10 +770,13 @@ bool PluginManager::enable(const std::string& id, ToolPort& port) {
     PluginInfo* info = find(id);
     if (!info)
         return false;
-    if (info->state == PluginState::Incompatible)
-        return false;
-    if (info->state == PluginState::Enabled)
-        return true;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        if (info->state == PluginState::Incompatible)
+            return false;
+        if (info->state == PluginState::Enabled)
+            return true;
+    }
 
     // Register the declared tools now; the process starts on the first tool
     // call. Activation therefore never performs a handshake on the host's
@@ -780,7 +791,10 @@ bool PluginManager::enable(const std::string& id, ToolPort& port) {
         const json schema = t.contains("schema") ? t["schema"] : json::object();
         port.add(std::make_unique<plugin_internal::PluginTool>(this, id, name, desc, schema));
     }
-    info->state = PluginState::Enabled;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        info->state = PluginState::Enabled;
+    }
     state_[id]["enabled"] = true;
     save_state();
     return true;
@@ -790,11 +804,14 @@ bool PluginManager::disable(const std::string& id) {
     PluginInfo* info = find(id);
     if (!info)
         return false;
-    if (info->state == PluginState::Disabled)
-        return true;
-    // Mark disabled before waiting on the process: a call that passes its own
-    // state check while teardown runs must not spawn a fresh session.
-    info->state = PluginState::Disabled;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        if (info->state == PluginState::Disabled)
+            return true;
+        // Mark disabled before waiting on the process: a call that passes its
+        // own state check while teardown runs must not spawn a fresh session.
+        info->state = PluginState::Disabled;
+    }
     state_[id]["enabled"] = false;
     save_state();
     if (std::shared_ptr<Session> session = take_session(id))
@@ -806,10 +823,13 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
     PluginInfo* info = find(id);
     if (!info)
         return false;
-    if (info->state == PluginState::Incompatible)
-        return false;
-    if (info->state == PluginState::Enabled)
-        return true;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        if (info->state == PluginState::Incompatible)
+            return false;
+        if (info->state == PluginState::Enabled)
+            return true;
+    }
 
     // Same lazy contract as the owner-scoped port: register the declared tools
     // now, spawn on the first call. Bare hosts get the same non-blocking
@@ -825,7 +845,10 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
         reg.register_tool(
             std::make_unique<plugin_internal::PluginTool>(this, id, name, desc, schema));
     }
-    info->state = PluginState::Enabled;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        info->state = PluginState::Enabled;
+    }
     state_[id]["enabled"] = true;
     save_state();
     return true;
@@ -835,9 +858,12 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
     PluginInfo* info = find(id);
     if (!info)
         return false;
-    if (info->state == PluginState::Disabled)
-        return true;
-    info->state = PluginState::Disabled;
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        if (info->state == PluginState::Disabled)
+            return true;
+        info->state = PluginState::Disabled;
+    }
     state_[id]["enabled"] = false;
     save_state();
     reg.unregister_tools_with_prefix("plugin_" + id + "_");
