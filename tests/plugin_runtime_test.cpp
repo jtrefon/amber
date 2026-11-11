@@ -113,6 +113,20 @@ void write_mcp_server_conf(const std::string& config_root, const std::string& na
       << "enabled=1\nauto_connect=1\ntrusted=1\n";
 }
 
+// Stage an external plugin with one `call` tool in a scratch directory.
+fs::path stage_external_plugin(const std::string& root, const std::string& id,
+                               const std::string& script) {
+    const fs::path dir = fs::path(root) / id;
+    fs::create_directories(dir);
+    fs::copy_file("tests/plugins/" + script, dir / script, fs::copy_options::overwrite_existing);
+    chmod((dir / script).c_str(), 0755);
+    std::ofstream manifest(dir / "manifest.json");
+    manifest << R"({"id": ")" << id << R"(", "name": ")" << id
+             << R"(", "version": "1.0.0", "protocol_version": 1, "main": ")" << script
+             << R"(", "tools": [{"name": "call", "description": "test", "schema": {}}]})";
+    return dir;
+}
+
 // True when a registry entry is owned by `owner` (the plugin id a contribution
 // was installed under).
 bool segment_owned_by(const StatusRegistry& status, const std::string& owner) {
@@ -3185,6 +3199,87 @@ TEST(runtime_external_plugin_is_off_by_default) {
     // user enables it.
     ASSERT_FALSE(runtime.status("ext_sample").enabled);
     ASSERT_EQ(runtime.prompts().size(), 0u);
+}
+
+TEST(runtime_external_startup_never_waits_for_a_hanging_handshake) {
+    ScratchConfig scratch("external-startup");
+    const fs::path staged =
+        stage_external_plugin(scratch.root() + "/staged", "hang", "hang_plugin.py");
+    Fixture f;
+    PluginManager manager;
+    manager.discover({staged.parent_path().string()});
+    ASSERT(manager.find("hang") != nullptr);
+
+    {
+        PluginRuntime runtime(f.tools, f.cfg, f.ws);
+        runtime.attach_config(f.cfg);
+        runtime.add_external(manager);
+        runtime.start(/*use_persisted_state=*/false);
+        const auto started = std::chrono::steady_clock::now();
+        ASSERT_TRUE(runtime.set_state("hang", true));
+        const auto toggled_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now() - started)
+                                    .count();
+        ASSERT(toggled_ms < 2000);
+        ASSERT_TRUE(runtime.status("hang").enabled);
+        runtime.shutdown();
+    }
+
+    // A persisted enabled plugin is activated at startup. Lazy spawn makes that
+    // a manifest registration, not a handshake the constructor waits on.
+    PluginRuntime reloaded(f.tools, f.cfg, f.ws);
+    reloaded.attach_config(f.cfg);
+    reloaded.add_external(manager);
+    const auto started = std::chrono::steady_clock::now();
+    reloaded.start(/*use_persisted_state=*/true);
+    const auto started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count();
+    ASSERT(started_ms < 2000);
+    ASSERT_TRUE(reloaded.status("hang").enabled);
+    ASSERT_TRUE(reloaded.set_state("hang", false));
+}
+
+TEST(runtime_external_toggle_off_cancels_a_hung_call) {
+    ScratchConfig scratch("external-toggle");
+    const std::string marker = scratch.root() + "/call.marker";
+    setenv("AMBER_PLUGIN_TEST_MARKER", marker.c_str(), 1);
+    const fs::path staged =
+        stage_external_plugin(scratch.root() + "/staged", "hang", "hang_plugin.py");
+    Fixture f;
+    PluginManager manager;
+    manager.discover({staged.parent_path().string()});
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_config(f.cfg);
+    runtime.add_external(manager);
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(runtime.set_state("hang", true));
+    auto call = f.tools.find("plugin_hang_call");
+    ASSERT(call != nullptr);
+
+    std::atomic<bool> done{false};
+    ToolResult result;
+    std::thread worker([&] {
+        result = call->execute({});
+        done = true;
+    });
+    ASSERT(wait_until([&] { return fs::exists(marker); }));
+
+    // The UI path: /set plugin off unwinds the tool source, which disables the
+    // process. A hung call must not hold the toggle for its 60 s deadline.
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT_TRUE(runtime.set_state("hang", false));
+    const auto toggled_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - started)
+                                .count();
+    ASSERT(toggled_ms < 5000);
+    worker.join();
+    ASSERT(done);
+    ASSERT_FALSE(result.ok);
+
+    runtime.shutdown();
+    unsetenv("AMBER_PLUGIN_TEST_MARKER");
 }
 
 // A provider plugin registers a wire protocol and its presets. Enabling makes

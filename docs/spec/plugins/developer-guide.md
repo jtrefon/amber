@@ -796,7 +796,8 @@ Methods: `initialize`, `tool.call`, `shutdown` (others return
 Manage with `/get plugin list|info` and `/set plugin on|off|install|uninstall`. Tools appear
 to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
 plugin is enabled. The process starts on the first tool call; activation itself
-does not block.
+does not block. Disabling cancels an in-flight call and kills a process that
+ignores shutdown after a one-second grace, so the toggle stays responsive.
 
 **External plugins are tools-only at 1.0.** A manifest `completion` subtree is
 parsed for compatibility but is not mounted; the host binds no actions for the

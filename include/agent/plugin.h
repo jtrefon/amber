@@ -5,6 +5,7 @@
 #include "agent/registry.h"
 #include "agent/tool.h"
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -113,27 +114,45 @@ private:
         int in_fd = -1;
         int out_fd = -1;
         std::string in_buf;
-        std::mutex mtx;
+        std::timed_mutex mtx;
+        // Set before teardown waits for the call lock: an in-flight read or
+        // write wakes on its next poll slice and returns, so disabling is
+        // bounded by the slice rather than the 60 s call deadline.
+        std::atomic<bool> cancelled{false};
+        // Teardown could not take the lock inside its deadline and has sent
+        // SIGKILL; the in-flight call reaps and closes the session on its way
+        // out. Also set when a failed exchange leaves the stream desynced.
+        std::atomic<bool> broken{false};
     };
     // Shared lease: callers hold the session alive across a concurrent
     // disable() (which erases and shuts it down).
     std::shared_ptr<Session> session(PluginInfo& info);
+    // Remove and return the registered session, or null when none is live.
+    std::shared_ptr<Session> take_session(const std::string& id);
     bool spawn_and_handshake(PluginInfo& info, Session& s);
     bool fail_handshake(PluginInfo& info, Session& s, const std::string& error);
     bool spawn_child(PluginInfo& info, Session& s);
     bool write_initialize(PluginInfo& info, Session& s);
     bool read_initialize_reply(PluginInfo& info, Session& s);
+    bool read_line(Session& s, const std::string& phase, std::string& line, std::string& error);
+    bool write_line(Session& s, const std::string& data, std::string& error);
     ToolResult read_call_reply(Session& s);
     ToolResult call_tool(const PluginInfo& info, const std::string& name, const json& args);
+    // Cancel an in-flight call, then wait a bounded time for the session lock
+    // before shutting the process down. Never blocks on the call deadline.
+    void teardown_session(const std::shared_ptr<Session>& session);
+    // Drop `session` from the map (if it is still the registered one) and shut
+    // it down; called with the session lock held.
+    void discard_session(const std::string& id, const std::shared_ptr<Session>& session);
+    void shutdown_session(Session& s);
 
     static bool parse_manifest(const std::string& dir, PluginManifest& out, std::string& err);
     void load_state();
     void save_state();
-    void shutdown_session(Session& s);
 
     std::vector<PluginInfo> plugins_;
     std::map<std::string, std::shared_ptr<Session>> sessions_;
-    std::mutex sessions_mtx_; // guards sessions_ (parallel tool dispatch)
+    std::mutex sessions_mtx_; // guards sessions_ and PluginInfo::state
     json state_;
 };
 

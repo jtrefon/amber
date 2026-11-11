@@ -2,12 +2,14 @@
 #include "agent/tools.h"
 
 #include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <sys/stat.h>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 
 #include "tests/minitest.h"
 
@@ -68,6 +70,38 @@ std::string stage_fake_plugin(const std::string& base) {
                                std::filesystem::copy_options::overwrite_existing);
     chmod((dir + "/fake_plugin.py").c_str(), 0755);
     return dir;
+}
+
+// Stage one of the misbehaving fixtures with a single `call` tool.
+std::string stage_test_plugin(const std::string& base, const std::string& id,
+                              const std::string& script) {
+    const std::string dir = base + "/plugins/" + id;
+    std::filesystem::create_directories(dir);
+    std::filesystem::copy_file("tests/plugins/" + script, dir + "/" + script,
+                               std::filesystem::copy_options::overwrite_existing);
+    chmod((dir + "/" + script).c_str(), 0755);
+    std::ofstream manifest(dir + "/manifest.json");
+    manifest << R"({"id": ")" << id << R"(", "name": ")" << id
+             << R"(", "version": "1.0.0", "protocol_version": 1, "main": ")" << script
+             << R"(", "tools": [{"name": "call", "description": "test", "schema": {}}]})";
+    return dir;
+}
+
+// Wait for a child to prove it received the call (a marker file), bounded.
+bool wait_for_marker(const std::string& path, int timeout_ms = 5000) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (std::filesystem::exists(path))
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return std::filesystem::exists(path);
+}
+
+long long elapsed_ms(std::chrono::steady_clock::time_point since) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                 since)
+        .count();
 }
 
 } // namespace
@@ -138,6 +172,116 @@ TEST(plugin_enable_registers_and_runs_tools) {
     ASSERT(mgr.disable("fake", reg));
     ASSERT(reg.find("plugin_fake_echo") == nullptr);
     ASSERT(mgr.find("fake")->state == agent::PluginState::Disabled);
+}
+
+TEST(plugin_disable_cancels_a_hung_call) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    const std::string marker = base + "/call.marker";
+    setenv("AMBER_PLUGIN_TEST_MARKER", marker.c_str(), 1);
+    stage_test_plugin(base, "hang", "hang_plugin.py");
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("hang", reg));
+    auto call = reg.find("plugin_hang_call");
+    REQUIRE(call != nullptr);
+
+    agent::ToolResult result;
+    std::thread worker([&] { result = call->execute({}); });
+    REQUIRE(wait_for_marker(marker));
+
+    // The call is parked inside its 60 s read window; disabling must cancel it
+    // and kill the process instead of waiting for that deadline.
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT(mgr.disable("hang", reg));
+    ASSERT(elapsed_ms(started) < 5000);
+    worker.join();
+
+    ASSERT(!result.ok);
+    ASSERT(result.error.find("cancelled") != std::string::npos ||
+           result.error.find("exited") != std::string::npos);
+    ASSERT(mgr.find("hang")->state == agent::PluginState::Disabled);
+    unsetenv("AMBER_PLUGIN_TEST_MARKER");
+}
+
+TEST(plugin_disable_kills_a_plugin_that_ignores_shutdown) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    stage_test_plugin(base, "slowexit", "slow_shutdown_plugin.py");
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("slowexit", reg));
+    auto call = reg.find("plugin_slowexit_call");
+    REQUIRE(call != nullptr);
+    ASSERT(call->execute({}).ok);
+
+    // The process ignores the shutdown notification; teardown gets its bounded
+    // grace window and then SIGKILLs it.
+    const auto started = std::chrono::steady_clock::now();
+    ASSERT(mgr.disable("slowexit", reg));
+    ASSERT(elapsed_ms(started) < 5000);
+    ASSERT(mgr.find("slowexit")->state == agent::PluginState::Disabled);
+}
+
+TEST(plugin_oversized_initialize_line_fails_closed) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    setenv("AMBER_PLUGIN_TEST_OVERSIZE", "initialize", 1);
+    stage_test_plugin(base, "biginit", "oversized_plugin.py");
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    // Activation is lazy, so the handshake happens on the first call.
+    ASSERT(mgr.enable("biginit", reg));
+    auto call = reg.find("plugin_biginit_call");
+    REQUIRE(call != nullptr);
+    const agent::ToolResult result = call->execute({});
+    ASSERT(!result.ok);
+    ASSERT(result.error.find("64 KiB") != std::string::npos);
+    const agent::PluginInfo* info = mgr.find("biginit");
+    REQUIRE(info != nullptr);
+    ASSERT(info->error.find("64 KiB") != std::string::npos);
+    unsetenv("AMBER_PLUGIN_TEST_OVERSIZE");
+}
+
+TEST(plugin_oversized_call_reply_fails_closed_and_respawns) {
+    std::string base = "/tmp/amber_plugin_test";
+    std::filesystem::remove_all(base);
+    std::filesystem::create_directories(base);
+    EnvGuard env(base + "/xdg");
+    unsetenv("AMBER_PLUGIN_TEST_OVERSIZE");
+    stage_test_plugin(base, "bigreply", "oversized_plugin.py");
+
+    agent::PluginManager mgr;
+    mgr.discover({base + "/plugins"});
+    agent::ToolRegistry reg;
+    ASSERT(mgr.enable("bigreply", reg));
+    auto call = reg.find("plugin_bigreply_call");
+    REQUIRE(call != nullptr);
+
+    const agent::ToolResult first = call->execute({});
+    ASSERT(!first.ok);
+    ASSERT(first.error.find("64 KiB") != std::string::npos);
+
+    // The poisoned stream is dropped, so the next call starts a fresh process
+    // and fails at the cap again rather than consuming a stale reply.
+    const auto started = std::chrono::steady_clock::now();
+    const agent::ToolResult second = call->execute({});
+    ASSERT(!second.ok);
+    ASSERT(second.error.find("64 KiB") != std::string::npos);
+    ASSERT(elapsed_ms(started) < 5000);
+    ASSERT(mgr.disable("bigreply", reg));
 }
 
 TEST(plugin_state_persists_across_manager_instances) {
@@ -470,6 +614,10 @@ int main() {
     plugin_discover_loads_valid_and_flags_invalid();
     plugin_discover_ignores_state_dirs();
     plugin_enable_registers_and_runs_tools();
+    plugin_disable_cancels_a_hung_call();
+    plugin_disable_kills_a_plugin_that_ignores_shutdown();
+    plugin_oversized_initialize_line_fails_closed();
+    plugin_oversized_call_reply_fails_closed_and_respawns();
     plugin_state_persists_across_manager_instances();
     plugin_install_stages_archive();
     plugin_advertisement_lists_enabled_tools();
