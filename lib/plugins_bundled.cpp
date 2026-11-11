@@ -6,6 +6,7 @@
 #include "plugins/project_index/project_index_plugin.h"
 #include "plugins/coding/coding_plugin.h"
 #include "plugins/anthropic/anthropic_plugin.h"
+#include "plugins/cache/cache_plugin.h"
 #include "plugins/clock/clock_plugin.h"
 #include "plugins/commandcode/commandcode_plugin.h"
 #include "plugins/custom/custom_plugin.h"
@@ -52,6 +53,11 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     // developer guide and arrive the same way when they are built.
     plugins.push_back(std::make_shared<plugins::CodingPlugin>());
     plugins.push_back(std::make_shared<plugins::MetricsPlugin>());
+    // Cache: a recent-reuse gauge. A bundled plugin so the status segment and
+    // command can arrive through the same capability path as any other
+    // observability contribution; it self-hides when the provider reports no
+    // cache counters.
+    plugins.push_back(std::make_shared<plugins::CachePlugin>());
     // Watch: background command/PR watches with a one-shot read-only observer.
     // A separate plugin so a user can switch off the observability layer while
     // keeping the tool set, and so its prompt/status/command surfaces unwind
