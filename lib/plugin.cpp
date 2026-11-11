@@ -8,8 +8,10 @@
 #include "agent/workspace.h"
 #include "agent/archive_util.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <dirent.h>
@@ -35,9 +37,79 @@ namespace {
 
 constexpr int kProtocolVersion = 1;
 constexpr int kCallTimeoutSec = 60;
+// I/O waits in slices so a cancelled call notices teardown promptly instead of
+// sleeping through the whole call deadline.
+constexpr int kPollSliceMs = 100;
+// How long a disable waits for the in-flight call to release the session lock
+// before it kills the child and lets the call reap it on the way out.
+constexpr int kTeardownLockMs = 2000;
+// Graceful shutdown window before SIGKILL, and the bounded reap that follows.
+constexpr int kShutdownGraceMs = 1000;
+constexpr int kReapMs = 1000;
 // The plugin protocol is one JSON object per line. A line larger than this is
 // a broken/malicious plugin, not a response the harness can use.
 constexpr std::size_t kMaxPluginLine = 65536;
+
+enum class Wait { Ready, Cancelled, TimedOut, Failed };
+
+// Wait for one fd event in slices, so a cancelled call notices teardown within
+// kPollSliceMs instead of sleeping through the whole call deadline.
+Wait wait_for_fd(int fd, short events, std::chrono::steady_clock::time_point deadline,
+                 const std::atomic<bool>& cancelled) {
+    while (true) {
+        if (cancelled)
+            return Wait::Cancelled;
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= deadline)
+            return Wait::TimedOut;
+        const auto left =
+            std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+        struct pollfd pfd {
+            fd, events, 0
+        };
+        const int rc = poll(&pfd, 1, static_cast<int>(std::min<long long>(left, kPollSliceMs)));
+        if (rc > 0)
+            return Wait::Ready;
+        if (rc == 0)
+            continue;
+        if (errno == EINTR)
+            continue;
+        return Wait::Failed;
+    }
+}
+
+std::string wait_error(Wait wait, const std::string& timeout_message) {
+    if (wait == Wait::Cancelled)
+        return "plugin call cancelled";
+    if (wait == Wait::TimedOut)
+        return timeout_message;
+    return "plugin poll failed";
+}
+
+enum class LineState { Ready, Incomplete, TooLarge };
+
+LineState take_line(std::string& buffer, std::string& line) {
+    const std::size_t nl = buffer.find('\n');
+    if (nl == std::string::npos)
+        return buffer.size() > kMaxPluginLine ? LineState::TooLarge : LineState::Incomplete;
+    if (nl > kMaxPluginLine)
+        return LineState::TooLarge;
+    line = buffer.substr(0, nl);
+    buffer.erase(0, nl + 1);
+    return LineState::Ready;
+}
+
+// Poll for a child's exit in 20 ms steps; true when it was reaped. A zero
+// window is a single non-blocking check.
+bool wait_for_exit(pid_t pid, int milliseconds) {
+    int status = 0;
+    for (int waited = 0; waited < milliseconds; waited += 20) {
+        if (waitpid(pid, &status, WNOHANG) != 0)
+            return true;
+        usleep(20000);
+    }
+    return waitpid(pid, &status, WNOHANG) != 0;
+}
 
 std::string config_base() {
     if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
@@ -342,29 +414,73 @@ void PluginManager::save_state() {
 
 void PluginManager::shutdown_session(Session& s) {
     if (s.pid > 0) {
-        int status = 0;
-        if (waitpid(s.pid, &status, WNOHANG) == 0) {
+        if (wait_for_exit(s.pid, 0)) {
+            s.pid = -1;
+        } else {
+            // The fd is non-blocking: a plugin that stopped reading its stdin
+            // fails this write immediately instead of blocking teardown.
             std::string bye = "{\"method\":\"shutdown\"}\n";
             if (s.in_fd >= 0) {
                 ssize_t wr = write(s.in_fd, bye.data(), bye.size());
                 (void)wr;
             }
-            for (int i = 0; i < 50; ++i) {
-                if (waitpid(s.pid, &status, WNOHANG) != 0)
-                    break;
-                usleep(20000);
-            }
-            if (waitpid(s.pid, &status, WNOHANG) == 0)
+            if (!wait_for_exit(s.pid, kShutdownGraceMs)) {
                 kill(s.pid, SIGKILL);
-            waitpid(s.pid, &status, 0);
+                // SIGKILL cannot be caught, so this is normally immediate.
+                // Bound the reap anyway: a child stuck in uninterruptible I/O
+                // cannot be reaped by anyone until it wakes, and the host must
+                // not freeze on it.
+                if (wait_for_exit(s.pid, kReapMs))
+                    s.pid = -1;
+            } else {
+                s.pid = -1;
+            }
         }
     }
     if (s.in_fd >= 0)
         close(s.in_fd);
     if (s.out_fd >= 0)
         close(s.out_fd);
-    s.pid = -1;
     s.in_fd = s.out_fd = -1;
+}
+
+void PluginManager::teardown_session(const std::shared_ptr<Session>& session) {
+    // Wake any in-flight read/write first: it returns within one poll slice,
+    // so the lock wait below is bounded by the teardown deadline, not by the
+    // 60 s call deadline.
+    session->cancelled.store(true);
+    std::unique_lock<std::timed_mutex> lk(session->mtx, std::defer_lock);
+    if (lk.try_lock_for(std::chrono::milliseconds(kTeardownLockMs))) {
+        shutdown_session(*session);
+        return;
+    }
+    // The call is wedged somewhere a poll slice cannot reach (a stuck syscall
+    // or scheduler starvation). Kill the child and let the call thread reap
+    // and close the session when it returns.
+    session->broken.store(true);
+    if (session->pid > 0)
+        kill(session->pid, SIGKILL);
+}
+
+void PluginManager::discard_session(const std::string& id,
+                                    const std::shared_ptr<Session>& session) {
+    {
+        std::scoped_lock lk(sessions_mtx_);
+        auto it = sessions_.find(id);
+        if (it != sessions_.end() && it->second == session)
+            sessions_.erase(it);
+    }
+    shutdown_session(*session);
+}
+
+std::shared_ptr<PluginManager::Session> PluginManager::take_session(const std::string& id) {
+    std::scoped_lock lk(sessions_mtx_);
+    auto it = sessions_.find(id);
+    if (it == sessions_.end())
+        return {};
+    std::shared_ptr<Session> session = it->second;
+    sessions_.erase(it);
+    return session;
 }
 
 // The shared failure path: record the reason and tear the session down.
@@ -411,11 +527,75 @@ bool PluginManager::spawn_child(PluginInfo& info, Session& s) {
     s.pid = pid;
     s.in_fd = to_child[1];
     s.out_fd = from_child[0];
+    // Bounded writes: a plugin that stops reading must not block the caller
+    // (or teardown) on a full pipe. write_line polls with a deadline.
+    const int flags = fcntl(s.in_fd, F_GETFL, 0);
+    if (flags >= 0)
+        (void)fcntl(s.in_fd, F_SETFL, flags | O_NONBLOCK);
     // A plugin that exits between requests leaves its stdin closed. Without
     // this, the very next write kills the whole host via SIGPIPE instead of
     // failing that one call.
     std::signal(SIGPIPE, SIG_IGN);
     return true;
+}
+
+// Write every byte with a deadline, in poll slices, so a plugin that stops
+// reading and a teardown cancel both return promptly instead of blocking on a
+// full pipe.
+bool PluginManager::write_line(Session& s, const std::string& data, std::string& error) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kCallTimeoutSec);
+    std::size_t sent = 0;
+    while (sent < data.size()) {
+        const Wait wait = wait_for_fd(s.in_fd, POLLOUT, deadline, s.cancelled);
+        if (wait != Wait::Ready) {
+            error = wait_error(wait, "plugin write timed out");
+            return false;
+        }
+        const ssize_t n = write(s.in_fd, data.data() + sent, data.size() - sent);
+        if (n > 0) {
+            sent += static_cast<std::size_t>(n);
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+            continue;
+        error = "plugin write failed";
+        return false;
+    }
+    return true;
+}
+
+// Read exactly one response line with a deadline, in poll slices. A cancelled
+// session returns immediately; an oversized line fails closed; a closed pipe
+// reports the exit rather than hanging.
+bool PluginManager::read_line(Session& s, const std::string& phase, std::string& line,
+                              std::string& error) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kCallTimeoutSec);
+    char buf[4096];
+    while (true) {
+        const LineState state = take_line(s.in_buf, line);
+        if (state == LineState::Ready)
+            return true;
+        if (state == LineState::TooLarge) {
+            error = "plugin " + phase + " response exceeds 64 KiB";
+            return false;
+        }
+        const Wait wait = wait_for_fd(s.out_fd, POLLIN, deadline, s.cancelled);
+        if (wait != Wait::Ready) {
+            error = wait_error(wait, "plugin " + phase + " timed out");
+            return false;
+        }
+        // The session lock serializes one exchange, not teardown: disable()
+        // sets `cancelled` and waits at most kTeardownLockMs, so this read
+        // cannot pin a plugin toggle for the call deadline.
+        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
+        const ssize_t n = read(s.out_fd, buf, sizeof buf);
+        if (n <= 0) {
+            error = phase == "initialize" ? "plugin exited during handshake"
+                                          : "plugin exited during call";
+            return false;
+        }
+        s.in_buf.append(buf, static_cast<std::size_t>(n));
+    }
 }
 
 // Send the initialize request.
@@ -426,10 +606,10 @@ bool PluginManager::write_initialize(PluginInfo& info, Session& s) {
                  {{"protocol_version", kProtocolVersion},
                   {"settings", info.settings},
                   {"workspace", Workspace::project_root()}}}};
-    const std::string line = req.dump() + "\n";
-    if (write(s.in_fd, line.data(), line.size()) == (ssize_t)line.size())
-        return true;
-    return fail_handshake(info, s, "write to plugin failed");
+    std::string error;
+    if (!write_line(s, req.dump() + "\n", error))
+        return fail_handshake(info, s, error);
+    return true;
 }
 
 // Read exactly one line (the initialize response), with a deadline like the
@@ -437,28 +617,11 @@ bool PluginManager::write_initialize(PluginInfo& info, Session& s) {
 // enable/connect forever.
 bool PluginManager::read_initialize_reply(PluginInfo& info, Session& s) {
     s.in_buf.clear();
-    char buf[4096];
-    const int timeout = kCallTimeoutSec * 1000;
-    while (s.in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd {
-            s.out_fd, POLLIN, 0
-        };
-        const int rc = poll(&pfd, 1, timeout);
-        if (rc == 0)
-            return fail_handshake(info, s, "plugin initialize timed out");
-        if (rc < 0)
-            return fail_handshake(info, s, "plugin poll failed");
-        const ssize_t n = read(s.out_fd, buf, sizeof buf);
-        if (n <= 0)
-            return fail_handshake(info, s, "plugin exited during handshake");
-        s.in_buf.append(buf, (size_t)n);
-        if (s.in_buf.size() > kMaxPluginLine)
-            return fail_handshake(info, s, "plugin initialize response exceeds 64 KiB");
-    }
-    const size_t nl = s.in_buf.find('\n');
-    const std::string resp_line = s.in_buf.substr(0, nl);
-    s.in_buf.erase(0, nl + 1);
-    const json resp = json::parse(resp_line, nullptr, false);
+    std::string line;
+    std::string error;
+    if (!read_line(s, "initialize", line, error))
+        return fail_handshake(info, s, error);
+    const json resp = json::parse(line, nullptr, false);
     if (resp.is_discarded() || !resp.contains("result") || !read_bool(resp["result"], "ok", false))
         return fail_handshake(info, s, "initialize rejected");
     return true;
@@ -535,33 +698,17 @@ private:
 
 // Read the response line with a deadline, then decode it into a ToolResult.
 ToolResult PluginManager::read_call_reply(Session& s) {
-    const int timeout = kCallTimeoutSec * 1000;
-    while (s.in_buf.find('\n') == std::string::npos) {
-        struct pollfd pfd {
-            s.out_fd, POLLIN, 0
-        };
-        const int rc = poll(&pfd, 1, timeout);
-        if (rc == 0)
-            return {false, "", "plugin call timed out"};
-        if (rc < 0)
-            return {false, "", "plugin poll failed"};
-        char buf[4096];
-        // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
-        const ssize_t n = read(s.out_fd, buf, sizeof buf);
-        if (n <= 0)
-            return {false, "", "plugin exited during call"};
-        s.in_buf.append(buf, (size_t)n);
-        if (s.in_buf.size() > kMaxPluginLine)
-            return {false, "", "plugin response exceeds 64 KiB"};
+    std::string line;
+    std::string error;
+    if (!read_line(s, "call", line, error)) {
+        s.broken.store(true);
+        return {false, "", error};
     }
-    const size_t nl = s.in_buf.find('\n');
-    if (nl > kMaxPluginLine)
-        return {false, "", "plugin response exceeds 64 KiB"};
-    const std::string resp_line = s.in_buf.substr(0, nl);
-    s.in_buf.erase(0, nl + 1);
-    const json resp = json::parse(resp_line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result"))
+    const json resp = json::parse(line, nullptr, false);
+    if (resp.is_discarded() || !resp.contains("result")) {
+        s.broken.store(true);
         return {false, "", "malformed plugin response"};
+    }
     const json& r = resp["result"];
     ToolResult out;
     out.ok = read_bool(r, "ok", false);
@@ -588,14 +735,27 @@ ToolResult PluginManager::call_tool(const PluginInfo& info, const std::string& n
         return {false, "", "plugin not running: " + infos->error};
 
     std::scoped_lock lock(s->mtx);
+    // disable() may have won the race while the process was spawning; the
+    // session was inserted after disable looked for it, so drop it here.
+    if (infos->state != PluginState::Enabled) {
+        discard_session(infos->id, s);
+        return {false, "", "plugin is disabled"};
+    }
     static std::atomic<long> next_id{2};
     json req = {
         {"id", next_id++}, {"method", "tool.call"}, {"params", {{"name", name}, {"args", args}}}};
-    std::string line = req.dump() + "\n";
-    if (write(s->in_fd, line.data(), line.size()) != (ssize_t)line.size())
-        return {false, "", "plugin write failed (process died?)"};
-
-    return read_call_reply(*s);
+    std::string error;
+    ToolResult out;
+    if (!write_line(*s, req.dump() + "\n", error))
+        out = {false, "", error};
+    else
+        out = read_call_reply(*s);
+    // A failed exchange leaves the stream in an unknown position (and a
+    // cancelled one must be reaped if teardown could not take the lock):
+    // drop the session so the next call starts a fresh process.
+    if (s->broken || s->cancelled)
+        discard_session(infos->id, s);
+    return out;
 }
 
 bool PluginManager::enable(const std::string& id, ToolPort& port) {
@@ -632,22 +792,13 @@ bool PluginManager::disable(const std::string& id) {
         return false;
     if (info->state == PluginState::Disabled)
         return true;
-    std::shared_ptr<Session> session;
-    {
-        std::scoped_lock lk(sessions_mtx_);
-        auto it = sessions_.find(id);
-        if (it != sessions_.end()) {
-            session = it->second;
-            sessions_.erase(it);
-        }
-    }
-    if (session) {
-        std::scoped_lock lk(session->mtx);
-        shutdown_session(*session);
-    }
+    // Mark disabled before waiting on the process: a call that passes its own
+    // state check while teardown runs must not spawn a fresh session.
     info->state = PluginState::Disabled;
     state_[id]["enabled"] = false;
     save_state();
+    if (std::shared_ptr<Session> session = take_session(id))
+        teardown_session(session);
     return true;
 }
 
@@ -660,11 +811,9 @@ bool PluginManager::enable(const std::string& id, ToolRegistry& reg) {
     if (info->state == PluginState::Enabled)
         return true;
 
-    std::shared_ptr<Session> s = session(*info);
-    if (s->pid < 0) {
-        info->state = PluginState::Incompatible;
-        return false;
-    }
+    // Same lazy contract as the owner-scoped port: register the declared tools
+    // now, spawn on the first call. Bare hosts get the same non-blocking
+    // activation the TUI does.
     for (const auto& t : info->manifest.tools) {
         if (!t.is_object() || !t.contains("name") || !t["name"].is_string())
             continue;
@@ -688,25 +837,12 @@ bool PluginManager::disable(const std::string& id, ToolRegistry& reg) {
         return false;
     if (info->state == PluginState::Disabled)
         return true;
-    reg.unregister_tools_with_prefix("plugin_" + id + "_");
-    std::shared_ptr<Session> session;
-    {
-        std::scoped_lock lk(sessions_mtx_);
-        auto it = sessions_.find(id);
-        if (it != sessions_.end()) {
-            session = it->second;
-            sessions_.erase(it);
-        }
-    }
-    if (session) {
-        // Serialize with an in-flight call_tool (which holds s->mtx across its
-        // descriptor I/O) so teardown never closes fds mid-write.
-        std::scoped_lock lk(session->mtx);
-        shutdown_session(*session);
-    }
     info->state = PluginState::Disabled;
     state_[id]["enabled"] = false;
     save_state();
+    reg.unregister_tools_with_prefix("plugin_" + id + "_");
+    if (std::shared_ptr<Session> session = take_session(id))
+        teardown_session(session);
     return true;
 }
 

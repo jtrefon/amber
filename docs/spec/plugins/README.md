@@ -38,7 +38,9 @@ tools-only at 1.0; command namespaces are a bundled-plugin capability.
   registered through the owner-scoped port) → `disabled`; `incompatible` when
   the manifest is invalid. Enabled plugins are spawned on first tool call and
   kept alive until disabled or the harness exits, so activation never blocks
-  the host.
+  the host. Disabling cancels an in-flight call at its next poll slice and
+  waits at most one second for a graceful exit before SIGKILL, so a hung
+  plugin cannot freeze a plugin toggle.
 - **I/O contract.** Everything a plugin exchanges with the harness is JSON.
   Inputs: JSON-RPC requests. Outputs: JSON-RPC responses whose `result` is the
   tool envelope `{ok, output, meta}`, the same contract as built-in tools, so
@@ -121,7 +123,9 @@ Errors are returned, never thrown: `{"ok": false, "output": "ERROR: …"}`.
 {"method": "shutdown"}
 ```
 
-The plugin exits cleanly. The harness also SIGKILLs stragglers.
+The plugin exits cleanly. Teardown cancels an in-flight call first and waits
+at most one second for the exit, then SIGKILLs a straggler; the host never
+waits out a tool call's 60 s deadline.
 
 ### 3.4 Timeouts
 
