@@ -459,7 +459,7 @@ TEST(plugin_response_line_is_capped) {
     agent::ToolRegistry reg;
     ASSERT(mgr.enable("big", reg));
     auto tool = reg.find("plugin_big_huge");
-    ASSERT(tool != nullptr);
+    REQUIRE(tool != nullptr);
     auto r = tool->execute({});
     ASSERT(!r.ok);
     ASSERT(r.error.find("64 KiB") != std::string::npos);
