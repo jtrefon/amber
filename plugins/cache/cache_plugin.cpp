@@ -1,11 +1,11 @@
 #include "cache_plugin.h"
 
-#include "agent/compact.h"
+#include "cache_text.h"
+
 #include "agent/config_paths.h"
-#include "agent/llm.h"
 #include "agent/private_file.h"
 
-#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <utility>
@@ -17,14 +17,24 @@ namespace {
 constexpr int kPriority = 650;
 constexpr int kDropPriority = 6;
 
-std::string count_text(long value) {
-    return compact::count(value);
+// The settings file is a fixed child of the canonical config root: a path that
+// somehow escapes that root is ignored rather than opened. This is the same
+// barrier every other plugin-owned settings file uses.
+std::string resolve_settings_path() {
+    const std::filesystem::path root =
+        std::filesystem::weakly_canonical(agent::global_config_dir());
+    const std::filesystem::path file =
+        std::filesystem::weakly_canonical(root / "plugins" / "cache" / "cache.conf");
+    if (file.generic_string().rfind(root.generic_string() + "/", 0) != 0)
+        return {};
+    return file.string();
 }
 
 } // namespace
 
 bool CachePlugin::initialize(const PluginContext& ctx) {
     config_ = ctx.config;
+    settings_path_ = resolve_settings_path();
     load_settings();
     subscription_ =
         Events(ctx.event_bus).subscribe<LlmResponseEvent>([this](const LlmResponseEvent& event) {
@@ -38,6 +48,7 @@ void CachePlugin::shutdown() {
     std::scoped_lock lk(mtx_);
     windows_.clear();
     config_ = nullptr;
+    settings_path_.clear();
 }
 
 void CachePlugin::on_response(const LlmResponseEvent& event) {
@@ -56,8 +67,6 @@ void CachePlugin::on_response(const LlmResponseEvent& event) {
 }
 
 std::chrono::seconds CachePlugin::ttl() const {
-    if (!config_)
-        return std::chrono::seconds(300);
     if (config_->prompt_cache_ttl == "off")
         return std::chrono::seconds(0);
     if (config_->prompt_cache_ttl == "1h")
@@ -66,17 +75,11 @@ std::chrono::seconds CachePlugin::ttl() const {
 }
 
 std::string CachePlugin::ttl_text() const {
-    if (!config_)
-        return "5m";
     return config_->prompt_cache_ttl.empty() ? std::string("5m") : config_->prompt_cache_ttl;
 }
 
-std::string CachePlugin::settings_path() const {
-    return global_config_dir() + "/plugins/cache/cache.conf";
-}
-
 void CachePlugin::load_settings() {
-    std::ifstream in(settings_path());
+    std::ifstream in(settings_path_);
     if (!in)
         return;
     std::string line;
@@ -98,104 +101,14 @@ void CachePlugin::load_settings() {
 }
 
 void CachePlugin::save_settings() const {
+    if (settings_path_.empty())
+        return;
     std::string body = "metric=";
     body += metric_ == cache::Metric::Tokens ? "tokens" : "calls";
     body += "\nsamples=";
     body += std::to_string(samples_.load());
     body += "\n";
-    (void)write_private_file(settings_path(), body);
-}
-
-std::string CachePlugin::percent_text(const cache::Readout& readout) {
-    if (readout.sub_one)
-        return "<1%";
-    return std::to_string(readout.percent) + "%";
-}
-
-std::string CachePlugin::age_text(long long seconds) {
-    if (seconds < 0)
-        seconds = 0;
-    if (seconds < 60)
-        return std::to_string(seconds) + "s";
-    if (seconds < 3600)
-        return std::to_string(seconds / 60) + "m";
-    return std::to_string(seconds / 3600) + "h";
-}
-
-std::string CachePlugin::cold_text(const cache::Readout& readout) const {
-    return "cache cold · last request " + age_text(readout.age_seconds) + " ago (TTL " +
-           ttl_text() + ")";
-}
-
-std::string CachePlugin::warm_text(const cache::Readout& readout) const {
-    return "cache warm · wrote " + count_text(readout.write_tokens) + " tokens, no read yet";
-}
-
-bool CachePlugin::below_minimum(const cache::Readout& readout) const {
-    const int minimum = agent::min_cacheable_tokens(readout.model);
-    return readout.read_tokens == 0 && readout.write_tokens == 0 && minimum > 0 &&
-           readout.input_tokens < minimum;
-}
-
-std::string CachePlugin::reuse_text(const cache::Readout& readout) const {
-    std::string line = "cache " + percent_text(readout) + " · ";
-    line += (metric_ == cache::Metric::Tokens ? "token reuse" : "call hit");
-    line += " · last " + std::to_string(readout.calls) + " calls · window " + ttl_text();
-    line += "\n  calls hit: " + std::to_string(readout.hit_calls) + "/" +
-            std::to_string(readout.calls) + " (" +
-            (readout.call_hit_sub_one ? std::string("<1%")
-                                      : std::to_string(readout.call_hit_percent) + "%") +
-            ")";
-    line += "\n  input " + count_text(readout.input_tokens) + " · read " +
-            count_text(readout.read_tokens) + " · wrote " + count_text(readout.write_tokens);
-    if (!readout.model.empty() || !readout.provider.empty())
-        line +=
-            "\n  model " + readout.provider + (readout.provider.empty() ? "" : "/") + readout.model;
-    line += "\n  last request " + age_text(readout.age_seconds) + " ago";
-    if (!readout.miss_reason.empty())
-        line += "\n  last miss: " + readout.miss_reason;
-    return line;
-}
-
-std::string CachePlugin::state_text(const cache::Readout& readout) const {
-    switch (readout.state) {
-    case cache::State::NoData:
-        return "cache: no completed requests yet";
-    case cache::State::Unsupported:
-        return "cache: this provider reports no cache counters";
-    case cache::State::Cold:
-        return cold_text(readout);
-    case cache::State::Warm:
-        return warm_text(readout);
-    case cache::State::Reuse:
-        break;
-    }
-    if (below_minimum(readout))
-        return "cache cold · prompt below the " +
-               std::to_string(agent::min_cacheable_tokens(readout.model)) + "-token minimum for " +
-               readout.model;
-    return reuse_text(readout);
-}
-
-StatusText CachePlugin::bar(const cache::Readout& readout) const {
-    switch (readout.state) {
-    case cache::State::NoData:
-    case cache::State::Unsupported:
-        return {};
-    case cache::State::Cold:
-        return StatusText{"  cache cold", StatusTone::Dim};
-    case cache::State::Warm:
-        return StatusText{"  cache warm", StatusTone::Dim};
-    case cache::State::Reuse:
-        break;
-    }
-    if (below_minimum(readout))
-        return StatusText{"  cache cold", StatusTone::Dim};
-    if (readout.percent >= 70)
-        return StatusText{"  cache " + percent_text(readout), StatusTone::Good};
-    if (readout.percent == 0)
-        return StatusText{"  cache " + percent_text(readout), StatusTone::Warn};
-    return StatusText{"  cache " + percent_text(readout), StatusTone::Dim};
+    (void)write_private_file(settings_path_, body);
 }
 
 StatusText CachePlugin::render(const StatusSnapshot& snapshot) const {
@@ -205,8 +118,20 @@ StatusText CachePlugin::render(const StatusSnapshot& snapshot) const {
     const auto it = windows_.find(snapshot.owner_id);
     if (it == windows_.end())
         return {};
-    return bar(it->second.view(std::chrono::steady_clock::now(), metric_,
-                               static_cast<std::size_t>(samples_.load()), ttl()));
+    const cache::Readout readout =
+        it->second.view(std::chrono::steady_clock::now(), metric_,
+                        static_cast<std::size_t>(samples_.load()), ttl());
+    const std::string text = cache::bar_text(readout);
+    if (text.empty())
+        return {};
+    StatusTone tone = StatusTone::Dim;
+    if (readout.state == cache::State::Reuse && !cache::below_minimum(readout)) {
+        if (readout.percent >= 70)
+            tone = StatusTone::Good;
+        else if (readout.percent == 0)
+            tone = StatusTone::Warn;
+    }
+    return StatusText{text, tone};
 }
 
 std::string CachePlugin::detail() const {
@@ -223,8 +148,9 @@ std::string CachePlugin::detail() const {
             out << "\n\n";
         if (!owner.empty())
             out << "session " << owner << "\n";
-        out << state_text(window.view(std::chrono::steady_clock::now(), metric_,
-                                      static_cast<std::size_t>(samples_.load()), ttl()));
+        out << cache::state_text(window.view(std::chrono::steady_clock::now(), metric_,
+                                             static_cast<std::size_t>(samples_.load()), ttl()),
+                                 metric_, ttl_text());
     }
     return out.str();
 }

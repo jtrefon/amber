@@ -38,28 +38,20 @@ public:
 
 private:
     StatusText render(const StatusSnapshot& snapshot) const;
-    StatusText bar(const cache::Readout& readout) const;
-    bool below_minimum(const cache::Readout& readout) const;
     std::string detail() const;
-    std::string state_text(const cache::Readout& readout) const;
-    std::string cold_text(const cache::Readout& readout) const;
-    std::string warm_text(const cache::Readout& readout) const;
-    std::string reuse_text(const cache::Readout& readout) const;
     void reset();
     void on_response(const LlmResponseEvent& event);
     std::chrono::seconds ttl() const;
     std::string ttl_text() const;
-    std::string settings_path() const;
     void load_settings();
     void save_settings() const;
     std::vector<PluginSettingSpec> settings_specs();
-    static std::string percent_text(const cache::Readout& readout);
-    static std::string age_text(long long seconds);
 
     const Config* config_ = nullptr;
     Subscription subscription_;
     mutable std::mutex mtx_;
     std::map<std::string, cache::CacheWindow> windows_;
+    std::string settings_path_;
     cache::Metric metric_ = cache::Metric::Tokens;
     std::atomic<int> samples_{8};
 };

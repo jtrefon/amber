@@ -155,6 +155,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/cache/cache_plugin.o \
               $(BUILD_DIR)/plugins/cache/cache_reuse.o \
+              $(BUILD_DIR)/plugins/cache/cache_text.o \
               $(BUILD_DIR)/plugins/tool_search/tool_search_plugin.o \
               $(BUILD_DIR)/plugins/tool_read/tool_read_plugin.o \
               $(BUILD_DIR)/plugins/tool_rate/tool_rate_plugin.o \

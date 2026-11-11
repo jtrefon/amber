@@ -93,11 +93,6 @@ Readout CacheWindow::summarize(const std::vector<const Sample*>& recent, Metric 
         if (sample->read > 0)
             ++out.hit_calls;
     }
-    if (out.input_tokens <= 0 || out.calls <= 0) {
-        out.state = State::NoData;
-        return out;
-    }
-
     const double ratio = metric == Metric::Calls
                              ? static_cast<double>(out.hit_calls) / out.calls
                              : static_cast<double>(out.read_tokens) / out.input_tokens;
@@ -134,11 +129,6 @@ Readout CacheWindow::view(std::chrono::steady_clock::time_point now, Metric metr
     }
 
     const auto recent = recent_samples(now, max_samples, ttl);
-    if (recent.empty()) {
-        out.state = State::Cold;
-        return out;
-    }
-
     Readout summary = summarize(recent, metric);
     summary.model = model_;
     summary.provider = provider_;
