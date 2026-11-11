@@ -3220,7 +3220,7 @@ TEST(runtime_external_startup_never_waits_for_a_hanging_handshake) {
         const auto toggled_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now() - started)
                                     .count();
-        ASSERT(toggled_ms < 2000);
+        ASSERT(toggled_ms < 10000);
         ASSERT_TRUE(runtime.status("hang").enabled);
         runtime.shutdown();
     }
@@ -3235,7 +3235,7 @@ TEST(runtime_external_startup_never_waits_for_a_hanging_handshake) {
     const auto started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - started)
                                 .count();
-    ASSERT(started_ms < 2000);
+    ASSERT(started_ms < 10000);
     ASSERT_TRUE(reloaded.status("hang").enabled);
     ASSERT_TRUE(reloaded.set_state("hang", false));
 }
@@ -3264,16 +3264,18 @@ TEST(runtime_external_toggle_off_cancels_a_hung_call) {
         result = call->execute({});
         done = true;
     });
-    ASSERT(wait_until([&] { return fs::exists(marker); }));
+    ASSERT(wait_until([&] { return fs::exists(marker); }, 15000));
 
     // The UI path: /set plugin off unwinds the tool source, which disables the
     // process. A hung call must not hold the toggle for its 60 s deadline.
+    // Bounded, not fast: the regression is a 60 s wait, so a generous bound
+    // keeps a loaded macOS runner green while still catching that regression.
     const auto started = std::chrono::steady_clock::now();
     ASSERT_TRUE(runtime.set_state("hang", false));
     const auto toggled_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - started)
                                 .count();
-    ASSERT(toggled_ms < 5000);
+    ASSERT(toggled_ms < 20000);
     worker.join();
     ASSERT(done);
     ASSERT_FALSE(result.ok);

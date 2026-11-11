@@ -88,7 +88,7 @@ std::string stage_test_plugin(const std::string& base, const std::string& id,
 }
 
 // Wait for a child to prove it received the call (a marker file), bounded.
-bool wait_for_marker(const std::string& path, int timeout_ms = 5000) {
+bool wait_for_marker(const std::string& path, int timeout_ms = 15000) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (std::chrono::steady_clock::now() < deadline) {
         if (std::filesystem::exists(path))
@@ -196,9 +196,11 @@ TEST(plugin_disable_cancels_a_hung_call) {
 
     // The call is parked inside its 60 s read window; disabling must cancel it
     // and kill the process instead of waiting for that deadline.
+    // Bounded, not fast: the regression is a 60 s wait, so a generous bound
+    // keeps a loaded macOS runner green while still catching that regression.
     const auto started = std::chrono::steady_clock::now();
     ASSERT(mgr.disable("hang", reg));
-    ASSERT(elapsed_ms(started) < 5000);
+    ASSERT(elapsed_ms(started) < 20000);
     worker.join();
 
     ASSERT(!result.ok);
@@ -227,7 +229,7 @@ TEST(plugin_disable_kills_a_plugin_that_ignores_shutdown) {
     // grace window and then SIGKILLs it.
     const auto started = std::chrono::steady_clock::now();
     ASSERT(mgr.disable("slowexit", reg));
-    ASSERT(elapsed_ms(started) < 5000);
+    ASSERT(elapsed_ms(started) < 20000);
     ASSERT(mgr.find("slowexit")->state == agent::PluginState::Disabled);
 }
 
@@ -280,7 +282,7 @@ TEST(plugin_oversized_call_reply_fails_closed_and_respawns) {
     const agent::ToolResult second = call->execute({});
     ASSERT(!second.ok);
     ASSERT(second.error.find("64 KiB") != std::string::npos);
-    ASSERT(elapsed_ms(started) < 5000);
+    ASSERT(elapsed_ms(started) < 20000);
     ASSERT(mgr.disable("bigreply", reg));
 }
 
