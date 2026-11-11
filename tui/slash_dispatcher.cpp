@@ -6,8 +6,6 @@
 #include <agent/data_path.h>
 #include <agent/mcp_tools.h>
 
-#include <nlohmann/json.hpp>
-
 #include <functional>
 #include <string>
 #include <vector>
@@ -36,21 +34,9 @@ void SlashDispatcher::append_output(const std::string& text) {
     }
 }
 
-// Plugin completion subtrees merge additively: a plugin may extend a
-// documented namespace (the MCP plugin contributes /get mcp) and add children,
-// but it can never rewrite a documented field or name a core action. The
-// registry merge enforces that and counts a field collision.
-void SlashDispatcher::merge_plugin_completions() {
-    for (const auto& p : tui_.plugins_.plugins()) {
-        if (p.state != agent::PluginState::Enabled || !p.manifest.completion.is_object())
-            continue;
-        nlohmann::json mounted = nlohmann::json::object();
-        nlohmann::json& workspace = mounted["plugin"]["children"][p.id];
-        workspace["children"] = p.manifest.completion;
-        tui_.settings_.merge_completions_json(mounted);
-    }
-}
-
+// Rebuild the command tree from completions.json, then merge the bundled
+// plugin command workspaces and the live feeds. Documented fields are
+// immutable; the registry counts any attempted overwrite.
 void SlashDispatcher::refresh_completions() {
     tui_.settings_.reset_completion_index();
     auto try_load = [&](const std::string& path) {
@@ -66,7 +52,6 @@ void SlashDispatcher::refresh_completions() {
          agent::data_file_candidates("completions.json", exe.empty() ? nullptr : exe.c_str()))
         if (try_load(c))
             break;
-    merge_plugin_completions();
 
     // Plugin command namespaces: merge each contribution and bind its
     // executable leaves into the action registry. The binding resolves the

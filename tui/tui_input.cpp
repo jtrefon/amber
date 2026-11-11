@@ -1405,9 +1405,12 @@ void SlashDispatcher::cmd_plugin_uninstall(const std::string& id) {
         return;
     }
     tui_.plugins_.discover();
+    // Drop the runtime row now too: a registry entry that outlives the files is
+    // a ghost that cannot be enabled and reports a stale version.
+    if (registered)
+        tui_.plugin_runtime_.remove_external(id);
     refresh_completions();
-    tui_.append_line(P_STATUS, "uninstalled: " + id +
-                                   (registered ? " \u2014 registry entry clears on restart" : ""));
+    tui_.append_line(P_STATUS, "uninstalled: " + id);
 }
 
 const std::vector<palette::Command>& SlashDispatcher::commands() {

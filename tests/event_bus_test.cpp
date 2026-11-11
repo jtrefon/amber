@@ -4,6 +4,7 @@
 #include <atomic>
 #include <chrono>
 #include <future>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -169,4 +170,24 @@ TEST(event_bus_fire_reentrancy_fire_inside_handler) {
     ASSERT(done.load());
     ASSERT_EQ(outer.load(), 1);
     ASSERT_EQ(inner.load(), 1);
+}
+
+TEST(event_bus_observer_throw_does_not_escape) {
+    EventBus bus;
+    int after = 0;
+    bus.subscribe(EventType::AgentTurnStart,
+                  [](const Event&) { throw std::runtime_error("observer failed"); });
+    bus.subscribe(EventType::AgentTurnStart, [&after](const Event&) { ++after; });
+
+    Event e{nullptr};
+    ASSERT(bus.fire(EventType::AgentTurnStart, e));
+    ASSERT_EQ(after, 1);
+}
+
+TEST(event_bus_interceptor_throw_cancels) {
+    EventBus bus;
+    bus.intercept(EventType::ToolCallBefore,
+                  [](Event&) -> bool { throw std::runtime_error("interceptor failed"); });
+    Event e{nullptr};
+    ASSERT(!bus.fire(EventType::ToolCallBefore, e));
 }

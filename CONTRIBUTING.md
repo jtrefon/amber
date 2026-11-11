@@ -84,9 +84,13 @@ complete, compiled, tested template lives in
 1. Fork and create a topic branch.
 2. Make focused commits with clear messages (imperative mood, e.g.
    "tui: fix drawer scroll").
-3. Add or update tests in `tests/run_tests.cpp` for behavior changes.
+3. Add or update tests in the per-area `tests/*_test.cpp` that covers the
+   module (or a new file added to `UNITTEST_OBJ` in `Makefile.in`).
 4. Ensure `make && make test` and `make verify-quick` pass locally.
 5. Open a pull request describing the change and how you verified it.
+
+For security issues, use the private reporting path in [`SECURITY.md`](SECURITY.md),
+not a public issue.
 
 ### Landing: auto-merge and the merge train
 

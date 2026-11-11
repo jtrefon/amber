@@ -11,7 +11,7 @@ wrong.
 | 1 | `VISION.md` | **Why**: inspiration, north star, the spirit. Never changes. |
 | 2 | `MISSION.md` | **What and when**: priority ladder, feature filter, phasing, gap register, user promise. |
 | 3 | `ux-policy.md` | **How the interface works**: 1:1 mapping, autosuggest, `?`-at-depth, readline, widget policy, habit loops. |
-| 4 | Individual specs | **Contracts**: invariants, scenarios, error states, cross-references, and the 0.7/0.8 status above. |
+| 4 | Individual specs | **Contracts**: invariants, scenarios, error states, cross-references, and the 1.0 status above. |
 
 ## Roadmaps
 
@@ -19,7 +19,8 @@ wrong.
 |------|--------|
 | `roadmap/0.6.0.md` | Shipped 0.6.0 foundation: command tree, work surfaces, project sessions |
 | 0.7.0 (shipped) | Providers as plugins, skills acquisition, MCP, web, watches and the work board. Specs: `plugins/`, `skills/`, `mcp/`, `tui/work-surfaces.md` |
-| 0.8.0 (active) | Background work with one task inventory: epic #366, implementation issues #375-#383. Design record: #317 (closed) |
+| 0.8.0 (shipped) | Background work with one task inventory: epic #366, implementation issues #375-#383 |
+| 1.0 (active) | Plugin contract, external tier, API stability and release truth: epic #562 |
 
 ## Gap register
 

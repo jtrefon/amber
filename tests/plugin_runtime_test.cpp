@@ -7,6 +7,7 @@
 #include "agent/dialect.h"
 #include "agent/context_shape.h"
 #include "agent/extensions.h"
+#include "agent/plugin.h"
 #include "agent/plugin_console.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
@@ -36,11 +37,13 @@
 #include <fstream>
 #include <sstream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <atomic>
 #include <chrono>
 #include <optional>
 #include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 
 using namespace agent;
@@ -2743,6 +2746,167 @@ TEST(runtime_contributions_span_every_registry) {
     ASSERT_EQ(list[0].contributions.size(), 2u);
 }
 
+// A plugin that contributes one tool and throws from shutdown: the runtime must
+// still unwind the tool and keep the host alive.
+class ThrowingShutdownPlugin : public IPlugin {
+public:
+    std::string id() const override { return "throw_shutdown"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Throwing shutdown"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override { throw std::runtime_error("shutdown failed"); }
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        std::vector<std::unique_ptr<Capability>> caps;
+        caps.push_back(std::make_unique<ToolCapability>(
+            "throw_tool", [](PluginServices&) -> std::vector<std::unique_ptr<Tool>> {
+                std::vector<std::unique_ptr<Tool>> tools;
+                tools.push_back(std::make_unique<StubTool>("throw_tool"));
+                return tools;
+            }));
+        return caps;
+    }
+};
+
+class ThrowingInitPlugin : public IPlugin {
+public:
+    std::string id() const override { return "throw_init"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Throwing init"; }
+    bool initialize(const PluginContext&) override { throw std::runtime_error("init failed"); }
+    void shutdown() override {}
+};
+
+class ThrowingCapsPlugin : public IPlugin {
+public:
+    std::string id() const override { return "throw_caps"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Throwing caps"; }
+    bool initialize(const PluginContext&) override { return true; }
+    void shutdown() override {}
+    std::vector<std::unique_ptr<Capability>> capabilities() override {
+        throw std::runtime_error("capabilities failed");
+    }
+};
+
+class SubscriptionPlugin : public IPlugin {
+public:
+    std::string id() const override { return "sub_plugin"; }
+    std::string version() const override { return "1.0.0"; }
+    std::string name() const override { return "Subscriber"; }
+    bool initialize(const PluginContext& ctx) override {
+        sub_ =
+            Events(ctx.event_bus).subscribe<ToolCompletedEvent>([](const ToolCompletedEvent&) {});
+        return true;
+    }
+    void shutdown() override { sub_.release(); }
+
+private:
+    Subscription sub_;
+};
+
+TEST(runtime_contains_plugin_lifecycle_throws) {
+    ScratchConfig scratch("throws");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+
+    ASSERT(!runtime.add(std::make_shared<ThrowingCapsPlugin>()));
+    ASSERT(!runtime.has("throw_caps"));
+
+    runtime.add(std::make_shared<ThrowingInitPlugin>());
+    ASSERT(!runtime.set_state("throw_init", true));
+    ASSERT_FALSE(runtime.status("throw_init").enabled);
+
+    runtime.add(std::make_shared<ThrowingShutdownPlugin>());
+    ASSERT(runtime.set_state("throw_shutdown", true));
+    ASSERT(f.tools.find("throw_tool") != nullptr);
+    ASSERT(runtime.set_state("throw_shutdown", false));
+    ASSERT(f.tools.find("throw_tool") == nullptr);
+    runtime.shutdown();
+}
+
+TEST(runtime_plugin_subscriptions_are_released_on_disable) {
+    ScratchConfig scratch("subscriptions");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<SubscriptionPlugin>());
+    ASSERT(runtime.set_state("sub_plugin", true));
+    ASSERT(runtime.events().has_subscribers(EventType::ToolCallAfter));
+    ASSERT(runtime.set_state("sub_plugin", false));
+    ASSERT(!runtime.events().has_subscribers(EventType::ToolCallAfter));
+}
+
+TEST(runtime_activation_follows_registration_order) {
+    ScratchConfig scratch("order");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<BlockPlugin>("z_order", "Z"), true);
+    runtime.add(std::make_shared<BlockPlugin>("a_order", "A"), true);
+    runtime.start(false);
+    const auto segments = runtime.status().render(StatusSnapshot{});
+    auto find_seg = [&](const std::string& text) {
+        for (std::size_t i = 0; i < segments.size(); ++i)
+            if (segments[i].text == text)
+                return i;
+        return segments.size();
+    };
+    const std::size_t z = find_seg("Z");
+    const std::size_t a = find_seg("A");
+    ASSERT(z < segments.size());
+    ASSERT(a < segments.size());
+    ASSERT(z < a);
+}
+
+TEST(runtime_external_plugin_uses_owner_scoped_lazy_tools) {
+    ScratchConfig scratch("external_real");
+    Fixture f;
+    const fs::path plugins = fs::path(scratch.root()) / "amber" / "plugins" / "fake";
+    fs::create_directories(plugins);
+    fs::copy_file("tests/plugins/fake_manifest.json", plugins / "manifest.json",
+                  fs::copy_options::overwrite_existing);
+    fs::copy_file("tests/plugins/fake_plugin.py", plugins / "fake_plugin.py",
+                  fs::copy_options::overwrite_existing);
+    chmod((plugins / "fake_plugin.py").c_str(), 0755);
+
+    agent::PluginManager manager;
+    manager.discover({(fs::path(scratch.root()) / "amber" / "plugins").string()});
+    ASSERT(manager.find("fake") != nullptr);
+
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_external(manager);
+    ASSERT_FALSE(runtime.status("fake").enabled);
+
+    // Activation registers tools through the owner-scoped port but does not
+    // start the process; the first tool call does that.
+    ASSERT(runtime.set_state("fake", true));
+    auto echo = f.tools.find("plugin_fake_echo");
+    ASSERT(echo != nullptr);
+    auto result = echo->execute({{"text", "hello"}});
+    ASSERT(result.ok);
+    ASSERT_EQ(result.output, std::string("echo:hello"));
+
+    const auto status = runtime.status("fake");
+    ASSERT(!status.contributions.empty());
+    ASSERT(status.contributions[0].kind == CapabilityKind::ToolSource);
+
+    ASSERT(runtime.set_state("fake", false));
+    ASSERT(f.tools.find("plugin_fake_echo") == nullptr);
+
+    struct stat state_file {};
+    ASSERT_EQ(
+        stat((fs::path(scratch.root()) / "amber" / "plugins" / "state.json").c_str(), &state_file),
+        0);
+    ASSERT_EQ(static_cast<unsigned>(state_file.st_mode & 0777), 0600u);
+    struct stat conf_file {};
+    ASSERT_EQ(
+        stat((fs::path(scratch.root()) / "amber" / "plugins" / "fake" / "plugin.conf").c_str(),
+             &conf_file),
+        0);
+    ASSERT_EQ(static_cast<unsigned>(conf_file.st_mode & 0777), 0600u);
+
+    ASSERT(runtime.remove_external("fake"));
+    ASSERT(!runtime.has("fake"));
+}
+
 // The v1 adapter puts external plugins under the same surface. A discovered
 // plugin whose id collides with a bundled one must not overwrite it.
 TEST(runtime_external_plugins_share_the_control_surface) {
@@ -3218,13 +3382,14 @@ TEST(runtime_disable_cannot_remove_another_plugins_tool) {
 
     ASSERT_TRUE((bool)f.tools.find("probe"));
 
-    // beta registered last, so the live "probe" is beta's. Disabling alpha must
-    // not take it away — alpha's own instance was superseded on registration.
-    ASSERT_TRUE(runtime.set_state("alpha", false));
+    // A plugin may not shadow another plugin's tool: beta's registration was
+    // refused, so the live "probe" belongs to alpha. Disabling beta must not
+    // take it away.
+    ASSERT_TRUE(runtime.set_state("beta", false));
     ASSERT_TRUE((bool)f.tools.find("probe"));
 
-    // Disabling beta removes its own.
-    ASSERT_TRUE(runtime.set_state("beta", false));
+    // Disabling alpha removes its own.
+    ASSERT_TRUE(runtime.set_state("alpha", false));
     ASSERT_FALSE((bool)f.tools.find("probe"));
 }
 

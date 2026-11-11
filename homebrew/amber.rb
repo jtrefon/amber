@@ -36,6 +36,13 @@ class Amber < Formula
     # Data files (prompts, completions, keybindings, shelf tables).
     share.install "share/amber"
 
+    # Notices required by Apache-2.0 and the bundled MIT components. The
+    # staged tarball carries these under share/doc/amber-agent; install them
+    # even when the formula is used on a tarball built before that split.
+    if Dir.exist?("share/doc/amber-agent")
+      (doc/"amber-agent").install Dir["share/doc/amber-agent/*"]
+    end
+
     # Plugin executables moved out of share/ into libexec/ with the 0.8.0
     # install split, because they are architecture-dependent; the bench corpus
     # moved beside the data tree. Both are guarded so this formula still

@@ -8,14 +8,15 @@ with different trade-offs, pick deliberately:
 | Ships today | ✅ Yes | ✅ Yes |
 | Language | C++17, compiled into amber | Any (executable) |
 | Isolation | Same process; a crash takes amber down | Separate process; a crash cannot take amber down |
-| Can contribute | Tools, providers, prompt blocks, status segments, panels, wallets, allowances, event subscriptions | Tools |
+| Can contribute | Tools, providers, prompt blocks, status segments, panels, wallets, event subscriptions | Tools (manifest settings are supported; command namespaces are not mounted) |
 | Distribution | Compiled in, `plugins/<id>/` | User installs into `~/.config/amber/plugins/<id>/` |
-| Spec | `plugins/plugin-framework.md` | `plugins/README.md` (wire protocol), this guide §6 |
+| Spec | `docs/spec/plugins/plugin-framework.md` | `docs/spec/plugins/README.md` (wire protocol), this guide §6 |
 
 There is no separate "plugin framework version". The framework ships as part of
 amber and follows amber's own version (`version.txt`). The external tier has its
 own wire `protocol_version` (currently `1`); that is a protocol number, not a
-framework version.
+framework version. The source/API promise is
+[`api-compatibility.md`](api-compatibility.md).
 
 **The framework is dogfooded.** Amber's own providers, its core tool set, the
 status bar and the registry console are all built on the same capability API a
@@ -66,13 +67,13 @@ bug.
 
 | Capability | Status | Notes |
 |---|---|---|
-| External tool plugin (subprocess, JSON-RPC) | ✅ Available | `plugins/README.md` |
+| External tool plugin (subprocess, JSON-RPC) | ✅ Available | `docs/spec/plugins/README.md`; tools only, process starts on the first call |
 | Tool contribution (incl. the core tool set) | ✅ Available | `ToolCapability` |
 | Tool source — a tool set discovered while the plugin is active | ✅ Available | `ToolSourceCapability`, owner-scoped `ToolPort`, §2; the `mcp` plugin is the worked example |
 | Harness services in capability factories (`HostServices`) | ✅ Available | jobs, todos, sub-agents, cancel token, shaping queue |
-| Typed event subscription | ✅ Available | `Events`, §3 |
+| Typed event subscription | ✅ Available | `Events`, §3; subscriptions are plugin-owned RAII |
 | Prompt block contribution | ✅ Available | `PromptBlockCapability` |
-| External plugins under the unified registry | ✅ Available | `ExternalPluginAdapter` |
+| External plugins under the unified registry | ✅ Available | `ExternalPluginAdapter`, owner-scoped tools |
 | `/get plugin`, `/set plugin on\|off <id>` | ✅ Available | single write path |
 | Provider contribution (dialect + presets) | ✅ Available | `ProviderCapability` |
 | Status segment contribution | ✅ Available | `StatusSegmentCapability` |
@@ -80,12 +81,13 @@ bug.
 | Wallet readout | ✅ Available | `WalletCapability` |
 | Search backend contribution | ✅ Available | `SearchBackendCapability` |
 | Skill contribution (a skill the harness ships, no file) | ✅ Available | `SkillCapability` |
-| Command contribution (slash workspace) | ✅ Available | `CommandCapability`; mounted at `/plugin/<id>`, `CommandSpec.name` is workspace-relative |
+| Command contribution (slash workspace) | ✅ Available | `CommandCapability`; bundled only, mounted at `/plugin/<id>`, `CommandSpec.name` is workspace-relative |
 | Keybinding contribution | ✅ Available | `KeybindingCapability`; key -> action ID + scope, and the core binding wins a collision |
 | Host services to the user (`ask_secret`, `choose`, `confirm`, `notify`, `fill_input`) | ✅ Available | `PluginServices::ui` |
-| Per-plugin settings | ✅ Available (bundled) | `SettingsCapability`, generated as `/get plugin settings` and `/set plugin settings`; external plugins keep the manifest store until they adopt it |
+| Per-plugin settings | ✅ Available (bundled) | `SettingsCapability`, generated as `/get plugin settings` and `/set plugin settings`; external plugins keep the manifest store |
+| External command namespaces | – | Not supported at 1.0; the external tier is tools-only |
 | Log sinks | – | Deferred (no consumer) |
-| `PluginLoaded` / `PluginUnloaded` events | – | Declared in `events.h`, never published |
+| `PluginLoaded` / `PluginUnloaded` events | ✅ Available | Published after activation / real deactivation in `PluginRuntime` |
 | Theme, key interception, window geometry, hot reload | – | Deferred register (tracker) |
 
 ---
@@ -165,8 +167,9 @@ public:
 };
 ```
 
-`CapabilityKind` has ten values: `Tool`, `PromptBlock`, `StatusSegment`,
-`Panel`, `Provider`, `Wallet`, `Command`, `Keybinding`, `SearchBackend`, `Skill`.
+`CapabilityKind` has twelve values: `Tool`, `ToolSource`, `PromptBlock`,
+`StatusSegment`, `Panel`, `Provider`, `Wallet`, `Command`, `Keybinding`,
+`SearchBackend`, `Skill`, `Settings`.
 Each has a concrete base class in `include/agent/extensions.h`.
 
 `InstallResult` distinguishes a **decline** from a **failure**:
@@ -203,6 +206,12 @@ plugin takes them all back out together.
 Rules: return errors as `ToolResult{false, "", error}`, never throw
 (`AGENTS.md` error conventions). Tool ownership is recorded by the registry, so
 unwinding is identity-scoped: a plugin can never remove another plugin's tool.
+
+A plugin may replace its own tool registration, but it may not shadow a host
+tool or another plugin's tool; the later registration is refused and the
+existing tool stays. A per-name shadow stack is post-1.0. Core tools are
+ordinary plugins: disabling them is allowed, and the toolset audit reports what
+the remaining set can no longer do.
 
 ### Tool source (tools the plugin discovers)
 
@@ -765,11 +774,11 @@ Steps:
 ## 6. External plugins (available today)
 
 External plugins are executables speaking newline-delimited JSON-RPC 2.0 over
-stdio. Full protocol: **`plugins/README.md`**. Minimal shape:
+stdio. Full protocol: **`docs/spec/plugins/README.md`**. Minimal shape:
 
 ```
 ~/.config/amber/plugins/hello/
-├── manifest.json      # id, name, version, protocol_version, main, tools[], completion{}
+├── manifest.json      # id, name, version, protocol_version, main, tools[]
 └── hello-plugin       # executable, chmod +x
 ```
 
@@ -782,22 +791,15 @@ Methods: `initialize`, `tool.call`, `shutdown` (others return
 
 Manage with `/get plugin list|info` and `/set plugin on|off|install|uninstall`. Tools appear
 to the agent as `plugin_<id>_<name>`; the agent prompt advertises them when the
-plugin is enabled.
+plugin is enabled. The process starts on the first tool call; activation itself
+does not block.
 
-**Known limitation:** command subtrees contributed by external plugins render in
-the completion drawer but cannot execute, no handler is bound for their
-`plugin.*` actions. Handler binding is a **core plugin** extension point
-(`CommandCapability`, `plugin-framework.md`); it does not reach the subprocess
-tier, which contributes tools only. Treat external plugin commands as
-documented-but-inert and expose behaviour through tools.
-
-The `completion` object is a completions.json subtree, not a code list. In the
-0.6.0 contract it is mounted under `/plugin/<id>`; it may extend a documented
-namespace with children (the MCP plugin's `/get mcp`) or add children inside
-its workspace, but it cannot add a root or rewrite a documented field — the
-documented value wins and the collision is counted. The host derives the leaf
-actions, so the manifest does not carry action strings. See
-`docs/spec/tui/command-tree.md` and `docs/spec/tui/command-namespace.md`.
+**External plugins are tools-only at 1.0.** A manifest `completion` subtree is
+parsed for compatibility but is not mounted; the host binds no actions for the
+subprocess tier. Expose behaviour through tools. A slash-command workspace is a
+**core plugin** extension point (`CommandCapability`, `plugin-framework.md`), not
+an external one. This is the deliberate shape of PF-5.4; see
+`docs/spec/plugins/README.md`.
 
 ---
 

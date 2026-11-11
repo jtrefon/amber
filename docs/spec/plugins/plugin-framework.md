@@ -1,15 +1,21 @@
 ## Spec: Plugin Framework, Harness Extension Engine
 
-- **Status:** Implemented through PF-4 (PF-1..PF-4 complete, 2026-09-10). This
+- **Status:** Implemented through PF-5 (PF-1..PF-5 complete; PF-6 deferred). This
   document is the **design record**: the contract the framework was built to.
   The **authority on what is available today is the availability table in
   `docs/spec/plugins/developer-guide.md`**; where this document describes a
   surface that is not implemented, the guide and the code win. Code and this
   spec disagree → the code is wrong.
+- **1.0 boundary:** amber 1.0 is a **plugin-extensible modular core**. Bundled
+  plugins are compiled into the same binary/archive; the plugin-free core split
+  is post-1.0. The external process tier is **tools-only**: it contributes tools
+  and manifest settings, not command namespaces. The core C++ embedding API is
+  not frozen at 1.0; the plugin source/API promise is
+  `docs/spec/plugins/api-compatibility.md`.
 - **Supersedes:** the aspirational sections of the earlier framework draft
   (which described `void*` capabilities, an untyped event bus, and capability
   routing that no code performed). The external-plugin protocol
-  (`plugins/README.md`) is a separate, unchanged, still-shipping contract.
+  (`docs/spec/plugins/README.md`) is a separate, shipping, tools-only contract.
 - **Related:** `docs/spec/llm-client/dialect.md` (the provider wire seam this
   framework's first real capability plugs into), `docs/spec/tui/layout-engine.md`,
   `docs/spec/context/context-ownership-and-parallel-compression.md`,
@@ -64,7 +70,7 @@ Three mechanisms, with one rule that keeps them from collapsing into each other:
 
 | Mechanism | Purpose | Direction | Examples |
 |---|---|---|---|
-| **Contribution registries** | Things that *exist* while a plugin is active | Plugin → harness, at activation, host-arbitrated | tools, providers, commands, prompt blocks, status segments, panels, settings, log sinks |
+| **Contribution registries** | Things that *exist* while a plugin is active | Plugin → harness, at activation, host-arbitrated | tools, providers, commands, prompt blocks, status segments, panels, settings |
 | **Events** | Things that *happen* | Harness → plugin, at the moment they happen | turn started/ended, tool requested/completed, message added, compression, LLM response, errors |
 | **Host services** | Things the plugin needs *the host to do* | Plugin → host, on demand | `ask_secret`, `choose`, `confirm`, `notify`, `post_to_ui`, `log` |
 
@@ -108,9 +114,10 @@ path for bundled providers* and reserves it for code we do not ship.
 
 **Consequences designed in now, built later:** capabilities stay declarative
 (data first, callables second) so a wire form is expressible later; state layout
-is already per-plugin (`§9`); `kPluginApiVersion` exists before any external
-consumer; and no plugin may touch harness internals, so nothing has to be
-un-picked when the boundary moves.
+is already per-plugin (`§9`); a runtime `kPluginApiVersion` gate is deferred
+with the binary tier (the process tier negotiates `protocol_version`, and
+compiled-in plugins are compiler-checked); and no plugin may touch harness
+internals, so nothing has to be un-picked when the boundary moves.
 
 **IPC choices, when PF-6 opens:** reuse the shapes already in the tree, the external
 plugin protocol (newline-delimited JSON-RPC over stdio, `lib/plugin.cpp`) and the
@@ -243,6 +250,12 @@ log sinks, hot reload, and loading plugin code at runtime. See §10.
 
 ### 5. Prompt blocks (and the chat_once refactor)
 
+> **Status at 1.0:** plugin-contributed blocks use `PromptRegistry`. Amber's
+> core memory/skills/brief blocks deliberately remain `Agent`-owned per-agent
+> state: the registry is shared across windows, and the tracker records the
+> decision (`2026-09-10, Open findings (1)`). The diagram below is the target
+> shape, not a claim that those core blocks are registry entries today.
+
 Today `Agent::chat_once` injects four kinds of block with four different ad-hoc
 insertion algorithms: learned memories (`agent.cpp:244-263`), skill discovery and
 activated skill bodies (`:290-319`), and the session brief (`:327-335`), after
@@ -326,7 +339,7 @@ may be mutated or the event cancelled):
 | `LlmResponseReceived` | `chat_once` after `chat`/`chat_stream` returns | no | Every round-trip is published — the loop keeps no hidden exchanges (the old `confirm_turn` probe is gone) |
 | `CompressionTriggered` / `CompressionCompleted` | gate decision `agent.cpp:266-278`; rebuild `:458-461` | no | Structured replacement for the current `on_status` prose |
 | `ErrorRaised` | retry/classification paths `agent_helpers.cpp:134-249`, auth repair `agent.cpp:699-719` | no | Observation only: **error classification stays in the dialect** (`is_retryable`, `context_overflow_hint`) |
-| `PluginLoaded` / `PluginUnloaded` | - | no | Declared in `events.h`, **never published** (no fire site). Kept for a future consumer; do not subscribe expecting them. |
+| `PluginLoaded` / `PluginUnloaded` | `PluginRuntime::activate` after a successful install; `unwind` on a real deactivation | no | Published in production; a failed install publishes `PluginFailed` after rollback instead. |
 
 **Performance invariants (hard):**
 
@@ -505,7 +518,7 @@ PluginRuntime
  ├─ ProviderService       (existing; presets merged from plugin contributions)
  ├─ PluginRegistry        (existing lifecycle; fed by the runtime)
  ├─ EventBus              (existing primitive + typed Events layer)
- ├─ extension registries  (prompts, status, panels, wallets, allowances)
+ ├─ extension registries  (prompts, status, panels, wallets)
  ├─ HostServices          (jobs, todos, sub-agents, cancel token)
  └─ PluginLedger
 ```
@@ -626,8 +639,10 @@ These hold always. A test that cannot express one of them is a design smell.
 1. **Install returns a handle.** Every contribution is removable through the
    handle the registry returned; there is no write-only registration.
 2. **No orphan contributions.** After `disable(id)` returns, nothing the plugin
-   contributed remains reachable, registries, subscriptions, command leaves,
-   provider rows, segments, panels.
+   contributed remains reachable: registries, command leaves, provider rows,
+   segments, panels. Event subscriptions are plugin-owned: a plugin uses the
+   RAII `Subscription` handle or unsubscribes in `shutdown()`, and the
+   conformance test asserts a disabled plugin has zero callbacks.
 3. **Registration never happens through events.** Events notify; registries
    install.
 4. **No `void*` in the plugin-facing API.** Events and capabilities are typed.
@@ -638,9 +653,11 @@ These hold always. A test that cannot express one of them is a design smell.
    prompt copy; the sealed stack is untouched (see the context ownership spec).
 8. **A disabled plugin costs nothing.** No subscriptions, no registry rows, no
    constructed dialect, no polling, the only residue is its `plugin.conf`.
-9. **Plugin state has one source of truth.** Enable/disable and settings live in
-   `~/.config/amber/plugins/<id>/plugin.conf`; commands read and write that, never
-   a shadow copy.
+9. **Plugin state has one owner per store.** Enable/disable lives in
+   `~/.config/amber/plugins/<id>/plugin.conf`; a settings capability owns the
+   store its setter writes (a bundled plugin's own config file or the external
+   manifest's `state.json`). Commands read and write those stores, never a
+   shadow copy.
 10. **Every plugin surface is reachable from the command tree**: `/get plugin`
     and `/set plugin` are the control surface. No hidden state.
 11. **Plugins depend only on the public plugin API.** No `tui/` includes, no
@@ -778,7 +795,8 @@ These hold always. A test that cannot express one of them is a design smell.
   (regions), `config/file-config.md` (state layout conventions).
 - **Depended on by**: `plugins/tools-domain.md` (splitting the tool set into
   plugins, per-tool meta and prompts, the next domain to move),
-  `plugins/developer-guide.md` (author-facing contract), `plugins/README.md`
+  `docs/spec/plugins/developer-guide.md` (author-facing contract),
+  `docs/spec/plugins/README.md`
   (external tier, unchanged), `llm-client/model-probe.md`
   (provider-driven catalog).
 - **Tracker**: `docs/plugin-framework-tracker.md` (phases PF-1..PF-5, decision

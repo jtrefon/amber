@@ -48,6 +48,12 @@ struct PluginInfo {
     PluginManifest manifest;
 };
 
+namespace plugin_internal {
+class PluginTool;
+}
+
+class ToolPort;
+
 // Discovers, spawns, and registers plugins. A plugin is a directory with a
 // manifest.json and an executable speaking newline-delimited JSON-RPC over
 // stdio (protocol 1). The harness never links plugin code.
@@ -68,9 +74,18 @@ public:
     const PluginInfo* find(const std::string& id) const;
     PluginInfo* find(const std::string& id);
 
-    // Lifecycle: enable spawns the process and performs the protocol
-    // handshake, then registers the plugin's tools in `reg`. Returns false
-    // and sets info.error on failure.
+    // Production lifecycle: register the plugin's tools through the
+    // owner-scoped port. The process is spawned lazily on the first tool call,
+    // so activation never blocks the host. Returns false and sets info.error
+    // when the plugin is unknown or incompatible.
+    bool enable(const std::string& id, ToolPort& port);
+    // Unregister nothing here: the runtime closes the port, which removes
+    // exactly the tools this plugin contributed.
+    bool disable(const std::string& id);
+
+    // Compatibility path for bare hosts and tests that own a raw registry.
+    // It registers ownerless tools and unwinds by prefix; the runtime uses the
+    // ToolPort overload above.
     bool enable(const std::string& id, ToolRegistry& reg);
     bool disable(const std::string& id, ToolRegistry& reg);
 

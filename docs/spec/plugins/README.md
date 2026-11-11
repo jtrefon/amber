@@ -7,15 +7,15 @@
 > **Scope note.** This document specifies the **external** plugin tier only:
 > separate processes, JSON-RPC over stdio, tools as the sole capability. The
 > in-process **core plugin** framework (providers, prompt blocks, status
-> segments, panels, wallets, allowances, typed events, ledger-managed
+> segments, panels, wallets, typed events, ledger-managed
 > enable/disable) is a separate contract: `plugin-framework.md`. The two tiers
 > share the word "plugin" and nothing else.
 
-Plugins are self-contained programs that extend amber with new agent tools and
-new slash-command namespaces. The harness never links plugin code: every plugin
-is a separate executable speaking JSON-RPC over stdio, so a plugin crash cannot
-take down the app and protocol changes ship as plugin updates without touching
-the core.
+Plugins are self-contained programs that extend amber with new agent tools. The
+harness never links plugin code: every plugin is a separate executable speaking
+JSON-RPC over stdio, so a plugin crash cannot take down the app and protocol
+changes ship as plugin updates without touching the core. The external tier is
+tools-only at 1.0; command namespaces are a bundled-plugin capability.
 
 ## 1. Model
 
@@ -35,9 +35,10 @@ the core.
   `~/.config/amber/plugins/<id>`, `<workspace>/.amber/plugins/<id>`,
   `$(datadir)/amber/plugins/<id>` (system-shipped).
 - **Lifecycle.** `available` (manifest valid, found) → `enabled` (tools
-  registered, namespaces merged) → `disabled`; `incompatible` when the
-  `protocol_version` handshake fails. Enabled plugins are spawned on first tool
-  call and kept alive until disabled or the harness exits.
+  registered through the owner-scoped port) → `disabled`; `incompatible` when
+  the manifest is invalid. Enabled plugins are spawned on first tool call and
+  kept alive until disabled or the harness exits, so activation never blocks
+  the host.
 - **I/O contract.** Everything a plugin exchanges with the harness is JSON.
   Inputs: JSON-RPC requests. Outputs: JSON-RPC responses whose `result` is the
   tool envelope `{ok, output, meta}`, the same contract as built-in tools, so
@@ -61,10 +62,6 @@ the core.
                  "in the tool prompt when the plugin is enabled.",
   "main": "cdp-plugin",
   "settings": { "endpoint": "ws://127.0.0.1:9222" },
-  "completion": {
-    "navigate": { "action": "plugin.cdp.navigate",
-                  "help": "…", "man": "…" }
-  },
   "tools": [
     { "name": "navigate", "description": "…",
       "schema": { "url": {"type": "string", "required": true} } }
@@ -74,15 +71,15 @@ the core.
 
 | Field | Required | Meaning |
 |-------|----------|---------|
-| `id` | yes | Slug, `[a-z0-9_]+`, used for the directory name, tool prefix and `/plugin/<id>` workspace. |
+| `id` | yes | Slug, `[a-z0-9_]+`, used for the directory name and tool prefix. |
 | `name` | yes | Display name. |
 | `version` | yes | Semver, e.g. `1.2.0`. Used for package management. |
-| `protocol_version` | yes | Integer. Harness rejects plugins with a different value (`incompatible`). |
+| `protocol_version` | yes | Integer. Harness rejects plugins with a different value (`incompatible`) on the first handshake. |
 | `author` / `url` / `license` | no | Attribution metadata. |
 | `description` | yes | Prompt advertisement: how/when to use the plugin's tools. Rendered into the agent's system prompt while enabled. |
 | `main` | yes | Executable path relative to the plugin directory. |
 | `settings` | no | Default key/value settings; exposed through `/get plugin settings <id> <key>` and `/set plugin settings <id> <key> <value>`, persisted next to the manifest. |
-| `completion` | no | A completions.json subtree (same node shape: `action`, `help`, `man`, `children`, `choices`, `range`). Mounted under `/plugin/<id>` on enable; it does not name a root. The `action` paths use the `plugin.<id>…` namespace. |
+| `completion` | no | **Ignored at 1.0.** The external tier is tools-only; a manifest's command subtree is not mounted. |
 | `tools` | no | Tool definitions. Each: `name` (registered as `plugin_<id>_<name>`), `description` (agent-facing), `schema` (JSON Schema object for `parameters`). |
 
 ## 3. Protocol (JSON-RPC 2.0, newline-delimited, UTF-8)
@@ -133,14 +130,14 @@ timeout (partial output lost, plugins must emit one line per request).
 
 ## 4. Tool registration and the agent
 
-- Tools register in `ToolRegistry` as `plugin_<id>_<name>` (security prefix:
-  collides with nothing, greppable, clearly not a core tool).
+- Tools register in `ToolRegistry` as `plugin_<id>_<name>` through the runtime's
+  owner-scoped port. Disabling the plugin removes exactly its set, even under a
+  name collision.
 - Enabled plugin tools appear in the agent's tool prompt via a generated
   "Plugins" section appended to the system prompt (each: name, description,
   schema summary).
-- Namespaces merge into `SettingRegistry` via the same walker that loads
-  `completions.json`; the drawer and `?` help then work for plugin commands
-  with zero extra code.
+- Command namespaces are not an external capability at 1.0. A bundled
+  `CommandCapability` is the supported path.
 
 ## 5. Administration
 
@@ -162,10 +159,14 @@ timeout (partial output lost, plugins must emit one line per request).
   <id>` shows author/url/license before enabling.
 - All path arguments are passed through `Workspace::confine` before the plugin
   sees them; the plugin cannot escape the workspace through amber.
-- Output is capped (64 KiB) per tool result.
-- The `plugin.<id>.*` action namespace and `plugin_<id>_*` tool prefix keep
-  plugin capabilities visibly namespaced; approval rules can target them by
-  name like any other tool.
+- Output is capped (64 KiB) per response line; a plugin that exceeds it or
+  emits no newline fails the call.
+- Plugin stderr is discarded (the protocol owns stdout), so a chatty plugin
+  cannot paint over the TUI.
+- External plugin tools are owner-tagged. The `plugin_<id>_` prefix keeps them
+  visibly namespaced; approval rules can target them by name like any tool.
+- `state.json` and per-plugin `plugin.conf` are owner-only and written
+  atomically.
 
 ## 7. Shipped external plugins
 

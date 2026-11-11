@@ -19,7 +19,14 @@ bool PluginRegistry::activate(const std::string& id) {
     if (!ctx_) {
         return false;
     }
-    bool ok = it->second.plugin->initialize(*ctx_);
+    bool ok = false;
+    try {
+        ok = it->second.plugin->initialize(*ctx_);
+    } catch (...) {
+        // A plugin is extension code: a throw during activation is a failed
+        // plugin, not a failed harness.
+        ok = false;
+    }
     it->second.state = ok ? State::Active : State::Failed;
     return ok;
 }
@@ -31,18 +38,17 @@ bool PluginRegistry::deactivate(const std::string& id) {
     if (it->second.state != State::Active)
         return false;
 
-    it->second.plugin->shutdown();
+    try {
+        it->second.plugin->shutdown();
+    } catch (...) {
+        // Teardown must not abort the ledger unwind that follows.
+    }
     it->second.state = State::Deactivated;
     return true;
 }
 
-void PluginRegistry::shutdown_all() {
-    for (auto& [id, entry] : entries_) {
-        if (entry.state == State::Active) {
-            entry.plugin->shutdown();
-            entry.state = State::Shutdown;
-        }
-    }
+void PluginRegistry::unregister_plugin(const std::string& id) {
+    entries_.erase(id);
 }
 
 PluginRegistry::State PluginRegistry::state(const std::string& id) const {
@@ -66,10 +72,6 @@ std::shared_ptr<IPlugin> PluginRegistry::find(const std::string& id) const {
     if (it == entries_.end())
         return nullptr;
     return it->second.plugin;
-}
-
-EventBus& PluginRegistry::event_bus() {
-    return bus_;
 }
 
 void PluginRegistry::set_context(PluginContext* ctx) {

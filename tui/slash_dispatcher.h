@@ -60,7 +60,6 @@ public:
     bool busy_reject(const std::string& what);
     void request_quit();
     void refresh_completions();
-    void merge_plugin_completions();
     // Plugin command output: one status row per line.
     void append_output(const std::string& text);
     void refresh_model_list();

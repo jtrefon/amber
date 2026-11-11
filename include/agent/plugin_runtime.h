@@ -48,6 +48,8 @@ struct WalletState {
 struct Entry {
     std::shared_ptr<IPlugin> plugin;
     bool bundled = true;
+    // Registration order. The runtime activates in this order, not map order.
+    std::size_t seq = 0;
     // What the plugin declared at registration; installed on activation.
     std::vector<std::unique_ptr<Capability>> declared;
     // The owner-scoped port a tool source registers discovered tools through.
@@ -109,6 +111,11 @@ public:
     // one command tree controls both tiers. A discovered plugin whose id
     // collides with a bundled one is skipped, never silently overwritten.
     void add_external(PluginManager& manager);
+
+    // Remove an external plugin after uninstall. Deactivates and unwinds it,
+    // then forgets both the runtime entry and the lifecycle row. Refuses a
+    // bundled plugin (the shipped set is not removable).
+    bool remove_external(const std::string& id);
 
     // Point the runtime (and every plugin context it hands out) at the host's
     // LIVE config. A host that takes its Config by value must call this after
@@ -229,6 +236,8 @@ private:
     bool install_capabilities(const std::string& id, IPlugin& plugin, std::string* error);
     bool activate(const std::string& id);
     void deactivate(const std::string& id);
+    // Registration order, not std::map order.
+    std::vector<std::string> ordered_ids() const;
     // Shared teardown. A failed activation's rollback is not announced as an
     // unload: nothing was ever announced as loaded.
     void unwind(const std::string& id, bool announce);
@@ -286,6 +295,7 @@ private:
     const Workspace* workspace_;
 
     std::map<std::string, detail::Entry> plugins_;
+    std::size_t next_seq_ = 0;
 };
 
 } // namespace agent

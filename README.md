@@ -6,7 +6,6 @@ amber: a native C++ AI agent runtime and CLI harness
 [![License](https://img.shields.io/github/license/jtrefon/amber)](LICENSE)
 [![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C)](https://en.cppreference.com/w/cpp/17)
 [![Platforms](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](https://github.com/jtrefon/amber/releases)
-[![Coverage](https://codecov.io/gh/jtrefon/amber/graph/badge.svg)](https://codecov.io/gh/jtrefon/amber)
 [![Homebrew](https://img.shields.io/badge/brew-jtrefon%2Famber%2Famber--agent-FBB040?logo=homebrew)](https://github.com/jtrefon/homebrew-amber)
 
 Amber is an open-source C++17 AI agent runtime and CLI harness with an
@@ -81,7 +80,8 @@ Layout:
 Building:
   ./configure
   make
-  make check      # builds and runs the tool smoke test
+  make check      # static gates; does not build or run the tests
+  make test       # build and run the unit, pty and plugin suites
   make install    # optional, honors --prefix
 
 Run:
@@ -103,6 +103,12 @@ Streaming:
   The LLM client supports OpenAI-compatible SSE streaming; token deltas are
   surfaced via AgentHooks::on_token for live TUI rendering. Disable with
   --no-stream (CLI) or AMBER_STREAM=0.
+
+Coverage:
+  `make coverage BASE=origin/main` is the authoritative measurement: an
+  instrumented build, the full suite, an 80% floor over `lib/`, `tools/` and
+  `plugins/`, a patch gate over added lines, and a TUI floor that asserts the
+  pty harness ran. Codecov is a dashboard, not a gate.
 
 Search backends:
   The search tool delegates to a pluggable SearchBackend. mode="grep" (default)
@@ -131,7 +137,10 @@ Security model:
   - Run the agent as an unprivileged user, ideally in a container or
     dedicated working directory, and review write operations for anything
     you would not run yourself.
+  - Report a suspected vulnerability privately via SECURITY.md, not a public
+    issue.
 
 License:
   Apache License 2.0. See LICENSE and NOTICE. Bundled third-party
-  components are listed in THIRD_PARTY_LICENSES (nlohmann/json is MIT).
+  components are listed in THIRD_PARTY_LICENSES (nlohmann/json and md4c are
+  MIT).

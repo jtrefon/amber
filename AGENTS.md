@@ -151,7 +151,9 @@ driven by an OpenAI-compatible LLM API.
   a broken measurement cannot read as a pass.
 - `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
   in a header, no raw `new`/`delete` in owned source, `lib/` and
-  `include/agent/` do not `#include` from `tui/`, `src/` or `tools/`, and a
+  `include/agent/` do not `#include` from `tui/`, `src/`, `tools/` or
+  `plugins/` except the two composition roots (`lib/plugins_bundled.cpp`,
+  `lib/tools_default.cpp`; the plugin-free split is post-1.0), and a
   source file's first line is functional (no SPDX/copyright boilerplate). Every
   header also compiles on its own. All of these measured clean first (0 / 1
   acknowledged / 0 layering / 0 boilerplate / 0 failing headers; the
@@ -562,8 +564,12 @@ deferred, see the developer guide's availability table).
   `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is composed from a
   registry, and both hosts (`src/main.cpp`, `tui/tui_main.cpp`) construct a
   `PluginRuntime`. The runtime lives in `lib/plugin_runtime.cpp`; the bundled set
-  in `lib/plugins_bundled.cpp`. The target is a microkernel, amber as
-  orchestrator plus plugin registry, everything else arriving as a plugin, so no
+  in `lib/plugins_bundled.cpp`.
+- **1.0 boundary:** 1.0 is a plugin-extensible **modular core**: bundled plugins
+  compile into the same archive; the plugin-free core split is post-1.0. The
+  external process tier is **tools-only** at 1.0 (no command namespaces), and
+  external tools are owner-scoped through the runtime ledger. The long-term
+  target remains a microkernel, amber as orchestrator plus plugin registry, so no
   change may add core domain state that a later extraction would have to unpick.
 - Spec: `docs/spec/plugins/plugin-framework.md` (design record, decisions,
   scenarios).
@@ -1209,7 +1215,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 321 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 122 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 4807 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 4810 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),
@@ -1217,14 +1223,14 @@ claim 0-debt conformance. Line counts below are enforced by
   `debug_log` (+ `llm.cpp` keeps the class). Provider wire protocols now live in
   `lib/dialect_*.cpp` behind the `Dialect` port, see
   `docs/spec/llm-client/dialect.md`.
-- `lib/agent.cpp` (473 → 200, now ~1000): `run` decomposed into `advance_turn`,
+- `lib/agent.cpp` (473 → 200, now 1,589): `run` decomposed into `advance_turn`,
   `fold_reply`, `recover_internal_failure`, `dispatch_tool_calls`,
   `agent_helpers`, `tool_recovery`; `compress_now` delegates to
   `CompressionPipeline::compress()` via `compression_->compress()`. The old
   `confirm_turn` probe was retired on 2026-10-18 (the turn contract: a reply
   with no tool calls ends the turn).
-- `tui/tui.cpp` (1245 → 171, now 1044): god-class `Tui` split into `tui.h` (declaration,
-  +420 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
+- `tui/tui.cpp` (1245 → 171, now 1,507): god-class `Tui` split into `tui.h` (declaration,
+  +445 lines) + `tui_render.cpp`, `tui_input.cpp`, `tui_session.cpp`,
   `tui_main.cpp`. No file defines a class >200 lines.
 - `tui/widgets.cpp` (333): split into `dialog.cpp`, `form_edit.cpp`,
   `info_dialog.cpp`, `menu_select.cpp`.

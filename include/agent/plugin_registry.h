@@ -54,13 +54,12 @@ public:
     void register_plugin(std::shared_ptr<IPlugin> plugin);
     bool activate(const std::string& id);
     bool deactivate(const std::string& id);
-    void shutdown_all();
+    void unregister_plugin(const std::string& id);
 
     State state(const std::string& id) const;
     std::vector<PluginInfo> list() const;
     std::shared_ptr<IPlugin> find(const std::string& id) const;
 
-    EventBus& event_bus();
     // The host's context. Activation requires one: a registry without a context
     // cannot activate a plugin, and says so rather than handing out a dummy.
     void set_context(PluginContext* ctx);
@@ -72,7 +71,6 @@ private:
     };
 
     std::map<std::string, Entry> entries_;
-    EventBus bus_;
     PluginContext* ctx_ = nullptr;
 };
 

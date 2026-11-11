@@ -15,12 +15,15 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace agent {
 
-// Wraps one discovered external plugin. Activation enables it in the v1
-// manager (which spawns the process and registers its tools); deactivation
-// disables it and unregisters those tools.
+// Wraps one discovered external plugin. The process tier contributes tools
+// through the same owner-scoped ToolSourceCapability path a bundled plugin
+// uses, so the runtime ledger owns the tool set and deactivation unwinds
+// exactly what this plugin registered. The process is spawned lazily on the
+// first tool call, never during activation.
 class ExternalPluginAdapter : public IPlugin {
 public:
     ExternalPluginAdapter(PluginManager& manager, std::string plugin_id, std::string version);
@@ -31,13 +34,13 @@ public:
 
     bool initialize(const PluginContext& ctx) override;
     void shutdown() override;
+    std::vector<std::unique_ptr<Capability>> capabilities() override;
 
 private:
     PluginManager* manager_;
     std::string id_;
     std::string version_;
-    ToolRegistry* tools_ = nullptr; // the registry enable() used
-    bool enabled_ = false;
+    bool initialized_ = false;
 };
 
 // Adapters for every plugin the manager has discovered. Built at startup; a

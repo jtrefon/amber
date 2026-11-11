@@ -37,6 +37,11 @@ void ToolRegistry::register_tool(std::unique_ptr<Tool> tool, std::string owner, 
     const std::string name = owned->name();
     for (auto& entry : tools_) {
         if (entry.tool->name() == name) {
+            // A plugin may replace its own registration; it may not shadow a
+            // host tool or another plugin's tool. The host may take a name
+            // back. A refused shadow leaves the existing tool untouched.
+            if (!owner.empty() && entry.owner != owner)
+                return;
             entry.tool = std::move(owned);
             entry.owner = std::move(owner);
             entry.meta = std::move(meta);
