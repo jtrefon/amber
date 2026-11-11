@@ -737,6 +737,10 @@ with the provenance line reporting a source that has moved; its tools
 (`index_init`, `index_add`, `index_update`, `index_remove`, `index_show`) and its
 `/plugin project_index show|refresh` commands arrive and leave with it),
 `plugins/clock/` (the bar's right-edge readout),
+`plugins/cache/` (category `observability`: the recent prompt-cache reuse
+gauge — a rolling window of the last calls inside the provider cache TTL, a
+bottom-bar segment, a `/plugin cache` readout and `metric`/`samples` settings;
+it contributes nothing and hides when the provider reports no cache counters),
 `plugins/watch/` (category `observability`: background command/PR watches, a
 deterministic journal, a one-shot read-only observer, a panel and the start-only
 `watch` tool; the core `tasks` inventory and status segment are the inspect
@@ -747,7 +751,7 @@ surface. Its spec is `watch-observer.md`),
 rendered from the same table `/get config paths` prints) and
 `plugins/git_timeline/` (the `git-timeline` plugin: the snapshot/history
 playbook as a skill, so its depth is activation-tier rather than resident
-prose). That is 30 bundled plugins in total.
+prose). That is 34 bundled plugins in total.
 
 Steps:
 

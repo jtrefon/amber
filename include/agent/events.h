@@ -59,6 +59,17 @@ struct LlmResponseEvent {
     long status = 0;
     long prompt_tokens = -1;
     long completion_tokens = -1;
+    // Prompt-cache counters (-1 when the provider did not report them). One
+    // event per completed exchange; the cache gauge plugin windows these, and
+    // nothing publishes per token.
+    long cache_read_tokens = -1;
+    long cache_write_tokens = -1;
+    std::string cache_miss_reason;
+    // The session/window the exchange belongs to, plus the model and provider
+    // that served it: a gauge must not mix reuse across sessions or vendors.
+    std::string owner_id;
+    std::string model;
+    std::string provider;
 };
 
 struct CompressionEvent {

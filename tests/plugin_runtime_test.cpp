@@ -21,6 +21,7 @@
 #include "plugins/kilocode/kilocode_plugin.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/metrics/metrics_plugin.h"
+#include "plugins/cache/cache_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
 #include "plugins/project_index/index_store.h"
 #include "plugins/project_index/project_index_plugin.h"
@@ -2909,6 +2910,252 @@ TEST(runtime_external_plugin_uses_owner_scoped_lazy_tools) {
 
 // The v1 adapter puts external plugins under the same surface. A discovered
 // plugin whose id collides with a bundled one must not overwrite it.
+TEST(cache_plugin_renders_a_rolling_window_and_hides_unsupported_providers) {
+    ScratchConfig scratch("cache-gauge");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<plugins::CachePlugin>());
+    runtime.start(/*use_persisted_state=*/false);
+    ASSERT_TRUE(runtime.status("cache").enabled);
+
+    Events events(runtime.events());
+    LlmResponseEvent response;
+    response.status = 200;
+    response.prompt_tokens = 100;
+    response.cache_read_tokens = 80;
+    response.cache_write_tokens = 0;
+    response.owner_id = "window-1";
+    response.model = "m";
+    response.provider = "p";
+    events.publish(response);
+
+    StatusSnapshot snapshot;
+    snapshot.owner_id = "window-1";
+    snapshot.model = "m";
+    snapshot.provider = "p";
+    auto render_cache = [&]() -> std::string {
+        for (const auto& segment : runtime.status().render(snapshot))
+            if (segment.id == "cache")
+                return segment.text;
+        return {};
+    };
+    ASSERT_EQ(render_cache(), std::string("  cache 80%"));
+
+    const auto& commands = runtime.commands().all();
+    const auto command = std::find_if(commands.begin(), commands.end(), [](const auto& entry) {
+        return entry.owner == "cache" && entry.spec.name == "cache";
+    });
+    ASSERT(command != commands.end());
+    ASSERT(command->spec.handlers.count("") == 1u);
+    ASSERT(command->spec.handlers.at("")(std::string()).find("cache 80%") != std::string::npos);
+
+    // The Hermes-style setting changes the headline to call hit rate; one hit
+    // out of one call is 100%, while token reuse remains in the detail.
+    ASSERT_TRUE(runtime.settings().set("cache", "metric", "calls"));
+    ASSERT_EQ(render_cache(), std::string("  cache 100%"));
+    ASSERT_TRUE(runtime.settings().set("cache", "samples", "4"));
+
+    // A provider without counters hides the segment rather than showing 0%.
+    response.cache_read_tokens = -1;
+    response.cache_write_tokens = -1;
+    events.publish(response);
+    ASSERT_TRUE(render_cache().empty());
+
+    // A second session has no independent samples until its own event.
+    snapshot.owner_id = "window-2";
+    ASSERT_TRUE(render_cache().empty());
+
+    // Reset clears every session's window.
+    ASSERT_EQ(command->spec.handlers.at("reset")(std::string()),
+              std::string("cache: window reset"));
+    ASSERT_TRUE(render_cache().empty());
+
+    // A measured 0/0 below the model's minimum cacheable prefix is cold, not a
+    // misleading "0%" that looks like caching broke.
+    snapshot.owner_id = "window-1";
+    response.owner_id = "window-1";
+    response.model = "claude-sonnet-4";
+    response.provider = "anthropic";
+    response.prompt_tokens = 100;
+    response.cache_read_tokens = 0;
+    response.cache_write_tokens = 0;
+    events.publish(response);
+    ASSERT_EQ(render_cache(), std::string("  cache cold"));
+}
+
+TEST(cache_plugin_reads_settings_from_disk_and_saves_changes) {
+    ScratchConfig scratch("cache-settings");
+    const fs::path conf_dir = fs::path(scratch.root()) / "amber" / "plugins" / "cache";
+    fs::create_directories(conf_dir);
+    {
+        std::ofstream out(conf_dir / "cache.conf");
+        out << "metric=calls\n"
+               "samples=16\n"
+               "not-a-pair\n"
+               "unknown=value\n"
+               "samples=3\n";
+    }
+
+    Fixture f;
+    {
+        PluginRuntime runtime(f.tools, f.cfg, f.ws);
+        runtime.add(std::make_shared<plugins::CachePlugin>());
+        runtime.start(/*use_persisted_state=*/false);
+        ASSERT_EQ(runtime.settings().get("cache", "metric"), std::string("calls"));
+        ASSERT_EQ(runtime.settings().get("cache", "samples"), std::string("16"));
+
+        // The registry validates choices, so exercise the spec's own guard
+        // directly: a malformed value is refused without touching the file.
+        for (const auto& entry : runtime.settings().all()) {
+            if (entry.owner != "cache")
+                continue;
+            if (entry.spec.key == "metric") {
+                ASSERT_TRUE(entry.spec.set && !entry.spec.set("bogus"));
+                ASSERT_TRUE(entry.spec.set("tokens"));
+            } else if (entry.spec.key == "samples") {
+                ASSERT_TRUE(entry.spec.set && !entry.spec.set("3"));
+                ASSERT_TRUE(entry.spec.set("4"));
+            }
+        }
+    }
+
+    std::ifstream in(conf_dir / "cache.conf");
+    std::ostringstream body;
+    body << in.rdbuf();
+    ASSERT(body.str().find("metric=tokens") != std::string::npos);
+    ASSERT(body.str().find("samples=4") != std::string::npos);
+
+    // A fresh runtime reads what the previous one saved, including the tokens
+    // branch of the loader.
+    PluginRuntime reloaded(f.tools, f.cfg, f.ws);
+    reloaded.add(std::make_shared<plugins::CachePlugin>());
+    reloaded.start(/*use_persisted_state=*/false);
+    ASSERT_EQ(reloaded.settings().get("cache", "metric"), std::string("tokens"));
+    ASSERT_EQ(reloaded.settings().get("cache", "samples"), std::string("4"));
+}
+
+TEST(cache_plugin_ttl_states_and_empty_detail) {
+    ScratchConfig scratch("cache-ttl");
+    Fixture f;
+    f.cfg.prompt_cache_ttl = "1h";
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.attach_config(f.cfg);
+    runtime.add(std::make_shared<plugins::CachePlugin>());
+    runtime.start(/*use_persisted_state=*/false);
+
+    const auto& commands = runtime.commands().all();
+    const auto command = std::find_if(commands.begin(), commands.end(), [](const auto& entry) {
+        return entry.owner == "cache" && entry.spec.name == "cache";
+    });
+    ASSERT(command != commands.end());
+    auto detail = [&]() { return command->spec.handlers.at("")(std::string()); };
+
+    ASSERT_EQ(detail(), std::string("cache: no completed requests yet"));
+
+    Events events(runtime.events());
+    LlmResponseEvent response;
+    response.status = 200;
+    response.prompt_tokens = 100;
+    response.cache_read_tokens = 80;
+    response.owner_id = "window-1";
+    response.model = "claude-sonnet-4-5";
+    response.provider = "anthropic";
+    events.publish(response);
+    ASSERT(detail().find("window 1h") != std::string::npos);
+
+    // A failed exchange contributes nothing to the window.
+    response.status = 500;
+    events.publish(response);
+
+    StatusSnapshot snapshot;
+    snapshot.owner_id = "window-1";
+    auto render_cache = [&]() -> std::string {
+        for (const auto& segment : runtime.status().render(snapshot))
+            if (segment.id == "cache")
+                return segment.text;
+        return {};
+    };
+    ASSERT_EQ(render_cache(), std::string("  cache 80%"));
+
+    f.cfg.prompt_cache_ttl = "off";
+    ASSERT_TRUE(render_cache().empty());
+    ASSERT_EQ(detail(), std::string("cache: prompt caching is off"));
+
+    // An empty TTL means the provider default, shown as 5m.
+    f.cfg.prompt_cache_ttl.clear();
+    ASSERT(detail().find("window 5m") != std::string::npos);
+}
+
+TEST(cache_plugin_bar_tones_and_session_blocks) {
+    ScratchConfig scratch("cache-tones");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add(std::make_shared<plugins::CachePlugin>());
+    runtime.start(/*use_persisted_state=*/false);
+
+    const auto& commands = runtime.commands().all();
+    const auto command = std::find_if(commands.begin(), commands.end(), [](const auto& entry) {
+        return entry.owner == "cache" && entry.spec.name == "cache";
+    });
+    ASSERT(command != commands.end());
+
+    Events events(runtime.events());
+    LlmResponseEvent response;
+    response.status = 200;
+    response.prompt_tokens = 100;
+    response.owner_id = "a";
+    response.model = "m";
+    response.provider = "p";
+
+    StatusSnapshot snapshot;
+    snapshot.owner_id = "a";
+    auto segment = [&]() -> StatusSegment {
+        for (const auto& rendered : runtime.status().render(snapshot))
+            if (rendered.id == "cache")
+                return rendered;
+        return {};
+    };
+
+    // Measured zero: an honest 0% (Warn), not a hidden segment.
+    response.cache_read_tokens = 0;
+    response.cache_write_tokens = 0;
+    events.publish(response);
+    ASSERT_EQ(segment().text, std::string("  cache 0%"));
+    ASSERT(segment().tone == StatusTone::Warn);
+
+    // One cached call in three is 33% token reuse: Dim, between the bounds.
+    response.cache_read_tokens = 0;
+    events.publish(response);
+    response.cache_read_tokens = 100;
+    events.publish(response);
+    ASSERT_EQ(segment().text, std::string("  cache 33%"));
+    ASSERT(segment().tone == StatusTone::Dim);
+
+    // A cache-creating call after a reset is warming, not 0%.
+    ASSERT_EQ(command->spec.handlers.at("reset")(std::string()),
+              std::string("cache: window reset"));
+    response.cache_read_tokens = 0;
+    response.cache_write_tokens = 1000;
+    events.publish(response);
+    ASSERT_EQ(segment().text, std::string("  cache warm"));
+    ASSERT(segment().tone == StatusTone::Dim);
+
+    // Each tracked session gets its own block; the headless owner (empty id)
+    // contributes a block without a session header.
+    response.owner_id.clear();
+    response.cache_write_tokens = 0;
+    response.cache_read_tokens = 50;
+    events.publish(response);
+    response.owner_id = "b";
+    events.publish(response);
+
+    const std::string detail = command->spec.handlers.at("")(std::string());
+    ASSERT(detail.find("cache warm") != std::string::npos);
+    ASSERT(detail.find("session a") != std::string::npos);
+    ASSERT(detail.find("session b") != std::string::npos);
+    ASSERT(detail.find("\n\n") != std::string::npos);
+}
+
 TEST(runtime_external_plugins_share_the_control_surface) {
     ScratchConfig scratch("external");
     Fixture f;

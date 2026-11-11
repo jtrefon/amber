@@ -163,6 +163,9 @@ struct UsageTotals {
 struct StatusSnapshot {
     int window_index = 0; // 1-based, as displayed
     int window_count = 1;
+    // The active window's stable session id. A plugin that keeps per-session
+    // state (the cache gauge) keys on this; headless hosts leave it empty.
+    std::string owner_id;
     std::string model;
     // The provider serving this model. Its own field because a vendor-prefixed
     // model id ("kilo-auto/free") reads as if the vendor were the provider, and

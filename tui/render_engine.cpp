@@ -285,6 +285,7 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     // The bar describes the ACTIVE window: model/mode/telemetry are that
     // window's agent state, not process globals.
     const Window& w = tui_.win();
+    snapshot.owner_id = w.owner_id;
     // One immutable snapshot for the whole bar: the agent's worker may be
     // running, and cfg_ is its private working copy.
     const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
