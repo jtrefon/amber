@@ -560,6 +560,12 @@ void Agent::publish_llm_response(const Stats& stats) {
         response.prompt_tokens = stats.prompt_tokens;
         response.completion_tokens = stats.completion_tokens;
     }
+    response.cache_read_tokens = stats.cache_read_tokens;
+    response.cache_write_tokens = stats.cache_write_tokens;
+    response.cache_miss_reason = stats.cache_miss_reason;
+    response.owner_id = owner_id_;
+    response.model = cfg_.model;
+    response.provider = cfg_.provider_name;
     publish_event(response);
 }
 

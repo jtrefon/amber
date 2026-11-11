@@ -24,6 +24,9 @@ struct FakeReply {
     long retry_after_ms = 0;         // ApiError.retry_after_ms
     long prompt_tokens = 0;          // stats.prompt_tokens for this reply
     long completion_tokens = 0;
+    long cache_read_tokens = -1;   // stats.cache_read_tokens
+    long cache_write_tokens = -1;  // stats.cache_write_tokens
+    std::string cache_miss_reason; // stats.cache_miss_reason
 };
 
 class FakeLLMClient : public agent::LLMClient {
@@ -55,6 +58,9 @@ public:
         if (stats) {
             stats->prompt_tokens = r.prompt_tokens;
             stats->completion_tokens = r.completion_tokens;
+            stats->cache_read_tokens = r.cache_read_tokens;
+            stats->cache_write_tokens = r.cache_write_tokens;
+            stats->cache_miss_reason = r.cache_miss_reason;
             stats->valid = true;
         }
         if (!r.error.empty())

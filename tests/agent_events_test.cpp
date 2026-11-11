@@ -132,6 +132,42 @@ TEST(agent_publishes_turn_and_message_events) {
     ASSERT_EQ(added_roles[1], std::string("user"));
 }
 
+TEST(agent_publishes_cache_counters_on_llm_response) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = event_cfg();
+    cfg.model = "test-model";
+    cfg.provider_name = "test-provider";
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeReply reply;
+    reply.content = "hello";
+    reply.prompt_tokens = 1000;
+    reply.completion_tokens = 12;
+    reply.cache_read_tokens = 800;
+    reply.cache_write_tokens = 50;
+    reply.cache_miss_reason = "previous_message";
+    fake->script.push_back(reply);
+
+    agent::EventBus bus;
+    agent::Events events(bus);
+    agent::LlmResponseEvent seen;
+    auto sub = events.subscribe<agent::LlmResponseEvent>(
+        [&](const agent::LlmResponseEvent& event) { seen = event; });
+
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
+    ag.set_owner_id("window-1");
+    ag.set_events(bus);
+    (void)ag.run("hello");
+
+    ASSERT_EQ(seen.owner_id, std::string("window-1"));
+    ASSERT_EQ(seen.model, std::string("test-model"));
+    ASSERT_EQ(seen.provider, std::string("test-provider"));
+    ASSERT_EQ(seen.prompt_tokens, 1000L);
+    ASSERT_EQ(seen.cache_read_tokens, 800L);
+    ASSERT_EQ(seen.cache_write_tokens, 50L);
+    ASSERT_EQ(seen.cache_miss_reason, std::string("previous_message"));
+}
+
 TEST(agent_every_model_round_trip_is_published) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = event_cfg();
