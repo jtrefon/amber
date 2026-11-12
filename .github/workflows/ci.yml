@@ -26,6 +26,20 @@ jobs:
   # the website build. Skipped jobs report success, so required checks still
   # pass. Non-PR events (main pushes, dispatch) run everything.
   # ---------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # PR readiness: a draft, a body without verification evidence, or a labelled
+  # feature/bug/security/ci PR without `review:approved` is not a review
+  # request. The one-completed-feature rule stays a review judgement.
+  # ---------------------------------------------------------------------------
+  pr-readiness:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check PR readiness
+        run: python3 tools/pr_readiness.py --event "$GITHUB_EVENT_PATH"
+
   changes:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -1004,7 +1018,7 @@ jobs:
   # gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, bench-efficiency, coverage, website-build, website-smoke]
+    needs: [pr-readiness, changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, bench-efficiency, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15

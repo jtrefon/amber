@@ -95,10 +95,10 @@ in the body (see AGENTS.md, Development workflow).
   draft PRs used as status boards.
 - **Review:** feature/bug PRs are reviewed by the maintainer before merge.
   The repository has one collaborator and GitHub forbids self-approval, so the
-  native required-review check cannot be satisfied by the author. #578 decides
-  the mechanism (second reviewer identity, an enforced review label, or
-  gate-only for docs/dependency PRs). Until it lands, record the review
-  explicitly in the PR body.
+  chosen mechanism is an **enforced `review:approved` label** for PRs labelled
+  `feature`, `bug`, `security` or `ci`; unlabelled and docs/dependency PRs are
+  gate-only. The maintainer adds the label after review. The `pr-readiness` job
+  also rejects a draft and a body without a populated verification section.
 - **Batching target:** at most one PR per finished feature/bug. A milestone may
   span several PRs, each opened at completion.
 - **Measurement:** PRs per feature, review wait, flake rate, time-to-green,

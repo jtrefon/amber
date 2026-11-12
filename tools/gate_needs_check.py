@@ -51,6 +51,7 @@ EVENTS = {job: row["events"] for job, row in _GATING.items()
 # mis-mapped entry changes the fixture instead of failing, which is the "gate that
 # measures nothing" shape. An independent list means a bad mapping changes behaviour.
 ALL_JOBS = (
+    "pr-readiness",
     "dependency-review",
     "obfuscation-guard",
     "secret-scan",
@@ -81,7 +82,7 @@ CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "static-gates",
             "format-check", "sanitizers", "tsan", "fuzz", "bench-efficiency", "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
-PR_ONLY_JOBS = ("dependency-review", "lint", "test-presence")
+PR_ONLY_JOBS = ("pr-readiness", "dependency-review", "lint", "test-presence")
 
 NOT_APPLICABLE = {"skipped", "neutral"}
 

@@ -7,6 +7,10 @@ commits on this branch, not separate PRs.
 
 ## PR readiness
 
+The `pr-readiness` check fails a draft, a body without a populated verification
+section, or a PR labelled `feature`/`bug`/`security`/`ci` without the
+`review:approved` label.
+
 - [ ] This is a completed feature or bug fix, not a task slice or a draft.
 - [ ] Every task is green and `make verify` is clean.
 - [ ] The branch has been pushed as work completed; this PR is the first request
