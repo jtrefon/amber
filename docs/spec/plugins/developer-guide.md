@@ -16,7 +16,11 @@ There is no separate "plugin framework version". The framework ships as part of
 amber and follows amber's own version (`version.txt`). The external tier has its
 own wire `protocol_version` (currently `1`); that is a protocol number, not a
 framework version. The source/API promise is
-[`api-compatibility.md`](api-compatibility.md).
+[`api-compatibility.md`](api-compatibility.md), and `make api-check` is its
+mechanical half: it compares the public declarations in
+`tests/api_snapshot.txt` and compiles `tests/api/public_consumer.cpp` against
+only the promised headers. A removal or signature change fails; an addition
+passes, and `make api-snapshot-update` records it for review.
 
 **The framework is dogfooded.** Amber's own providers, its core tool set, the
 status bar and the registry console are all built on the same capability API a

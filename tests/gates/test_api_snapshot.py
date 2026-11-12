@@ -173,12 +173,13 @@ class SnapshotFile(unittest.TestCase):
             os.unlink(handle.name)
         self.assertEqual(loaded, {"agent | class IPlugin", "agent::IPlugin::id"})
 
-    def test_comments_and_blank_lines_are_ignored(self):
+    def test_comments_and_blank_lines_are_ignored_but_macros_are_data(self):
         handle = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
-        handle.write("# comment\n\nagent | class IPlugin\n")
+        handle.write("# comment\n#define AGENT_X 1\n\nagent | class IPlugin\n")
         handle.close()
         try:
-            self.assertEqual(api.read_snapshot(handle.name), {"agent | class IPlugin"})
+            self.assertEqual(api.read_snapshot(handle.name),
+                             {"#define AGENT_X 1", "agent | class IPlugin"})
         finally:
             os.unlink(handle.name)
 
