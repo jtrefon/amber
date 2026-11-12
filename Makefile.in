@@ -141,6 +141,7 @@ $(BUILD_DIR)/lib/provider_health.o \
              $(BUILD_DIR)/lib/data_path.o \
               $(BUILD_DIR)/lib/bootstrap.o \
               $(BUILD_DIR)/lib/plugin.o \
+             $(BUILD_DIR)/lib/plugin_protocol.o \
               $(BUILD_DIR)/lib/event_bus.o \
               $(BUILD_DIR)/lib/plugin_capability.o \
               $(BUILD_DIR)/lib/extensions.o \
@@ -348,6 +349,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/cache_reuse_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
+               $(BUILD_DIR)/tests/plugin_protocol_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
                $(BUILD_DIR)/tests/render_foundation_test.o \
                $(BUILD_DIR)/tests/dialog_test.o \
@@ -576,7 +578,7 @@ FUZZ_MD_OBJS  = $(FUZZ_BIN)/markdown_md4c.o $(FUZZ_BIN)/markdown.o \
                 $(FUZZ_BIN)/markdown_normalize.o $(FUZZ_BIN)/rich.o \
                 $(FUZZ_BIN)/textutil.o $(FUZZ_BIN)/ansi_sgr.o
 FUZZ_OBJS     = $(FUZZ_BIN)/md4c.o $(FUZZ_BIN)/mcp_jsonrpc.o $(FUZZ_BIN)/stream_decoder.o \
-                $(FUZZ_MD_OBJS)
+                $(FUZZ_BIN)/plugin_protocol.o $(FUZZ_MD_OBJS)
 
 # Apple's clang ships no libFuzzer runtime, so this fails closed rather than looking like
 # a pass on a machine that cannot actually fuzz. A stamp rather than a phony target, so a
@@ -621,12 +623,19 @@ $(FUZZ_BIN)/textutil.o: $(SRC_DIR)/tui/textutil.cpp | $(FUZZ_BIN)
 $(FUZZ_BIN)/ansi_sgr.o: $(SRC_DIR)/tui/ansi_sgr.cpp | $(FUZZ_BIN)
 	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
 
-FUZZ_TARGETS = mcp_jsonrpc stream_decoder markdown
+FUZZ_TARGETS = mcp_jsonrpc stream_decoder markdown plugin_protocol
 
 $(FUZZ_BIN)/fuzz_mcp_jsonrpc: $(FUZZ_SRC)/mcp_jsonrpc.cpp $(FUZZ_BIN)/mcp_jsonrpc.o \
                              $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/mcp_jsonrpc.cpp $(FUZZ_BIN)/mcp_jsonrpc.o \
 	  $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(CURL_LIBS) -o $@
+
+$(FUZZ_BIN)/fuzz_plugin_protocol: $(FUZZ_SRC)/plugin_protocol.cpp \
+                               $(FUZZ_BIN)/plugin_protocol.o $(FUZZ_CAPABILITY) \
+                               $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/plugin_protocol.cpp \
+	  $(FUZZ_BIN)/plugin_protocol.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
+	  $(CURL_LIBS) -o $@
 
 $(FUZZ_BIN)/fuzz_stream_decoder: $(FUZZ_SRC)/stream_decoder.cpp $(FUZZ_BIN)/stream_decoder.o \
                                $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
