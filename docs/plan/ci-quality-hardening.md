@@ -119,3 +119,5 @@ in the body (see AGENTS.md, Development workflow).
   P0 items labelled `urgency:now`.
 - 2026-11-12: SDLC batching rule adopted: PR only at feature/bug completion,
   manual E2E recorded before opening; review mechanism tracked in #578.
+- 2026-11-12: #569 CI watchdog implemented: `.github/workflows/ci-watchdog.yml`
+  + `tools/ci_watchdog.py`, with fixture tests in `tests/gates/`.
