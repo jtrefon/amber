@@ -284,6 +284,15 @@ driven by an OpenAI-compatible LLM API.
   its self-test covers both the legitimate skips and the bypasses. A skip policy
   that treated an unknown event as "not applicable" would let a merge-group run
   skip every gate and still pass, which is why the event is listed explicitly.
+- **CI liveness watchdog.** `.github/workflows/ci-watchdog.yml` runs
+  `tools/ci_watchdog.py` every 15 minutes: a run queued for more than 20
+  minutes, or without progress for 90, is cancelled and re-run once; a second
+  failure opens one `ci-stuck` issue and comments on the PR. The latest
+  completed `CI` run on `main` keeps exactly one `ci-red` issue open while red
+  and closes it when green. A queued job has no `timeout-minutes` (it starts
+  counting only when a runner picks the job up) and still holds the concurrency
+  slot, which is the failure this covers. Dry run:
+  `gh workflow run ci-watchdog.yml -f dry_run=true`.
 - `make clean` removes in-tree `.o`/`.d`/binaries; `make distclean` also drops
   the generated `Makefile`.
 
@@ -297,7 +306,7 @@ for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
 `lint_baseline.py`, `nesting_gate.py`, `debt_gate.py`, `coverage_gate.py`,
 `hygiene_gate.py`, `library_check.py`, `gate_report.py`,
 `duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py`,
-`ci_manifest_check.py`, `detach_gate.py`, `prompt_lint.py`,
+`ci_manifest_check.py`, `ci_watchdog.py`, `detach_gate.py`, `prompt_lint.py`,
 `test_presence_gate.py` and `commit_lint.py` — plus the shared `cpp_source.py`
 lexer. When you change a gate, change its tests in the same commit.
 

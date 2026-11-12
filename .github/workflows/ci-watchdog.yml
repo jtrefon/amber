@@ -1,0 +1,37 @@
+name: CI watchdog
+
+# A queued job has no timeout: `timeout-minutes` starts only when a runner
+# picks it up. A zombie job also holds the workflow's concurrency slot, so a
+# re-run queues behind it forever. This is the alarm and the recovery path for
+# that state, and for a red `main` (one tracked issue, closed on green).
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print decisions without cancelling, re-running or writing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ci-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Recover stuck runs and sync the red-main issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 tools/ci_watchdog.py ${{ inputs.dry_run && '--dry-run' || '' }}
