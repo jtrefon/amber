@@ -52,6 +52,24 @@ compatibility promise is:
   release loads code that was not built with the harness, that release adds the
   constant and its rejection path together.
 
+## Mechanical check
+
+`make api-check` runs in `static-gates`, `make check` and CI. It reads
+`tests/api_snapshot.txt`, the recorded public declarations of `plugin.h`,
+`plugin_core.h`, `plugin_capability.h`, `extensions.h` and `events.h`, and fails
+when one disappears or changes signature. An addition passes, because additive
+changes are allowed; run `make api-snapshot-update` in the PR that makes one, so
+the reviewed snapshot follows the surface. The same target compiles
+`tests/api/public_consumer.cpp`, an external-style translation unit that includes
+only those headers and uses the stable types and registries — the compiler is a
+second oracle for a change the text extractor might mis-read.
+
+What the check does **not** do: it is source-level only (no ABI), it records the
+declarations of the named headers rather than every template instantiation, and
+it cannot tell an intentional breaking change from an accidental one. That is
+what the deprecation policy above is for: a missing entry is a merge blocker
+until the PR either restores it or carries the deprecation and migration.
+
 ## What is not promised
 
 - ABI stability for compiled-in plugins across different compiler/standard
