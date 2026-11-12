@@ -348,6 +348,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/plugin_framework_test.o \
                $(BUILD_DIR)/tests/cache_reuse_test.o \
                $(BUILD_DIR)/tests/plugin_runtime_test.o \
+               $(BUILD_DIR)/tests/plugin_protocol_test.o \
                $(BUILD_DIR)/tests/watch_test.o \
                $(BUILD_DIR)/tests/render_foundation_test.o \
                $(BUILD_DIR)/tests/dialog_test.o \
