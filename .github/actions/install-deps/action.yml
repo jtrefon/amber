@@ -6,6 +6,8 @@ description: >
   Set `cpp_toolchain` to 'false' for jobs that only need ./configure's
   probes to run (the pure-Python gates): that drops the toolchain down to
   what configure cannot proceed without.
+  On Linux the install retries a dead mirror, falls back to a documented
+  mirror, and can run from the restored package cache; see install-deps.sh.
 
 inputs:
   extra:
@@ -23,38 +25,64 @@ inputs:
 runs:
   using: composite
   steps:
+    # The cache key is the package request, not the job: two jobs asking for
+    # the same set share one cache entry, and a different `extra` gets its own.
+    # The week in the key refreshes the lists weekly, so a restored cache is
+    # never more than a week stale; restore-keys still finds last week's entry
+    # if the first run of a week meets an outage.
+    - name: Resolve apt cache key (Linux)
+      if: runner.os == 'Linux'
+      id: apt-cache-key
+      shell: bash
+      env:
+        CPP_TOOLCHAIN: ${{ inputs.cpp_toolchain }}
+        EXTRA_PACKAGES: ${{ inputs.extra }}
+        ACTION_HASH: ${{ hashFiles('.github/actions/install-deps/action.yml') }}
+      run: |
+        week="$(date -u +%G-%V)"
+        digest="$(printf '%s|%s' "$CPP_TOOLCHAIN" "$EXTRA_PACKAGES" | cksum | cut -d' ' -f1)"
+        # The image is literal on purpose: upgrading the pin must invalidate the
+        # cache instead of silently reusing debs built for another release.
+        echo "key=apt-ubuntu-24.04-${RUNNER_ARCH}-${ACTION_HASH}-${week}-${digest}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore apt package cache (Linux)
+      if: runner.os == 'Linux'
+      id: apt-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ runner.temp }}/amber-apt
+        key: ${{ steps.apt-cache-key.outputs.key }}
+        restore-keys: |
+          apt-${{ runner.os }}-${{ runner.arch }}-
+
     - name: Install dependencies (Linux)
       if: runner.os == 'Linux'
       shell: bash
-      # Bounded on purpose. apt can block indefinitely on the dpkg lock (held
-      # by a background updater on the runner image) or on a third-party mirror
-      # that never answers; with no cap the step sits until GitHub's 6 h job
-      # ceiling, which is how a transient flake becomes a "stuck pipeline".
-      # DPkg::Lock::Timeout caps the lock wait, `timeout` caps the whole
-      # command, and noninteractive removes any debconf prompt.
-      #
-      # The install cap is 30 min, not 10: it exists so a hung mirror cannot sit
-      # until the job ceiling, not to police how long a download takes. Measured
-      # 2026-10-27 at ~50 KB/s on the mirror this job was fetching from, the
-      # 71.7 MB it pulls (libllvm18 alone is 27.5 MB) took 24 minutes, so
-      # `timeout 600` killed transfers that were still progressing and turned
-      # three PRs and three `main` runs red with exit 124 while their code was
-      # fine. Acquire::Retries rides out a connection dropped mid-fetch; the
-      # overall bound still fails a genuinely dead mirror. Every job that uses
-      # this action carries at least 30 minutes for the install plus its own
-      # runtime -- a job timeout is a hang guard, not a work budget.
+      # The script owns the bounded attempts, the fallback mirror and the
+      # offline path. The old inline version swallowed the mirror update with
+      # `|| true`, so a DNS outage surfaced as a bare exit 124 from the install
+      # timeout with no statement of what had failed. It also means this logic
+      # is testable without a runner: tests/gates/test_install_deps.py drives
+      # it with a fake apt that reproduces the outage.
       env:
         DEBIAN_FRONTEND: noninteractive
-      run: |
-        sudo rm -f /etc/apt/sources.list.d/google-chrome.list* /etc/apt/sources.list.d/google*.sources*
-        sudo timeout 300 apt-get -o DPkg::Lock::Timeout=120 \
-          -o Acquire::Retries=3 update || true
-        sudo timeout 1800 apt-get -o DPkg::Lock::Timeout=120 \
-          -o Acquire::Retries=3 install -y \
-          --no-install-recommends \
-          build-essential libcurl4-openssl-dev \
-          ${{ inputs.cpp_toolchain == 'true' && 'clang libncursesw5-dev pkg-config' || '' }} \
-          ${{ inputs.extra }}
+        AMBER_APT_CACHE_DIR: ${{ runner.temp }}/amber-apt
+        AMBER_APT_ATTEMPTS: '3'
+        AMBER_APT_BACKOFF_SECONDS: '10'
+      run: >-
+        bash .github/actions/install-deps/install-deps.sh
+        --cpp-toolchain "${{ inputs.cpp_toolchain }}"
+        --extra "${{ inputs.extra }}"
+
+    - name: Save apt package cache (Linux)
+      if: runner.os == 'Linux' && steps.apt-cache.outputs.cache-hit != 'true'
+      # A cache save race with another job is a warning, never a job failure:
+      # the cache is an optimization, not a gate.
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ runner.temp }}/amber-apt
+        key: ${{ steps.apt-cache-key.outputs.key }}
 
     - name: Install dependencies (macOS)
       if: runner.os == 'macOS'

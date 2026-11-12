@@ -27,7 +27,7 @@ jobs:
   # pass. Non-PR events (main pushes, dispatch) run everything.
   # ---------------------------------------------------------------------------
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       cpp: ${{ steps.filter.outputs.cpp }}
@@ -55,7 +55,7 @@ jobs:
   # ---------------------------------------------------------------------------
   dependency-review:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -89,7 +89,7 @@ jobs:
   # ---------------------------------------------------------------------------
   lint:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 60 min: clang-tidy is ~20 min of work on top of an install that is
     # bounded at 30.
     timeout-minutes: 60
@@ -123,7 +123,7 @@ jobs:
   # ---------------------------------------------------------------------------
   commit-hygiene:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: github.event_name == 'pull_request'
     continue-on-error: true
@@ -141,7 +141,7 @@ jobs:
   # ---------------------------------------------------------------------------
   test-presence:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
@@ -165,7 +165,7 @@ jobs:
   # ---------------------------------------------------------------------------
   analyze:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
@@ -204,7 +204,7 @@ jobs:
   # ---------------------------------------------------------------------------
   static-gates:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 50 min: the dependency install is bounded at 30 (see install-deps), even
     # with the slim toolchain; the gates themselves take minutes.
     timeout-minutes: 50
@@ -243,7 +243,7 @@ jobs:
   # ---------------------------------------------------------------------------
   content-gates:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 50 min: the install is bounded at 30 and the library run blocks compile.
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
@@ -263,7 +263,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-hygiene:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 50 min: the dependency install is bounded at 30 (see install-deps) and
     # the compile needs ~12 on top of it.
     timeout-minutes: 50
@@ -284,7 +284,7 @@ jobs:
   # ---------------------------------------------------------------------------
   duplicates:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: needs.changes.outputs.cpp == 'true'
     steps:
@@ -302,7 +302,7 @@ jobs:
   # only, so it needs no toolchain and finishes in about a second.
   # ---------------------------------------------------------------------------
   obfuscation-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -319,7 +319,7 @@ jobs:
   # ---------------------------------------------------------------------------
   complexity:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     if: needs.changes.outputs.cpp == 'true'
     steps:
@@ -343,7 +343,7 @@ jobs:
   #
   # clang-format is PINNED to 18, and floored by CLANG_FORMAT_MIN_VERSION in
   # Makefile.in. It used to install the unversioned `clang-format` metapackage,
-  # which meant the binary was whatever ubuntu-latest shipped -- green today only
+  # which meant the binary was whatever the runner image shipped -- green today
   # because that happens to be 18.1.3 and matches the tree. When the image moves
   # the gate goes red repo-wide for formatting nobody changed, since these versions
   # disagree on braced-init lists and line-break placement. A contributor's local
@@ -351,7 +351,7 @@ jobs:
   # ---------------------------------------------------------------------------
   format-check:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 50 min: clang-format-18 rides in with the same bounded install as the rest
     # (30 min on a slow mirror); the format runs themselves take a minute.
     timeout-minutes: 50
@@ -385,7 +385,7 @@ jobs:
   # ---------------------------------------------------------------------------
   sanitizers:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
@@ -416,7 +416,7 @@ jobs:
   # ---------------------------------------------------------------------------
   tsan:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
@@ -464,7 +464,7 @@ jobs:
   # releases, so an unpinned action is a gate that changes underneath you.
   # ---------------------------------------------------------------------------
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # gitleaks-action reads the pull request through the API to scan the diff, so it needs
     # to read refs and PR metadata. Read-only: nothing here needs write access.
@@ -504,7 +504,7 @@ jobs:
   # ---------------------------------------------------------------------------
   fuzz:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 60 min, not 25: the bounded dependency install can spend 30 of them on a
     # slow mirror (see .github/actions/install-deps), and the job still needs
     # room to build the instrumented targets and run libFuzzer.
@@ -534,7 +534,7 @@ jobs:
   # ---------------------------------------------------------------------------
   coverage:
     needs: [changes]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     permissions:
@@ -627,7 +627,7 @@ jobs:
   build-and-test:
     needs: [changes]
     if: needs.changes.outputs.cpp == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -727,7 +727,7 @@ jobs:
       needs.ci-gate.result == 'success' &&
       (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     needs: [changes, ci-gate]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
@@ -845,7 +845,7 @@ jobs:
   website-build:
     needs: [changes]
     if: needs.changes.outputs.website == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -890,7 +890,7 @@ jobs:
   website-smoke:
     needs: [changes, website-build]
     if: needs.changes.outputs.website == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -925,7 +925,7 @@ jobs:
   website-deploy:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     needs: [website-build, website-smoke]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment:
       name: github-pages
@@ -956,7 +956,7 @@ jobs:
   ci-gate:
     needs: [changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, coverage, website-build, website-smoke]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       # The skip policy is a repo script, so this job needs the tree. It had no checkout
