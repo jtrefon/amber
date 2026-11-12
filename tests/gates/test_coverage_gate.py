@@ -487,5 +487,299 @@ class ChangedLines(unittest.TestCase):
         self.assertEqual(cg.changed_lines_from_diff(diff), {})
 
 
+BRANCH_XML = """<?xml version="1.0" ?>
+<coverage line-rate="0.5" branch-rate="0.5" branches-covered="3" branches-valid="8">
+  <packages><package><classes>
+    <class filename="lib/a.cpp" name="a_cpp" line-rate="1.0" branch-rate="0.375">
+      <lines>
+        <line number="10" hits="1" branch="true" condition-coverage="50% (1/2)"/>
+        <line number="11" hits="1"/>
+        <line number="12" hits="1" branch="true" condition-coverage="0% (0/4)"/>
+        <line number="13" hits="1" branch="true" condition-coverage="100% (2/2)"/>
+      </lines>
+    </class>
+    <class filename="tui/t.cpp" name="t_cpp" line-rate="1.0" branch-rate="0.5">
+      <lines><line number="5" hits="1" branch="true" condition-coverage="50% (1/2)"/></lines>
+    </class>
+  </classes></package></packages>
+</coverage>
+"""
+
+BRANCHES = {
+    "lib/a.cpp": {10: (1, 2), 12: (0, 4), 13: (2, 2)},
+    "tui/t.cpp": {5: (1, 2)},
+}
+
+
+def branch_check(result, changed, ratchet=None, ratchet_error=None):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = cg.check(result, changed, ratchet, ratchet_error)
+    return rc, buf.getvalue()
+
+
+class ReadingBranchData(unittest.TestCase):
+    """gcovr's Cobertura output carries a line's conditions in
+    `condition-coverage="P% (covered/total)"`. The gate reads that attribute, not
+    the `<conditions>` children, because the attribute is the aggregate gcovr
+    guarantees and the children's ordering is an implementation detail."""
+
+    def write(self, text):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False)
+        handle.write(text)
+        handle.close()
+        return handle.name
+
+    def test_reads_condition_coverage_per_line(self):
+        path = self.write(BRANCH_XML)
+        try:
+            loaded = cg.read_branch_report(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(loaded["lib/a.cpp"], {10: (1, 2), 12: (0, 4), 13: (2, 2)})
+        self.assertEqual(loaded["tui/t.cpp"], {5: (1, 2)})
+
+    def test_lines_without_branch_data_are_absent(self):
+        path = self.write(BRANCH_XML)
+        try:
+            self.assertNotIn(11, cg.read_branch_report(path)["lib/a.cpp"])
+        finally:
+            os.unlink(path)
+
+    def test_malformed_percentage_fails_closed(self):
+        """A branch line whose counts cannot be parsed is a measurement gap, not
+        a zero. Returning the other files would report a number computed from a
+        report we do not understand."""
+        bad = BRANCH_XML.replace('condition-coverage="50% (1/2)"',
+                                 'condition-coverage="banana"', 1)
+        path = self.write(bad)
+        try:
+            self.assertIsNone(cg.read_branch_report(path))
+        finally:
+            os.unlink(path)
+
+    def test_branch_attribute_without_counts_fails_closed(self):
+        bad = BRANCH_XML.replace(' branch="true" condition-coverage="0% (0/4)"',
+                                 ' branch="true"', 1)
+        path = self.write(bad)
+        try:
+            self.assertIsNone(cg.read_branch_report(path))
+        finally:
+            os.unlink(path)
+
+    def test_impossible_counts_fail_closed(self):
+        bad = BRANCH_XML.replace('condition-coverage="0% (0/4)"',
+                                 'condition-coverage="0% (5/4)"', 1)
+        path = self.write(bad)
+        try:
+            self.assertIsNone(cg.read_branch_report(path))
+        finally:
+            os.unlink(path)
+
+    def test_missing_file_is_reported_not_raised(self):
+        self.assertIsNone(cg.read_branch_report("/nonexistent/coverage.xml"))
+
+    def test_malformed_xml_is_reported_not_raised(self):
+        path = self.write("this is not xml at all")
+        try:
+            self.assertIsNone(cg.read_branch_report(path))
+        finally:
+            os.unlink(path)
+
+    def test_a_report_with_no_branch_data_is_empty_not_unreadable(self):
+        """An empty dict means "measured, and the tree has no branches", which the
+        gate treats as a measurement failure; None means the report itself could
+        not be read. The distinction decides whether the message blames the file
+        or the toolchain."""
+        handle = tempfile.NamedTemporaryFile("w", suffix=".xml", delete=False)
+        handle.write(COBERTURA)
+        handle.close()
+        try:
+            self.assertEqual(cg.read_branch_report(handle.name), {})
+        finally:
+            os.unlink(handle.name)
+
+
+class PatchBranchMath(unittest.TestCase):
+    def test_only_changed_lines_with_branch_data_count(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 11: 1, 12: 1, 13: 1}}),
+                                   chg(("lib/a.cpp", [10, 11, 12, 13])), branches=BRANCHES)
+        self.assertEqual(result.branches.total, 8)
+        self.assertEqual(result.branches.covered, 3)
+        self.assertAlmostEqual(result.branches.percent, 37.5)
+
+    def test_a_line_without_branches_is_not_a_zero(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {11: 1}}),
+                                   chg(("lib/a.cpp", [11])), branches=BRANCHES)
+        self.assertEqual(result.branches.total, 0)
+        self.assertIsNone(result.branches.percent)
+        self.assertTrue(result.branches.passes)
+
+    def test_carried_over_uncovered_branch_is_not_held_against_the_patch(self):
+        """Moving a whole `if` is not writing a new one. The condition still shows
+        zero covered on the new line, so carryover has to apply to branches too."""
+        changed = {"lib/a.cpp": {12: "    if (moved) {"}}
+        carried = {"lib/a.cpp": {cg.normalise("if (moved) {")}}
+        result = cg.patch_coverage(hits({"lib/a.cpp": {12: 1}}), changed,
+                                   carried_over=carried, branches=BRANCHES)
+        self.assertEqual(result.branches.total, 0)
+        self.assertEqual(result.branches.carried, 4)
+
+    def test_per_file_totals_are_reported(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}, "tui/t.cpp": {5: 1}}),
+                                   chg(("lib/a.cpp", [10]), ("tui/t.cpp", [5])),
+                                   branches=BRANCHES)
+        self.assertEqual(result.branches.by_file["lib/a.cpp"], (1, 2))
+        self.assertEqual(result.branches.by_file["tui/t.cpp"], (1, 2))
+
+    def test_no_branch_data_supplied_leaves_the_branch_gate_off(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), chg(("lib/a.cpp", [10])))
+        self.assertIsNone(result.branches)
+
+
+class BranchScope(unittest.TestCase):
+    """Branch coverage is gated for the instrumented core, the same scope as the
+    project line floor. The TUI is driven through a pty, so its branch number is
+    reported and not enforced until the harness can exercise the branches."""
+
+    def test_core_directories_are_gated(self):
+        for path in ("lib/a.cpp", "tools/x.cpp", "plugins/p/p.cpp"):
+            self.assertTrue(cg.is_branch_gated(path), path)
+        for path in ("tui/t.cpp", "src/main.cpp", "bench/runner.cpp", "tests/x.cpp"):
+            self.assertFalse(cg.is_branch_gated(path), path)
+
+    def test_tui_branches_are_reported_but_excluded_from_the_gated_total(self):
+        changed = chg(("tui/t.cpp", [5]))
+        result = cg.patch_coverage(hits({"tui/t.cpp": {5: 1}}), changed, branches=BRANCHES)
+        self.assertEqual(result.branches.total, 0)
+        self.assertIn("tui/t.cpp", result.branches.by_file)
+        rc, out = branch_check(result, changed)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("tui/t.cpp", out)
+
+
+class BranchThreshold(unittest.TestCase):
+    def test_bar_is_fifty(self):
+        self.assertEqual(cg.BRANCH_COVERAGE_MIN, 50)
+
+    def test_below_the_bar_fails(self):
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 12: 1, 13: 1}}),
+                                   chg(("lib/a.cpp", [10, 12, 13])), branches=BRANCHES)
+        rc, out = branch_check(result, chg(("lib/a.cpp", [10, 12, 13])))
+        self.assertEqual(rc, 1)
+        self.assertIn("patch branch coverage", out)
+        self.assertIn("37.5", out)
+
+    def test_at_the_bar_passes(self):
+        branches = {"lib/a.cpp": {10: (1, 2)}}
+        changed = chg(("lib/a.cpp", [10]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches=branches)
+        self.assertEqual(result.branches.percent, 50.0)
+        self.assertEqual(branch_check(result, changed)[0], 0)
+
+    def test_a_fully_covered_branch_passes(self):
+        branches = {"lib/a.cpp": {10: (2, 2)}}
+        changed = chg(("lib/a.cpp", [10]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches=branches)
+        self.assertEqual(branch_check(result, changed)[0], 0)
+
+    def test_no_new_gated_branches_passes(self):
+        branches = {"lib/a.cpp": {}}
+        changed = chg(("lib/a.cpp", [10]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches=branches)
+        rc, out = branch_check(result, changed)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("no new branches", out)
+
+    def test_an_empty_branch_report_fails_closed(self):
+        changed = chg(("lib/a.cpp", [10]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches={})
+        rc, out = branch_check(result, changed)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("branch", out.lower())
+
+
+class BranchRatchet(unittest.TestCase):
+    """The patch percentage cannot see a branch added in a file that also gained
+    plenty of covered ones. The per-file uncovered count can: it may never grow.
+    That is the floor for `lib/`, `tools/` and `plugins/`, and it is the same
+    ratchet pattern as the lint baseline."""
+
+    def test_equal_counts_pass(self):
+        self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 4}), [])
+
+    def test_growth_fails(self):
+        violations = cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 3})
+        self.assertEqual(violations, [("lib/a.cpp", 4, 3)])
+
+    def test_a_reduction_passes(self):
+        self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 10}), [])
+
+    def test_a_new_file_starts_at_zero(self):
+        """A file the baseline has never seen has no allowance. Covered branches
+        are free; one uncovered branch fails."""
+        branches = {"lib/new.cpp": {7: (1, 2), 8: (2, 2)}}
+        self.assertEqual(cg.branch_ratchet(branches, {}), [("lib/new.cpp", 1, 0)])
+
+    def test_a_new_file_with_full_coverage_passes(self):
+        self.assertEqual(cg.branch_ratchet({"lib/new.cpp": {7: (2, 2)}}, {}), [])
+
+    def test_non_gated_scopes_are_not_ratcheted(self):
+        self.assertEqual(cg.branch_ratchet({"tui/t.cpp": {5: (0, 2)}}, {}), [])
+
+    def test_a_ratchet_violation_fails_the_gate(self):
+        changed = chg(("lib/a.cpp", [10, 12, 13]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 12: 1, 13: 1}}), changed,
+                                   branches=BRANCHES)
+        rc, out = branch_check(result, changed, cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 3}))
+        self.assertEqual(rc, 1)
+        self.assertIn("lib/a.cpp", out)
+        self.assertIn("baseline", out)
+
+    def test_a_missing_baseline_fails_closed(self):
+        changed = chg(("lib/a.cpp", [10]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches=BRANCHES)
+        rc, out = branch_check(result, changed, None, "no baseline")
+        self.assertEqual(rc, 2)
+        self.assertIn("no baseline", out)
+
+
+class BranchBaselineFile(unittest.TestCase):
+    def test_round_trip_keeps_only_uncovered_counts(self):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        handle.close()
+        try:
+            cg.write_branch_baseline(handle.name, BRANCHES)
+            loaded = cg.load_branch_baseline(handle.name)
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(loaded, {"lib/a.cpp": 4})
+
+    def test_missing_baseline_is_none_not_an_empty_floor(self):
+        self.assertIsNone(cg.load_branch_baseline("/nonexistent/baseline.json"))
+
+    def test_malformed_baseline_is_none(self):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        handle.write('{"files": "not a map"}')
+        handle.close()
+        try:
+            self.assertIsNone(cg.load_branch_baseline(handle.name))
+        finally:
+            os.unlink(handle.name)
+
+    def test_the_committed_baseline_loads_and_is_sorted(self):
+        """The baseline in tests/ is a real artefact the gate reads. A malformed
+        one would fail every coverage run closed, so it is checked here."""
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(root, "tests", "branch_baseline.json")
+        loaded = cg.load_branch_baseline(path)
+        self.assertIsNotNone(loaded)
+        self.assertTrue(loaded)
+        self.assertEqual(list(loaded), sorted(loaded))
+        for name, uncovered in loaded.items():
+            self.assertTrue(cg.is_branch_gated(name), name)
+            self.assertGreater(uncovered, 0, name)
+
+
 if __name__ == "__main__":
     unittest.main()
