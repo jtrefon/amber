@@ -402,7 +402,9 @@ reasoning now applies to the rest:
 
 ## Gaps in the current gate set (measured, not assumed)
 
-Known and deliberate, so nobody re-derives them:
+The 2026-11 audit and its issue map live in
+`docs/plan/ci-quality-hardening.md` (epic #579). Known and deliberate gaps are
+below, so nobody re-derives them:
 
 - **Coverage is enforced twice, in-repo, and Codecov is not load-bearing.**
   Measured: the Codecov upload has been failing on every run with
@@ -882,9 +884,11 @@ known mess, even in adjacent code.
 
 ## Development workflow
 
-**A feature is the unit of delivery; a commit is the unit of progress.** Work is
-reviewed, gated and merged per feature. Tasks, red tests and refactors are
-commits inside that feature's pull request — never their own PRs.
+**A completed feature or bug fix is the unit of delivery; a commit is the unit
+of progress.** Work is reviewed, gated and merged per finished feature or bug
+fix. Tasks, red tests and refactors are commits inside that feature's pull
+request — never their own PRs. A PR is a request to review finished work, not a
+progress tracker: do not open one until the manual end-to-end test can be run.
 
 A commit is still a snapshot of one completed step, and its subject is the index
 you scan later: `<area>: <imperative summary>`, one area per commit. The
@@ -894,56 +898,79 @@ you scan later: `<area>: <imperative summary>`, one area per commit. The
 
 | Unit | What it is | Where it lives |
 |---|---|---|
-| **Milestone** | A coherent batch of features shipped together ("context shaping", "observability") | one branch, **one PR** |
-| **Feature** | One user-visible change inside the milestone ("agent-proposed trims") | a commit group on that branch |
-| **Task** | An issue the milestone closes | one or more commits |
+| **Milestone** | A coherent batch of features planned together ("context shaping", "observability") | a `docs/plan/` entry; may span several PRs |
+| **Feature / bug** | One user-visible change or one defect fix; the review and merge unit | one branch, **one PR, opened only when complete and manually verified** |
+| **Task** | An issue the feature/bug closes | one or more commits |
 | **Step** | A red test, a green fix, a refactor, a doc correction | **one commit** |
-| **PR** | The milestone's review and gate unit | opened once (draft from the start, or when the first feature is reviewable) |
+| **PR** | The completed feature/bug's review and gate unit | opened once, after the manual E2E check; no draft progress board |
 
-- **One PR per milestone.** The body lists the issues it closes (`Closes #…` once
-  per task). The milestone/tracker carries task status; the PR carries the diff.
-  A plan of milestones lives in `docs/plan/` (for example
-  `context-shaping-milestones.md`).
+- **One PR per completed feature or bug fix.** The body lists the issues it
+  closes (`Closes #…`). The milestone/tracker carries task status; the branch
+  carries progress; the PR carries the finished diff. A milestone may span
+  several PRs, but each opens at completion, never mid-flight.
+- **Do not open the PR until it is reviewable.** Before opening: every task is
+  green, `make verify` is clean, and the manual end-to-end test has been run
+  with its steps and observed result recorded in the body. A unit test is not
+  manual E2E. The remote branch, commits and issue/tracker are the progress
+  signal; a draft PR is not.
 - **Commit freely.** Push every completed step. A red commit followed by its
   green fix is the expected shape and survives in the PR's commit list.
 - **CI is a merge gate, not a checkpoint.** A push starts the workflow; keep
-  working while it runs. A red run mid-milestone is normal — the run that matters
-  is the one on the completed milestone. Use `make test` / `make lint` for the
-  fast local loop; do not wait three hours to learn whether one commit is fine.
-- **One proposal, one sign-off, one review** for the milestone. The proposal is
-  the `docs/plan/` entry or the PR description; do not re-propose per feature.
-- **Squash-merge once**, when every issue the milestone closes is green and the
-  PR's gates pass. `main` stays linear; one revert undoes one milestone.
-- **Exceptions are about landing risk, not task size.** A security fix, a hotfix
-  that must ship alone, or a change a reviewer cannot assess inside the larger
-  milestone gets its own PR. "It is a small task" is not an exception — it is a
-  commit, and "it is one feature" is not one either.
+  working while it runs. A red run mid-feature is normal — the run that matters
+  is the one on the completed feature. Use `make test` / `make lint` for the
+  fast local loop; do not wait hours to learn whether one commit is fine.
+- **One proposal, one sign-off, one review** per feature/bug. The proposal is
+  the `docs/plan/` entry or the issue description; do not re-propose per task.
+- **Squash-merge once**, when every issue the feature/bug closes is green and
+  the PR's gates pass. `main` stays linear; one revert undoes one change.
+- **Exceptions are about landing risk, not task size.** A security fix, a
+  hotfix that must ship alone, or a change a reviewer cannot assess inside the
+  larger feature gets its own PR. "It is a small task" is not an exception — it
+  is a commit.
 
-### Anti-pattern: one PR per task, or per feature
+### Anti-pattern: one PR per task, or a PR before the work is finished
 
 A PR per issue (one for the tests, one for the docs, one per file) is the
 slowest way to work, and it happened here: on the compaction remediation each
 task PR spent ~3 minutes of work behind ~3 hours of queueing, the feature was
 never reviewable as a whole, and CI cost multiplied by the task count while
-`main` gained a history of fragments. The correction — one PR per feature — still
-split a single coherent batch into three PRs and three CI queues.
+`main` gained a history of fragments.
 
-Detection: if the next commit is "another issue done", or "the next feature
-started", it belongs on the branch you already have. If a second PR exists for
-the same milestone, close it, cherry-pick its commits onto the milestone branch,
-and continue there.
+The other failure is opening a PR early and pushing to it every few minutes.
+Each push starts a CI run that takes roughly an hour here, the reviewer's queue
+fills with drafts that cannot be reviewed yet, and the one reviewable state is
+buried under a day of updates. On a single-maintainer repository the reviewer
+has a finite review budget; ten updates a day is not a workflow.
+
+Detection: if the PR is a draft, if its body is a task checklist rather than a
+finished change, or if the next commit is "another issue done", the PR is early.
+Keep the branch and the commits; open the PR when the feature or bug is complete
+and manually verified. If a second PR exists for the same feature/bug, close it,
+cherry-pick its commits onto the first branch, and continue there.
 
 ### Branching strategy
 
 - **`main`** is the stable, release-ready branch. Always green. No direct pushes.
-- **One branch per milestone**, named `<type>/<milestone>` (e.g.
+- **One branch per feature or bug**, named `<type>/<short-description>` (e.g.
   `fix/context-compaction`, `feat/context-shaping`), not `<type>/<micro-task>`
-  and not one per feature. It lives for the milestone — days, not weeks.
-- Push to the feature branch as often as work completes; open or update its PR
-  and mark it draft while the feature is incomplete.
+  and not one branch for a whole milestone. A milestone may span several
+  branches, each with its own completed PR.
+- Push to the branch as often as work completes, but open the PR only at
+  completion. A branch lives for days, not weeks.
 - Parallel sessions on the same feature push to the same branch and coordinate
   by file ownership (announced in the epic). They do not open sibling PRs; a
   second branch for the same feature is the anti-pattern above.
+
+### Review capacity and human approval
+
+Review time is the scarce resource. A feature/bug PR is reviewed by the
+maintainer before merge; that is the point of opening it only when complete.
+The repository currently has one collaborator, and GitHub does not allow
+self-approval, so the native `required_approving_review_count: 1` cannot be
+satisfied by the author. Issue #578 decides the mechanism: a second reviewer or
+bot identity, an enforced `review:approved` label, or gate-only merges for
+docs/dependency PRs. Until it lands, record the review explicitly in the PR body
+(`Reviewed-by: @…`) and never merge a feature/bug PR without it.
 
 ### `main` is never pushed to, force-pushed, or merged red
 
@@ -981,8 +1008,9 @@ is a judgement the tooling cannot make, which is why it is written down.
   - `fix/detached-thread-use-after-free`
   - `refactor/cancel-token-to-core`
   - `docs/add-tdd-policy`
-- Branches are short-lived (days, not weeks). Open a **draft PR** early for
-  visibility, mark it ready for review when all checks pass.
+- Branches are short-lived (days, not weeks). Push as work completes, but open
+  the PR only when the feature/bug is complete and manually verified; there is
+  no draft PR as a progress board.
 - Merge via **squash-merge** to keep `main` history clean. The squashed commit
   message must follow the imperative, scoped convention
   (e.g. `fix: cancel token now lives in core, not bash_tool globals`).
@@ -1018,32 +1046,33 @@ Every bug fix and every feature follows this sequence. Steps 1 and 4 repeat per
 task; steps 2, 3 and 5 happen once per feature.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────────┐
 │  1. RED, per task. Write a failing test that reproduces the   │
 │     bug or specifies the behaviour, and commit it on the      │
 │     feature branch. The commit list is the proof; CI will     │
 │     show the red run, but do not wait for it.                 │
-│                                                              │
-│  2. PROPOSAL, per feature. Draft the architecture in the      │
-│     epic or PR description (see docs/fix-tracker.md),         │
+│                                                               │
+│  2. PROPOSAL, per feature/bug. Draft the architecture in      │
+│     the issue or a docs/plan entry (there is no PR yet),      │
 │     describing the target state, not the diff.                │
-│                                                              │
-│  3. SIGN-OFF, per feature. The reviewer approves the          │
+│                                                               │
+│  3. SIGN-OFF, per feature/bug. The reviewer approves the      │
 │     architecture before production code is written.           │
-│                                                              │
+│                                                               │
 │  4. GREEN, per task. Implement the fix, make the test pass,   │
 │     refactor to meet the Engineering Principles, and commit.  │
 │     Run local linting and static analysis every few edits     │
 │     (do not batch all issues to the end). Address every       │
 │     clang-tidy and cppcheck finding; zero warnings is the     │
 │     threshold. Keep clangd/LSP diagnostics clean as you type. │
-│                                                              │
-│  5. MERGE, per feature. When every task is green, run         │
-│     make verify-quick before each push, then verify           │
-│     once before review, let the PR's gates go green, and      │
-│     squash-merge. The reviewer checks the commits against     │
-│     the proposal and the whole diff as one change.            │
-└──────────────────────────────────────────────────────────────┘
+│                                                               │
+│  5. OPEN + MERGE, per feature/bug. When every task is green,  │
+│     run make verify-quick before each push and make verify    │
+│     once, then perform the manual end-to-end test. Only now   │
+│     open the PR with the E2E steps/result, let the gates go   │
+│     green, and squash-merge. The reviewer checks the commits  │
+│     against the proposal and the whole diff as one change.    │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 - Do NOT write production code before the failing test (step 1) exists.
@@ -1053,14 +1082,21 @@ task; steps 2, 3 and 5 happen once per feature.
 - Lint and analysis findings are **blockers**, not suggestions. A feature PR with
   any new clang-tidy or cppcheck warning is rejected regardless of correctness.
   See the `make lint` / `make analyze` targets in the Build & verify section.
-- Do not open a second PR for the next task. Add the commit.
+- Do not open a PR before the feature/bug is complete; do not open a second PR
+  for the next task. Add the commit.
 
 ### Code review checklist
 
 Every PR reviewer MUST verify:
 
-- [ ] **The PR is one feature, not one task.** The body lists every issue it
-      closes; a second PR for the same epic is an anti-pattern (see above).
+- [ ] **The PR is one completed feature or bug fix, not a task and not a draft.**
+      It was opened only when complete and manually verified; a second PR for
+      the same feature/bug is an anti-pattern (see above).
+- [ ] **Manual end-to-end evidence is present and reproducible.** Steps,
+      environment, expected vs observed. A unit or integration test is not
+      manual E2E.
+- [ ] **The review is recorded.** `Reviewed-by:` in the body, or the chosen
+      mechanism from #578 once it lands.
 - [ ] **The commits tell the story.** Each task has its red test before the
       green fix; steps are separate commits, not one squash of unrelated work.
 - [ ] SOLID conformance: no new SRP violations, dependency direction is correct.
