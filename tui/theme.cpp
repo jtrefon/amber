@@ -24,29 +24,34 @@ constexpr PairRole kRoleMap[] = {
     {P_MD_QUOTE, Role::Accent},
     {P_MD_CODEKEY, Role::Accent},
     {P_DEBUG, Role::Attention},
-    {P_GAUGE_WARN, Role::Attention},
-    {P_TEXT_SHINE_MID, Role::Attention},
-    {P_TEXT_SHINE_HI, Role::Attention},
     {P_MD_HEAD, Role::Attention},
     {P_REASONING, Role::Muted},
-    {P_BAR_DIM, Role::Muted},
     {P_HINT, Role::Muted},
     {P_INPUT_SHADOW, Role::Muted},
     {P_MD_CODECMT, Role::Muted},
-    {P_BANNER, Role::Title},
-    {P_BRAND, Role::Title},
     {P_FIELD, Role::SurfaceAlt},
     {P_FIELD_ACT, Role::Selected},
     {P_BUTTON_ACT, Role::Selected},
     {P_SHADOW, Role::Shadow},
-    {P_GAUGE_OK, Role::Success},
-    {P_GAUGE_OK_HI, Role::Success},
     {P_GIT_PLUS, Role::Success},
     {P_MD_CODESTR, Role::Success},
-    {P_GAUGE_CRIT, Role::Error},
-    {P_GAUGE_CRIT_HI, Role::Error},
     {P_GIT_MINUS, Role::Error},
     {P_MD_HR, Role::Frame},
+    // The shell's chrome keeps the colours its pair ids promised. Collapsing
+    // these onto Title/Success/Attention is what silently removed the blue bar
+    // and flattened the gauge glint and the verb's fade.
+    {P_BANNER, Role::Banner},
+    {P_DIALOG, Role::Banner},
+    {P_BRAND, Role::Brand},
+    {P_GAUGE_OK, Role::GaugeOk},
+    {P_GAUGE_WARN, Role::GaugeWarn},
+    {P_GAUGE_CRIT, Role::GaugeCrit},
+    {P_BAR_DIM, Role::GaugeTrack},
+    {P_GAUGE_OK_HI, Role::GaugeBright},
+    {P_GAUGE_WARN_HI, Role::GaugeBright},
+    {P_GAUGE_CRIT_HI, Role::GaugeBright},
+    {P_TEXT_SHINE_MID, Role::ShineMid},
+    {P_TEXT_SHINE_HI, Role::ShineHi},
 };
 
 const std::array<Role, P_GRAY>& role_table() {
@@ -124,6 +129,15 @@ void apply_amber(Theme& theme) {
     set(Role::Warning, role(Color::Yellow, Color::Default));
     set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
     set(Role::Shadow, role(Color::Black, Color::Black));
+    set(Role::Banner, role(Color::White, Color::Blue));
+    set(Role::Brand, role(Color::Amber, Color::Blue, true));
+    set(Role::GaugeOk, role(Color::Green, Color::Blue));
+    set(Role::GaugeWarn, role(Color::Yellow, Color::Blue));
+    set(Role::GaugeCrit, role(Color::Red, Color::Blue));
+    set(Role::GaugeTrack, role(Color::Cyan, Color::Blue));
+    set(Role::GaugeBright, role(Color::White, Color::Blue));
+    set(Role::ShineMid, role(Color::BrightYellow, Color::Default, true));
+    set(Role::ShineHi, role(Color::White, Color::Default, true));
 }
 
 void apply_modern(Theme& theme) {
@@ -143,6 +157,15 @@ void apply_modern(Theme& theme) {
     set(Role::Warning, role(Color::Yellow, Color::Default, true));
     set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
     set(Role::Shadow, role(Color::Black, Color::Black));
+    set(Role::Banner, role(Color::White, Color::Blue));
+    set(Role::Brand, role(Color::Magenta, Color::Blue, true));
+    set(Role::GaugeOk, role(Color::Green, Color::Blue, true));
+    set(Role::GaugeWarn, role(Color::Yellow, Color::Blue, true));
+    set(Role::GaugeCrit, role(Color::Red, Color::Blue, true));
+    set(Role::GaugeTrack, role(Color::Cyan, Color::Blue));
+    set(Role::GaugeBright, role(Color::White, Color::Blue, true));
+    set(Role::ShineMid, role(Color::Magenta, Color::Default, true));
+    set(Role::ShineHi, role(Color::White, Color::Default, true));
 }
 
 void apply_high_contrast(Theme& theme) {
@@ -162,6 +185,19 @@ void apply_high_contrast(Theme& theme) {
     set(Role::Warning, role(Color::White, Color::Default, true));
     set(Role::Hint, role(Color::White, Color::Default, false, true));
     set(Role::Shadow, role(Color::Black, Color::Black));
+    // The bar is a white band with black text, the strongest contrast available
+    // without relying on hue. The gauge keeps its shape, not its colour.
+    set(Role::Banner, role(Color::Black, Color::White, true));
+    set(Role::Brand, role(Color::Black, Color::White, true));
+    set(Role::GaugeOk, role(Color::Black, Color::White));
+    set(Role::GaugeWarn, role(Color::Black, Color::White, true));
+    set(Role::GaugeCrit, role(Color::Black, Color::White, true));
+    set(Role::GaugeTrack, role(Color::Black, Color::White, false, true));
+    set(Role::GaugeBright, role(Color::Black, Color::White, true));
+    set(Role::ShineMid, role(Color::White, Color::Default, true));
+    RoleStyle shine_hi = role(Color::White, Color::Default, true);
+    shine_hi.underline = true;
+    set(Role::ShineHi, shine_hi);
 }
 
 void apply_monochrome(Theme& theme) {
@@ -183,6 +219,25 @@ void apply_monochrome(Theme& theme) {
     set(Role::Warning, role(Color::Default, Color::Default, true));
     set(Role::Hint, role(Color::Default, Color::Default, false, true));
     set(Role::Shadow, role(Color::Default, Color::Default, false, true));
+    RoleStyle banner = role(Color::Default, Color::Default);
+    banner.reverse = true;
+    set(Role::Banner, banner);
+    RoleStyle brand = banner;
+    brand.bold = true;
+    set(Role::Brand, brand);
+    set(Role::GaugeOk, banner);
+    set(Role::GaugeWarn, banner);
+    RoleStyle crit = banner;
+    crit.bold = true;
+    set(Role::GaugeCrit, crit);
+    RoleStyle track = banner;
+    track.dim = true;
+    set(Role::GaugeTrack, track);
+    set(Role::GaugeBright, brand);
+    set(Role::ShineMid, role(Color::Default, Color::Default, true));
+    RoleStyle shine_hi = role(Color::Default, Color::Default, true);
+    shine_hi.underline = true;
+    set(Role::ShineHi, shine_hi);
 }
 
 } // namespace

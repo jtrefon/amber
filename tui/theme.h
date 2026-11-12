@@ -25,6 +25,10 @@ enum class Color : std::uint8_t {
     Cyan,
     White,
     DarkGray,
+    // The brand's 256-colour amber (214); the 16-colour fallback is yellow.
+    Amber,
+    // The verb's first fade step (terminal colour 11).
+    BrightYellow,
 };
 
 enum class GlyphMode : std::uint8_t { Unicode, Ascii };
@@ -52,6 +56,18 @@ enum class Role : std::uint8_t {
     Warning,
     Hint,
     Shadow,
+    // The shell's chrome. These are separate roles because a semantic role
+    // carries one background: the bar is blue, while Success/Error remain
+    // readable on the transcript's own background.
+    Banner,
+    Brand,
+    GaugeOk,
+    GaugeWarn,
+    GaugeCrit,
+    GaugeTrack,
+    GaugeBright,
+    ShineMid,
+    ShineHi,
     Count,
 };
 
