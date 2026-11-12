@@ -191,11 +191,24 @@ driven by an OpenAI-compatible LLM API.
   made gating it unsafe. The PARAM axis is newer and therefore *ratcheted*, not
   a cliff (18 accepted functions): a new wide function fails, an existing one
   may not get wider. Every CI
-  job carries a `timeout-minutes` and the shared `install-deps` action bounds
-  apt (`DPkg::Lock::Timeout` + `timeout` + noninteractive), so a hung
-  dependency install fails in minutes instead of sitting until GitHub's 6 h
-  job ceiling. Jobs that need only `./configure`'s probes (complexity) pass
-  `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config.
+  job carries a `timeout-minutes`, and every Linux job runs on the pinned
+  `ubuntu-24.04` image rather than `ubuntu-latest` (which is migrating to
+  Ubuntu 26.04). The shared `install-deps` action runs
+  `.github/actions/install-deps/install-deps.sh`: three bounded attempts per
+  mirror inside a 5-minute update budget, `Acquire::Retries`/`ForceIPv4`, a
+  documented fallback (`http://mirrors.edge.kernel.org/ubuntu`) used only when
+  the primary is unreachable, and an apt archive/list cache restored by
+  `actions/cache` so an outage can still install from `.debs` with
+  `--no-download`. Install time has its own budget (30 minutes for the full
+  toolchain, 10 for the base set) so retries cannot outlive the job. A mirror
+  that never answers exits 75 with the last apt output and says it is an
+  infrastructure failure, not a code failure; a package that does not exist
+  exits 1 and names the package instead. `gh workflow run mirror-probe.yml`
+  probes the primary and every fallback without installing.
+  Jobs that need only `./configure`'s probes (complexity) pass
+  `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config. To upgrade the
+  image, change every `runs-on` together, let the full matrix and
+  `mirror-probe` pass, and update `tests/gates/test_runner_pins.py`.
 - **A live benchmark is a release gate, not a dashboard.** `make
   bench-release-check VERSION=X` requires a committed live artifact under
   `bench/results/releases/X/`: mode live, engine X, the model corpus covered,
@@ -307,9 +320,13 @@ for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
 `hygiene_gate.py`, `library_check.py`, `gate_report.py`,
 `duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py`,
 `ci_manifest_check.py`, `ci_watchdog.py`, `detach_gate.py`, `prompt_lint.py`,
-`test_presence_gate.py`, `commit_lint.py`, `test_flake_lint.py` and
-`flake_repeat.py` — plus the shared `cpp_source.py` lexer. When you change a
-gate, change its tests in the same commit.
+`test_presence_gate.py`, `commit_lint.py`, `test_flake_lint.py`,
+`flake_repeat.py`, `test_install_deps.py` and `test_runner_pins.py` — plus the
+shared `cpp_source.py` lexer. `test_install_deps.py` drives the apt
+retry/fallback script with a fake `apt-get`, `test_runner_pins.py` fails a
+floating `ubuntu-latest` or an unlisted runner image, and `flake_repeat.py` /
+`test_flake_lint.py` cover the repeated-test policy. When you change a gate,
+change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
 degraded measurement, not just on a missing tool:

@@ -121,6 +121,11 @@ in the body (see AGENTS.md, Development workflow).
   manual E2E recorded before opening; review mechanism tracked in #578.
 - 2026-11-12: #569 CI watchdog implemented: `.github/workflows/ci-watchdog.yml`
   + `tools/ci_watchdog.py`, with fixture tests in `tests/gates/`.
+- 2026-11-12: #570 dependency install hardened: `.github/actions/install-deps/
+  install-deps.sh` retries a dead mirror, falls back to
+  `mirrors.edge.kernel.org`, and installs from a restored apt cache when both
+  are unreachable; every Linux job is pinned to `ubuntu-24.04`;
+  `mirror-probe.yml` is the manual connectivity probe.
 - 2026-11-12: #571 flake policy: `tests/test_wait.h` gives every wait a 20 s
   budget, `make flake-lint` requires a reason for upper bounds under 15 s,
   `make test-repeat` and `flake-repeat.yml` repeat the plugin/pty subset, and

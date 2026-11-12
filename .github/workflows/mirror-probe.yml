@@ -1,0 +1,23 @@
+name: Mirror probe
+
+# Manual probe for the apt path used by every Linux job. It runs the same
+# sources detection, retry and fallback logic as install-deps, but installs
+# nothing: this is how an operator answers "can a job reach a mirror right
+# now?" from the runner network instead of from their laptop.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Probe the primary and fallback Ubuntu mirrors
+        env:
+          AMBER_APT_UPDATE_TIMEOUT: '120'
+          AMBER_APT_PROBE_TIMEOUT: '120'
+        run: bash .github/actions/install-deps/install-deps.sh --probe

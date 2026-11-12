@@ -42,7 +42,7 @@ defaults:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
@@ -79,7 +79,7 @@ jobs:
 
   build-deb:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: ubuntu:24.04
     timeout-minutes: 45
     steps:
@@ -87,12 +87,13 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.tag }}
       - name: Install build dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            build-essential debhelper devscripts dpkg-dev fakeroot \
-            libcurl4-openssl-dev libncurses-dev pkgconf \
-            ca-certificates git lintian
+        # The container has no Python and no actions/cache, so it calls the
+        # shared script directly. The script detects root and does not need
+        # sudo here.
+        run: >-
+          bash .github/actions/install-deps/install-deps.sh
+          --cpp-toolchain false
+          --extra "debhelper devscripts dpkg-dev fakeroot libncurses-dev pkgconf ca-certificates git lintian"
       - name: Build source and binary packages
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -165,7 +166,7 @@ jobs:
 
   build-rpm:
     needs: prepare
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: fedora:44
     timeout-minutes: 45
     steps:
@@ -237,7 +238,7 @@ jobs:
 
   sign-rpm:
     needs: [prepare, build-rpm]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: fedora:44
     timeout-minutes: 15
     # Same environment as publishing: the rpm signature is worth nothing
@@ -294,7 +295,7 @@ jobs:
 
   publish:
     needs: [prepare, build-deb, sign-rpm]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # The signing key lives in this environment as an encrypted secret. The
     # environment is scoped to `main` and `v*` tags, so cutting the tag is the
@@ -312,10 +313,10 @@ jobs:
           name: rpms-signed
           path: dist/rpm
       - name: Install repository tooling
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            apt-utils createrepo-c rpm gnupg rsync
+        uses: ./.github/actions/install-deps
+        with:
+          cpp_toolchain: 'false'
+          extra: apt-utils createrepo-c rpm gnupg rsync
       - name: Import the signing key
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -378,7 +379,7 @@ jobs:
 
   verify:
     needs: [prepare, publish]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -407,7 +408,7 @@ jobs:
   live-check:
     needs: [prepare, publish]
     if: needs.prepare.outputs.prerelease == 'false'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
