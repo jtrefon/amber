@@ -164,7 +164,10 @@ timeout (partial output lost, plugins must emit one line per request).
 - All path arguments are passed through `Workspace::confine` before the plugin
   sees them; the plugin cannot escape the workspace through amber.
 - Output is capped (64 KiB) per response line; a plugin that exceeds it or
-  emits no newline fails the call.
+  emits no newline fails the call. Framing and reply decoding are pure
+  functions in `include/agent/plugin_protocol.h` (no file descriptors), so the
+  unit suite and `fuzz/plugin_protocol.cpp` drive the same code the manager
+  reads bytes into.
 - Plugin stderr is discarded (the protocol owns stdout), so a chatty plugin
   cannot paint over the TUI.
 - External plugin tools are owner-tagged. The `plugin_<id>_` prefix keeps them

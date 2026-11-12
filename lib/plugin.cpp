@@ -4,6 +4,7 @@
 #include "agent/data_path.h"
 #include "agent/extensions.h"
 #include "agent/private_file.h"
+#include "agent/plugin_protocol.h"
 #include "agent/version.h"
 #include "agent/workspace.h"
 #include "agent/archive_util.h"
@@ -46,9 +47,6 @@ constexpr int kTeardownLockMs = 2000;
 // Graceful shutdown window before SIGKILL, and the bounded reap that follows.
 constexpr int kShutdownGraceMs = 1000;
 constexpr int kReapMs = 1000;
-// The plugin protocol is one JSON object per line. A line larger than this is
-// a broken/malicious plugin, not a response the harness can use.
-constexpr std::size_t kMaxPluginLine = 65536;
 
 enum class Wait { Ready, Cancelled, TimedOut, Failed };
 
@@ -84,19 +82,6 @@ std::string wait_error(Wait wait, const std::string& timeout_message) {
     if (wait == Wait::TimedOut)
         return timeout_message;
     return "plugin poll failed";
-}
-
-enum class LineState { Ready, Incomplete, TooLarge };
-
-LineState take_line(std::string& buffer, std::string& line) {
-    const std::size_t nl = buffer.find('\n');
-    if (nl == std::string::npos)
-        return buffer.size() > kMaxPluginLine ? LineState::TooLarge : LineState::Incomplete;
-    if (nl > kMaxPluginLine)
-        return LineState::TooLarge;
-    line = buffer.substr(0, nl);
-    buffer.erase(0, nl + 1);
-    return LineState::Ready;
 }
 
 // Poll for a child's exit in 20 ms steps; true when it was reaped. A zero
@@ -572,10 +557,10 @@ bool PluginManager::read_line(Session& s, const std::string& phase, std::string&
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kCallTimeoutSec);
     char buf[4096];
     while (true) {
-        const LineState state = take_line(s.in_buf, line);
-        if (state == LineState::Ready)
+        const PluginLineState state = plugin_take_line(s.in_buf, line);
+        if (state == PluginLineState::Ready)
             return true;
-        if (state == LineState::TooLarge) {
+        if (state == PluginLineState::TooLarge) {
             error = "plugin " + phase + " response exceeds 64 KiB";
             return false;
         }
@@ -621,9 +606,9 @@ bool PluginManager::read_initialize_reply(PluginInfo& info, Session& s) {
     std::string error;
     if (!read_line(s, "initialize", line, error))
         return fail_handshake(info, s, error);
-    const json resp = json::parse(line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result") || !read_bool(resp["result"], "ok", false))
-        return fail_handshake(info, s, "initialize rejected");
+    const PluginInitReply reply = plugin_decode_initialize(line);
+    if (!reply.ok)
+        return fail_handshake(info, s, reply.error);
     return true;
 }
 
@@ -704,19 +689,15 @@ ToolResult PluginManager::read_call_reply(Session& s) {
         s.broken.store(true);
         return {false, "", error};
     }
-    const json resp = json::parse(line, nullptr, false);
-    if (resp.is_discarded() || !resp.contains("result")) {
+    const PluginCallReply reply = plugin_decode_call(line);
+    if (!reply.decoded) {
         s.broken.store(true);
-        return {false, "", "malformed plugin response"};
+        return {false, "", reply.error};
     }
-    const json& r = resp["result"];
     ToolResult out;
-    out.ok = read_bool(r, "ok", false);
-    out.output = read_string(r, "output", "");
-    if (!out.ok && out.output.empty())
-        out.output = read_string(r, "error", "");
-    if (r.contains("meta"))
-        out.meta = r["meta"];
+    out.ok = reply.ok;
+    out.output = reply.output;
+    out.meta = reply.meta;
     return out;
 }
 

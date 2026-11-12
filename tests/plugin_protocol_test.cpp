@@ -135,8 +135,8 @@ TEST(plugin_call_reads_the_error_field_when_output_is_empty) {
 }
 
 TEST(plugin_call_prefers_output_over_error) {
-    const PluginCallReply reply =
-        agent::plugin_decode_call("{\"result\":{\"ok\":false,\"output\":\"partial\",\"error\":\"boom\"}}");
+    const PluginCallReply reply = agent::plugin_decode_call(
+        "{\"result\":{\"ok\":false,\"output\":\"partial\",\"error\":\"boom\"}}");
     ASSERT(reply.decoded);
     ASSERT_EQ(reply.output, std::string("partial"));
 }

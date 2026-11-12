@@ -230,10 +230,11 @@ driven by an OpenAI-compatible LLM API.
 - **Fuzzing** (`make fuzz-run`) is the only gate that reaches input nobody wrote.
   Everything else -- the unit suite (`./run_tests --list` prints the current
   set), ASan/UBSan, TSan -- runs a fixed corpus, so a
-  defect needing an input no test author imagined is unreachable by CI. Three targets,
+  defect needing an input no test author imagined is unreachable by CI. Four targets,
   chosen because they are the parsers fed by bytes we do not control: `mcp_decode_line`
-  (MCP JSON-RPC), `StreamDecoder::on_write` (SSE framing off the model endpoint) and
-  `md::render` (Markdown off model output). Built with `-fsanitize=fuzzer-no-link` so
+  (MCP JSON-RPC), `StreamDecoder::on_write` (SSE framing off the model endpoint),
+  `md::render` (Markdown off model output) and `plugin_take_line` /
+  `plugin_decode_*` (external plugin stdio JSON). Built with `-fsanitize=fuzzer-no-link` so
   libFuzzer is guided, under ASan+UBSan, with the whole Markdown path instrumented
   rather than just its entry function. `FUZZ_CC` needs a clang with libFuzzer: Apple's
   ships none, and `make fuzz` **fails closed** there rather than reporting a pass it could
