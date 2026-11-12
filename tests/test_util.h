@@ -29,6 +29,8 @@
 
 #include <unistd.h>
 
+#include "test_wait.h"
+
 namespace agent {
 namespace test {
 

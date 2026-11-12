@@ -1595,7 +1595,9 @@ TEST(startup_paints_before_git_returns) {
             .count();
     if (!require(up, "the UI never painted", tui))
         return;
-    require(ms < 3000, "the first paint waited on git (startup forked it)", tui);
+    require(ms < 3000, "the first paint waited on git (startup forked it)",
+            tui); // flake-allow: startup must paint before two 5 s git calls finish; 3 s still
+                  // fails a synchronous wait
 }
 
 // ── Bracketed paste into a secret form field ──

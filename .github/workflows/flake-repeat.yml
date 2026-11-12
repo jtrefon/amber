@@ -1,0 +1,64 @@
+name: Flake repeat
+
+# A test that only fails on the second or third run is a flake, not a pass. The
+# PR suite runs once; this job repeats the subset where process teardown and
+# timing interact, on test changes and nightly. It is deliberately its own
+# workflow: a repeat run is a flake detector, not a merge gate, and making a
+# nondeterministic job required would teach people to rerun instead of read it.
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tests/**'
+      - 'lib/**'
+      - 'tui/**'
+      - 'plugins/**'
+      - 'Makefile.in'
+      - '.github/workflows/flake-repeat.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: flake-repeat-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  repeat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/install-deps
+      - name: Configure
+        run: ./configure
+      - name: Build
+        run: make -j"$(nproc)"
+      - name: Repeat the flake-prone subset
+        env:
+          AMBER_TEST_REPEAT: '3'
+        run: make test-repeat
+      - name: Upload the flake report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flake-report
+          path: artifacts/flake-report.*
+          if-no-files-found: ignore
+      - name: Open or update the flake issue
+        # A pull request from a fork has no issues: write permission, and the
+        # red check is the signal there. Scheduled and dispatched runs are the
+        # ones that keep the tracked issue current.
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -f artifacts/flake-report.json ]; then
+            python3 tools/flake_repeat.py --open-issue artifacts/flake-report.json
+          else
+            echo "flake-repeat: no report (the job failed before the suite ran)"
+          fi

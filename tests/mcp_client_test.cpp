@@ -325,7 +325,8 @@ TEST(mcp_client_cancel_interrupts_hung_call) {
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - t0);
     ASSERT(r.status == agent::McpTransportStatus::Cancelled);
-    ASSERT(elapsed.count() < 5000);
+    ASSERT(elapsed.count() < 5000); // flake-allow: the regression is the 10 s transport deadline; 5
+                                    // s is half of it and an interrupted call returns in ~100 ms
     std::ifstream f(pidfile);
     int pid = -1;
     f >> pid;

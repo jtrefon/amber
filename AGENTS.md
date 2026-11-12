@@ -26,7 +26,7 @@ driven by an OpenAI-compatible LLM API.
   `make check` is the **static gate umbrella**, not the whole pipeline: it runs
   `smoketest`, the `tests/build_hygiene.sh` invariants, the CI job inventory
   check (`ci-manifest`), class-size, nesting, debt, detach, prompt-lint,
-  hygiene and header self-containment, the obfuscation guard, the gate tools'
+  flake-lint, hygiene and header self-containment, the obfuscation guard, the gate tools'
   own tests, `library-check`, and a gate report that also runs complexity and
   duplicates. CI runs the same work as three jobs (`static-gates`,
   `content-gates`, `build-hygiene`), so a class-size or nesting finding returns
@@ -307,8 +307,9 @@ for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
 `hygiene_gate.py`, `library_check.py`, `gate_report.py`,
 `duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py`,
 `ci_manifest_check.py`, `ci_watchdog.py`, `detach_gate.py`, `prompt_lint.py`,
-`test_presence_gate.py` and `commit_lint.py` — plus the shared `cpp_source.py`
-lexer. When you change a gate, change its tests in the same commit.
+`test_presence_gate.py`, `commit_lint.py`, `test_flake_lint.py` and
+`flake_repeat.py` — plus the shared `cpp_source.py` lexer. When you change a
+gate, change its tests in the same commit.
 
 **A gate that measures nothing reports green.** Every gate here fails closed on a
 degraded measurement, not just on a missing tool:
@@ -1198,6 +1199,30 @@ evidence about a prompt.
   the per-area `*_test.cpp` that already covers that module, or a new file
   (added to `UNITTEST_OBJ` in `Makefile.in`) when the area has no harness yet.
   `tests/run_tests.cpp` is the shared harness, not the only file the suite runs.
+
+### Flake policy
+
+- **Wait on conditions, not guesses.** `tests/test_wait.h` provides
+  `agent::test::wait_until(predicate, budget)` (default 20 s) and
+  `agent::test::elapsed_ms`. A test that observes another thread or process
+  polls the thing it needs; a fixed `sleep_for` is a fixture delay, not
+  synchronization.
+- **Wall-clock bounds are reviewed.** `make flake-lint` fails an assertion with
+  an upper bound below 15 s unless the statement carries
+  `// flake-allow: <reason>`; `--report` prints every acknowledged bound. The
+  reason names the regression the bound catches (a 60 s deadline, a synchronous
+  handshake), not "CI is slow".
+- **Repeat the flake-prone subset.** `make test-repeat` runs the
+  external-plugin runtime tests, `plugin_test` and the pty suite
+  `AMBER_TEST_REPEAT` times (default 3).
+  `.github/workflows/flake-repeat.yml` runs it nightly and on PRs that touch
+  `tests/`, `lib/`, `tui/`, `plugins/` or the Makefile; the report is uploaded
+  as an artefact.
+- **Quarantine is explicit.** A test that fails the repeat job gets one
+  `flake-quarantine` issue (deduped by a marker). It is quarantined only by
+  adding `{binary, test, issue, reason}` to `tests/flake_quarantine.json`; the
+  driver then prints `[ QUARANTINE ]` on every suppressed failure. A stale entry
+  is reported, and removing it is a normal review step.
 
 ## Design patterns in use
 
