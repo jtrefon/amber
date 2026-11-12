@@ -45,6 +45,9 @@ compatibility promise is:
   `plugin_<id>_<name>` through the owner-scoped port; manifest `completion`
   subtrees are not mounted.
 - A response line is capped at 64 KiB. A plugin that exceeds it fails the call.
+- Framing (`plugin_take_line`) and reply decoding (`plugin_decode_initialize`,
+  `plugin_decode_call`) are pure functions in `agent/plugin_protocol.h`; the
+  fuzz target `fuzz/plugin_protocol.cpp` drives them under ASan+UBSan.
 - The process starts lazily on the first tool call and is shut down on disable.
 - `kPluginApiVersion` is a **runtime** gate for a future out-of-tree binary
   tier. It does not exist at 1.0 because the process tier negotiates
