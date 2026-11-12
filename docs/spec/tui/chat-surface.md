@@ -37,8 +37,12 @@ Wrapping is cached:
   `blit` for self-contained sub-surfaces (the canvas, the drawer). Text is
   clipped by **display columns**, so a UTF-8 glyph is never split; pair ids
   resolve through `role_for_pair` to semantic theme roles.
-- `present_frame()` blits the frame into the terminal adapter's screen buffer
-  and places the physical cursor where the painter left it.
+- `present_frame(bool update_cursor = true)` blits the frame into the terminal
+  adapter's screen buffer. Only the input line asks it to place the physical
+  cursor; full-frame draws and the pulse/clock repaints pass `false` so they
+  never hide and re-show the cursor. A hide/show on every animation frame resets
+  the terminal's blink timer, which reads as a cursor blinking at the paint
+  cadence.
 
 The adapter owns the only `doupdate()`. `RenderEngine::flush()` delegates to
 `Terminal::flush()`, so a frame is virtual-screen-refreshed once and output
@@ -59,8 +63,8 @@ Everything that used to reach into curses was moved or deleted:
 | `rich_paint` | deleted; `rich_surface` paints Markdown into cells |
 
 The welcome mural keeps its exact xterm grayscale pairs through
-`Style::exact_pair`, registered by the adapter; the banner uses the `Title`
-role. `init_pairs()` is gone: the adapter registers the semantic role pairs and
+`Style::exact_pair`, registered by the adapter; the banner uses the `Banner`
+role (blue in Amber/Modern). `init_pairs()` is gone: the adapter registers the semantic role pairs and
 the grayscale ramp once, after `start_color()`.
 
 ## 4. Behaviour preserved

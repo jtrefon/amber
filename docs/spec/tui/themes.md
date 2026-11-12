@@ -20,6 +20,14 @@ the default wrapper. Palettes are unit-tested for the properties that matter:
 monochrome has no fixed colours and uses attributes, high contrast separates
 selected fg/bg, and every palette keeps the same semantic role structure.
 
+The chrome roles are separate from the transcript roles because they carry a
+background: `Banner` paints the top and bottom bars (white on blue in Amber and
+Modern), `Brand` is the amber mark on that bar, `Gauge*` are the pressure colours
+and glint on the bar, and `ShineMid`/`ShineHi` are the verb's two fade steps on
+the transcript background. A palette may change the hues, but it keeps those
+roles distinct; collapsing them is how the 0.8.9 theme migration lost the blue
+bar and flattened the pulse.
+
 ## Selection and persistence
 
 | Setting | Values | Effect |

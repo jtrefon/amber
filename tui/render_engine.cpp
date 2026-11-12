@@ -65,8 +65,10 @@ void RenderEngine::begin_frame() {
     paint_.begin(frame_);
 }
 
-void RenderEngine::present_frame() {
+void RenderEngine::present_frame(bool update_cursor) {
     terminal_.blit(frame_, 0, 0);
+    if (!update_cursor)
+        return;
     if (paint_.cursor_visible())
         terminal_.place_cursor(paint_.cursor_x(), paint_.cursor_y());
     else
@@ -412,7 +414,7 @@ void RenderEngine::draw() {
         welcome::render(frame_, chat_top(), width());
         draw_menu_dropdown();
         draw_status_bar();
-        present_frame();
+        present_frame(false);
         return;
     }
 
@@ -429,7 +431,7 @@ void RenderEngine::draw() {
     draw_menu_dropdown();
 
     draw_status_bar();
-    present_frame();
+    present_frame(false);
 }
 
 namespace {
@@ -608,7 +610,7 @@ void RenderEngine::tick_pulse() {
     if (working_row_owned_ && tui_.runs_.busy(tui_.win().id))
         draw_working_indicator(working_row());
     draw_status_bar();
-    present_frame();
+    present_frame(false);
     dirty_ = true;
 }
 
@@ -914,7 +916,7 @@ void RenderEngine::tick_clock() {
     dirty_ = true;
     begin_frame();
     draw_top_bar();
-    present_frame();
+    present_frame(false);
 }
 
 namespace {

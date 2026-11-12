@@ -111,7 +111,10 @@ public:
     void draw_drawer(const std::string& input);
     void sync_chat_canvas(bool show_working) const;
     void begin_frame();
-    void present_frame();
+    // Flush the frame. A full draw leaves the cursor alone: the input line owns
+    // its visibility and position, and hiding then re-showing it on every
+    // animation frame resets the terminal's blink timer (it blinks fast).
+    void present_frame(bool update_cursor = true);
 
     static std::string drawer_token(const std::string& input);
     std::vector<const palette::Command*> filter_commands(const std::string& token);

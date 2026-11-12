@@ -72,9 +72,18 @@ skipped. A clipped edge therefore shows the layer underneath, not a broken glyph
 
 `Role` is semantic: `Surface`, `SurfaceAlt`, `Frame`, `FrameFocus`, `Title`,
 `Text`, `Muted`, `Accent`, `Selected`, `Attention`, `Success`, `Error`,
-`Warning`, `Hint`, `Shadow`. A `RoleStyle` carries foreground/background
-`Color` plus bold/dim/italic/underline/reverse. `Theme::make(kind, mode)` is the
-shipped table; the four palettes and their fallbacks are `themes.md`.
+`Warning`, `Hint`, `Shadow`, plus the shell's chrome roles (`Banner`, `Brand`,
+`GaugeOk`/`GaugeWarn`/`GaugeCrit`/`GaugeTrack`/`GaugeBright`, `ShineMid`,
+`ShineHi`). A `RoleStyle` carries foreground/background `Color` plus
+bold/dim/italic/underline/reverse. `Theme::make(kind, mode)` is the shipped
+table; the four palettes and their fallbacks are `themes.md`.
+
+Legacy pair ids are a visual contract. `P_BANNER`/`P_DIALOG` resolve to
+`Banner` (white on blue in Amber/Modern), `P_BRAND` to `Brand`, the gauge pairs
+to their `Gauge*` roles, and the pulse's mid/high shades to `ShineMid`/`ShineHi`.
+Collapsing two of those ids onto one role is a colour regression even when every
+role stays "semantic"; `legacy_pairs_keep_the_bar_and_the_pulse_shades` asserts
+the resolved styles.
 
 The terminal adapter resolves a role to a colour pair and clamps:
 

@@ -52,29 +52,23 @@ constexpr int kPairBase = 200;
 int color_id(Color color) {
     if (!has_colors())
         return -1;
+    // The ANSI base colours are a fixed table; only the three extended roles
+    // depend on the terminal's depth.
+    static constexpr int kAnsi[] = {-1,           COLOR_BLACK, COLOR_RED,     COLOR_GREEN,
+                                    COLOR_YELLOW, COLOR_BLUE,  COLOR_MAGENTA, COLOR_CYAN,
+                                    COLOR_WHITE};
     switch (color) {
-    case Color::Default:
-        return -1;
-    case Color::Black:
-        return COLOR_BLACK;
-    case Color::Red:
-        return COLOR_RED;
-    case Color::Green:
-        return COLOR_GREEN;
-    case Color::Yellow:
-        return COLOR_YELLOW;
-    case Color::Blue:
-        return COLOR_BLUE;
-    case Color::Magenta:
-        return COLOR_MAGENTA;
-    case Color::Cyan:
-        return COLOR_CYAN;
-    case Color::White:
-        return COLOR_WHITE;
     case Color::DarkGray:
         return COLORS > 8 ? 8 : COLOR_WHITE; // 8-colour terminals have no grey
+    case Color::Amber:
+        return COLORS >= 256 ? 214 : COLOR_YELLOW;
+    case Color::BrightYellow:
+        return COLORS >= 16 ? 11 : COLOR_YELLOW;
+    default:
+        break;
     }
-    return -1;
+    const auto index = static_cast<std::size_t>(color);
+    return index < sizeof(kAnsi) / sizeof(kAnsi[0]) ? kAnsi[index] : -1;
 }
 
 int pair_for(const Style& style) {
