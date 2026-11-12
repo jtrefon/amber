@@ -12,6 +12,10 @@
 #include <thread>
 
 #include "tests/minitest.h"
+#include "tests/test_wait.h"
+
+using agent::test::elapsed_ms;
+using agent::test::wait_until;
 
 #define REQUIRE(cond)                                                                              \
     do {                                                                                           \
@@ -60,6 +64,20 @@ struct EnvGuard {
     }
 };
 
+// Each scenario is named in the output, so a failure in a repeated run can be
+// attributed to a test instead of to the binary.
+int run_one(const char* name, void (*fn)()) {
+    const int before = failed;
+    std::cout << "[ RUN  ] " << name << "\n";
+    fn();
+    if (failed == before) {
+        std::cout << "[ PASS ] " << name << "\n";
+        return 0;
+    }
+    std::cout << "[ FAIL ] " << name << "\n";
+    return 1;
+}
+
 // Stage a fake plugin tree in a temp dir: manifest + executable + chmod.
 std::string stage_fake_plugin(const std::string& base) {
     std::string dir = base + "/fake";
@@ -85,23 +103,6 @@ std::string stage_test_plugin(const std::string& base, const std::string& id,
              << R"(", "version": "1.0.0", "protocol_version": 1, "main": ")" << script
              << R"(", "tools": [{"name": "call", "description": "test", "schema": {}}]})";
     return dir;
-}
-
-// Wait for a child to prove it received the call (a marker file), bounded.
-bool wait_for_marker(const std::string& path, int timeout_ms = 15000) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (std::filesystem::exists(path))
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return std::filesystem::exists(path);
-}
-
-long long elapsed_ms(std::chrono::steady_clock::time_point since) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                 since)
-        .count();
 }
 
 } // namespace
@@ -192,7 +193,7 @@ TEST(plugin_disable_cancels_a_hung_call) {
 
     agent::ToolResult result;
     std::thread worker([&] { result = call->execute({}); });
-    REQUIRE(wait_for_marker(marker));
+    REQUIRE(wait_until([&] { return std::filesystem::exists(marker); }));
 
     // The call is parked inside its 60 s read window; disabling must cancel it
     // and kill the process instead of waiting for that deadline.
@@ -612,23 +613,25 @@ TEST(plugin_response_line_is_capped) {
     ASSERT(mgr.disable("big", reg));
 }
 
+#define RUN_TEST(fn) run_one(#fn, fn)
+
 int main() {
-    plugin_discover_loads_valid_and_flags_invalid();
-    plugin_discover_ignores_state_dirs();
-    plugin_enable_registers_and_runs_tools();
-    plugin_disable_cancels_a_hung_call();
-    plugin_disable_kills_a_plugin_that_ignores_shutdown();
-    plugin_oversized_initialize_line_fails_closed();
-    plugin_oversized_call_reply_fails_closed_and_respawns();
-    plugin_state_persists_across_manager_instances();
-    plugin_install_stages_archive();
-    plugin_advertisement_lists_enabled_tools();
-    plugin_response_line_is_capped();
-    sec05_manifest_rejects_parent_escape_main();
-    sec05_manifest_rejects_absolute_main();
-    sec05_manifest_rejects_symlink_main();
-    sysinfo_plugin_reports_host_facts();
-    cdp_plugin_protocol_roundtrip();
+    RUN_TEST(plugin_discover_loads_valid_and_flags_invalid);
+    RUN_TEST(plugin_discover_ignores_state_dirs);
+    RUN_TEST(plugin_enable_registers_and_runs_tools);
+    RUN_TEST(plugin_disable_cancels_a_hung_call);
+    RUN_TEST(plugin_disable_kills_a_plugin_that_ignores_shutdown);
+    RUN_TEST(plugin_oversized_initialize_line_fails_closed);
+    RUN_TEST(plugin_oversized_call_reply_fails_closed_and_respawns);
+    RUN_TEST(plugin_state_persists_across_manager_instances);
+    RUN_TEST(plugin_install_stages_archive);
+    RUN_TEST(plugin_advertisement_lists_enabled_tools);
+    RUN_TEST(plugin_response_line_is_capped);
+    RUN_TEST(sec05_manifest_rejects_parent_escape_main);
+    RUN_TEST(sec05_manifest_rejects_absolute_main);
+    RUN_TEST(sec05_manifest_rejects_symlink_main);
+    RUN_TEST(sysinfo_plugin_reports_host_facts);
+    RUN_TEST(cdp_plugin_protocol_roundtrip);
     if (failed)
         std::cerr << failed << " FAILED\n";
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";

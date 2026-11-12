@@ -48,6 +48,7 @@
 #include <unistd.h>
 
 using namespace agent;
+using agent::test::wait_until;
 
 namespace {
 
@@ -141,19 +142,6 @@ bool command_root_present(const CommandRegistry& commands, const std::string& ro
         if (entry.spec.name == root)
             return true;
     return false;
-}
-
-// Poll a predicate until it holds or the deadline expires. MCP activation is
-// asynchronous by design; a test that needs a connected server waits for it
-// instead of assuming the handshake finished inside start().
-template <typename Fn> bool wait_until(Fn fn, int timeout_ms = 5000) {
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (fn())
-            return true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    return fn();
 }
 
 // Declares one prompt block, so activation has something observable to install.
@@ -974,7 +962,8 @@ TEST(mcp_activation_returns_before_a_slow_server_answers) {
         std::chrono::steady_clock::now() - started);
     // A CI-safe bound on "did not perform the handshake inline": the server
     // needs 2s, so 500ms still fails a synchronous implementation by 4x.
-    ASSERT(elapsed.count() < 500);
+    ASSERT(elapsed.count() < 500); // flake-allow: the fixture handshake takes 2 s; 500 ms still
+                                   // fails a synchronous start by 4x
     ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
     ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_slow_echo_tool"); }));
 }
@@ -3220,7 +3209,8 @@ TEST(runtime_external_startup_never_waits_for_a_hanging_handshake) {
         const auto toggled_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                     std::chrono::steady_clock::now() - started)
                                     .count();
-        ASSERT(toggled_ms < 10000);
+        ASSERT(toggled_ms < 10000); // flake-allow: a synchronous handshake waits 60 s; 10 s is the
+                                    // hotfixed bound and still catches it
         ASSERT_TRUE(runtime.status("hang").enabled);
         runtime.shutdown();
     }
@@ -3235,7 +3225,8 @@ TEST(runtime_external_startup_never_waits_for_a_hanging_handshake) {
     const auto started_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - started)
                                 .count();
-    ASSERT(started_ms < 10000);
+    ASSERT(started_ms < 10000); // flake-allow: a persisted enable must not handshake inline; 10 s
+                                // still catches a 60 s wait
     ASSERT_TRUE(reloaded.status("hang").enabled);
     ASSERT_TRUE(reloaded.set_state("hang", false));
 }
@@ -3264,7 +3255,7 @@ TEST(runtime_external_toggle_off_cancels_a_hung_call) {
         result = call->execute({});
         done = true;
     });
-    ASSERT(wait_until([&] { return fs::exists(marker); }, 15000));
+    ASSERT(wait_until([&] { return fs::exists(marker); }, std::chrono::milliseconds(15000)));
 
     // The UI path: /set plugin off unwinds the tool source, which disables the
     // process. A hung call must not hold the toggle for its 60 s deadline.

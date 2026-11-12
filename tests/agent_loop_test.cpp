@@ -2323,7 +2323,9 @@ TEST(agent_loop_cancel_during_backoff) {
     // generation attempt, empty reply.
     ASSERT(reply.empty());
     ASSERT_EQ(raw->chat_calls, 1);
-    ASSERT(elapsed.count() < 900);
+    ASSERT(elapsed.count() <
+           900); // flake-allow: cancellation is requested after 150 ms; 900 ms still fails an
+                 // ignored cancel (the next backoff is seconds away)
 }
 
 // [AL-11] Unknown n_ctx: the gate falls back to a conservative budget instead

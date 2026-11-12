@@ -3490,7 +3490,8 @@ TEST(model_catalog_reads_are_disk_only) {
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
             .count();
-    ASSERT(ms < 1000);
+    ASSERT(ms < 1000); // flake-allow: disk-only catalog reads must not wait on the 10 s HTTP probe;
+                       // 1 s catches a synchronous probe
     close(srv);
 }
 
@@ -5548,7 +5549,8 @@ TEST(job_service_stop_escalates_a_sigterm_ignoring_child) {
     const auto ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
             .count();
-    ASSERT(ms < 5000);
+    ASSERT(ms < 5000); // flake-allow: stop is SIGTERM + 2 s grace + SIGKILL; 5 s still fails a wait
+                       // on the 300 s child
     ASSERT_EQ(jobs.running_count(), 0);
     // The group is gone, not merely forgotten.
     ASSERT(kill(pid, 0) != 0 && errno == ESRCH);

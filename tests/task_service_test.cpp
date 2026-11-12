@@ -407,7 +407,8 @@ TEST(task_join_deadline_reports_what_remains) {
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
     ASSERT_EQ(joined.still_running[0], id);
-    ASSERT(waited < std::chrono::seconds(5));
+    ASSERT(waited < std::chrono::seconds(5)); // flake-allow: the join deadline is 80 ms; 5 s still
+                                              // fails waiting for the task to finish
     ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
 }
 
@@ -422,7 +423,8 @@ TEST(task_join_zero_deadline_samples_without_waiting) {
         agent::join_tasks(tasks, bus, "w", {std::chrono::milliseconds(0), false}, token);
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
-    ASSERT(waited < std::chrono::milliseconds(100));
+    ASSERT(waited < std::chrono::milliseconds(100)); // flake-allow: a zero deadline must not wait;
+                                                     // 100 ms is far above the loop overhead
     ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
 }
 
@@ -442,6 +444,7 @@ TEST(task_join_cancellation_ends_the_wait) {
     canceller.join();
     const auto waited = std::chrono::steady_clock::now() - started;
     ASSERT_EQ(joined.still_running.size(), 1u);
-    ASSERT(waited < std::chrono::seconds(2));
+    ASSERT(waited < std::chrono::seconds(2)); // flake-allow: cancellation is requested after 30 ms;
+                                              // 2 s still fails waiting for the 5 s join deadline
     ASSERT_TRUE(tasks.finish(id, agent::TaskState::Succeeded, {}));
 }

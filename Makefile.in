@@ -882,6 +882,23 @@ gates-test:
 	@echo "gate tool tests..."
 	@cd $(SRC_DIR)/tests/gates && python3 -m unittest discover -p 'test_*.py' -v
 
+# Wall-clock assertions below 15 s need an inline reason. The lint is separate
+# from the tests because the finding is in the source, not in a run.
+flake-lint:
+	@python3 "$(SRC_DIR)/tools/test_flake_lint.py"
+
+# Repeat the subset where process teardown and timing interact most: a test
+# that only fails on the second or third run is a flake, not a pass.
+AMBER_TEST_REPEAT ?= 3
+test-repeat: $(BUILD_DIR)/run_tests $(BUILD_DIR)/plugin_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(CLI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+	@test -n "$$($(BUILD_DIR)/run_tests --list runtime_external)" || \
+	    { echo "test-repeat: run_tests matched no external-plugin tests"; exit 2; }
+	@python3 "$(SRC_DIR)/tools/flake_repeat.py" \
+	    --repeat $(AMBER_TEST_REPEAT) \
+	    --command "$(BUILD_DIR)/run_tests runtime_external" \
+	    --command "$(BUILD_DIR)/plugin_test" \
+	    --command "$(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)"
+
 # clang-format. The tree predates enforcement, so the full-tree run stays
 # informational; format-check-changed is the merge gate — files a PR touches
 # must be clean, so enforcement ratchets in as code is edited.
@@ -1016,6 +1033,7 @@ static-gates:
 	@python3 "$(SRC_DIR)/tools/debt_gate.py" --check
 	@$(MAKE) --no-print-directory detach
 	@$(MAKE) --no-print-directory prompt-lint
+	@$(MAKE) --no-print-directory flake-lint
 	@$(MAKE) --no-print-directory hygiene
 	@$(MAKE) --no-print-directory ncurses
 	@$(MAKE) --no-print-directory complexity
@@ -1060,6 +1078,7 @@ verify-quick:
 	@$(MAKE) --no-print-directory debt
 	@$(MAKE) --no-print-directory detach
 	@$(MAKE) --no-print-directory prompt-lint
+	@$(MAKE) --no-print-directory flake-lint
 	@$(MAKE) --no-print-directory hygiene
 	@$(MAKE) --no-print-directory hygiene-self-contained HYGIENE_CXX=$(CXX)
 	@$(MAKE) --no-print-directory ncurses
