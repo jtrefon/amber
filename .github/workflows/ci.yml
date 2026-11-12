@@ -574,6 +574,9 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           PATCH_COVERAGE_ENFORCE: ${{ vars.PATCH_COVERAGE_ENFORCE != '' && vars.PATCH_COVERAGE_ENFORCE || 'true' }}
+          # The ratchet is measured against a baseline taken with this job's gcc.
+          # `make coverage` reports it instead, for hosts with a different compiler.
+          BRANCH_RATCHET_ENFORCE: 'true'
         run: sh tools/coverage_report.sh
 
       # Put the coverage numbers on the run page itself. An artefact alone was not
@@ -586,12 +589,15 @@ jobs:
           import json
           d = json.load(open("coverage-core.json"))
           line, fn = d["line_percent"], d["function_percent"]
+          branch = d["branch_percent"]
           print("## Coverage\n")
-          print("| scope | lines | functions |")
-          print("|---|---|---|")
+          print("| scope | lines | functions | branches |")
+          print("|---|---|---|---|")
           print(f"| `lib/` `tools/` `plugins/` | **{line:.1f}%** ({d['line_covered']}/{d['line_total']}) "
-                f"| {fn:.1f}% ({d['function_covered']}/{d['function_total']}) |")
-          print(f"\nGated at 80% lines. Full report: the `coverage-report` artefact on this run.")
+                f"| {fn:.1f}% ({d['function_covered']}/{d['function_total']}) "
+                f"| {branch:.1f}% ({d['branch_covered']}/{d['branch_total']}) |")
+          print(f"\nGated at 80% lines, 50% patch branches and the per-file branch ratchet. "
+                f"Full report: the `coverage-report` artefact on this run.")
           PYEOF
 
       # GitHub's equivalent of an ADO build artefact: attached to the run, listed

@@ -1,4 +1,5 @@
-"""Patch coverage: the documented "new code paths must have >=80% line coverage".
+"""Patch coverage: the documented "new code paths must have >=80% line coverage",
+and the branch gate that catches what a line total cannot.
 
 The whole-core 80% floor is already enforced by `gcovr --fail-under-line` in CI,
 but that floor is a *project* number: it stays satisfied while new, untested code
@@ -10,6 +11,14 @@ It also cannot be delegated to Codecov here: the upload is rejected by Codecov
 and `fail_ci_if_error: false` hides it, so `.codecov.yml`'s patch target has never
 been evaluated. Measuring it in-repo makes the rule real and keeps it working with
 no third-party service in the path.
+
+Branches are the second axis. A line that ran can still leave a decision's other
+edge untested, so the gate reads `condition-coverage` from the same Cobertura
+report: a patch must keep 50% of the conditions it adds in `lib/`, `tools/` and
+`plugins/` covered, and `tests/branch_baseline.json` ratchets every gated file's
+uncovered-branch count so it can only shrink. The baseline is measured by the CI
+coverage job (gcc 13, gcovr 8.6); branch counts are compiler-generated, so a
+local run at a different GCC can disagree.
 """
 
 import io
@@ -369,6 +378,19 @@ class ReadingTheReport(unittest.TestCase):
         self.assertEqual(result.covered, 1)
         self.assertFalse(result.passes)
 
+    def test_class_level_lines_are_read_once_and_duplicate_hits_take_the_max(self):
+        """gcovr repeats every line inside each <method> block and again at class
+        level. Reading the subtree double-counts; reading only the class block and
+        taking the max hits says "was this line executed anywhere", which is the
+        question line coverage asks. A template instantiated twice can leave two
+        class-level entries for one line."""
+        path = self.write(DUPLICATE_XML)
+        try:
+            loaded = cg.read_report(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(loaded["lib/t.cpp"], {10: 3, 11: 5})
+
 
 class ChangedLinesOption(unittest.TestCase):
     """--changed-lines is documented as JSON {path: [lines]}.
@@ -511,11 +533,35 @@ BRANCHES = {
 }
 
 
-def branch_check(result, changed, ratchet=None, ratchet_error=None):
+def branch_check(result, changed, ratchet=None, ratchet_error=None, report_only=False):
     buf = io.StringIO()
     with redirect_stdout(buf):
-        rc = cg.check(result, changed, ratchet, ratchet_error)
+        rc = cg.check(result, changed, ratchet, ratchet_error, report_only)
     return rc, buf.getvalue()
+
+
+DUPLICATE_XML = """<?xml version="1.0" ?>
+<coverage line-rate="0.5">
+  <packages><package><classes>
+    <class filename="lib/t.cpp" name="t_cpp">
+      <methods>
+        <method name="m" signature="()" line-rate="0.0">
+          <lines>
+            <line number="10" hits="0" branch="true" condition-coverage="0% (0/2)"/>
+            <line number="11" hits="0"/>
+          </lines>
+        </method>
+      </methods>
+      <lines>
+        <line number="10" hits="3" branch="true" condition-coverage="50% (1/2)"/>
+        <line number="10" hits="0" branch="true" condition-coverage="0% (0/2)"/>
+        <line number="11" hits="0"/>
+        <line number="11" hits="5"/>
+      </lines>
+    </class>
+  </classes></package></packages>
+</coverage>
+"""
 
 
 class ReadingBranchData(unittest.TestCase):
@@ -598,6 +644,19 @@ class ReadingBranchData(unittest.TestCase):
             self.assertEqual(cg.read_branch_report(handle.name), {})
         finally:
             os.unlink(handle.name)
+
+
+    def test_method_blocks_are_not_double_counted_and_instantiations_sum(self):
+        """The per-method blocks repeat the class-level lines. Reading the whole
+        subtree would count a condition twice for one method; a template
+        instantiated twice legitimately contributes two class-level entries, and a
+        condition covered in only one of them is half-covered."""
+        path = self.write(DUPLICATE_XML)
+        try:
+            loaded = cg.read_branch_report(path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(loaded["lib/t.cpp"], {10: (1, 4)})
 
 
 class PatchBranchMath(unittest.TestCase):
@@ -684,7 +743,8 @@ class BranchThreshold(unittest.TestCase):
         self.assertEqual(branch_check(result, changed)[0], 0)
 
     def test_no_new_gated_branches_passes(self):
-        branches = {"lib/a.cpp": {}}
+        # The report has branch data elsewhere; this patch simply adds none.
+        branches = {"lib/a.cpp": {}, "lib/other.cpp": {1: (1, 2)}}
         changed = chg(("lib/a.cpp", [10]))
         result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1}}), changed, branches=branches)
         rc, out = branch_check(result, changed)
@@ -706,20 +766,30 @@ class BranchRatchet(unittest.TestCase):
     ratchet pattern as the lint baseline."""
 
     def test_equal_counts_pass(self):
-        self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 4}), [])
+        self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 5}), [])
 
     def test_growth_fails(self):
-        violations = cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 3})
-        self.assertEqual(violations, [("lib/a.cpp", 4, 3)])
+        violations = cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 1})
+        self.assertEqual(violations, [("lib/a.cpp", 5, 1)])
+
+    def test_noise_within_the_slack_passes(self):
+        """Two identical CI runs moved files by 1-2 decisions. A zero-growth
+        ratchet would fail a clean tree, so the comparison allows the measured
+        run-to-run noise."""
+        self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 2}), [])
 
     def test_a_reduction_passes(self):
         self.assertEqual(cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 10}), [])
 
     def test_a_new_file_starts_at_zero(self):
-        """A file the baseline has never seen has no allowance. Covered branches
-        are free; one uncovered branch fails."""
+        """A file the baseline has never seen has no recorded floor. Covered
+        branches are free; growth beyond the noise slack fails."""
+        branches = {"lib/new.cpp": {7: (0, 2), 8: (1, 2), 9: (1, 2)}}
+        self.assertEqual(cg.branch_ratchet(branches, {}), [("lib/new.cpp", 4, 0)])
+
+    def test_a_new_files_noise_is_tolerated(self):
         branches = {"lib/new.cpp": {7: (1, 2), 8: (2, 2)}}
-        self.assertEqual(cg.branch_ratchet(branches, {}), [("lib/new.cpp", 1, 0)])
+        self.assertEqual(cg.branch_ratchet(branches, {}), [])
 
     def test_a_new_file_with_full_coverage_passes(self):
         self.assertEqual(cg.branch_ratchet({"lib/new.cpp": {7: (2, 2)}}, {}), [])
@@ -731,10 +801,24 @@ class BranchRatchet(unittest.TestCase):
         changed = chg(("lib/a.cpp", [10, 12, 13]))
         result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 12: 1, 13: 1}}), changed,
                                    branches=BRANCHES)
-        rc, out = branch_check(result, changed, cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 3}))
+        rc, out = branch_check(result, changed, cg.branch_ratchet(BRANCHES, {"lib/a.cpp": 1}))
         self.assertEqual(rc, 1)
         self.assertIn("lib/a.cpp", out)
         self.assertIn("baseline", out)
+
+    def test_report_only_prints_but_does_not_fail(self):
+        """A local run on a compiler the baseline was not measured with must not
+        fail on compiler-generated counts. The number is still printed."""
+        branches = {"lib/a.cpp": {10: (2, 2), 12: (0, 4), 13: (2, 2)}}
+        changed = chg(("lib/a.cpp", [10, 12, 13]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 12: 1, 13: 1}}), changed,
+                                   branches=branches)
+        rc, out = branch_check(result, changed,
+                               cg.branch_ratchet(branches, {"lib/a.cpp": 0}),
+                               report_only=True)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("report only", out)
+        self.assertIn("lib/a.cpp", out)
 
     def test_a_missing_baseline_fails_closed(self):
         changed = chg(("lib/a.cpp", [10]))
@@ -742,6 +826,92 @@ class BranchRatchet(unittest.TestCase):
         rc, out = branch_check(result, changed, None, "no baseline")
         self.assertEqual(rc, 2)
         self.assertIn("no baseline", out)
+
+
+DECISION_SOURCE = {
+    "lib/a.cpp": {
+        10: "    if (a)",
+        12: "    if (b && c)",
+        13: "    for (int i = 0; i < n; ++i)",
+        30: "    PluginCallReply failed;",
+        32: "    return failed;",
+        50: "    if (a ||",
+        51: "        b)",
+    },
+    "tui/t.cpp": {5: "    if (t)"},
+}
+
+
+class DecisionLines(unittest.TestCase):
+    """gcov reports "jump" branches for constructor and exception edges, which no
+    test can reach. Gating them would make a new `std::string` or JSON
+    construction fail, so only source lines that hold a decision are counted."""
+
+    def test_only_decision_lines_are_counted(self):
+        changed = chg(("lib/a.cpp", [10, 30, 32]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {10: 1, 30: 1, 32: 1}}), changed,
+                                   branches={"lib/a.cpp": {10: (1, 2), 30: (0, 2), 32: (1, 2)}},
+                                   source=DECISION_SOURCE)
+        self.assertEqual(result.branches.total, 2)
+        self.assertEqual(result.branches.covered, 1)
+
+    def test_a_wrapped_condition_keeps_its_continuation(self):
+        changed = chg(("lib/a.cpp", [50, 51]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {50: 1, 51: 1}}), changed,
+                                   branches={"lib/a.cpp": {50: (2, 2), 51: (1, 2)}},
+                                   source=DECISION_SOURCE)
+        self.assertEqual(result.branches.total, 4)
+        self.assertEqual(result.branches.covered, 3)
+
+    def test_a_plain_statement_line_is_not_a_decision(self):
+        changed = chg(("lib/a.cpp", [30]))
+        result = cg.patch_coverage(hits({"lib/a.cpp": {30: 1}}), changed,
+                                   branches={"lib/a.cpp": {30: (0, 2)}},
+                                   source=DECISION_SOURCE)
+        self.assertEqual(result.branches.total, 0)
+        self.assertTrue(result.branches.passes)
+
+    def test_the_ratchet_ignores_constructor_noise(self):
+        self.assertEqual(cg.branch_ratchet({"lib/a.cpp": {30: (0, 2)}}, {}, DECISION_SOURCE), [])
+
+    def test_the_ratchet_counts_a_decision(self):
+        branches = {"lib/a.cpp": {10: (0, 2), 12: (0, 2)}}
+        self.assertEqual(cg.branch_ratchet(branches, {}, DECISION_SOURCE),
+                         [("lib/a.cpp", 4, 0)])
+
+    def test_the_baseline_writer_ignores_non_decisions(self):
+        handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        handle.close()
+        try:
+            cg.write_branch_baseline(
+                handle.name, {"lib/a.cpp": {10: (0, 2), 30: (0, 2)}}, DECISION_SOURCE)
+            loaded = cg.load_branch_baseline(handle.name)
+        finally:
+            os.unlink(handle.name)
+        self.assertEqual(loaded, {"lib/a.cpp": 2})
+
+    def test_decision_and_continuation_tokens(self):
+        for text in ("if (a)", "for (;;)", "while (x)", "switch (x)", "case 1:",
+                     "catch (...)", "a && b", "a || b", "a ? b : c"):
+            self.assertTrue(cg.is_decision_line({1: text}, 1), text)
+        previous = {1: "    if (a ||", 2: "        b)", 3: "    call(", 4: "        arg);"}
+        self.assertTrue(cg.is_decision_line(previous, 2))
+        self.assertTrue(cg.is_decision_line(previous, 4), "a wrapped call continues")
+        self.assertFalse(cg.is_decision_line({1: "    return failed;"}, 1))
+        self.assertFalse(cg.is_decision_line({1: "    failed.error = \"x\";"}, 1))
+
+    def test_missing_source_is_conservative(self):
+        """A file the report names but the tree cannot read is not proof that its
+        branches are noise; counting them can only fail closed."""
+        self.assertTrue(cg.is_decision_line(None, 1))
+
+    def test_source_can_be_read_from_the_repo(self):
+        lines = cg.read_source("tools/coverage_gate.py")
+        self.assertIsNotNone(lines)
+        decision = next(n for n, text in lines.items() if text.lstrip().startswith("if "))
+        self.assertTrue(cg.is_decision_line(lines, decision))
+        plain = next(n for n, text in lines.items() if text.lstrip().startswith("return "))
+        self.assertFalse(cg.is_decision_line(lines, plain))
 
 
 class BranchBaselineFile(unittest.TestCase):
@@ -753,7 +923,7 @@ class BranchBaselineFile(unittest.TestCase):
             loaded = cg.load_branch_baseline(handle.name)
         finally:
             os.unlink(handle.name)
-        self.assertEqual(loaded, {"lib/a.cpp": 4})
+        self.assertEqual(loaded, {"lib/a.cpp": 5})
 
     def test_missing_baseline_is_none_not_an_empty_floor(self):
         self.assertIsNone(cg.load_branch_baseline("/nonexistent/baseline.json"))

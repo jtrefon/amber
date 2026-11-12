@@ -414,7 +414,8 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
-        verify verify-quick coverage ci-manifest detach prompt-lint test-presence commit-lint \
+        verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
+        prompt-lint test-presence commit-lint \
         release-check \
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
@@ -1101,8 +1102,8 @@ verify: verify-quick smoketest
 	@echo "verify: clean"
 
 # Coverage, locally. CI's coverage job and this target both call
-# tools/coverage_report.sh, so the filters, the 80% project floor, the TUI floor
-# and the patch gate cannot drift between them.
+# tools/coverage_report.sh, so the filters, the 80% project floor, the TUI floor,
+# the patch line/branch gates and the branch ratchet cannot drift between them.
 #
 # This is destructive on purpose: gcov needs every object compiled with
 # --coverage, so the normal build is replaced. Restore it with
@@ -1110,6 +1111,12 @@ verify: verify-quick smoketest
 COVERAGE_CXXFLAGS ?= -O0 -g --coverage -std=c++17
 COVERAGE_CFLAGS ?= -O0 -g --coverage -std=c99
 PATCH_COVERAGE_ENFORCE ?= true
+# Branch counts are compiler-generated, and tests/branch_baseline.json is measured
+# with CI's pinned gcc 13. On a host with a different compiler the counts drift
+# without a code change (measured: GCC 15 moves 88 of 211 files), so the local
+# target reports the ratchet and CI enforces it. Override to check locally with a
+# matching toolchain.
+BRANCH_RATCHET_ENFORCE ?= false
 coverage:
 	@if [ -z "$(BASE)" ]; then \
 	    echo "coverage: BASE is empty (no origin/main, no HEAD~1); pass BASE=<ref>"; \
@@ -1121,8 +1128,22 @@ coverage:
 	@$(MAKE) --no-print-directory -j$(NPROC)
 	@$(MAKE) --no-print-directory test
 	@BASE=$(BASE) PATCH_COVERAGE_ENFORCE=$(PATCH_COVERAGE_ENFORCE) \
+	    BRANCH_RATCHET_ENFORCE=$(BRANCH_RATCHET_ENFORCE) \
 	    sh "$(SRC_DIR)/tools/coverage_report.sh"
 	@echo "coverage: done; run ./configure && make clean && make to restore a normal build"
+
+# Regenerate tests/branch_baseline.json from the coverage.xml the last
+# `make coverage` produced. The baseline may only shrink, so this is for a
+# deliberate reduction: after tests start covering a file's branches, run
+# `PATCH_COVERAGE_ENFORCE=false make coverage BASE=origin/main` (the ratchet
+# would fail first) and then this target. Do not run it to silence a finding.
+coverage-branch-baseline:
+	@test -f coverage.xml || { \
+	    echo "coverage-branch-baseline: no coverage.xml; run 'make coverage' first"; \
+	    exit 2; \
+	 }
+	@python3 "$(SRC_DIR)/tools/coverage_gate.py" --report coverage.xml \
+	    --update-branch-baseline "$(SRC_DIR)/tests/branch_baseline.json"
 
 # Container parity for the analyzers that cannot be installed at CI's pin on the
 # host. `verify-container` runs the full local mirror inside the pinned image.

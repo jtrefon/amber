@@ -444,7 +444,12 @@ below, so nobody re-derives them:
   - the **patch** rule the docs actually state ("new code paths must have ≥80%
     line coverage") is `tools/coverage_gate.py`, which reads the Cobertura report
     and the diff and fails below 80% of *added* lines. It fails closed: no
-    report, no diff, or a report with no line data is an error, never a pass.
+    report, no diff, or a report with no line data is an error, never a pass;
+  - the **branch** rule: the same tool reads each line's `condition-coverage`
+    and holds added conditions in `lib/`, `tools/` and `plugins/` to 50%, while
+    `tests/branch_baseline.json` records each gated file's uncovered-branch
+    count and fails only when one grows (a file the baseline does not name
+    starts at zero).
 
   `fuzz/` is declared not-measured alongside `tests/`: the harnesses are test
   drivers, built by a separate libFuzzer invocation under sanitizers.
@@ -466,6 +471,33 @@ below, so nobody re-derives them:
   the report *entirely* was compiled but not measured, and that fails closed. And
   `tui/` is instrumented but only exercised by the pty/e2e harness, so new TUI code
   with no harness coverage will read 0% — which is the rule working, not a bug.
+
+  **Branches are gated because a covered line can hide every decision.** The
+  percentage and the ratchet catch different failures: the bar is a floor for a
+  mixed patch, while the ratchet catches one untested branch hidden by ten
+  covered ones. Only **decision lines** count: gcov reports constructor and
+  exception edges as "jump" branches, which no test can reach, so `gcovr
+  --exclude-throw-branches --exclude-unreachable-branches` drops what it can and
+  the gate classifies the source line (`if`/`for`/`while`/`switch`/`case`/`catch`,
+  `&&`/`||`/`?`, or a wrapped continuation). Without that, a new `std::string`
+  or JSON construction would fail a well-tested patch. TUI, `src/` and `bench/`
+  branches are printed per changed file but not enforced; the pty/e2e harness is
+  what exercises them, and its branch reach is not comparable to the unit
+  suite's in the core. The baseline is measured by the CI coverage job (gcovr
+  8.6, gcc 13.3 on ubuntu-24.04), and decision counts still move with the
+  compiler: raw branch counts shifted 88 of 211 files between GCC 13 and 15,
+  and the decision filter reduced but did not erase that (one header moved by 4
+  on the plugin worktree). The ratchet is therefore **CI-enforced and locally
+  reported** — `make coverage` passes `--branch-ratchet-report-only`,
+  `BRANCH_RATCHET_ENFORCE=true` reproduces the gate with the CI toolchain. The
+  comparison allows a measured per-file slack of 3 uncovered decisions: two
+  consecutive CI runs of the same commit moved `lib/dispatch.cpp` by 1 and
+  `tools/bash_tool.cpp` by 2 from timing-dependent tests. The patch bar is what
+  catches a single new untested branch; the ratchet catches a file that keeps
+  getting worse. After tests start covering a file's branches, run
+  `PATCH_COVERAGE_ENFORCE=false make coverage BASE=origin/main` (the ratchet
+  fails first) and then `make coverage-branch-baseline`, deliberately — never to
+  silence a finding.
 - **Nesting is gated, but not by lizard.** `make nesting` measures it from the
   source with `tools/cpp_source.py` instead, because lizard's `ND` field is
   `max_nesting_depth` and is **0 for every C++ function** (the gate prints the
