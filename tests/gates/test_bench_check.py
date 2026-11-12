@@ -148,6 +148,33 @@ class Loading(unittest.TestCase):
         self.assertEqual(saved["mode"], "hermetic")
         self.assertEqual(saved["scenarios"]["alpha"]["tool_calls"], 3)
 
+    def test_allow_can_come_from_the_environment(self):
+        """CI passes the reason through the environment, not a shell recipe:
+        the text is user-controlled and must never become shell syntax."""
+        report = self.write(report_of({"alpha": {"prompt_tokens": 120}}))
+        baseline = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        baseline.close()
+        bench.store(baseline.name, SCENARIOS)
+        old_allow = os.environ.get("BENCH_ALLOW")
+        os.environ["BENCH_ALLOW"] = "env reason"
+        import sys
+        old = sys.argv
+        sys.argv = ["bench_check.py", "--report", report, "--baseline", baseline.name]
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = bench.main()
+        finally:
+            sys.argv = old
+            if old_allow is None:
+                os.environ.pop("BENCH_ALLOW", None)
+            else:
+                os.environ["BENCH_ALLOW"] = old_allow
+            os.unlink(report)
+            os.unlink(baseline.name)
+        self.assertEqual(rc, 0)
+        self.assertIn("allowed by: env reason", out.getvalue())
+
     def test_a_live_report_is_refused(self):
         handle = self.write({"mode": "live", "scenarios": []})
         try:

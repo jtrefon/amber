@@ -129,6 +129,12 @@ JOBS = {
         "local": None,
         "local_reason": "gitleaks-action; install gitleaks locally to reproduce",
     },
+    "bench-efficiency": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make bench-check",
+    },
     "fuzz": {
         "dimension": "cpp",
         "events": ALL_EVENTS,

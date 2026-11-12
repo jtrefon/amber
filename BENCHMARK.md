@@ -197,6 +197,31 @@ The record carries the full new telemetry per scenario: `tool_details`
 34/34 probes, integrity 1.0 across 12 families. This is the regression
 gate: any harness change that dips a family below 1.0 is a red build.
 
+## Hermetic efficiency gate (CI)
+
+`make bench-check` runs the fake-LLM scenario set (`amber-bench run --cat model`)
+and compares every scenario with
+`bench/results/harness-efficiency-baseline.json`:
+
+- **prompt + completion tokens**: fail above +10%;
+- **executed tool calls**: fail above +10%;
+- **task success**: a scenario that passed in the baseline and fails now is a
+  regression;
+- **wall time**: reported, and failed above a 2x + 500 ms ceiling. Wall time is
+  machine- and load-dependent even with a fake LLM, so this is a pathology
+  ceiling, not a precise budget; tokens and calls are the real gate.
+
+The report is uploaded as the `bench-efficiency` CI artefact and the table is
+appended to the run page. A regression can be allowed for one PR with
+`bench-allow: <reason>` in the PR body; the baseline is not rewritten. After a
+reviewed harness change, `make bench-baseline` regenerates it — review the diff,
+because a token or call increase is a real change in what the harness sends.
+
+This measures harness overhead, not model quality: the fake LLM is
+deterministic. Live-model prompt evaluation stays manual (see the release gate
+above). Prompt-cache counters are not part of the hermetic gate because the fake
+LLM reports none; a live run exposes them in `/usage`.
+
 ## Baseline v4 (2026-08-12): first run with the loop-live axis
 
 First live run including the **`loop-live` suite** (6 scenarios measuring

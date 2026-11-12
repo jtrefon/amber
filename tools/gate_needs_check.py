@@ -68,6 +68,7 @@ ALL_JOBS = (
     "sanitizers",
     "tsan",
     "fuzz",
+    "bench-efficiency",
     "coverage",
     "website-build",
     "website-smoke",
@@ -77,7 +78,7 @@ ALL_JOBS = (
 # the four tuples are disjoint.
 CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "static-gates",
             "content-gates", "build-hygiene", "complexity", "duplicates",
-            "format-check", "sanitizers", "tsan", "fuzz", "coverage")
+            "format-check", "sanitizers", "tsan", "fuzz", "bench-efficiency", "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
 PR_ONLY_JOBS = ("dependency-review", "lint", "test-presence")
