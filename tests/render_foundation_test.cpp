@@ -11,6 +11,7 @@
 #include "tui/gallery.h"
 #include "tui/geometry.h"
 #include "tui/glyphs.h"
+#include "tui/pairs.h"
 #include "tui/surface.h"
 #include "tui/theme.h"
 #include "test_util.h"
@@ -316,6 +317,39 @@ TEST(gallery_keeps_its_cell_structure_across_palettes) {
             }
         }
     }
+}
+
+// The legacy pair ids still name the shell's chrome. A semantic role table is
+// only useful if it keeps the colours those ids promised: the bar is blue, the
+// gauge glint has a white core, and the verb's fade steps are distinct. The
+// first theme migration mapped several pairs to one role and this test is the
+// missing assertion that would have caught it.
+TEST(legacy_pairs_keep_the_bar_and_the_pulse_shades) {
+    const Theme amber = Theme::amber(tui::GlyphMode::Unicode);
+
+    const auto& banner = amber.style(tui::role_for_pair(tui::P_BANNER));
+    ASSERT(banner.bg == tui::Color::Blue);
+    ASSERT(banner.fg == tui::Color::White);
+
+    const auto& dialog = amber.style(tui::role_for_pair(tui::P_DIALOG));
+    ASSERT(dialog.bg == tui::Color::Blue);
+
+    const auto& brand = amber.style(tui::role_for_pair(tui::P_BRAND));
+    ASSERT(brand.bg == tui::Color::Blue);
+    ASSERT(brand.fg != banner.fg);
+
+    for (const int pair : {tui::P_GAUGE_OK, tui::P_GAUGE_WARN, tui::P_GAUGE_CRIT, tui::P_BAR_DIM,
+                           tui::P_GAUGE_OK_HI}) {
+        ASSERT(amber.style(tui::role_for_pair(pair)).bg == tui::Color::Blue);
+    }
+    ASSERT(amber.style(tui::role_for_pair(tui::P_GAUGE_OK_HI)).fg !=
+           amber.style(tui::role_for_pair(tui::P_GAUGE_OK)).fg);
+
+    const auto& mid = amber.style(tui::role_for_pair(tui::P_TEXT_SHINE_MID));
+    const auto& hi = amber.style(tui::role_for_pair(tui::P_TEXT_SHINE_HI));
+    const auto& base = amber.style(tui::role_for_pair(tui::P_STATUS));
+    ASSERT(mid.fg != hi.fg);
+    ASSERT(mid.fg != base.fg);
 }
 
 TEST(theme_palettes_are_semantic_and_monochrome_uses_attributes) {

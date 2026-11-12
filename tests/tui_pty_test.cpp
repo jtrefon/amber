@@ -659,6 +659,14 @@ std::string text_since(const Tui& tui, size_t mark) {
     return strip_ansi(tui.raw.substr(mark));
 }
 
+int count_of(const std::string& haystack, const std::string& needle) {
+    int count = 0;
+    for (std::size_t pos = 0; (pos = haystack.find(needle, pos)) != std::string::npos;
+         pos += needle.size())
+        ++count;
+    return count;
+}
+
 void assert_no_escape_tail(const std::string& delta, const std::string& tail) {
     if (delta.find(tail) == std::string::npos)
         return;
@@ -3367,6 +3375,39 @@ TEST(approval_in_a_background_window_names_its_session) {
     require(ran, "the approved command did not run", tui);
 }
 
+// The cursor belongs to the input line. A full frame repaint must not hide it
+// and let draw_input show it again: on a real terminal that resets the blink
+// timer, so the cursor blinks at the paint cadence instead of the user's rate.
+// Count the pty's visibility sequences across several animation frames.
+TEST(cursor_visibility_is_not_toggled_by_every_animation_frame) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    Tui tui;
+    tui.name = "cursor_visibility_is_not_toggled_by_every_animation_frame";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("queue probe\r");
+    tui.pump(200); // let the turn start and the working row appear
+    const std::size_t mark = tui.raw.size();
+    tui.pump(1500); // many full-frame draws at the 150 ms cadence
+    const std::string delta = tui.raw.substr(mark);
+    const int hides = count_of(delta, "\x1b[?25l");
+    const int shows = count_of(delta, "\x1b[?25h");
+    if (hides > 1 || shows > 1) {
+        std::cerr << "FAIL: cursor visibility toggled " << hides << " hide / " << shows
+                  << " show in 1.5 s\n";
+        failed++;
+    }
+    tui.send("\x03"); // cancel the delayed turn; the harness stops the app
+    tui.pump(200);
+}
+
 // A delegated worker inherits the parent's tools, so its gated bash must ask the
 // window that owns the worker, not fail with "no approver attached". The outer
 // task call is approved first; the child's dialog then names the worker.
@@ -4293,6 +4334,7 @@ int main(int argc, char** argv) {
     input_scroll_keeps_tail_visible();
     panel_view_cycles_and_returns_to_the_prompt();
     working_row_shows_the_narrated_intent();
+    cursor_visibility_is_not_toggled_by_every_animation_frame();
     approval_in_a_background_window_names_its_session();
     subagent_gated_tool_asks_its_owner_window();
     queued_prompts_are_echoed_counted_and_recalled();
