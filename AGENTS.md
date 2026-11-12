@@ -96,6 +96,15 @@ driven by an OpenAI-compatible LLM API.
   `clang-format`), which disagrees with 23.x *and* with 18.1.8 on braced-init
   and line-break placement — so a locally "clean" tree can fail CI. Match the
   runner (`pip install clang-format==18.1.3`) before reformatting.
+- **Plugin API source compatibility is gated** (`make api-check`, part of
+  `static-gates` and `verify-quick`). `tests/api_snapshot.txt` records every
+  public declaration of `plugin.h`, `plugin_core.h`, `plugin_capability.h`,
+  `extensions.h` and `events.h`; the gate fails when one disappears or changes
+  signature, while an addition passes (the policy is "additive changes are
+  allowed"). `tests/api/public_consumer.cpp` is compiled against only those
+  headers as a second oracle. ABI is not promised, and the snapshot is a
+  source-level check, not a proof over every template instantiation. Record a
+  reviewed additive change with `make api-snapshot-update` in the same PR.
 - `make nesting` is a **cliff** (`tools/nesting_gate.py`: control-flow nesting
   > 4 fails). It is separate from NLOC/CCN because a 20-line function can be
   unreadable at five levels of nesting while a 40-line straight-line function is
