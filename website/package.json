@@ -11,8 +11,8 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.3",
-    "astro": "^7.2.8",
-    "mermaid": "12.2.0"
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^7.4.8",
+    "mermaid": "12.3.0"
   }
 }
