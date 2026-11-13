@@ -1,0 +1,62 @@
+{
+  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling.",
+  "mode": "hermetic",
+  "scenarios": {
+    "d-01-two-area-survey": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 10
+    },
+    "f-01-redundant-call-elimination": {
+      "completion_tokens": 35,
+      "prompt_tokens": 235,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 51
+    },
+    "f-02-mistake-then-recover": {
+      "completion_tokens": 25,
+      "prompt_tokens": 180,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 30
+    },
+    "f-03-mid-stream-dropout": {
+      "completion_tokens": 15,
+      "prompt_tokens": 110,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 1222
+    },
+    "f-04-parallel-vs-sequential": {
+      "completion_tokens": 25,
+      "prompt_tokens": 120,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 30
+    },
+    "f-06-empty-reply-recovery": {
+      "completion_tokens": 15,
+      "prompt_tokens": 150,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 19
+    },
+    "f-07-tool-denied-grace": {
+      "completion_tokens": 25,
+      "prompt_tokens": 180,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 19
+    },
+    "k-01-compression-stress": {
+      "completion_tokens": 25,
+      "prompt_tokens": 9500,
+      "success": true,
+      "tool_calls": 4,
+      "wall_ms": 54
+    }
+  }
+}

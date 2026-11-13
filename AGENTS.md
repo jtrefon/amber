@@ -244,6 +244,16 @@ driven by an OpenAI-compatible LLM API.
   knowing: a seed *must* stay invalid UTF-8, and `git diff` then emits undecodable
   bytes, which crashed `coverage_gate.py` with `UnicodeDecodeError`. Git output is
   bytes, so both reads decode leniently now.
+- **Harness efficiency is gated hermetically** (`make bench-check`, CI job
+  `bench-efficiency`). The fake-LLM scenarios are compared per scenario with
+  `bench/results/harness-efficiency-baseline.json`: prompt + completion tokens
+  and executed tool calls fail above +10%, a scenario that passed and now fails
+  is a regression, and wall time has a 2x + 500 ms pathology ceiling (it is
+  machine-dependent even with a fake LLM). A line starting with `bench-allow: <reason>` in
+  the PR body turns a regression into a reported override without rewriting the
+  baseline. This measures harness overhead, not model quality; live prompt
+  evaluation stays manual. `make bench-baseline` regenerates the baseline after
+  a reviewed change.
 - CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
   job (data races: the UI thread, per-window agent workers, the tool-dispatch
   hop and the detached catalog/plugin workers all share state, and ASan+UBSan

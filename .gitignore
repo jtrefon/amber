@@ -23,6 +23,7 @@ __pycache__/
 amber
 amber-cli
 amber-bench
+bench-efficiency.json
 run_tests
 run_tests_dbg
 command_line_test

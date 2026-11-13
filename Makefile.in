@@ -414,7 +414,8 @@ BENCH_BIN = amber-bench
 NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
-.PHONY: all lib cli tui bench bench-reap bench-reap-apply check smoketest test doctor \
+.PHONY: all lib cli tui bench bench-check bench-baseline bench-reap bench-reap-apply \
+        check smoketest test doctor \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update \
@@ -1126,6 +1127,7 @@ verify-quick:
 verify: verify-quick smoketest
 	@echo "verify: build, test and independent analysis (CI parity)"
 	@$(MAKE) --no-print-directory test WERROR=1
+	@$(MAKE) --no-print-directory bench-check
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory analyze
 	@echo "verify: clean"
@@ -1247,6 +1249,24 @@ $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 bench: $(BUILD_DIR)/$(BENCH_BIN)
+
+# The hermetic efficiency gate: tokens, tool calls, success and a wall-time
+# ceiling against the committed baseline. The fake LLM makes tokens and calls
+# deterministic, so a change here is harness overhead, not a model's mood.
+BENCH_REPORT ?= bench-efficiency.json
+BENCH_ALLOW ?=
+BENCH_MARKDOWN ?=
+bench-check: $(BUILD_DIR)/$(BENCH_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) run --cat model --format json --out $(BENCH_REPORT)
+	@BENCH_ALLOW="$${BENCH_ALLOW:-}" BENCH_MARKDOWN="$${BENCH_MARKDOWN:-}" \
+	    python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" \
+	    --baseline "$(SRC_DIR)/bench/results/harness-efficiency-baseline.json"
+
+# Regenerate the committed baseline after a reviewed harness change. Review the
+# diff: a token or call increase is a real change in what the harness sends.
+bench-baseline: $(BUILD_DIR)/$(BENCH_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) run --cat model --format json --out $(BENCH_REPORT)
+	@python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" --update
 
 # Old hermetic scenario state (pre-fix tmp-amber-bench-ws-* project dirs).
 # Dry run by default; the apply target says what it does.
