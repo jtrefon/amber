@@ -244,6 +244,16 @@ driven by an OpenAI-compatible LLM API.
   knowing: a seed *must* stay invalid UTF-8, and `git diff` then emits undecodable
   bytes, which crashed `coverage_gate.py` with `UnicodeDecodeError`. Git output is
   bytes, so both reads decode leniently now.
+- **Mutation testing is advisory, not a gate.** `make mutation-check`
+  (`.github/workflows/mutation.yml`, nightly and dispatch) installs Mull 0.38.0,
+  mutates only the changed lines in `lib/`, `plugins/` and `tools/`, and runs
+  the unit suite once per mutant, reporting the score and survivors. It is not
+  in `ci-gate`: the suite is one test binary, the score moves with test
+  selection (measured 37% vs 91% on one module), and timeout classification
+  moves by one or two between identical runs. It is also destructive (an `-O0`
+  clang + Mull rebuild, like `make coverage`). The measurement, the two boundary
+  gaps it found, and the conditions for ratcheting are in
+  `docs/plan/mutation-testing-spike.md`.
 - **Harness efficiency is gated hermetically** (`make bench-check`, CI job
   `bench-efficiency`). The fake-LLM scenarios are compared per scenario with
   `bench/results/harness-efficiency-baseline.json`: prompt + completion tokens

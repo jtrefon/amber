@@ -57,7 +57,7 @@ quality, and the residual risk is concentrated in:
 | #574 | P1 | Actions pinned by tags; no SBOM/reproducibility check | SHA pins, SBOM, double-build compare |
 | #575 | P1 | Plugin source compatibility is policy only | `make api-check` with a snapshot |
 | #576 | P1 | Tokens/latency/tool calls have no baseline | Hermetic regression gate |
-| #577 | P2 | No product-code mutation testing | Measured spike, then adopt or reject |
+| #577 | P2 | No product-code mutation testing | Spike measured; advisory nightly, not a gate (`docs/plan/mutation-testing-spike.md`) |
 | #578 | P1 | PRs opened before completion overload review | One PR per finished feature/bug, manual E2E, review mechanism |
 
 ## 5. Execution order
@@ -130,3 +130,8 @@ in the body (see AGENTS.md, Development workflow).
   budget, `make flake-lint` requires a reason for upper bounds under 15 s,
   `make test-repeat` and `flake-repeat.yml` repeat the plugin/pty subset, and
   `tests/flake_quarantine.json` is the explicit skip list.
+- 2026-11-13: #577 mutation spike measured on `plugins/cache`: 69 mutants, 63
+  killed, 6 timed out, 0 survived; the two boundary gaps it found are fixed.
+  Adopted as an advisory nightly (`mutation.yml`, `make mutation-check`), not a
+  gate: the suite is one test binary, the score moves with test selection, and
+  an equivalent mutant needs an allowlist. Revisit with per-test coverage.

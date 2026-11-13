@@ -56,6 +56,26 @@ TEST(cache_reuse_calls_metric_is_a_hit_rate) {
     ASSERT_EQ(r.input_tokens, 300L);
 }
 
+TEST(cache_reuse_call_hit_sub_one_stops_at_the_one_percent_boundary) {
+    // 1 hit in 100 calls is exactly one percent: `call_hit_sub_one` is the
+    // "below one percent" flag, so this is the boundary the floor still shows
+    // as 1%. 1 hit in 101 calls is below it. A mutation of the comparison to
+    // `<=` would flag the exact 1% case and read as a decreasing number.
+    CacheWindow window;
+    for (int i = 0; i < 100; ++i)
+        window.record({at(i), 10, i == 0 ? 1 : 0, 0, "model", "provider", ""}, 100);
+    const Readout exact = window.view(at(100), Metric::Calls, 100, kTtl);
+    ASSERT_EQ(exact.hit_calls, 1);
+    ASSERT_EQ(exact.call_hit_percent, 1);
+    ASSERT_EQ(exact.call_hit_sub_one, false);
+
+    window.record({at(100), 10, 0, 0, "model", "provider", ""}, 101);
+    const Readout below = window.view(at(101), Metric::Calls, 101, kTtl);
+    ASSERT_EQ(below.hit_calls, 1);
+    ASSERT_EQ(below.call_hit_percent, 0);
+    ASSERT_EQ(below.call_hit_sub_one, true);
+}
+
 TEST(cache_reuse_floors_and_never_fakes_a_full_window) {
     CacheWindow window;
     window.record({at(0), 1000, 3, 0, "model", "provider", ""}, 8);
@@ -244,6 +264,13 @@ TEST(cache_text_state_messages) {
     ASSERT_EQ(state_text(readout, Metric::Tokens, "5m"),
               std::string("cache cold · prompt below the " + std::to_string(minimum) +
                           "-token minimum for claude-sonnet-4"));
+
+    // Exactly at the minimum is a cacheable prompt, not a below-minimum one.
+    // The `<` here is load-bearing: `<=` would call the exact boundary a miss
+    // and print a cold bar for a request the provider can cache.
+    readout.input_tokens = minimum;
+    ASSERT_EQ(state_text(readout, Metric::Tokens, "5m").find("below the"), std::string::npos);
+    ASSERT_EQ(bar_text(readout), std::string("  cache 0%"));
 }
 
 TEST(cache_text_reuse_detail_carries_every_field) {

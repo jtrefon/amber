@@ -98,3 +98,8 @@ coverage-core.json
 # AGENTS.md warns that their binaries and test results are not this project).
 /w/
 /.wt/
+
+# Advisory mutation testing artefacts (tools/mutation_check.sh).
+.mutation-mull.yml
+mutation.sqlite
+mutation.md
