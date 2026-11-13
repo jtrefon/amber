@@ -423,7 +423,8 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
         class-size class-size-update \
-        analyze duplicates complexity format-check format-check-changed clean install uninstall
+        analyze duplicates complexity format-check format-check-changed \
+        mutation-check mutation-report clean install uninstall
 
 # `make` builds everything. Stated explicitly so a target declared above `all`
 # (the lint recipes are) cannot quietly become the default goal: when that
@@ -1183,6 +1184,19 @@ coverage-branch-baseline:
 	 }
 	@python3 "$(SRC_DIR)/tools/coverage_gate.py" --report coverage.xml \
 	    --update-branch-baseline "$(SRC_DIR)/tests/branch_baseline.json"
+
+# Advisory mutation testing on the production lines a branch changed. Not a
+# gate and not part of check/verify: Mull runs the test program once per mutant,
+# and the score changes with test selection, so it reports rather than blocks.
+# Destructive: the script reconfigures an -O0 clang + Mull build (like
+# `make coverage`). The nightly job is .github/workflows/mutation.yml; the
+# measurement and the decision are in docs/plan/mutation-testing-spike.md.
+MUTATION_REPORT ?= mutation.sqlite
+mutation-check:
+	@sh "$(SRC_DIR)/tools/mutation_check.sh"
+
+mutation-report:
+	@python3 "$(SRC_DIR)/tools/mutation_report.py" --report "$(MUTATION_REPORT)"
 
 # Container parity for the analyzers that cannot be installed at CI's pin on the
 # host. `verify-container` runs the full local mirror inside the pinned image.
