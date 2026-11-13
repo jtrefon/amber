@@ -31,6 +31,14 @@ PUSH_OR_DISPATCH = ("push", "workflow_dispatch")
 JOBS = {
     # The change detector. `ci-gate` checks it explicitly, so it is not
     # aggregated into itself.
+    "pr-readiness": {
+        "dimension": "always",
+        "events": PR_ONLY,
+        "gating": True,
+        "local": None,
+        "local_reason": "GitHub PR metadata (draft, body, labels); run "
+                        "`python3 tools/pr_readiness.py --event <event.json>`",
+    },
     "changes": {
         "dimension": "always",
         "events": ALL_EVENTS,

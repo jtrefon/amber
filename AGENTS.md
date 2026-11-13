@@ -1000,6 +1000,13 @@ you scan later: `<area>: <imperative summary>`, one area per commit. The
   fast local loop; do not wait hours to learn whether one commit is fine.
 - **One proposal, one sign-off, one review** per feature/bug. The proposal is
   the `docs/plan/` entry or the issue description; do not re-propose per task.
+- **A PR is a review request, not a progress board.** `pr-readiness`
+  (`tools/pr_readiness.py`, CI job `pr-readiness`) rejects a draft, a body with
+  no populated `## ...verification...` section, and a PR labelled `feature`,
+  `bug`, `security` or `ci` without `review:approved`. Unlabelled and
+  docs/dependency PRs are gate-only. The label records the maintainer's review;
+  the check cannot judge whether the evidence is good or whether the PR is one
+  feature.
 - **Squash-merge once**, when every issue the feature/bug closes is green and
   the PR's gates pass. `main` stays linear; one revert undoes one change.
 - **Exceptions are about landing risk, not task size.** A security fix, a
