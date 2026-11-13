@@ -1015,7 +1015,8 @@ you scan later: `<area>: <imperative summary>`, one area per commit. The
   (`tools/pr_readiness.py`, CI job `pr-readiness`) rejects a draft, a body with
   no populated `## ...verification...` section, and a PR labelled `feature`,
   `bug`, `security` or `ci` without `review:approved`. Unlabelled and
-  docs/dependency PRs are gate-only. The label records the maintainer's review;
+  docs/dependency PRs (including Dependabot's) are gate-only. The label records
+  the maintainer's review;
   the check cannot judge whether the evidence is good or whether the PR is one
   feature.
 - **Squash-merge once**, when every issue the feature/bug closes is green and

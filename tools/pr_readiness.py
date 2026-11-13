@@ -66,6 +66,14 @@ def has_evidence(body):
     return False
 
 
+def is_dependency_pr(event):
+    """Dependabot/dependency PRs are gate-only: they have no manual E2E to
+    record and no feature to review, and the dependency gates are their test."""
+    pull = event.get("pull_request") or {}
+    author = (pull.get("user") or {}).get("login", "")
+    return author == "dependabot[bot]" or "dependencies" in labels(event)
+
+
 def labels(event):
     result = set()
     for label in (event.get("pull_request") or {}).get("labels") or []:
@@ -83,6 +91,8 @@ def check(event):
     pull = event.get("pull_request") or {}
     if pull.get("draft"):
         return 1, "the PR is a draft; open it when the feature/bug is complete"
+    if is_dependency_pr(event):
+        return 0, "dependency PR; gate-only"
     if not has_evidence(pull.get("body") or ""):
         return 1, ("the PR body has no verification evidence; add a populated "
                    "'## Manual end-to-end verification' or '## Verification' "
