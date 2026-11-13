@@ -48,7 +48,7 @@ runs:
     - name: Restore apt package cache (Linux)
       if: runner.os == 'Linux'
       id: apt-cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.temp }}/amber-apt
         key: ${{ steps.apt-cache-key.outputs.key }}
@@ -79,7 +79,7 @@ runs:
       # A cache save race with another job is a warning, never a job failure:
       # the cache is an optimization, not a gate.
       continue-on-error: true
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ${{ runner.temp }}/amber-apt
         key: ${{ steps.apt-cache-key.outputs.key }}

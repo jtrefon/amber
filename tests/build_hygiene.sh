@@ -393,7 +393,7 @@ else
 fi
 for t in format-check-changed lint-changed test-presence class-size nesting debt \
          detach prompt-lint flake-lint hygiene hygiene-self-contained ncurses complexity duplicates \
-         obfuscation api-check gates-test library-check ci-manifest; do
+         obfuscation api-check action-pins gates-test library-check ci-manifest; do
     if echo "$verify_out" | grep -q -- "$t"; then
         ok "P15: verify-quick runs $t"
     else
