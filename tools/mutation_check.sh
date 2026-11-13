@@ -18,7 +18,8 @@
 #   MUTATION_BASE        base ref (default origin/main; HEAD for the working tree)
 #   MUTATION_JOBS        build parallelism (default: nproc)
 #   MUTATION_WORKERS     mutant parallelism (default: MUTATION_JOBS)
-#   MUTATION_TIMEOUT_MS  per-mutant timeout (default 30000)
+#   MUTATION_TIMEOUT_MS  baseline/per-mutant budget (default 900000: the
+#                        full unit suite is ~3 min, so 30 s would kill it)
 #   MUTATION_TEST_ARGS   optional run_tests filter, for iterating on one module
 #   MUTATION_REQUIRE_MUTANTS  1 fails when the diff produced no mutants
 #   MUTATION_REPORT      SQLite path (default mutation.sqlite)
@@ -32,7 +33,7 @@ root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 base=${MUTATION_BASE:-origin/main}
 jobs=${MUTATION_JOBS:-$(nproc)}
 workers=${MUTATION_WORKERS:-$jobs}
-timeout_ms=${MUTATION_TIMEOUT_MS:-30000}
+timeout_ms=${MUTATION_TIMEOUT_MS:-900000}
 report=${MUTATION_REPORT:-$root/mutation.sqlite}
 markdown=${MUTATION_MARKDOWN:-$root/mutation.md}
 cxx=${CXX:-clang++}
@@ -55,7 +56,8 @@ git -C "$root" rev-parse --verify "$base^{commit}" >/dev/null 2>&1 ||
     fail "base '$base' is not a commit (a shallow clone has no merge-base)"
 diff_ref=$(git -C "$root" merge-base "$base" HEAD) ||
     fail "cannot find the merge-base of '$base' and HEAD"
-changed=$(git -C "$root" diff --name-only "$diff_ref" -- lib plugins tools)
+changed=$(git -C "$root" diff --name-only "$diff_ref" -- lib plugins tools |
+    grep -E '\.cpp$' || true)
 require=""
 [ "${MUTATION_REQUIRE_MUTANTS:-0}" = "1" ] && require="--require-mutants"
 
