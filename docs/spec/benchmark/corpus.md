@@ -1,7 +1,8 @@
 # Spec: Benchmark Corpus (scenario taxonomy)
 
 Status: **Full-scope proposal — awaiting approval**
-Companion: `benchmark/kpi-framework.md` (harness), `benchmark/kpi-catalog.md` (KPIs).
+Companion: `benchmark/kpi-framework.md` (harness), `benchmark/kpi-catalog.md`
+(KPIs), `benchmark/hermetic-corpus.md` (hermetic corpus and publishing).
 
 Every scenario is a declarative JSON + optional static-template dir, scored by
 the harness — **no human judgment at scoring time**. Scenarios start a few per
@@ -13,11 +14,13 @@ model-library strategy.
 
 ## Suites
 
-15 suites: agent-failures, coding, compression, delegate, prompt, refactor,
-repo, terminal, tools (engine/terminal/SD dimensions) plus the six review-*
-suites (quality perception: arch, refactor, quality, datastructures, patterns,
-clean). 48 scenarios total at the time of writing; the review suites are
-phased (Phase A = 2 per category, Phase B target = 5 per category).
+18 suites: agent-failures, coding, compression, delegate, headroom, loop-live,
+prompt, refactor, repo, shaping, terminal, tools plus the six review-* suites
+(quality perception: arch, refactor, quality, datastructures, patterns, clean).
+58 scenarios total at the time of writing, 8 hermetic and 50 live-only; the
+review suites are phased (Phase A = 2 per category, Phase B target = 5 per
+category). The hermetic corpus and its publishing contract are specified in
+`benchmark/hermetic-corpus.md`.
 
 ## Suites
 

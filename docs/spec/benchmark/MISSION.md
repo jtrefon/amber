@@ -10,7 +10,8 @@ degrading.
 
 Companion specs: `benchmark/kpi-framework.md` (harness architecture),
 `benchmark/kpi-catalog.md` (measurable indicators), `benchmark/corpus.md`
-(scenario taxonomy).
+(scenario taxonomy), `benchmark/hermetic-corpus.md` (hermetic corpus and
+publishing).
 
 ---
 
