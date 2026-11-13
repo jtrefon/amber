@@ -14,13 +14,14 @@ model-library strategy.
 
 ## Suites
 
-18 suites: agent-failures, coding, compression, delegate, headroom, loop-live,
-prompt, refactor, repo, shaping, terminal, tools plus the six review-* suites
-(quality perception: arch, refactor, quality, datastructures, patterns, clean).
-58 scenarios total at the time of writing, 8 hermetic and 50 live-only; the
-review suites are phased (Phase A = 2 per category, Phase B target = 5 per
-category). The hermetic corpus and its publishing contract are specified in
-`benchmark/hermetic-corpus.md`.
+18 scenario suites on disk: agent-failures, coding, compression, delegate,
+headroom, loop-live, prompt, refactor, repo, shaping, terminal, tools plus the
+six review-* suites (quality perception: arch, refactor, quality,
+datastructures, patterns, clean). 58 scenarios total at the time of writing, 8
+hermetic and 50 live-only; the review suites are phased (Phase A = 2 per
+category, Phase B target = 5 per category). `skills` and `mcp` remain planned
+suites with no scenarios yet. The hermetic corpus and its publishing contract
+are specified in `benchmark/hermetic-corpus.md`.
 
 ## Suites
 
