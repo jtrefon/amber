@@ -18,6 +18,10 @@ on:
         description: Base ref to diff against
         required: false
         default: origin/main
+  # Opt-in on a pull request: label it `mutation`. The job is not required by
+  # `ci-gate`, so a low score or a long run cannot block the merge.
+  pull_request:
+    types: [labeled]
 
 permissions:
   contents: read
@@ -28,6 +32,7 @@ concurrency:
 
 jobs:
   mutation:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'mutation'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -62,6 +67,8 @@ jobs:
         run: |
           if [ -n "${{ inputs.base }}" ]; then
             base="${{ inputs.base }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
           else
             base="$(git rev-list -1 --before='24 hours ago' HEAD)"
             [ -n "$base" ] || base="origin/main"
