@@ -41,8 +41,8 @@
     },
     "lib/dispatch.cpp": {
       "agent::dispatch_tool_calls": {
-        "ccn": 7,
-        "nloc": 30,
+        "ccn": 3,
+        "nloc": 20,
         "param": 9
       },
       "agent::prepare_call": {
