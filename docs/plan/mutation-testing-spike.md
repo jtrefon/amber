@@ -79,10 +79,16 @@ as a kill or vice versa), which is another reason not to ratchet yet.
 - `make mutation-check` is the same recipe locally. It is destructive (an `-O0`
   clang + Mull rebuild, like `make coverage`); `make mutation-report` summarises
   an existing SQLite report.
-- `tools/mutation_check.sh` mutates only the changed lines in `lib/`,
+- `tools/mutation_check.sh` mutates only the changed C++ lines in `lib/`,
   `plugins/` and `tools/` (`gitDiffRef` + `gitDiffPaths`), so a typical nightly
-  diff is a handful of mutants. The job publishes the score, the survivor list
-  and the SQLite report; it never fails on a low score.
+  diff is a handful of mutants. A diff with no mutable C++ lines (a test, a
+  script, a comment) reports 0 mutants and passes; `MUTATION_REQUIRE_MUTANTS=1`
+  is the switch a later ratchet would use. The job publishes the score, the
+  survivor list and the SQLite report; it never fails on a low score.
+- The per-mutant budget defaults to 15 minutes because the full unit suite is
+  ~3 minutes and the warm-up run uses the same budget. A 30-second value sounds
+  right for a one-module run and kills the full suite's warm-up — measured on
+  the first dispatch.
 - The workflow installs Mull 0.38.0 from its release, pinned by SHA-256, and
   uses the runner's clang 18 with the matching `mull-ir-frontend-18` plugin.
 
