@@ -8,3 +8,14 @@ updates:
       actions:
         patterns:
           - '*'
+
+  # The website is the only npm tree in the repository. It is a static docs
+  # build, so a monthly window is enough; routine upgrades land together.
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: monthly
+    groups:
+      website:
+        patterns:
+          - '*'

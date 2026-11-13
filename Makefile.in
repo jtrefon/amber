@@ -418,7 +418,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         check smoketest test doctor \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
-        prompt-lint test-presence commit-lint api-check api-snapshot-update \
+        prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
         release-check \
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
@@ -1051,6 +1051,7 @@ static-gates:
 	@$(MAKE) --no-print-directory duplicates
 	@python3 "$(SRC_DIR)/tools/obfuscation_guard.py"
 	@$(MAKE) --no-print-directory api-check
+	@$(MAKE) --no-print-directory action-pins
 	@$(MAKE) --no-print-directory gates-test
 
 # Source compatibility for the promised 1.0 plugin API. `tests/api_snapshot.txt`
@@ -1070,6 +1071,12 @@ api-check:
 # gate, so this is mainly how a new declaration joins the recorded surface.
 api-snapshot-update:
 	@python3 "$(SRC_DIR)/tools/api_snapshot.py" --update
+
+# Supply chain: every external action in .github must be a 40-character commit
+# SHA with its tag in a trailing comment. A mutable tag would let a release run
+# whatever that tag points at today.
+action-pins:
+	@python3 "$(SRC_DIR)/tools/action_pins.py"
 
 # Prompt-library entries carry executable claims; a stale one is knowledge that
 # no longer works. Kept out of static-gates because the blocks compile code.
@@ -1116,6 +1123,7 @@ verify-quick:
 	@$(MAKE) --no-print-directory duplicates
 	@$(MAKE) --no-print-directory obfuscation
 	@$(MAKE) --no-print-directory api-check
+	@$(MAKE) --no-print-directory action-pins
 	@$(MAKE) --no-print-directory gates-test
 	@$(MAKE) --no-print-directory library-check
 	@echo "verify-quick: clean"

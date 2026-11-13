@@ -35,7 +35,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # A dispatch builds the TAG's sources with the selected branch's
           # workflow; a tag push checks out the tag it fired on. Full history
@@ -133,9 +133,33 @@ jobs:
           version="${{ steps.ver.outputs.version }}"
           name="amber-${version}-linux-x86_64"
           mkdir -p dist
-          tar -C stage -czf "dist/${name}.tar.gz" .
+          # Deterministic archive: name order, a fixed mtime/owner, and gzip
+          # without its own timestamp. The same stage packed twice must match;
+          # a drift in this step is a release-packaging bug, not a compiler
+          # difference.
+          epoch="$(git log -1 --format=%ct)"
+          pack() {
+            tar --sort=name --mtime="@${epoch}" --owner=0 --group=0 --numeric-owner \
+                -C stage -cf - . | gzip -n -9 > "$1"
+          }
+          pack dist/repro-a.tar.gz
+          pack dist/repro-b.tar.gz
+          cmp dist/repro-a.tar.gz dist/repro-b.tar.gz
+          mv dist/repro-a.tar.gz "dist/${name}.tar.gz"
+          rm -f dist/repro-b.tar.gz
           ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
           echo "tarball=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: dist/${{ steps.tar.outputs.name }}.tar.gz
+          format: spdx-json
+          output-file: dist/${{ steps.tar.outputs.name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
 
       - name: Install smoke (installed tree, empty CWD)
         run: |
@@ -182,25 +206,24 @@ jobs:
           PKG_CONFIG_PATH=/usr/lib/pkgconfig pkg-config --cflags --libs amber-agent
 
       - name: Download macOS tarball (arm64)
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: amber-macos-tarball-arm64
           path: dist
 
       - name: Attest release artifacts
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
         with:
           subject-path: dist/*
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
-
+        uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
       - name: Sign release artifacts
         run: |
           shopt -s nullglob
           for file in dist/*; do
             case "$file" in
-              *.sha256|*.tar.gz|*.sig|*.pem) ;;
+              *.sha256|*.tar.gz|*.spdx.json|*.sig|*.pem) ;;
               *) continue ;;
             esac
             cosign sign-blob --yes \
@@ -210,7 +233,7 @@ jobs:
           done
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3
         with:
           tag_name: ${{ steps.ver.outputs.tag }}
           name: ${{ steps.ver.outputs.tag }}
@@ -221,6 +244,7 @@ jobs:
           # place their signatures and indexes are produced.
           files: |
             dist/*.tar.gz
+            dist/*.spdx.json
             dist/*.sig
             dist/*.pem
             dist/*.sha256
@@ -236,7 +260,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
@@ -289,17 +313,43 @@ jobs:
           test -n "$(find stage -path '*/share/amber-bench/scenarios/*/*.json' -print -quit)"
 
       - name: Build tarball + checksum
+        id: tar
         run: |
           version="${{ steps.ver.outputs.version }}"
           arch="$(uname -m)"
           name="amber-${version}-darwin-${arch}"
           mkdir -p dist
-          tar -C stage -czf "dist/${name}.tar.gz" .
+          # bsdtar has no GNU --mtime, so the mtimes and names come from the
+          # stage. The same stage packed twice must still match; the archive is
+          # normalized only for ownership. A full cross-build comparison is
+          # documented as not yet byte-reproducible on macOS.
+          pack() {
+            tar -C stage --uid 0 --gid 0 -cf - . | gzip -n -9 > "$1"
+          }
+          pack dist/repro-a.tar.gz
+          pack dist/repro-b.tar.gz
+          cmp dist/repro-a.tar.gz dist/repro-b.tar.gz
+          mv dist/repro-a.tar.gz "dist/${name}.tar.gz"
+          rm -f dist/repro-b.tar.gz
           ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          echo "tarball=dist/${name}.tar.gz" >> "$GITHUB_OUTPUT"
 
-      - name: Upload macOS tarball
-        uses: actions/upload-artifact@v7
+      - name: Generate SBOM (SPDX)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: dist/${{ steps.tar.outputs.name }}.tar.gz
+          format: spdx-json
+          output-file: dist/${{ steps.tar.outputs.name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+          dependency-snapshot: false
+
+      - name: Upload macOS tarball and SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: amber-macos-tarball-arm64
-          path: dist/*.tar.gz*
+          path: |
+            dist/*.tar.gz*
+            dist/*.spdx.json
           retention-days: 7

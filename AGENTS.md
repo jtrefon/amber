@@ -865,6 +865,17 @@ bug came back after it had been fixed in the context layer.
   commit -- `release.yml` used to overwrite the version and published a GitHub
   release, `packages.yml` refused the tag, and the apt/dnf repositories stayed
   on 0.8.2 while `amber update` reported "already newest".
+- **Actions are pinned by commit SHA**, with the tag in a trailing comment
+  (`uses: actions/checkout@<sha> # v7`); `make action-pins` (part of
+  `static-gates`) fails a mutable tag and also scans the composite
+  `install-deps` action. Dependabot owns the pins (weekly, grouped) and the
+  website's npm tree (monthly, grouped).
+- **Release artefacts carry an SBOM and a reproducibility check.** Syft emits an
+  SPDX SBOM for each tarball next to the signed assets; the Linux tarball is
+  packed deterministically (name order, fixed mtime/owner, `gzip -n`) and packed
+  twice with `cmp` before publishing. macOS packs the same stage twice with
+  `cmp`, but bsdtar has no `--mtime`, so a cross-build byte comparison there is
+  a documented gap rather than a promise.
 - **A tag publishes unattended.** The `release` environment holds the archive
   signing key and is scoped by branch policy to `main` and `v*` tags, with no
   reviewer gate: the tag is the decision, so `sign-rpm`, `publish`, `verify`

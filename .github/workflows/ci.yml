@@ -36,7 +36,7 @@ jobs:
     timeout-minutes: 5
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Check PR readiness
         run: python3 tools/pr_readiness.py --event "$GITHUB_EVENT_PATH"
 
@@ -47,7 +47,7 @@ jobs:
       cpp: ${{ steps.filter.outputs.cpp }}
       website: ${{ steps.filter.outputs.website }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       # tools/changed_paths.sh carries its own self-test, run by the check gate. The
@@ -75,9 +75,9 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Review dependency changes
-        uses: actions/dependency-review-action@v5
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
 
@@ -109,7 +109,7 @@ jobs:
     timeout-minutes: 60
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/install-deps
@@ -142,7 +142,7 @@ jobs:
     if: github.event_name == 'pull_request'
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Commit subjects and red-test signal
@@ -159,7 +159,7 @@ jobs:
     timeout-minutes: 5
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Production change has a test change
@@ -183,10 +183,10 @@ jobs:
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
-      - uses: mamba-org/setup-micromamba@v3
+      - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
         with:
           micromamba-version: 2.8.1-0
           environment-name: cppcheck
@@ -197,7 +197,7 @@ jobs:
       # takes the job from ~25 min to a couple of minutes. restore-keys falls
       # back to the newest cache when sources changed, which is the point.
       - name: Cache cppcheck analysis
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: /tmp/cppcheck_amber
           key: cppcheck-2.22.0-${{ hashFiles('**/*.cpp', '**/*.h', 'cppcheck_suppressions.txt') }}
@@ -224,7 +224,7 @@ jobs:
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
         with:
           cpp_toolchain: 'false'
@@ -243,7 +243,7 @@ jobs:
       # The gate report is the reviewable artefact: one table with every gate's
       # verdict, downloadable from the run page or with `gh run download`.
       - name: Upload gate report (artefact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: gate-report
           path: artifacts/
@@ -262,7 +262,7 @@ jobs:
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure
@@ -283,7 +283,7 @@ jobs:
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure
@@ -302,8 +302,7 @@ jobs:
     timeout-minutes: 15
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Duplicate detection
         # No configure/install-deps needed: the detector is pure python3.
         run: python3 tools/duplicate_detector.py --min-lines=6 lib tools tui tests src
@@ -319,7 +318,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Scan tracked files for obfuscated payloads
         run: python3 tools/obfuscation_guard.py
 
@@ -337,7 +336,7 @@ jobs:
     timeout-minutes: 20
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
         with:
           cpp_toolchain: 'false'
@@ -371,7 +370,7 @@ jobs:
     timeout-minutes: 50
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: ./.github/actions/install-deps
@@ -403,7 +402,7 @@ jobs:
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure (ASan + UBSan)
@@ -434,7 +433,7 @@ jobs:
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure (TSan)
@@ -486,11 +485,11 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - name: Scan tracked files for committed secrets
-        uses: gitleaks/gitleaks-action@v3
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
           GITLEAKS_ENABLE_COMMENTS: "false"
@@ -525,7 +524,7 @@ jobs:
     timeout-minutes: 60
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure
@@ -538,7 +537,7 @@ jobs:
 
       - name: Fuzz corpora (artefact)
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: fuzz-corpus
           path: .fuzz-build/corpus
@@ -557,7 +556,7 @@ jobs:
     timeout-minutes: 20
     if: needs.changes.outputs.cpp == 'true'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure
@@ -584,7 +583,7 @@ jobs:
 
       - name: Upload the report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: bench-efficiency
           path: bench-efficiency.json
@@ -599,7 +598,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The patch-coverage gate diffs against the base commit, so the history
           # has to be present. Depth 0 is the reliable way to get it.
@@ -661,7 +660,7 @@ jobs:
       # GitHub's equivalent of an ADO build artefact: attached to the run, listed
       # on the run page, downloadable with `gh run download <run-id>`.
       - name: Upload coverage report (artefact)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-report
           path: |
@@ -676,7 +675,7 @@ jobs:
       # makes this work; until then the gates above are the source of truth, so
       # this step must not be mistaken for one.
       - name: Upload to Codecov (best-effort, see comment)
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7
         continue-on-error: true
         with:
           files: coverage.xml
@@ -702,13 +701,13 @@ jobs:
       # A warning fails the build: the tree is at zero and stays there.
       WERROR: 1
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
         with:
           extra: ccache tmux
 
       - name: Cache ccache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.ccache
           key: ccache-${{ matrix.cxx }}-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
@@ -737,11 +736,11 @@ jobs:
       # Same gate as the Linux matrix: a warning fails this job too.
       WERROR: 1
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Cache ccache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/Library/Caches/ccache
           key: ccache-macos-${{ hashFiles('**/*.cpp', '**/*.h', 'Makefile.in', 'configure') }}
@@ -794,7 +793,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
         with:
           extra: ruby ruby-dev
@@ -839,14 +838,14 @@ jobs:
           ( cd dist && sha256sum "amber_${version}_amd64.deb" > "amber_${version}_amd64.deb.sha256" )
 
       - name: Upload tarball
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: amber-linux-tarball
           path: dist/*.tar.gz*
           retention-days: 7
 
       - name: Upload .deb
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: amber-linux-deb
           path: dist/*.deb*
@@ -868,7 +867,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
 
       - name: Configure
@@ -896,7 +895,7 @@ jobs:
           ( cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256" )
 
       - name: Upload tarball
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: amber-macos-tarball
           path: dist/*.tar.gz*
@@ -912,10 +911,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22.23.4
           cache: npm
@@ -935,7 +933,7 @@ jobs:
         run: cd website && npm run build
 
       - name: Upload dist for smoke checks
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: website-dist
           path: website/dist
@@ -943,7 +941,7 @@ jobs:
 
       - name: Upload dist artifact (for deploy)
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
           path: website/dist
 
@@ -957,11 +955,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22.23.4
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: website-dist
           path: /tmp/site-root/amber
@@ -1000,9 +998,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
-
-  # ---------------------------------------------------------------------------
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
   # Merge gate. Branch protection requires only this check: a job skipped by
   # the changes filter never reports a check run, so required matrix checks
   # (build-and-test (g++), lint, ...) would sit "Expected" forever on PRs that
@@ -1026,7 +1022,7 @@ jobs:
       # The skip policy is a repo script, so this job needs the tree. It had no checkout
       # until now, which is why the decision used to live inline in YAML: there was
       # nothing here to read.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Verify gating jobs
         env:
           NEEDS: ${{ toJson(needs) }}
