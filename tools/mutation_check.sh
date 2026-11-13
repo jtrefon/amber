@@ -91,6 +91,7 @@ echo "mutation-check: configuring an -O0 clang build with Mull"
 )
 
 mkdir -p "$(dirname "$report")" "$(dirname "$markdown")"
+rm -f "$report"
 echo "mutation-check: running the unit suite once per mutant (workers $workers)"
 (
     cd "$root"
@@ -102,5 +103,5 @@ echo "mutation-check: running the unit suite once per mutant (workers $workers)"
 ) || fail "mull-runner failed; the report is incomplete"
 
 python3 "$root/tools/mutation_report.py" --report "$report" --markdown "$markdown" \
-    --base "$base" $require
+    --base "$base" --allow-missing $require
 echo "mutation-check: the tree is an instrumented build; restore with ./configure && make clean && make"

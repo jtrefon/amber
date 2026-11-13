@@ -104,6 +104,11 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("FAILED CLOSED", out)
 
+    def test_allow_missing_reports_an_empty_measurement(self):
+        rc, out = run_main("--report", "/nonexistent/mutation.sqlite", "--allow-missing")
+        self.assertEqual(rc, 0)
+        self.assertIn("| mutants | 0 |", out)
+
     def test_require_mutants_is_an_error_on_an_empty_report(self):
         path = write_report([])
         try:

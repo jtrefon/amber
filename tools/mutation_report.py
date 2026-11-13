@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import os
 import sqlite3
 import sys
 
@@ -26,8 +27,16 @@ REQUIRED_COLUMNS = ("mutator", "filename", "line_number", "execution_status",
                     "mutation_replacement")
 
 
-def read_report(path):
-    """[(mutator, file, line, status, replacement)] or an error string."""
+def read_report(path, allow_missing=False):
+    """[(mutator, file, line, status, replacement)] or an error string.
+
+    `allow_missing` is for the advisory caller: mull-runner writes no SQLite
+    file when the diff produced no mutants, which is a legitimate empty result
+    (a comment-only change). The caller has already checked the runner's exit
+    status, so a missing file is not a crash.
+    """
+    if allow_missing and not os.path.exists(path):
+        return [], None
     try:
         connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
@@ -103,11 +112,13 @@ def main():
     ap.add_argument("--base", default="origin/main", help="base ref named in the report")
     ap.add_argument("--require-mutants", action="store_true",
                     help="fail when the report is empty (a changed tree that was not measured)")
+    ap.add_argument("--allow-missing", action="store_true",
+                    help="treat a missing report as an empty one (no mutants found)")
     ap.add_argument("--min-score", type=float, default=None,
                     help="optional conservative-score floor; advisory runs omit it")
     args = ap.parse_args()
 
-    rows, error = read_report(args.report)
+    rows, error = read_report(args.report, allow_missing=args.allow_missing)
     if rows is None:
         print(f"mutation-report: FAILED CLOSED - {error}", file=sys.stderr)
         return 2
