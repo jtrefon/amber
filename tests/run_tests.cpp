@@ -5686,9 +5686,9 @@ public:
 } // namespace
 
 // Tool dispatch wakes when the tool finishes, not on a fixed poll quantum. The
-// old 10 ms sleep made twenty one-millisecond calls through twenty dispatches
-// take about 220 ms; a completion signal keeps the same work far below the
-// bound on a loaded runner.
+// old 10 ms sleep cannot produce a single dispatch under 8 ms; a completion
+// signal is 1-3 ms even on a loaded runner. The fastest of ten dispatches is
+// the measurement, so one scheduling spike does not make the check flaky.
 TEST(dispatch_fast_calls_do_not_pay_a_poll_quantum) {
     agent::Config cfg;
     cfg.mode = agent::AgentMode::Yolo;
@@ -5698,19 +5698,22 @@ TEST(dispatch_fast_calls_do_not_pay_a_poll_quantum) {
     std::set<std::string> approved;
     agent::AgentHooks hooks;
 
-    const auto started = std::chrono::steady_clock::now();
-    for (int i = 0; i < 20; ++i) {
+    long fastest = 1000;
+    for (int i = 0; i < 10; ++i) {
         agent::json calls = agent::json::array();
         calls.push_back({{"id", "c" + std::to_string(i)},
                          {"type", "function"},
                          {"function", {{"name", "fast"}, {"arguments", agent::json::object()}}}});
         agent::Context ctx;
+        const auto started = std::chrono::steady_clock::now();
         ASSERT(agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
                                           &ctx));
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started);
+        if (elapsed.count() < fastest)
+            fastest = elapsed.count();
     }
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - started);
-    ASSERT(elapsed.count() < 100); // flake-allow: 20 x 1 ms calls; old poll ~220 ms
+    ASSERT(fastest < 8); // flake-allow: old poll is 10 ms; fastest of ten is 1-3 ms
 }
 
 TEST(dispatch_projects_bulky_bash_output_at_the_source) {
