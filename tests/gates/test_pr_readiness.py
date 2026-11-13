@@ -19,8 +19,9 @@ from harness import load
 ready = load("pr_readiness")
 
 
-def event(body="", draft=False, labels=None, kind="pull_request"):
-    payload = {"pull_request": {"body": body, "draft": draft, "labels": labels or []}}
+def event(body="", draft=False, labels=None, kind="pull_request", user=""):
+    payload = {"pull_request": {"body": body, "draft": draft, "labels": labels or [],
+                                "user": {"login": user}}}
     if kind:
         payload["action"] = "opened"
         payload["pull_request"]["title"] = "a feature"
@@ -77,6 +78,10 @@ class Readiness(unittest.TestCase):
     def test_unlabelled_and_docs_prs_are_gate_only(self):
         self.assertEqual(self.rc(event(self.EVIDENCE)), 0)
         self.assertEqual(self.rc(event(self.EVIDENCE, labels=[{"name": "docs"}])), 0)
+
+    def test_dependabot_prs_are_gate_only_without_a_body(self):
+        self.assertEqual(self.rc(event("", user="dependabot[bot]")), 0)
+        self.assertEqual(self.rc(event("", labels=[{"name": "dependencies"}])), 0)
 
     def test_a_non_pr_event_is_out_of_scope(self):
         self.assertEqual(self.rc({"push": {"ref": "refs/heads/main"}}), 0)
