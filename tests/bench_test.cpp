@@ -273,6 +273,49 @@ TEST(scenario_loader_reads_the_approval_policy) {
     ASSERT(!denied->allow_tools);
 }
 
+TEST(scenario_loader_parses_turns_and_concatenates_the_stream) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "mt", "suite": "multi-turn",
+        "turns": [
+            {"prompt": "one", "fake_replies": [{"content": "a"}],
+             "oracle": [{"tool": "read"}]},
+            {"prompt": "two", "fake_replies": [{"content": "b"}],
+             "oracle": [{"tool": "write"}]}
+        ]
+    })",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->turns.size(), 2u);
+    ASSERT(s->prompt.empty());
+    ASSERT_EQ(s->fake_replies.size(), 2u);
+    ASSERT_EQ(s->oracle.size(), 2u);
+    ASSERT_EQ(s->turns[0].prompt, std::string("one"));
+    ASSERT_EQ(s->oracle[1].tool, std::string("write"));
+}
+
+TEST(report_json_carries_the_turns) {
+    bench::ScenarioReport rep;
+    rep.name = "mt";
+    rep.suite = "multi-turn";
+    bench::ScenarioReport::Turn turn;
+    turn.index = 0;
+    turn.prompt = "one";
+    turn.final_text = "a";
+    turn.prompt_tokens = 10;
+    turn.completion_tokens = 5;
+    turn.tool_calls = 1;
+    turn.wall_ms = 7;
+    rep.turns.push_back(turn);
+
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    const agent::json j = agent::json::parse(bench::render_json({rep}, meta));
+    ASSERT_EQ(j["scenarios"][0]["turns"].size(), 1u);
+    ASSERT_EQ(j["scenarios"][0]["turns"][0]["prompt"], std::string("one"));
+    ASSERT_EQ(j["scenarios"][0]["turns"][0]["tool_calls"], 1);
+}
+
 TEST(scenario_loader_parses_every_optional_field) {
     std::string err;
     auto s = load_from_json(R"({
@@ -984,6 +1027,55 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT_EQ(rep.kpi.tool_call_accuracy, 1.0);
     ASSERT_EQ(rep.kpi.prompt_adherence, 1.0);
     ASSERT(rep.kpi.wall_ms >= 0);
+}
+
+TEST(e2e_hermetic_multi_turn_scenario) {
+    std::string dir = tmp_dir("e2e_multi");
+    write_file(dir + "/s.json", R"({
+        "name": "e2e-multi", "suite": "multi-turn",
+        "setup": {"files": {"a.txt": "hello", "b.txt": "world"}},
+        "turns": [
+            {"prompt": "read a.txt",
+             "fake_replies": [
+                 {"tool_calls": [{"id": "c1", "type": "function",
+                                  "function": {"name": "read",
+                                               "arguments": "{\"path\":\"a.txt\"}"}}],
+                  "prompt_tokens": 10, "completion_tokens": 2},
+                 {"content": "a.txt has hello", "prompt_tokens": 12, "completion_tokens": 2}
+             ],
+             "oracle": [{"tool": "read", "args": {"path": "a.txt"}}],
+             "checks": {"must_contain": ["hello"]}},
+            {"prompt": "read b.txt",
+             "fake_replies": [
+                 {"tool_calls": [{"id": "c2", "type": "function",
+                                  "function": {"name": "read",
+                                               "arguments": "{\"path\":\"b.txt\"}"}}],
+                  "prompt_tokens": 12, "completion_tokens": 2},
+                 {"content": "done", "prompt_tokens": 14, "completion_tokens": 2}
+             ],
+             "oracle": [{"tool": "read", "args": {"path": "b.txt"}}],
+             "checks": {"must_contain": ["done"]}}
+        ],
+        "checks": {"must_contain": ["done"]},
+        "budget": {"max_steps": 10, "max_wall_ms": 30000}
+    })");
+    std::string err;
+    auto s = bench::load_scenario(dir + "/s.json", err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->turns.size(), 2u);
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(*s, opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(rep.kpi.success);
+    ASSERT_EQ(rep.turns.size(), 2u);
+    ASSERT_EQ(rep.turns[0].tool_calls, 1);
+    ASSERT_EQ(rep.turns[1].tool_calls, 1);
+    ASSERT_EQ(rep.turns[0].final_text, std::string("a.txt has hello"));
+    ASSERT_EQ(rep.turns[1].final_text, std::string("done"));
 }
 
 // The shipped delegate scenario runs end to end: the parent calls delegate

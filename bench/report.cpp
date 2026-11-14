@@ -469,6 +469,24 @@ void add_repeat_fields(agent::json& j, const ScenarioReport& r) {
 }
 
 // One scenario's JSON object.
+agent::json json_turns(const ScenarioReport& r) {
+    agent::json turns = agent::json::array();
+    for (const auto& t : r.turns) {
+        agent::json jt = agent::json::object();
+        jt["index"] = t.index;
+        jt["prompt"] = t.prompt;
+        jt["final_text"] = t.final_text;
+        jt["prompt_tokens"] = t.prompt_tokens;
+        jt["completion_tokens"] = t.completion_tokens;
+        jt["tool_calls"] = t.tool_calls;
+        jt["wall_ms"] = t.wall_ms;
+        jt["success"] = t.success;
+        jt["failures"] = t.failures;
+        turns.push_back(std::move(jt));
+    }
+    return turns;
+}
+
 agent::json json_scenario(const ScenarioReport& r) {
     agent::json j = json_kpi(r);
     j["name"] = r.name;
@@ -499,6 +517,8 @@ agent::json json_scenario(const ScenarioReport& r) {
         taxonomy[tf.first] = tf.second;
     j["failure_taxonomy"] = std::move(taxonomy);
     j["failures"] = r.failures;
+    if (!r.turns.empty())
+        j["turns"] = json_turns(r);
     return j;
 }
 

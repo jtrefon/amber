@@ -1,0 +1,115 @@
+{
+  "name": "mt-01-read-edit-verify",
+  "suite": "multi-turn",
+  "description": "inspect a file in one turn, then edit and verify it in the next",
+  "approval": "allow",
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Two turns: inspect the file, then edit it and verify.",
+  "turns": [
+    {
+      "prompt": "Read a.txt and tell me what it contains.",
+      "fake_replies": [
+        {
+          "tool_calls": [
+            {
+              "id": "c1",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              }
+            }
+          ],
+          "prompt_tokens": 50,
+          "completion_tokens": 10
+        },
+        {
+          "content": "a.txt contains hello.",
+          "prompt_tokens": 60,
+          "completion_tokens": 5
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "read",
+          "args": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "hello"
+        ]
+      }
+    },
+    {
+      "prompt": "Now change hello to hello world in a.txt and read it back.",
+      "fake_replies": [
+        {
+          "tool_calls": [
+            {
+              "id": "c2",
+              "type": "function",
+              "function": {
+                "name": "write",
+                "arguments": "{\"path\":\"a.txt\",\"edits\":[{\"old\":\"hello\",\"new\":\"hello world\"}]}"
+              }
+            }
+          ],
+          "prompt_tokens": 60,
+          "completion_tokens": 10
+        },
+        {
+          "tool_calls": [
+            {
+              "id": "c3",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              }
+            }
+          ],
+          "prompt_tokens": 70,
+          "completion_tokens": 10
+        },
+        {
+          "content": "done",
+          "prompt_tokens": 80,
+          "completion_tokens": 5
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "write",
+          "args": {
+            "path": "a.txt"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "done"
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "difficulty": 3,
+  "expected_steps": 5
+}

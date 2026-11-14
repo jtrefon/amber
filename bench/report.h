@@ -36,6 +36,20 @@ struct RunMeta {
 };
 
 struct ScenarioReport {
+    // One user turn of a multi-turn scenario. The aggregate fields above stay
+    // the score; these say where the tokens and calls went.
+    struct Turn {
+        int index = 0;
+        std::string prompt;
+        std::string final_text;
+        long prompt_tokens = 0;
+        long completion_tokens = 0;
+        int tool_calls = 0;
+        long wall_ms = 0;
+        bool success = true;
+        std::vector<std::string> failures;
+    };
+
     std::string name;
     std::string suite;
     Kpi kpi;
@@ -73,6 +87,7 @@ struct ScenarioReport {
     double calls_per_step_p95 = 0.0;
     bool templated = false; // static-template scenario
     std::vector<std::string> failures;
+    std::vector<Turn> turns; // empty for a one-shot scenario
 
     // Repeat aggregation (BENCH-01): when a scenario ran N times, the report
     // is the median run and these carry the population statistics. The raw

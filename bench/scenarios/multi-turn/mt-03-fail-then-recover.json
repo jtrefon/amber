@@ -1,0 +1,135 @@
+{
+  "name": "mt-03-fail-then-recover",
+  "suite": "multi-turn",
+  "description": "a failed read in the first turn, then a clean edit in the second",
+  "approval": "allow",
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Two turns: recover from a missing file, then edit the real one.",
+  "turns": [
+    {
+      "prompt": "Read missing.txt and then a.txt.",
+      "fake_replies": [
+        {
+          "tool_calls": [
+            {
+              "id": "c1",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\":\"missing.txt\"}"
+              }
+            }
+          ],
+          "prompt_tokens": 50,
+          "completion_tokens": 10
+        },
+        {
+          "tool_calls": [
+            {
+              "id": "c2",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              }
+            }
+          ],
+          "prompt_tokens": 60,
+          "completion_tokens": 10
+        },
+        {
+          "content": "missing.txt was not there; a.txt contains hello.",
+          "prompt_tokens": 70,
+          "completion_tokens": 5
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "read",
+          "args": {
+            "path": "missing.txt"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "hello"
+        ]
+      }
+    },
+    {
+      "prompt": "Now replace hello with hello world in a.txt and verify it.",
+      "fake_replies": [
+        {
+          "tool_calls": [
+            {
+              "id": "c3",
+              "type": "function",
+              "function": {
+                "name": "write",
+                "arguments": "{\"path\":\"a.txt\",\"edits\":[{\"old\":\"hello\",\"new\":\"hello world\"}]}"
+              }
+            }
+          ],
+          "prompt_tokens": 60,
+          "completion_tokens": 10
+        },
+        {
+          "tool_calls": [
+            {
+              "id": "c4",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\":\"a.txt\"}"
+              }
+            }
+          ],
+          "prompt_tokens": 70,
+          "completion_tokens": 10
+        },
+        {
+          "content": "done",
+          "prompt_tokens": 80,
+          "completion_tokens": 5
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "write",
+          "args": {
+            "path": "a.txt"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "done"
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "difficulty": 4,
+  "expected_steps": 6
+}

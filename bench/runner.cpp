@@ -390,11 +390,60 @@ std::unique_ptr<agent::IAgent> make_scenario_agent(RunHost& host, RunComponents&
     return std::make_unique<agent::Agent>(host.cfg, host.registry, comps.hooks, std::move(deps));
 }
 
+// The outputs of one scenario run: the aggregate answer and timing, plus the
+// per-turn detail. Bundling them keeps the run entry point's parameter list
+// narrow.
+struct RunOutcome {
+    std::string final_text;
+    long wall_ms = 0;
+    long t0 = 0;
+    std::vector<ScenarioReport::Turn> turns;
+    std::string error;
+};
+
+// Replay a multi-turn scenario on one agent: each turn is one user request, and
+// the fake client's concatenated script supplies that turn's replies. The
+// per-turn token/call deltas make the report say where the cost went.
+std::string run_turns(agent::IAgent& agent, const Scenario& s, RunComponents& comps,
+                      std::vector<ScenarioReport::Turn>& turns) {
+    std::string final_text;
+    for (size_t i = 0; i < s.turns.size(); ++i) {
+        const Turn& turn = s.turns[i];
+        const long prompt0 = comps.recorder.stream().prompt_tokens;
+        const long completion0 = comps.recorder.stream().completion_tokens;
+        const size_t calls0 = comps.recorder.stream().calls.size();
+        const long turn_t0 = now_ms();
+        const std::string text = agent.run(turn.prompt);
+        ScenarioReport::Turn report;
+        report.index = static_cast<int>(i);
+        report.prompt = turn.prompt;
+        report.final_text = text;
+        report.prompt_tokens = comps.recorder.stream().prompt_tokens - prompt0;
+        report.completion_tokens = comps.recorder.stream().completion_tokens - completion0;
+        report.tool_calls = static_cast<int>(comps.recorder.stream().calls.size() - calls0);
+        report.wall_ms = now_ms() - turn_t0;
+        report.success = checks_pass(turn.checks, text);
+        if (!report.success)
+            report.failures.emplace_back("turn checks failed");
+        turns.push_back(std::move(report));
+        final_text = text;
+    }
+    return final_text;
+}
+
+// One request for a one-shot scenario, or the turn loop for a multi-turn one.
+std::string run_scenario(agent::IAgent& agent, const Scenario& s, RunComponents& comps,
+                         std::vector<ScenarioReport::Turn>& turns) {
+    if (s.turns.empty())
+        return agent.run(s.prompt);
+    return run_turns(agent, s, comps, turns);
+}
+
 // Run the agent with the workspace as CWD (the env card advertises getcwd()).
-// Returns false and fills `error` when the run threw.
+// Returns false and fills `out.error` when the run threw.
 bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& comps,
                             std::unique_ptr<agent::LLMClient> client, const fs::path& ws,
-                            std::string& final_text, long& wall_ms, long& t0, std::string& error) {
+                            RunOutcome& out) {
     try {
         pin_prompt_paths(host.cfg);
         CwdGuard cwd(ws);
@@ -403,12 +452,12 @@ bool run_agent_in_workspace(const Scenario& s, RunHost& host, RunComponents& com
         // plugin contributes, exactly as it does in every host: a run measures
         // the prompt a user would see, not one silently missing its docs.
         wire_run_services(*agent, host);
-        t0 = now_ms();
-        final_text = agent->run(s.prompt);
-        wall_ms = now_ms() - t0;
+        out.t0 = now_ms();
+        out.final_text = run_scenario(*agent, s, comps, out.turns);
+        out.wall_ms = now_ms() - out.t0;
         return true;
     } catch (const std::exception& e) {
-        error = std::string("agent run threw: ") + e.what();
+        out.error = std::string("agent run threw: ") + e.what();
         return false;
     }
 }
@@ -746,17 +795,15 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     comps.meter.start();
     std::unique_ptr<agent::LLMClient> client = build_client(s, opts, host.subagents);
 
-    std::string final_text;
-    long wall_ms = 0;
-    long t0 = 0;
-    if (!run_agent_in_workspace(s, host, comps, std::move(client), ws, final_text, wall_ms, t0,
-                                err)) {
+    RunOutcome out;
+    if (!run_agent_in_workspace(s, host, comps, std::move(client), ws, out)) {
         comps.meter.stop();
-        rep.failures.emplace_back(err);
+        rep.failures.emplace_back(out.error);
         fs::remove_all(ws);
         return rep;
     }
-    join_and_score(rep, {&s, &host, &comps, final_text, wall_ms, t0, &ws, &opts});
+    rep.turns = std::move(out.turns);
+    join_and_score(rep, {&s, &host, &comps, out.final_text, out.wall_ms, out.t0, &ws, &opts});
     fs::remove_all(ws);
     return rep;
 }
