@@ -16,7 +16,7 @@
       "success": true,
       "suite": "review-arch",
       "tool_calls": 1,
-      "wall_ms": 10
+      "wall_ms": 12
     },
     "c-01-fizzbuzz": {
       "completion_tokens": 35,
@@ -32,7 +32,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 15
     },
     "c-03-ring-buffer": {
       "completion_tokens": 35,
@@ -48,7 +48,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 14
+      "wall_ms": 15
     },
     "c-05-graph-bfs": {
       "completion_tokens": 35,
@@ -56,7 +56,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 12
     },
     "clean-01-magic-numbers": {
       "completion_tokens": 15,
@@ -64,7 +64,7 @@
       "success": true,
       "suite": "review-clean",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 8
     },
     "clean-02-clean-control": {
       "completion_tokens": 15,
@@ -72,7 +72,7 @@
       "success": true,
       "suite": "review-clean",
       "tool_calls": 1,
-      "wall_ms": 13
+      "wall_ms": 12
     },
     "d-01-two-area-survey": {
       "completion_tokens": 0,
@@ -80,7 +80,7 @@
       "success": true,
       "suite": "delegate",
       "tool_calls": 2,
-      "wall_ms": 8
+      "wall_ms": 9
     },
     "f-01-redundant-call-elimination": {
       "completion_tokens": 35,
@@ -88,7 +88,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 3,
-      "wall_ms": 10
+      "wall_ms": 11
     },
     "f-02-mistake-then-recover": {
       "completion_tokens": 25,
@@ -104,7 +104,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 1,
-      "wall_ms": 1211
+      "wall_ms": 1209
     },
     "f-04-parallel-vs-sequential": {
       "completion_tokens": 25,
@@ -112,7 +112,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 2,
-      "wall_ms": 10
+      "wall_ms": 9
     },
     "f-06-empty-reply-recovery": {
       "completion_tokens": 15,
@@ -120,7 +120,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 10
     },
     "f-07-tool-denied-grace": {
       "completion_tokens": 25,
@@ -128,7 +128,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 2,
-      "wall_ms": 11
+      "wall_ms": 9
     },
     "k-01-compression-stress": {
       "completion_tokens": 25,
@@ -136,7 +136,7 @@
       "success": true,
       "suite": "compression",
       "tool_calls": 4,
-      "wall_ms": 14
+      "wall_ms": 10
     },
     "mt-01-read-edit-verify": {
       "completion_tokens": 40,
@@ -144,7 +144,7 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 3,
-      "wall_ms": 10
+      "wall_ms": 11
     },
     "mt-02-search-then-edit": {
       "completion_tokens": 40,
@@ -152,7 +152,7 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 3,
-      "wall_ms": 12
+      "wall_ms": 13
     },
     "mt-03-fail-then-recover": {
       "completion_tokens": 50,
@@ -160,9 +160,17 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 4,
-      "wall_ms": 12
+      "wall_ms": 11
     },
-    "p-01-envelope-format": {
+    "p-01-envelope-format@stream=off": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "suite": "prompt",
+      "tool_calls": 1,
+      "wall_ms": 8
+    },
+    "p-01-envelope-format@stream=on": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
@@ -176,7 +184,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 8
     },
     "p-03-verify-after-action": {
       "completion_tokens": 25,
@@ -184,7 +192,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 2,
-      "wall_ms": 9
+      "wall_ms": 10
     },
     "p-05-multi-constraint": {
       "completion_tokens": 15,
@@ -192,7 +200,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 59
+      "wall_ms": 58
     },
     "p-06-verify-before-claim": {
       "completion_tokens": 15,
@@ -200,7 +208,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 9
     },
     "r-01-extract-method": {
       "completion_tokens": 35,
@@ -208,7 +216,7 @@
       "success": true,
       "suite": "refactor",
       "tool_calls": 3,
-      "wall_ms": 13
+      "wall_ms": 14
     },
     "r-02-polymorphism-over-switch": {
       "completion_tokens": 35,
@@ -216,7 +224,7 @@
       "success": true,
       "suite": "refactor",
       "tool_calls": 3,
-      "wall_ms": 15
+      "wall_ms": 16
     },
     "r-03-adapter": {
       "completion_tokens": 55,
@@ -224,7 +232,7 @@
       "success": true,
       "suite": "refactor",
       "tool_calls": 5,
-      "wall_ms": 16
+      "wall_ms": 15
     },
     "r-04-strategy": {
       "completion_tokens": 35,
@@ -264,7 +272,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 1,
-      "wall_ms": 11
+      "wall_ms": 12
     },
     "t-02-grep-extract-value": {
       "completion_tokens": 15,
@@ -272,15 +280,23 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 59
     },
-    "t-02-read-vs-cat": {
+    "t-02-read-vs-cat@stream=off": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "suite": "tools",
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 6
+    },
+    "t-02-read-vs-cat@stream=on": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "suite": "tools",
+      "tool_calls": 1,
+      "wall_ms": 9
     },
     "t-03-compile-run-cpp": {
       "completion_tokens": 15,
@@ -288,7 +304,7 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 58
+      "wall_ms": 59
     },
     "t-03-write-vs-rewrite": {
       "completion_tokens": 25,
@@ -296,7 +312,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 2,
-      "wall_ms": 7
+      "wall_ms": 10
     },
     "t-04-env-inventory": {
       "completion_tokens": 15,
@@ -312,7 +328,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 3,
-      "wall_ms": 2009
+      "wall_ms": 2011
     },
     "t-05-pipeline-transform": {
       "completion_tokens": 25,
@@ -320,7 +336,7 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 2,
-      "wall_ms": 59
+      "wall_ms": 61
     },
     "t-06-multi-dir-count": {
       "completion_tokens": 15,
@@ -328,9 +344,17 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 59
     },
-    "t-06-write-verify-loop": {
+    "t-06-write-verify-loop@context_size=4096": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "suite": "tools",
+      "tool_calls": 2,
+      "wall_ms": 9
+    },
+    "t-06-write-verify-loop@context_size=8192": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
@@ -344,7 +368,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 5,
-      "wall_ms": 61
+      "wall_ms": 62
     }
   }
 }

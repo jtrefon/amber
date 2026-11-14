@@ -75,5 +75,11 @@
       "completion_tokens": 5
     }
   ],
-  "approval": "allow"
+  "approval": "allow",
+  "variants": {
+    "context_size": [
+      4096,
+      8192
+    ]
+  }
 }

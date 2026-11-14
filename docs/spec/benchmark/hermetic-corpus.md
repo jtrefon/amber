@@ -186,7 +186,7 @@ Semantics:
 ```json
 "variants": {
   "stream": [false, true],
-  "plugins": ["default", "minimal"]
+  "context_size": [4096, 8192]
 }
 ```
 
@@ -194,9 +194,11 @@ Semantics:
   runs one cell.
 - The product is capped at 8 cells per scenario; more is a validation error.
 - Axes are declared by the harness, not free-form. The first set:
-  `stream`, `plugins` (`default`/`minimal`), `context_window`, `approval`
-  (`deny`/`allow`), `workspace` (`clean`/`dirty`).
-- A cell is a bounded environment, not an arbitrary permutation.
+  `stream` (bool), `context_size` (positive int) and `approval`
+  (`allow`/`deny`). `plugins` and `workspace` are future axes.
+- A cell is a bounded environment, not an arbitrary permutation. The committed
+  matrix exercises `stream` on two scenarios and `context_size` on one;
+  `make bench-check` runs 46 cells.
 
 ### 4.4 Validation
 
