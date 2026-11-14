@@ -273,6 +273,49 @@ TEST(scenario_loader_reads_the_approval_policy) {
     ASSERT(!denied->allow_tools);
 }
 
+TEST(scenario_loader_parses_turns_and_concatenates_the_stream) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "mt", "suite": "multi-turn",
+        "turns": [
+            {"prompt": "one", "fake_replies": [{"content": "a"}],
+             "oracle": [{"tool": "read"}]},
+            {"prompt": "two", "fake_replies": [{"content": "b"}],
+             "oracle": [{"tool": "write"}]}
+        ]
+    })",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->turns.size(), 2u);
+    ASSERT(s->prompt.empty());
+    ASSERT_EQ(s->fake_replies.size(), 2u);
+    ASSERT_EQ(s->oracle.size(), 2u);
+    ASSERT_EQ(s->turns[0].prompt, std::string("one"));
+    ASSERT_EQ(s->oracle[1].tool, std::string("write"));
+}
+
+TEST(report_json_carries_the_turns) {
+    bench::ScenarioReport rep;
+    rep.name = "mt";
+    rep.suite = "multi-turn";
+    bench::ScenarioReport::Turn turn;
+    turn.index = 0;
+    turn.prompt = "one";
+    turn.final_text = "a";
+    turn.prompt_tokens = 10;
+    turn.completion_tokens = 5;
+    turn.tool_calls = 1;
+    turn.wall_ms = 7;
+    rep.turns.push_back(turn);
+
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    const agent::json j = agent::json::parse(bench::render_json({rep}, meta));
+    ASSERT_EQ(j["scenarios"][0]["turns"].size(), 1u);
+    ASSERT_EQ(j["scenarios"][0]["turns"][0]["prompt"], std::string("one"));
+    ASSERT_EQ(j["scenarios"][0]["turns"][0]["tool_calls"], 1);
+}
+
 TEST(scenario_loader_parses_every_optional_field) {
     std::string err;
     auto s = load_from_json(R"({

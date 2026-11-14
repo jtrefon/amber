@@ -201,6 +201,47 @@ void take_budget(const agent::json& j, Scenario& s) {
     take_clamped_double(b, "max_compaction_ratio", s.max_compaction_ratio, 0.0, 1.0);
 }
 
+// A multi-turn scenario appends each turn's script and oracle to the scenario's
+// effective stream. The runner then replays the script in turn order and the
+// existing scoring sees one continuous conversation.
+bool take_turns(const agent::json& j, Scenario& s, std::string& err) {
+    if (!j.contains("turns"))
+        return true;
+    if (!j["turns"].is_array() || j["turns"].empty()) {
+        err = "'turns' must be a non-empty array";
+        return false;
+    }
+    for (const auto& item : j["turns"]) {
+        if (!item.is_object()) {
+            err = "each turn must be an object";
+            return false;
+        }
+        Turn turn;
+        if (!has_string(item, "prompt")) {
+            err = "each turn needs a string 'prompt'";
+            return false;
+        }
+        turn.prompt = item["prompt"].get<std::string>();
+        if (!has_array(item, "fake_replies") || item["fake_replies"].empty()) {
+            err = "each turn needs a non-empty 'fake_replies' array";
+            return false;
+        }
+        turn.fake_replies = item["fake_replies"];
+        if (!take_oracle(item, turn.oracle, err))
+            return false;
+        if (!parse_checks(item.value("checks", agent::json()), turn.checks)) {
+            err = "turn checks must be an object with string arrays";
+            return false;
+        }
+        for (const auto& e : turn.fake_replies)
+            s.fake_replies.push_back(e);
+        for (const auto& step : turn.oracle)
+            s.oracle.push_back(step);
+        s.turns.push_back(std::move(turn));
+    }
+    return true;
+}
+
 } // namespace
 
 std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
@@ -209,10 +250,10 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
         return std::nullopt;
 
     Scenario s;
-    if (!require_string(j, "name", s.name, err) || !require_string(j, "suite", s.suite, err) ||
-        !require_string(j, "prompt", s.prompt, err))
+    if (!require_string(j, "name", s.name, err) || !require_string(j, "suite", s.suite, err))
         return std::nullopt;
 
+    take_string(j, "prompt", s.prompt);
     take_string(j, "description", s.description);
     take_string_array(j, "platforms", s.platforms);
     take_bool(j, "hermetic_only", s.hermetic_only);
@@ -232,6 +273,12 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_string_array(j, "forbidden_tools", s.forbidden_tools);
     if (!take_checks(j, s, err))
         return std::nullopt;
+    if (!take_turns(j, s, err))
+        return std::nullopt;
+    if (s.turns.empty() && s.prompt.empty()) {
+        err = "scenario missing string field: prompt";
+        return std::nullopt;
+    }
     take_string(j, "template", s.template_dir);
     take_object(j, "optimal_plan", s.optimal_plan);
     take_clamped_int(j, "difficulty", s.difficulty, 1, 6);

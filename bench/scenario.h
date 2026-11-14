@@ -37,6 +37,16 @@ struct Checks {
     std::vector<std::string> must_not_contain;
 };
 
+// One user turn in a multi-turn scenario. The turn's script and oracle are
+// appended to the scenario's effective script and oracle at load time, so the
+// existing runner and scoring see one continuous stream in turn order.
+struct Turn {
+    std::string prompt;
+    agent::json fake_replies = agent::json::array();
+    std::vector<ScenarioStep> oracle;
+    Checks checks;
+};
+
 struct Scenario {
     std::string name;
     std::string suite;
@@ -46,6 +56,7 @@ struct Scenario {
     std::vector<std::string> model_profiles;
     agent::json setup = agent::json::object(); // {files: {path: content}, shell: [...]}
     std::string prompt;
+    std::vector<Turn> turns;                         // multi-turn script, empty = one shot
     agent::json fake_replies = agent::json::array(); // hermetic script
     std::vector<agent::json> subagent_replies;       // hermetic: per-sub-agent scripts
     bool stream = false;                             // hermetic: use the streaming path
