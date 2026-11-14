@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <sstream>
 
@@ -522,12 +523,74 @@ agent::json json_scenario(const ScenarioReport& r) {
     return j;
 }
 
+// Run totals grouped by suite. The per-PR summary and the committed release
+// artifact both read this instead of re-aggregating the scenario array.
+agent::json json_suite_summary(const std::vector<ScenarioReport>& reports) {
+    struct Agg {
+        int scenarios = 0;
+        int passed = 0;
+        long prompt_tokens = 0;
+        long completion_tokens = 0;
+        long tool_calls = 0;
+        long wall_ms = 0;
+    };
+    std::map<std::string, Agg> by_suite;
+    for (const auto& r : reports) {
+        Agg& a = by_suite[r.suite];
+        ++a.scenarios;
+        if (r.kpi.success)
+            ++a.passed;
+        a.prompt_tokens += r.kpi.prompt_tokens;
+        a.completion_tokens += r.kpi.completion_tokens;
+        a.tool_calls += r.kpi.tool_calls;
+        a.wall_ms += r.kpi.wall_ms;
+    }
+    agent::json out = agent::json::array();
+    for (const auto& [suite, a] : by_suite) {
+        out.push_back({{"suite", suite},
+                       {"scenarios", a.scenarios},
+                       {"passed", a.passed},
+                       {"prompt_tokens", a.prompt_tokens},
+                       {"completion_tokens", a.completion_tokens},
+                       {"tool_calls", a.tool_calls},
+                       {"wall_ms", a.wall_ms}});
+    }
+    return out;
+}
+
+agent::json harness_json(const HarnessScorecard& sc, const std::vector<ProbeResult>& probes,
+                         bool with_probes) {
+    agent::json out = agent::json::object();
+    out["harness_integrity"] = sc.integrity;
+    out["harness_passed"] = sc.passed;
+    out["harness_total"] = sc.total;
+    agent::json families = agent::json::object();
+    for (const auto& f : sc.families)
+        families[f.first] = {{"passed", f.second.first}, {"total", f.second.second}};
+    out["harness_families"] = std::move(families);
+    if (with_probes) {
+        agent::json plist = agent::json::array();
+        for (const auto& p : probes) {
+            plist.push_back({{"family", p.family},
+                             {"name", p.name},
+                             {"passed", p.passed},
+                             {"detail", p.detail},
+                             {"expected", p.expected},
+                             {"ms", p.ms}});
+        }
+        out["probes"] = std::move(plist);
+    }
+    return out;
+}
+
 std::string render_json(const std::vector<ScenarioReport>& reports, const RunMeta& meta) {
     agent::json out = json_meta(meta);
+    out["schema_version"] = 2;
     agent::json arr = agent::json::array();
     for (const auto& r : reports)
         arr.push_back(json_scenario(r));
     out["scenarios"] = std::move(arr);
+    out["suite_summary"] = json_suite_summary(reports);
     out["model_score"] = run_score(reports) * 10.0;
     out["model_score_ci"] = model_score_ci(reports) * 10.0;
     return out.dump(2) + "\n";

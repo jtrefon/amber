@@ -294,6 +294,29 @@ TEST(scenario_loader_parses_turns_and_concatenates_the_stream) {
     ASSERT_EQ(s->oracle[1].tool, std::string("write"));
 }
 
+TEST(report_json_carries_suite_summary_and_schema) {
+    bench::ScenarioReport first;
+    first.name = "a";
+    first.suite = "tools";
+    first.kpi.success = true;
+    first.kpi.prompt_tokens = 10;
+    first.kpi.completion_tokens = 2;
+    first.kpi.tool_calls = 1;
+    first.kpi.wall_ms = 5;
+    bench::ScenarioReport second = first;
+    second.name = "b";
+    second.kpi.success = false;
+
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    const agent::json j = agent::json::parse(bench::render_json({first, second}, meta));
+    ASSERT_EQ(j["schema_version"], 2);
+    ASSERT_EQ(j["suite_summary"].size(), 1u);
+    ASSERT_EQ(j["suite_summary"][0]["scenarios"], 2);
+    ASSERT_EQ(j["suite_summary"][0]["passed"], 1);
+    ASSERT_EQ(j["suite_summary"][0]["tool_calls"], 2);
+}
+
 TEST(report_json_carries_the_turns) {
     bench::ScenarioReport rep;
     rep.name = "mt";
