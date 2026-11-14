@@ -2,39 +2,73 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import NavBar from '../components/NavBar.astro';
 import Diagram from '../components/Diagram.astro';
+import hermetic from '../data/hermetic.json';
 ---
 
-<BaseLayout title="Benchmarks" description="amber benchmark results: harness KPI progression and multi-model evaluation across 49 scenarios.">
+<BaseLayout title="Benchmarks" description="amber benchmark results: the hermetic harness scorecard and live model runs.">
   <NavBar />
   <main>
     <h1>Benchmarks</h1>
 
     <section class="section">
       <p>
-        amber-bench is the KPI harness, how well the agent loop, tool schemas,
-        and prompts drive each model to the correct solution. This is a harness
-        score, not a model leaderboard: every scenario runs through the same
-        engine, and the score measures the harness+model pair.
-      </p>
-      <p>
-        The benchmark corpus has grown over time. The current dataset is 49
-        scenarios across 10 suites (agent failures, terminal work, tool
-        selection, prompt adherence, coding, refactoring, repo, review,
-        delegate, and the loop-live axis measuring model loop discipline).
+        amber-bench has two axes. The <strong>hermetic</strong> axis replays a
+        scripted model and measures the harness itself; it runs on every pull
+        request. The <strong>live</strong> axis measures the harness+model pair
+        and is how the model library is compared.
       </p>
       <p>
         Scoring: each scenario earns 0-100 from four sub-scores, correctness
         (bullseye + hidden-test artifact), efficiency (steps/wasted/redundant
         vs expected), robustness (retries/recoveries/hard-stops), and
-        adherence (prompt-checks minus forbidden-tool use). The model score is
-        the difficulty-weighted aggregate (1-5 per scenario), scaled to /1000.
+        adherence (prompt-checks minus forbidden-tool use). The live model score
+        is the difficulty-weighted aggregate (1-5 per scenario), scaled to /1000.
       </p>
     </section>
 
     <hr class="divider-thick" />
 
     <section class="section">
-      <h2>Harness progression</h2>
+      <h2>Hermetic harness (mocked model)</h2>
+      <p>
+        The per-PR regression axis: {hermetic.passed}/{hermetic.scenarios}
+        scenarios and {hermetic.harness_passed}/{hermetic.harness_total} probes
+        pass on engine {hermetic.engine_version}. Every scenario replays a
+        scripted plan, so this is the harness's deterministic health report,
+        not a model score.
+      </p>
+      <table class="bench-table">
+        <thead>
+          <tr>
+            <th>Suite</th>
+            <th>Pass</th>
+            <th>Tokens</th>
+            <th>Calls</th>
+            <th>Wall</th>
+          </tr>
+        </thead>
+        <tbody>
+          {hermetic.suites.map((suite) => (
+            <tr>
+              <td>{suite.suite}</td>
+              <td>{suite.passed}/{suite.scenarios}</td>
+              <td>{suite.tokens.toLocaleString()}</td>
+              <td>{suite.tool_calls}</td>
+              <td>{(suite.wall_ms / 1000).toFixed(2)} s</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p class="note">
+        Source: <code>bench/results/hermetic/{hermetic.engine_version}.json</code>,
+        regenerated with <code>make website-bench-data</code>.
+      </p>
+    </section>
+
+    <hr class="divider-thick" />
+
+    <section class="section">
+      <h2>Live model progression</h2>
       <p>
         The benchmark exists to measure the harness itself, to track how
         architecture changes move the KPIs. These are the recorded baselines

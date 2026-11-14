@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "bench/kpi.h"
+#include "bench/probe.h"
 #include "bench/scenario.h"
 
 namespace bench {
@@ -189,6 +190,11 @@ double headroom(const std::vector<std::vector<ScenarioReport>>& population) noex
 std::string render_text(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
 
 std::string render_json(const std::vector<ScenarioReport>& reports, const RunMeta& meta);
+
+// The harness scorecard as JSON. `with_probes` adds the per-probe detail; the
+// combined report keeps the summary only.
+agent::json harness_json(const HarnessScorecard& sc, const std::vector<ProbeResult>& probes,
+                         bool with_probes);
 
 // Rehydrate a stored JSON report (render_json output) into reports + meta.
 // Legacy files without the repeat fields default score_median to score.

@@ -6,20 +6,23 @@
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-arch",
       "tool_calls": 1,
-      "wall_ms": 14
+      "wall_ms": 13
     },
     "arch-02-clean-control": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-arch",
       "tool_calls": 1,
-      "wall_ms": 11
+      "wall_ms": 10
     },
     "c-01-fizzbuzz": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "coding",
       "tool_calls": 3,
       "wall_ms": 14
     },
@@ -27,6 +30,7 @@
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "coding",
       "tool_calls": 3,
       "wall_ms": 16
     },
@@ -34,13 +38,15 @@
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 13
+      "wall_ms": 15
     },
     "c-04-lcs": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "coding",
       "tool_calls": 3,
       "wall_ms": 14
     },
@@ -48,6 +54,7 @@
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "coding",
       "tool_calls": 3,
       "wall_ms": 16
     },
@@ -55,34 +62,39 @@
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-clean",
       "tool_calls": 1,
-      "wall_ms": 10
+      "wall_ms": 7
     },
     "clean-02-clean-control": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-clean",
       "tool_calls": 1,
-      "wall_ms": 11
+      "wall_ms": 13
     },
     "d-01-two-area-survey": {
       "completion_tokens": 0,
       "prompt_tokens": 0,
       "success": true,
+      "suite": "delegate",
       "tool_calls": 2,
-      "wall_ms": 10
+      "wall_ms": 8
     },
     "f-01-redundant-call-elimination": {
       "completion_tokens": 35,
       "prompt_tokens": 235,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 3,
-      "wall_ms": 12
+      "wall_ms": 10
     },
     "f-02-mistake-then-recover": {
       "completion_tokens": 25,
       "prompt_tokens": 180,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 2,
       "wall_ms": 10
     },
@@ -90,13 +102,15 @@
       "completion_tokens": 15,
       "prompt_tokens": 110,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 1,
-      "wall_ms": 1209
+      "wall_ms": 1211
     },
     "f-04-parallel-vs-sequential": {
       "completion_tokens": 25,
       "prompt_tokens": 120,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 2,
       "wall_ms": 10
     },
@@ -104,20 +118,23 @@
       "completion_tokens": 15,
       "prompt_tokens": 150,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 1,
-      "wall_ms": 10
+      "wall_ms": 8
     },
     "f-07-tool-denied-grace": {
       "completion_tokens": 25,
       "prompt_tokens": 180,
       "success": true,
+      "suite": "agent-failures",
       "tool_calls": 2,
-      "wall_ms": 9
+      "wall_ms": 11
     },
     "k-01-compression-stress": {
       "completion_tokens": 25,
       "prompt_tokens": 9500,
       "success": true,
+      "suite": "compression",
       "tool_calls": 4,
       "wall_ms": 14
     },
@@ -125,13 +142,15 @@
       "completion_tokens": 40,
       "prompt_tokens": 320,
       "success": true,
+      "suite": "multi-turn",
       "tool_calls": 3,
-      "wall_ms": 12
+      "wall_ms": 10
     },
     "mt-02-search-then-edit": {
       "completion_tokens": 40,
       "prompt_tokens": 320,
       "success": true,
+      "suite": "multi-turn",
       "tool_calls": 3,
       "wall_ms": 12
     },
@@ -139,6 +158,7 @@
       "completion_tokens": 50,
       "prompt_tokens": 390,
       "success": true,
+      "suite": "multi-turn",
       "tool_calls": 4,
       "wall_ms": 12
     },
@@ -146,27 +166,31 @@
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 8
     },
     "p-02-banned-tool-refusal": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 7
     },
     "p-03-verify-after-action": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
+      "suite": "prompt",
       "tool_calls": 2,
-      "wall_ms": 10
+      "wall_ms": 9
     },
     "p-05-multi-constraint": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "prompt",
       "tool_calls": 1,
       "wall_ms": 59
     },
@@ -174,13 +198,15 @@
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 7
     },
     "r-01-extract-method": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "refactor",
       "tool_calls": 3,
       "wall_ms": 13
     },
@@ -188,13 +214,15 @@
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "refactor",
       "tool_calls": 3,
-      "wall_ms": 13
+      "wall_ms": 15
     },
     "r-03-adapter": {
       "completion_tokens": 55,
       "prompt_tokens": 510,
       "success": true,
+      "suite": "refactor",
       "tool_calls": 5,
       "wall_ms": 16
     },
@@ -202,20 +230,23 @@
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "refactor",
       "tool_calls": 3,
-      "wall_ms": 14
+      "wall_ms": 15
     },
     "refac-01-long-method": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-refactor",
       "tool_calls": 1,
-      "wall_ms": 13
+      "wall_ms": 11
     },
     "refac-02-duplicated-logic": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "review-refactor",
       "tool_calls": 1,
       "wall_ms": 12
     },
@@ -223,85 +254,97 @@
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 59
+      "wall_ms": 58
     },
     "t-01-search-vs-bash-grep": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "tools",
       "tool_calls": 1,
-      "wall_ms": 12
+      "wall_ms": 11
     },
     "t-02-grep-extract-value": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 59
+      "wall_ms": 60
     },
     "t-02-read-vs-cat": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "tools",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 8
     },
     "t-03-compile-run-cpp": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 58
     },
     "t-03-write-vs-rewrite": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
+      "suite": "tools",
       "tool_calls": 2,
-      "wall_ms": 9
+      "wall_ms": 7
     },
     "t-04-env-inventory": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 59
+      "wall_ms": 60
     },
     "t-04-process-vs-blocking": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
+      "suite": "tools",
       "tool_calls": 3,
-      "wall_ms": 2011
+      "wall_ms": 2009
     },
     "t-05-pipeline-transform": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 2,
-      "wall_ms": 61
+      "wall_ms": 59
     },
     "t-06-multi-dir-count": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
+      "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 57
+      "wall_ms": 60
     },
     "t-06-write-verify-loop": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
+      "suite": "tools",
       "tool_calls": 2,
-      "wall_ms": 11
+      "wall_ms": 8
     },
     "t-07-planning-multi-file": {
       "completion_tokens": 55,
       "prompt_tokens": 510,
       "success": true,
+      "suite": "tools",
       "tool_calls": 5,
-      "wall_ms": 63
+      "wall_ms": 61
     }
   }
 }

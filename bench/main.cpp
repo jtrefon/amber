@@ -356,28 +356,7 @@ void write_harness_json(const std::string& out_file, const std::vector<bench::Pr
                         const bench::HarnessScorecard& sc, bool with_probes) {
     if (out_file.empty())
         return;
-    agent::json out;
-    out["harness_integrity"] = sc.integrity;
-    out["harness_passed"] = sc.passed;
-    out["harness_total"] = sc.total;
-    agent::json fam;
-    for (const auto& f : sc.families)
-        fam[f.first] = {{"passed", f.second.first}, {"total", f.second.second}};
-    out["harness_families"] = fam;
-    if (with_probes) {
-        agent::json plist = agent::json::array();
-        for (const auto& p : probes) {
-            agent::json pj;
-            pj["family"] = p.family;
-            pj["name"] = p.name;
-            pj["passed"] = p.passed;
-            pj["detail"] = p.detail;
-            pj["expected"] = p.expected;
-            pj["ms"] = p.ms;
-            plist.push_back(std::move(pj));
-        }
-        out["probes"] = std::move(plist);
-    }
+    const agent::json out = bench::harness_json(sc, probes, with_probes);
     std::ofstream fout(out_file);
     fout << out.dump(2);
     if (with_probes)
@@ -418,18 +397,26 @@ int run_both_axes(const CliOptions& args) {
     const bench::RunOptions opts = build_run_options(args);
     auto scenarios = discover_scenarios(args.suite, args.name);
     bench::RunMeta meta = build_run_meta(args, opts);
+    std::vector<bench::ScenarioReport> reports;
     if (scenarios.empty()) {
         std::cerr << "warning: no scenarios match; harness axis only\n";
     } else {
-        const std::vector<bench::ScenarioReport> reports =
-            bench::run_scenarios(scenarios, opts, meta);
+        reports = bench::run_scenarios(scenarios, opts, meta);
         std::cout << bench::render_text(reports, meta);
     }
 
     const auto probes = bench::run_all_probes();
     const bench::HarnessScorecard sc = bench::aggregate_probes(probes);
     print_harness_scorecard(probes, sc, /*leading_blank=*/true);
-    write_harness_json(args.out_file, probes, sc, /*with_probes=*/false);
+    if (!args.out_file.empty()) {
+        agent::json out = agent::json::parse(bench::render_json(reports, meta));
+        out["corpus"] = {{"scenarios", reports.size()}, {"suites", out["suite_summary"].size()}};
+        agent::json h = bench::harness_json(sc, probes, /*with_probes=*/false);
+        for (auto it = h.begin(); it != h.end(); ++it)
+            out[it.key()] = it.value();
+        std::ofstream fout(args.out_file);
+        fout << out.dump(2) << "\n";
+    }
     return sc.passed == sc.total ? 0 : 1;
 }
 

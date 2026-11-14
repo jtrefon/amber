@@ -71,6 +71,7 @@ def metrics(report):
         name = scenario["name"]
         try:
             out[name] = {
+                "suite": str(scenario.get("suite", "")),
                 "prompt_tokens": int(scenario.get("prompt_tokens", 0)),
                 "completion_tokens": int(scenario.get("completion_tokens", 0)),
                 "tool_calls": int(scenario.get("tool_calls_total", 0)),
@@ -136,10 +137,43 @@ def compare(current, recorded):
     return violations, added, missing
 
 
-def markdown(results, violations, added, allow=""):
-    lines = ["## Hermetic harness efficiency", "",
-             "| scenario | tokens | Δ | calls | Δ | wall | result |",
-             "|---|---:|---:|---:|---:|---:|---|"]
+def suite_summary(results):
+    """Per-suite totals for the run page. `results` is (base, current) pairs."""
+    agg = {}
+    for _, (base, cur) in results:
+        suite = cur.get("suite") or "?"
+        row = agg.setdefault(suite, {
+            "scenarios": 0, "passed": 0, "tokens": 0, "base_tokens": 0,
+            "calls": 0, "base_calls": 0, "wall": 0,
+        })
+        row["scenarios"] += 1
+        row["passed"] += 1 if cur["success"] else 0
+        row["tokens"] += cur["prompt_tokens"] + cur["completion_tokens"]
+        row["base_tokens"] += base["prompt_tokens"] + base["completion_tokens"]
+        row["calls"] += cur["tool_calls"]
+        row["base_calls"] += base["tool_calls"]
+        row["wall"] += cur["wall_ms"]
+    return agg
+
+
+def markdown(results, violations, added, allow="", harness=None):
+    lines = ["## Hermetic harness efficiency", ""]
+    if harness:
+        passed = harness.get("harness_passed")
+        total = harness.get("harness_total")
+        if passed is not None and total is not None:
+            lines.append(f"Harness integrity: **{passed}/{total}**")
+            lines.append("")
+    lines += ["| suite | pass | tokens | Δ | calls | Δ | wall |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+    for suite, row in sorted(suite_summary(results).items()):
+        lines.append(
+            f"| `{suite}` | {row['passed']}/{row['scenarios']} "
+            f"| {row['tokens']} | {percent(row['tokens'], row['base_tokens']):+.1f}% "
+            f"| {row['calls']} | {percent(row['calls'], row['base_calls']):+.1f}% "
+            f"| {row['wall']}ms |")
+    lines += ["", "| scenario | tokens | Δ | calls | Δ | wall | result |",
+              "|---|---:|---:|---:|---:|---:|---|"]
     failed = {v[0] for v in violations}
     for name, values in results:
         base, cur = values
@@ -265,11 +299,17 @@ def main():
         print(f"bench-check: FAILED CLOSED - {error}", file=sys.stderr)
         return 2
     rc = check(current, recorded, args.allow, min_scenarios=args.min_scenarios)
+    harness = None
+    if "harness_passed" in report and "harness_total" in report:
+        harness = {"harness_passed": report["harness_passed"],
+                   "harness_total": report["harness_total"]}
+        print(f"bench-check: harness integrity "
+              f"{report['harness_passed']}/{report['harness_total']}")
     if args.markdown:
         violations, added, _ = compare(current, recorded)
         results = [(name, (recorded[name], current[name])) for name in sorted(recorded)]
         with open(args.markdown, "w", encoding="utf-8") as handle:
-            handle.write(markdown(results, violations, added, args.allow))
+            handle.write(markdown(results, violations, added, args.allow, harness))
     return rc
 
 
