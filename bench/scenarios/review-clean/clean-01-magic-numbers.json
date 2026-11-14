@@ -42,5 +42,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "The magic values should become named constants: 1000 is the tax threshold, 0.2 and 0.1 are the two tax rates, and 5000 is the timeout. Give each a descriptive constant name so the intent is visible.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }

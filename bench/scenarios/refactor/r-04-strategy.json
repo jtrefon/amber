@@ -30,5 +30,55 @@
     "read": 1,
     "write": 1,
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"TASK.md\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"pricing.cpp\",\"edits\":[{\"old\":\"\",\"new\":\"#include \\\"pricing.h\\\"\\n\\nclass ShippingStrategy {\\npublic:\\n    virtual ~ShippingStrategy() = default;\\n    virtual double cost(double weight_kg) const = 0;\\n};\\n\\nclass StandardShipping : public ShippingStrategy {\\npublic:\\n    double cost(double weight_kg) const override { return 10 + 2 * weight_kg; }\\n};\\n\\nclass ExpressShipping : public ShippingStrategy {\\npublic:\\n    double cost(double weight_kg) const override { return 20 + 4 * weight_kg; }\\n};\\n\\nstatic double apply(const ShippingStrategy& s, double weight_kg) {\\n    return s.cost(weight_kg);\\n}\\n\\ndouble shipping_cost(const std::string& mode, double weight_kg) {\\n    if (mode == \\\"standard\\\") return apply(StandardShipping(), weight_kg);\\n    if (mode == \\\"express\\\") return apply(ExpressShipping(), weight_kg);\\n    return -1;\\n}\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"pricing.h\",\"edits\":[{\"old\":\"\",\"new\":\"#pragma once\\n#include <string>\\ndouble shipping_cost(const std::string& mode, double weight_kg);\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 90,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

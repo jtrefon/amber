@@ -2,7 +2,10 @@
   "name": "t-07-planning-multi-file",
   "suite": "tools",
   "description": "four markers across four files, compile verification — multi-step work where a task list helps",
-  "platforms": ["linux", "darwin"],
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
   "difficulty": 5,
   "expected_steps": 8,
   "setup": {
@@ -15,13 +18,136 @@
   },
   "prompt": "Replace FIX 1..4 in a.c, b.c, c.c, d.c with a comment describing each function, then compile all four files together to verify. Reply with the word done when finished.",
   "oracle": [
-    {"tool": "write", "args": {"path": "*a.c"}, "args_subset": true, "unordered": true},
-    {"tool": "write", "args": {"path": "*b.c"}, "args_subset": true, "unordered": true},
-    {"tool": "write", "args": {"path": "*c.c"}, "args_subset": true, "unordered": true},
-    {"tool": "write", "args": {"path": "*d.c"}, "args_subset": true, "unordered": true},
-    {"tool": "bash", "args": {"command": "*gcc*"}, "unordered": true}
+    {
+      "tool": "write",
+      "args": {
+        "path": "*a.c"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*b.c"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*c.c"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*d.c"
+      },
+      "args_subset": true,
+      "unordered": true
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "*gcc*"
+      },
+      "unordered": true
+    }
   ],
-  "optimal_plan": {"todowrite": 1, "write": 4, "bash": 1},
-  "checks": {"must_contain": ["done"]},
-  "budget": {"max_steps": 15, "max_wall_ms": 300000}
+  "optimal_plan": {
+    "todowrite": 1,
+    "write": 4,
+    "bash": 1
+  },
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 15,
+    "max_wall_ms": 300000
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"a.c\",\"edits\":[{\"old\":\"// FIX 1\",\"new\":\"// returns 1\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"b.c\",\"edits\":[{\"old\":\"// FIX 2\",\"new\":\"// returns 2\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"c.c\",\"edits\":[{\"old\":\"// FIX 3\",\"new\":\"// returns 3\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"d.c\",\"edits\":[{\"old\":\"// FIX 4\",\"new\":\"// returns 4\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 90,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c5",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\":\"gcc -fsyntax-only a.c b.c c.c d.c\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 100,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 110,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

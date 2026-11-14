@@ -26,5 +26,41 @@
   "optimal_plan": {
     "bash": 1,
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\":\"sort data.txt | uniq | sed -n '2p' > out.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"out.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "content": "result=banana\ndone",
+      "prompt_tokens": 80,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

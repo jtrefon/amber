@@ -31,5 +31,55 @@
     "read": 1,
     "write": 1,
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"TASK.md\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"sorting.cpp\",\"edits\":[{\"old\":\"\",\"new\":\"#include \\\"sorting.h\\\"\\n\\nvoid bubble_sort(int* a, size_t n) {\\n    for (size_t i = 0; i < n; ++i) {\\n        bool swapped = false;\\n        for (size_t j = 0; j + 1 < n - i; ++j) {\\n            if (a[j] > a[j + 1]) {\\n                int tmp = a[j];\\n                a[j] = a[j + 1];\\n                a[j + 1] = tmp;\\n                swapped = true;\\n            }\\n        }\\n        if (!swapped) break;\\n    }\\n}\\n\\nstatic void merge(int* a, size_t lo, size_t mid, size_t hi) {\\n    size_t i = lo, j = mid;\\n    int* tmp = new int[hi - lo];\\n    size_t k = 0;\\n    while (i < mid && j < hi) tmp[k++] = a[i] <= a[j] ? a[i++] : a[j++];\\n    while (i < mid) tmp[k++] = a[i++];\\n    while (j < hi) tmp[k++] = a[j++];\\n    for (size_t t = 0; t < k; ++t) a[lo + t] = tmp[t];\\n    delete[] tmp;\\n}\\n\\nvoid merge_sort(int* a, size_t n) {\\n    if (n <= 1) return;\\n    size_t mid = n / 2;\\n    merge_sort(a, mid);\\n    merge_sort(a + mid, n - mid);\\n    merge(a, 0, mid, n);\\n}\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"sorting.h\",\"edits\":[{\"old\":\"\",\"new\":\"#pragma once\\n#include <cstddef>\\nvoid bubble_sort(int* a, size_t n);\\nvoid merge_sort(int* a, size_t n);\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 90,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

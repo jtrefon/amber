@@ -9,7 +9,7 @@
   "difficulty": 5,
   "setup": {
     "files": {
-      "slow.sh": "#!/bin/sh\nsleep 4\necho done > result.txt\n"
+      "slow.sh": "#!/bin/sh\nsleep 1\necho done > result.txt\n"
     }
   },
   "prompt": "Run slow.sh in the background with process_start, wait for it with tasks, then read result.txt and report its contents. Reply with the word done when finished.",
@@ -30,5 +30,56 @@
   "budget": {
     "max_steps": 12,
     "max_wall_ms": 120000
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "process_start",
+            "arguments": "{\"command\":\"sh slow.sh\",\"label\":\"slow\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "tasks",
+            "arguments": "{\"action\":\"list\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"result.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10,
+      "latency_ms": 2000
+    },
+    {
+      "content": "done. done.",
+      "prompt_tokens": 90,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

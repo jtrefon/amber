@@ -2,6 +2,69 @@
   "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling.",
   "mode": "hermetic",
   "scenarios": {
+    "arch-01-god-class": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 23
+    },
+    "arch-02-clean-control": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 22
+    },
+    "c-01-fizzbuzz": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 43
+    },
+    "c-02-sorting-multi": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 44
+    },
+    "c-03-ring-buffer": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 43
+    },
+    "c-04-lcs": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 44
+    },
+    "c-05-graph-bfs": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 42
+    },
+    "clean-01-magic-numbers": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 18
+    },
+    "clean-02-clean-control": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 21
+    },
     "d-01-two-area-survey": {
       "completion_tokens": 0,
       "prompt_tokens": 0,
@@ -14,28 +77,28 @@
       "prompt_tokens": 235,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 51
+      "wall_ms": 40
     },
     "f-02-mistake-then-recover": {
       "completion_tokens": 25,
       "prompt_tokens": 180,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 30
+      "wall_ms": 31
     },
     "f-03-mid-stream-dropout": {
       "completion_tokens": 15,
       "prompt_tokens": 110,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 1222
+      "wall_ms": 1221
     },
     "f-04-parallel-vs-sequential": {
       "completion_tokens": 25,
       "prompt_tokens": 120,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 30
+      "wall_ms": 29
     },
     "f-06-empty-reply-recovery": {
       "completion_tokens": 15,
@@ -49,14 +112,175 @@
       "prompt_tokens": 180,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 19
+      "wall_ms": 20
     },
     "k-01-compression-stress": {
       "completion_tokens": 25,
       "prompt_tokens": 9500,
       "success": true,
       "tool_calls": 4,
-      "wall_ms": 54
+      "wall_ms": 51
+    },
+    "p-01-envelope-format": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 19
+    },
+    "p-02-banned-tool-refusal": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 19
+    },
+    "p-03-verify-after-action": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 29
+    },
+    "p-05-multi-constraint": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 69
+    },
+    "p-06-verify-before-claim": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 20
+    },
+    "r-01-extract-method": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 43
+    },
+    "r-02-polymorphism-over-switch": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 44
+    },
+    "r-03-adapter": {
+      "completion_tokens": 55,
+      "prompt_tokens": 510,
+      "success": true,
+      "tool_calls": 5,
+      "wall_ms": 67
+    },
+    "r-04-strategy": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 43
+    },
+    "refac-01-long-method": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 22
+    },
+    "refac-02-duplicated-logic": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 20
+    },
+    "t-01-ls-count-files": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 69
+    },
+    "t-01-search-vs-bash-grep": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 18
+    },
+    "t-02-grep-extract-value": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 70
+    },
+    "t-02-read-vs-cat": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 18
+    },
+    "t-03-compile-run-cpp": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 68
+    },
+    "t-03-write-vs-rewrite": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 28
+    },
+    "t-04-env-inventory": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 69
+    },
+    "t-04-process-vs-blocking": {
+      "completion_tokens": 35,
+      "prompt_tokens": 300,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 2042
+    },
+    "t-05-pipeline-transform": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 80
+    },
+    "t-06-multi-dir-count": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "tool_calls": 1,
+      "wall_ms": 69
+    },
+    "t-06-write-verify-loop": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "tool_calls": 2,
+      "wall_ms": 31
+    },
+    "t-07-planning-multi-file": {
+      "completion_tokens": 55,
+      "prompt_tokens": 510,
+      "success": true,
+      "tool_calls": 5,
+      "wall_ms": 114
     }
   }
 }

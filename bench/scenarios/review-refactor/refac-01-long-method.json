@@ -39,5 +39,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "Extract the loop body into a per-item helper, move the validation and the warning/error branches into named functions, and keep process as a short sequence of calls. The loop then reads as validation, accumulation and persistence.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }

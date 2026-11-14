@@ -40,5 +40,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "The Report class is a single-responsibility violation: parse, render, save and load are four different reasons to change in one type. Split the tokenizing and validation into a parser, the markdown formatting into a renderer, and the disk access into a repository. The members involved are parse, render, save and load.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }

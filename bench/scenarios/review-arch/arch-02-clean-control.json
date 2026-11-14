@@ -40,5 +40,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "The code is fine: no major issues. Report is a small value type, ReportParser owns parsing and ReportRenderer owns rendering, so the responsibilities are separated.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }

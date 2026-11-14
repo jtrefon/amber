@@ -42,5 +42,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "The code is fine: no major issues, no duplicated logic and no significant problems. Counter has one responsibility and its accessors are clear.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }

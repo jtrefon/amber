@@ -30,5 +30,27 @@
   },
   "optimal_plan": {
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\":\"find src lib -name '*.log' | wc -l\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "count=4\ndone",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

@@ -38,5 +38,26 @@
   },
   "optimal_plan": {
     "read": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"Review.cpp\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "CsvExporter and TsvExporter duplicate the quote logic; the delimiter is the only difference. Move the quoting into one shared helper (or a base class) and let each exporter pass its delimiter.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ]
 }
