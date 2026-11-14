@@ -10,9 +10,10 @@
 #include "agent/subagent.h"
 
 #include <algorithm>
-#include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <future>
-#include <thread>
+#include <mutex>
 
 namespace agent {
 
@@ -272,9 +273,27 @@ struct Call {
     std::string denied_reason;
 };
 
-struct Pending {
+// A finished worker publishes its call index and wakes the dispatcher. The
+// queue is why the dispatcher does not poll: a tool that finishes in a
+// millisecond is recorded a millisecond later, not on the next tick.
+struct CompletionQueue {
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::deque<size_t> ready;
+};
+
+// Publish on scope exit, so an exception escaping the tool cannot leave the
+// dispatcher waiting for a completion that will never arrive.
+struct CompletionNotice {
+    CompletionQueue& queue;
     size_t idx = 0;
-    std::future<ToolResult> future;
+    ~CompletionNotice() {
+        {
+            std::scoped_lock lock(queue.mtx);
+            queue.ready.push_back(idx);
+        }
+        queue.cv.notify_one();
+    }
 };
 
 // Tool events are optional: no bus attached means every publish is skipped, and
@@ -404,25 +423,27 @@ Call prepare_call(const json& raw, const Config& cfg, ToolRegistry& registry,
 // lives on the calling (agent) thread; tools execute on workers that would
 // otherwise see none, so it is installed on each worker to keep cancellation,
 // catalog resolution and activation recording following the CALLING agent.
-std::vector<Pending> launch_approved(std::vector<Call>& todo, bool caller_in_subagent,
-                                     const RunScopeChain& active_scope) {
-    std::vector<Pending> pending;
+std::vector<std::future<ToolResult>> launch_approved(std::vector<Call>& todo,
+                                                     bool caller_in_subagent,
+                                                     const RunScopeChain& active_scope,
+                                                     const std::shared_ptr<CompletionQueue>& done) {
+    std::vector<std::future<ToolResult>> futures(todo.size());
     for (size_t i = 0; i < todo.size(); ++i) {
         if (!todo[i].approved)
             continue;
-        pending.push_back(
-            {i, std::async(std::launch::async, [&todo, i, caller_in_subagent, active_scope]() {
-                 ScopedRunScope scope_guard(active_scope);
-                 set_subagent_inherited(caller_in_subagent);
-                 try {
-                     return todo[i].tool->execute(todo[i].args);
-                 } catch (const std::exception& e) {
-                     return ToolResult{false, "", std::string("tool threw: ") + e.what(),
-                                       agent::json{}};
-                 }
-             })});
+        futures[i] = std::async(std::launch::async, [&todo, i, caller_in_subagent, active_scope,
+                                                     done]() {
+            CompletionNotice notice{*done, i};
+            ScopedRunScope scope_guard(active_scope);
+            set_subagent_inherited(caller_in_subagent);
+            try {
+                return todo[i].tool->execute(todo[i].args);
+            } catch (const std::exception& e) {
+                return ToolResult{false, "", std::string("tool threw: ") + e.what(), agent::json{}};
+            }
+        });
     }
-    return pending;
+    return futures;
 }
 
 // The result recorded for a call that never ran: the denial reason, or the
@@ -537,6 +558,35 @@ bool record_denials(const std::vector<Call>& todo, const RecordDeps& deps) {
     return all_ok;
 }
 
+// Wait for every approved call to finish and record it. The wait is on the
+// completion signal itself; a fixed sleep here would put its quantum on every
+// tool call. Results are recorded in completion order, which is what the
+// per-call duration telemetry reports.
+bool record_completions(const std::vector<Call>& todo,
+                        std::vector<std::future<ToolResult>>& futures,
+                        const std::shared_ptr<CompletionQueue>& completed, const RecordDeps& deps) {
+    size_t waiting = 0;
+    for (const auto& c : todo)
+        if (c.approved)
+            ++waiting;
+
+    bool all_ok = true;
+    while (waiting > 0) {
+        size_t idx = 0;
+        {
+            std::unique_lock<std::mutex> lock(completed->mtx);
+            completed->cv.wait(lock, [&completed] { return !completed->ready.empty(); });
+            idx = completed->ready.front();
+            completed->ready.pop_front();
+        }
+        ToolResult res = futures[idx].get();
+        if (!finish_call(todo[idx], std::move(res), deps))
+            all_ok = false;
+        --waiting;
+    }
+    return all_ok;
+}
+
 } // namespace
 
 // Prepare every call (parse, interceptors, approval), run the approved ones
@@ -554,27 +604,15 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
 
     const bool caller_in_subagent = in_subagent();
     const RunScopeChain active_scope = capture_run_scope();
-    std::vector<Pending> pending = launch_approved(todo, caller_in_subagent, active_scope);
+    auto completed = std::make_shared<CompletionQueue>();
+    std::vector<std::future<ToolResult>> futures =
+        launch_approved(todo, caller_in_subagent, active_scope, completed);
 
     // Non-approved calls: report the denial (or the malformed-arguments failure).
     const RecordDeps deps{hooks, log, events, context, tool_result_budget(cfg)};
     bool all_ok = record_denials(todo, deps);
-
-    // Approved calls are processed as they complete, out of order.
-    while (!pending.empty()) {
-        for (auto it = pending.begin(); it != pending.end(); ++it) {
-            if (it->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-                continue;
-            Call& c = todo[it->idx];
-            ToolResult res = it->future.get();
-            if (!finish_call(c, std::move(res), deps))
-                all_ok = false;
-            pending.erase(it);
-            break;
-        }
-        if (!pending.empty())
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    if (!record_completions(todo, futures, completed, deps))
+        all_ok = false;
     return all_ok;
 }
 
