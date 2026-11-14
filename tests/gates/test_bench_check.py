@@ -17,10 +17,10 @@ from harness import load
 bench = load("bench_check")
 
 SCENARIOS = {
-    "alpha": {"prompt_tokens": 100, "completion_tokens": 10, "tool_calls": 3,
-              "wall_ms": 100, "success": True},
-    "beta": {"prompt_tokens": 40, "completion_tokens": 5, "tool_calls": 1,
-             "wall_ms": 50, "success": True},
+    "alpha": {"suite": "tools", "prompt_tokens": 100, "completion_tokens": 10,
+              "tool_calls": 3, "wall_ms": 100, "success": True},
+    "beta": {"suite": "terminal", "prompt_tokens": 40, "completion_tokens": 5,
+             "tool_calls": 1, "wall_ms": 50, "success": True},
 }
 
 
@@ -115,6 +115,15 @@ class Comparison(unittest.TestCase):
         rc, out = run_check(self.current(), SCENARIOS, min_scenarios=3)
         self.assertEqual(rc, 2)
         self.assertIn("corpus floor", out)
+
+    def test_markdown_summarises_by_suite_and_harness(self):
+        current = self.current()
+        results = [(name, (SCENARIOS[name], current[name])) for name in sorted(SCENARIOS)]
+        text = bench.markdown(results, [], [], harness={
+            "harness_passed": 42, "harness_total": 42})
+        self.assertIn("Harness integrity: **42/42**", text)
+        self.assertIn("`tools`", text)
+        self.assertIn("`terminal`", text)
 
     def test_allow_turns_a_regression_into_a_reported_override(self):
         current = self.current({"alpha": {"prompt_tokens": 120}})

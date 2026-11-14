@@ -415,7 +415,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-check bench-baseline bench-reap bench-reap-apply \
-        check smoketest test doctor \
+        website-bench-data check smoketest test doctor \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
@@ -1279,7 +1279,7 @@ BENCH_REPORT ?= bench-efficiency.json
 BENCH_ALLOW ?=
 BENCH_MARKDOWN ?=
 bench-check: $(BUILD_DIR)/$(BENCH_BIN)
-	$(BUILD_DIR)/$(BENCH_BIN) run --cat model --format json --out $(BENCH_REPORT)
+	$(BUILD_DIR)/$(BENCH_BIN) run --cat both --format json --out $(BENCH_REPORT)
 	@BENCH_ALLOW="$${BENCH_ALLOW:-}" BENCH_MARKDOWN="$${BENCH_MARKDOWN:-}" \
 	    python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" \
 	    --baseline "$(SRC_DIR)/bench/results/harness-efficiency-baseline.json"
@@ -1309,6 +1309,18 @@ bench-release-check:
 		$(if $(BENCH_RESULTS_DIR),--results-dir "$(BENCH_RESULTS_DIR)") \
 		$(if $(BENCH_PREVIOUS_DIR),--previous-dir "$(BENCH_PREVIOUS_DIR)") \
 		$(if $(CHANGED_PATHS),--changed-paths-file "$(CHANGED_PATHS)")
+
+# Render the committed hermetic report for the website. Run after the version
+# stamp and before the release commit, so the page reads the same data the
+# release ships.
+BENCH_HERMETIC_DIR ?= $(SRC_DIR)/bench/results/hermetic
+website-bench-data: $(BUILD_DIR)/$(BENCH_BIN)
+	@mkdir -p $(BENCH_HERMETIC_DIR)
+	$(BUILD_DIR)/$(BENCH_BIN) run --cat both --format json \
+		--out $(BENCH_HERMETIC_DIR)/$(VERSION).json
+	python3 $(SRC_DIR)/tools/bench_site_data.py \
+		--report $(BENCH_HERMETIC_DIR)/$(VERSION).json \
+		--out $(SRC_DIR)/website/src/data/hermetic.json
 
 bench-reap-apply: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) reap-state --apply
