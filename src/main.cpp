@@ -15,6 +15,7 @@
 #include <agent/bootstrap.h>
 #include <agent/exit_ready.h>
 #include <agent/log_retention.h>
+#include <agent/version.h>
 #include "agent/private_file.h"
 #include "plugins/mcp/mcp_plugin.h"
 #include "plugins/watch/watch_plugin.h"
@@ -33,6 +34,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 #include <unistd.h>
 
 namespace {
@@ -54,6 +56,8 @@ void print_usage(const char* prog) {
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
               << "  --prompt TEXT      User prompt (else read from stdin)\n"
+              << "  --script FILE      JSON array of prompts; one session, in order\n"
+              << "  --json-out FILE    Write a machine-readable run summary\n"
               << "  --yes              Auto-approve gated tools for this session\n"
               << "  --yolo             YOLO mode: run everything with no approval gate\n"
               << "  --version          Print version and exit\n"
@@ -151,6 +155,8 @@ private:
 // What the command line asked for, beyond the Config it fills in.
 struct CliArgs {
     std::string prompt;
+    std::string script;
+    std::string json_out;
     std::string config_file;
     bool auto_approve = false;
     bool mcp_list_only = false;
@@ -194,6 +200,10 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
                                : -1;
     } else if (a == "--prompt")
         out.prompt = next("");
+    else if (a == "--script")
+        out.script = next("");
+    else if (a == "--json-out")
+        out.json_out = next("");
     else if (a == "--mcp-connect")
         out.mcp_connect_name = next("");
     else
@@ -311,14 +321,76 @@ bool validate_config(const agent::Config& cfg) {
     return false;
 }
 
-// The prompt comes from --prompt, a positional argument, or stdin.
-bool read_prompt(std::string& prompt) {
+// Machine-readable summary of one headless run. The e2e driver reads this;
+// stdout stays the human surface.
+struct RunTelemetry {
+    std::vector<std::string> prompts;
+    std::vector<agent::json> tool_calls;
+    long prompt_tokens = 0;
+    long completion_tokens = 0;
+    long cache_read_tokens = 0;
+    long cache_write_tokens = 0;
+    long wall_ms = 0;
+    int exit_code = 0;
+    std::string final_text;
+};
+
+void write_run_telemetry(const std::string& path, const RunTelemetry& t,
+                         const agent::Config& cfg) {
+    agent::json out = agent::json::object();
+    out["schema_version"] = 1;
+    out["exit_code"] = t.exit_code;
+    out["engine_version"] = agent::kVersion;
+    out["model"] = cfg.model;
+    out["workspace"] = agent::Workspace::project_root();
+    out["prompts"] = t.prompts;
+    out["final_text"] = t.final_text;
+    out["tool_calls"] = t.tool_calls;
+    out["usage"] = {{"prompt_tokens", t.prompt_tokens},
+                    {"completion_tokens", t.completion_tokens},
+                    {"cache_read_tokens", t.cache_read_tokens},
+                    {"cache_write_tokens", t.cache_write_tokens}};
+    out["wall_ms"] = t.wall_ms;
+    std::ofstream f(path);
+    f << out.dump(2) << "\n";
+}
+
+// Prompts come from --script (JSON array), --prompt/positional, or stdin.
+bool read_prompts(const CliArgs& args, std::vector<std::string>& prompts) {
+    if (!args.script.empty()) {
+        std::ifstream f(args.script);
+        if (!f) {
+            std::cerr << "error: cannot open script " << args.script << "\n";
+            return false;
+        }
+        agent::json j;
+        try {
+            f >> j;
+        } catch (const std::exception&) {
+            std::cerr << "error: script is not valid JSON\n";
+            return false;
+        }
+        if (!j.is_array() || j.empty()) {
+            std::cerr << "error: script must be a non-empty array of strings\n";
+            return false;
+        }
+        for (const auto& e : j) {
+            if (!e.is_string()) {
+                std::cerr << "error: script entries must be strings\n";
+                return false;
+            }
+            prompts.push_back(e.get<std::string>());
+        }
+        return true;
+    }
+    std::string prompt = args.prompt;
     if (prompt.empty())
         std::getline(std::cin, prompt);
     if (prompt.empty()) {
         std::cerr << "error: no prompt provided\n";
         return false;
     }
+    prompts.push_back(std::move(prompt));
     return true;
 }
 
@@ -585,7 +657,7 @@ void load_run_config(agent::Config& cfg, const CliArgs& args, const agent::Globa
 // The headless hooks, installed in the order the executor needs: set_hooks
 // copies, so the sub-agent executor sees the status hook only.
 agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool auto_approve,
-                                       bool tty) {
+                                       bool tty, RunTelemetry* telemetry) {
     agent::AgentHooks hooks;
     hooks.on_status = hook_status;
     host.subagents.set_hooks(hooks);
@@ -598,18 +670,54 @@ agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool a
     hooks.on_tool_result = hook_tool_result;
     hooks.on_approval = make_approval_hook(auto_approve, tty);
     hooks.on_api_key = make_api_key_hook(cfg, tty);
+    if (telemetry) {
+        const auto base_call = hooks.on_tool_call;
+        hooks.on_tool_call = [base_call, telemetry](const std::string& name,
+                                                    const agent::json& args) {
+            if (base_call)
+                base_call(name, args);
+            telemetry->tool_calls.push_back(
+                {{"name", name}, {"args", args}, {"status", "pending"}, {"error", ""}});
+        };
+        const auto base_result = hooks.on_tool_result;
+        hooks.on_tool_result = [base_result, telemetry](const std::string& name,
+                                                        const agent::ToolResult& res,
+                                                        const agent::json& args) {
+            if (base_result)
+                base_result(name, res, args);
+            for (auto it = telemetry->tool_calls.rbegin(); it != telemetry->tool_calls.rend();
+                 ++it) {
+                if ((*it)["name"] == name && (*it)["status"] == "pending") {
+                    (*it)["status"] = res.ok ? "ok" : "error";
+                    (*it)["error"] = res.error;
+                    break;
+                }
+            }
+        };
+        hooks.on_usage = [telemetry](const agent::UsageSample& s) {
+            if (s.prompt_tokens > 0)
+                telemetry->prompt_tokens += s.prompt_tokens;
+            if (s.completion_tokens > 0)
+                telemetry->completion_tokens += s.completion_tokens;
+            if (s.cache_read_tokens > 0)
+                telemetry->cache_read_tokens += s.cache_read_tokens;
+            if (s.cache_write_tokens > 0)
+                telemetry->cache_write_tokens += s.cache_write_tokens;
+        };
+    }
     return hooks;
 }
 
 // One turn on the persistent headless agent. Streamed tokens already reached
 // stdout; a buffered reply (or a harness stop) is printed once here.
-void run_turn(agent::IAgent& agent, CliHost& host, const std::string& prompt) {
+std::string run_turn(agent::IAgent& agent, CliHost& host, const std::string& prompt) {
     host.streamed = false;
     const std::string reply = agent.run(prompt);
     if (host.streamed)
         std::cout << "\n";
     else
         std::cout << "\n" << reply << "\n";
+    return reply;
 }
 
 // The one-shot delivery contract. `--wait-tasks` waits for the tasks owned by
@@ -675,7 +783,8 @@ void restore_cli_tasks(CliHost& host, agent::TaskStore& store, agent::TaskInbox&
 // One headless run: the agent gets the plugin runtime's events and prompt
 // registry, streams its reply to stdout, and reports failure as an exit code.
 int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
-                   const std::string& prompt, int wait_tasks_s) {
+                   const std::vector<std::string>& prompts, int wait_tasks_s,
+                   RunTelemetry* telemetry) {
     // The headless restart contract. The store is local to the run: a one-shot
     // process attaches it, restores the previous inventory, and marks what is
     // still running on the way out. A hermetic host attaches no store, so bench
@@ -696,7 +805,11 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.set_prompt_registry(host.plugin_runtime.prompts());
         agent.set_inbox(&inbox);
         agent.set_owner_id("cli");
-        run_turn(agent, host, prompt);
+        for (const auto& prompt : prompts) {
+            const std::string reply = run_turn(agent, host, prompt);
+            if (telemetry)
+                telemetry->final_text = reply;
+        }
         const int rc = finish_tasks(cfg, host, agent, inbox, wait_tasks_s);
         // Join the watch workers before the inventory they finish into is
         // destroyed: the runtime is declared before TaskService, so its
@@ -730,9 +843,21 @@ void prune_logs_before_run(const agent::Config& cfg) {
 // one return: a harness waits for the process to say it finished, instead of
 // guessing how long a one-shot turn takes on the machine it is running on.
 int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
-                   const std::string& prompt, int wait_tasks_s) {
+                   const std::vector<std::string>& prompts, int wait_tasks_s,
+                   const std::string& json_out, RunTelemetry* telemetry) {
     prune_logs_before_run(cfg);
-    const int rc = run_agent_turn(cfg, host, hooks, prompt, wait_tasks_s);
+    if (telemetry)
+        telemetry->prompts = prompts;
+    const auto started = std::chrono::steady_clock::now();
+    const int rc = run_agent_turn(cfg, host, hooks, prompts, wait_tasks_s, telemetry);
+    if (telemetry) {
+        telemetry->wall_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 std::chrono::steady_clock::now() - started)
+                                 .count();
+        telemetry->exit_code = rc;
+        if (!json_out.empty())
+            write_run_telemetry(json_out, *telemetry, cfg);
+    }
     agent::announce_exit_ready();
     return rc;
 }
@@ -785,7 +910,8 @@ int main(int argc, char** argv) try {
     detect_model(cfg);
     if (!validate_config(cfg))
         return 2;
-    if (!read_prompt(args.prompt))
+    std::vector<std::string> prompts;
+    if (!read_prompts(args, prompts))
         return 1;
     resolve_prompt_paths(cfg, argv[0]);
     if (!check_bootstrap_files(cfg, argv[0]))
@@ -793,7 +919,9 @@ int main(int argc, char** argv) try {
 
     const bool tty = isatty(STDIN_FILENO) != 0;
     CliHost host(cfg, tty);
-    const agent::AgentHooks hooks = apply_headless_hooks(host, cfg, args.auto_approve, tty);
+    RunTelemetry telemetry;
+    const agent::AgentHooks hooks =
+        apply_headless_hooks(host, cfg, args.auto_approve, tty, &telemetry);
     start_plugin_runtime(host, cfg, args.no_plugins);
     // --mcp-connect attaches one server to THIS session before the run: the
     // connect is the run's, not a second client's.
@@ -810,7 +938,8 @@ int main(int argc, char** argv) try {
             return 1;
         }
     }
-    return run_agent_once(cfg, host, hooks, args.prompt, args.wait_tasks_s);
+    return run_agent_once(cfg, host, hooks, prompts, args.wait_tasks_s, args.json_out,
+                          &telemetry);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";
     return 1;
