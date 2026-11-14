@@ -42,5 +42,41 @@
     "max_wall_ms": 120000
   },
   "difficulty": 3,
-  "expected_steps": 3
+  "expected_steps": 3,
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"a.txt\",\"edits\":[{\"old\":\"hello\",\"new\":\"hi\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 80,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

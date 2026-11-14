@@ -36,5 +36,27 @@
     "max_wall_ms": 120000
   },
   "difficulty": 2,
-  "expected_steps": 2
+  "expected_steps": 2,
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done. a.txt is short.",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

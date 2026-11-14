@@ -40,10 +40,10 @@ def report_of(overrides=None, drop=None):
     return {"mode": "hermetic", "scenarios": scenarios}
 
 
-def run_check(current, recorded, allow=""):
+def run_check(current, recorded, allow="", min_scenarios=0):
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
-        rc = bench.check(current, recorded, allow)
+        rc = bench.check(current, recorded, allow, min_scenarios=min_scenarios)
     return rc, out.getvalue() + err.getvalue()
 
 
@@ -102,6 +102,20 @@ class Comparison(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("additive", out)
 
+    def test_an_additive_scenario_that_fails_is_a_regression(self):
+        current = self.current({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": False}})
+        rc, out = run_check(current, SCENARIOS)
+        self.assertEqual(rc, 1)
+        self.assertIn("gamma", out)
+        self.assertIn("additive scenario", out)
+
+    def test_a_report_below_the_corpus_floor_fails_closed(self):
+        rc, out = run_check(self.current(), SCENARIOS, min_scenarios=3)
+        self.assertEqual(rc, 2)
+        self.assertIn("corpus floor", out)
+
     def test_allow_turns_a_regression_into_a_reported_override(self):
         current = self.current({"alpha": {"prompt_tokens": 120}})
         rc, out = run_check(current, SCENARIOS, allow="known one-off")
@@ -159,7 +173,8 @@ class Loading(unittest.TestCase):
         os.environ["BENCH_ALLOW"] = "env reason"
         import sys
         old = sys.argv
-        sys.argv = ["bench_check.py", "--report", report, "--baseline", baseline.name]
+        sys.argv = ["bench_check.py", "--report", report, "--baseline", baseline.name,
+                    "--min-scenarios", "0"]
         try:
             out = io.StringIO()
             with redirect_stdout(out):

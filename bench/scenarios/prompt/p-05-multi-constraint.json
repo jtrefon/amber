@@ -33,5 +33,27 @@
   },
   "optimal_plan": {
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\":\"ls *.txt | sort\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "a.txt\nb.txt\nc.txt\ndone",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

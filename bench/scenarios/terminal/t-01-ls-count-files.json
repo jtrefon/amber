@@ -29,5 +29,27 @@
   "expected_steps": 2,
   "optimal_plan": {
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\":\"ls *.txt | wc -l\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "count=3\ndone",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

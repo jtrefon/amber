@@ -33,5 +33,27 @@
   "budget": {
     "max_steps": 10,
     "max_wall_ms": 120000
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"real.txt\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "verified content\ndone",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

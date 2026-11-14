@@ -31,5 +31,55 @@
     "read": 1,
     "write": 1,
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"TASK.md\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"shapes.cpp\",\"edits\":[{\"old\":\"\",\"new\":\"#include \\\"shapes.h\\\"\\n\\nclass Shape {\\npublic:\\n    virtual ~Shape() = default;\\n    virtual double area() const = 0;\\n};\\n\\nclass Circle : public Shape {\\npublic:\\n    explicit Circle(double r) : r_(r) {}\\n    double area() const override { return 3.14159265358979323846 * r_ * r_; }\\n\\nprivate:\\n    double r_;\\n};\\n\\nclass Square : public Shape {\\npublic:\\n    explicit Square(double s) : s_(s) {}\\n    double area() const override { return s_ * s_; }\\n\\nprivate:\\n    double s_;\\n};\\n\\ndouble area_circle(double r) { return Circle(r).area(); }\\ndouble area_square(double s) { return Square(s).area(); }\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"shapes.h\",\"edits\":[{\"old\":\"\",\"new\":\"#pragma once\\ndouble area_circle(double r);\\ndouble area_square(double s);\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 90,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

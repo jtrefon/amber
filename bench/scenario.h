@@ -49,6 +49,10 @@ struct Scenario {
     agent::json fake_replies = agent::json::array(); // hermetic script
     std::vector<agent::json> subagent_replies;       // hermetic: per-sub-agent scripts
     bool stream = false;                             // hermetic: use the streaming path
+    // Hermetic scripts that need a side-effecting tool declare "approval":
+    // "allow". The default keeps the benchmark's deny-unless-process policy so
+    // the denied-tool scenarios still exercise the refusal path.
+    bool allow_tools = false;
     std::vector<ScenarioStep> oracle;
     std::vector<std::string> forbidden_tools;
     Checks prompt_checks;

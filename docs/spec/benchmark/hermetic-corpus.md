@@ -44,10 +44,12 @@ This spec defines the missing half: the corpus, the runner extensions, the
 report, the gate, the publishing surfaces and the binary driver. It does not
 add a second benchmark harness and does not change the engine.
 
-## 2. Current state
+## 2. Coverage
 
-The eight hermetic scenarios are the recovery, compression and delegation
-cases. Everything else is live-only.
+### Before #597 (the gap)
+
+The eight hermetic scenarios were the recovery, compression and delegation
+cases. Everything else was live-only.
 
 | suite | scenarios | hermetic | live-only |
 |---|---:|---:|---:|
@@ -70,6 +72,35 @@ cases. Everything else is live-only.
 | headroom | 2 | 0 | 2 |
 | loop-live | 6 | 0 | 6 |
 | **total** | **58** | **8** | **50** |
+
+### After #597
+
+The deterministic suites now carry a scripted plan. The 18 remaining live-only
+scenarios are the ones that need a live model or a real repository:
+`headroom`, `loop-live`, `repo`, `shaping`, and the
+`review-datastructures`/`patterns`/`quality` suites.
+
+| suite | scenarios | hermetic | live-only |
+|---|---:|---:|---:|
+| agent-failures | 6 | 6 | 0 |
+| coding | 5 | 5 | 0 |
+| compression | 1 | 1 | 0 |
+| delegate | 1 | 1 | 0 |
+| headroom | 2 | 0 | 2 |
+| loop-live | 6 | 0 | 6 |
+| prompt | 5 | 5 | 0 |
+| refactor | 4 | 4 | 0 |
+| repo | 2 | 0 | 2 |
+| review-arch | 2 | 2 | 0 |
+| review-clean | 2 | 2 | 0 |
+| review-datastructures | 2 | 0 | 2 |
+| review-patterns | 2 | 0 | 2 |
+| review-quality | 2 | 0 | 2 |
+| review-refactor | 2 | 2 | 0 |
+| shaping | 2 | 0 | 2 |
+| terminal | 6 | 6 | 0 |
+| tools | 6 | 6 | 0 |
+| **total** | **58** | **40** | **18** |
 
 `corpus.md` already labels `tools`, `prompt` and `coding` as "hermetic + live"
 or "hermetic with fake". This spec is the implementation of that intent, not a
@@ -117,6 +148,9 @@ Rules:
 - no network, no live model, no absolute host paths, no timestamps, no random
   ids;
 - `latency_ms` is fixed by the scenario, not measured;
+- a scenario that scripts a side-effecting tool declares `"approval": "allow"`;
+  the default keeps the deny-unless-process policy so the denied-tool scenario
+  still exercises the refusal path;
 - `platforms` still gates the scenario to the hosts that can run it.
 
 ### 4.2 Multi-turn (`turns[]`)

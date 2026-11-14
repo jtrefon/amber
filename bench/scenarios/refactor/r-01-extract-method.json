@@ -31,5 +31,55 @@
     "read": 1,
     "write": 1,
     "bash": 1
-  }
+  },
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"TASK.md\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"process.cpp\",\"edits\":[{\"old\":\"\",\"new\":\"#include \\\"process.h\\\"\\n\\nstatic int extract_normalize(int v) {\\n    return v < 0 ? -v : v;\\n}\\n\\nstatic int extract_score(int x, int y, int z) {\\n    int score = x * 2 + y * 3 + z * 5;\\n    if (score < 0) score = 0;\\n    if (score > 100) score = 100;\\n    return score;\\n}\\n\\nstatic std::string extract_render(int score, int total) {\\n    return \\\"[score=\\\" + std::to_string(score) + \\\" total=\\\" +\\n           std::to_string(total) + \\\"]\\\";\\n}\\n\\nstd::string process(int a, int b, int c) {\\n    const int x = extract_normalize(a);\\n    const int y = extract_normalize(b);\\n    const int z = extract_normalize(c);\\n    return extract_render(extract_score(x, y, z), x + y + z);\\n}\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 70,
+      "completion_tokens": 10
+    },
+    {
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"process.h\",\"edits\":[{\"old\":\"\",\"new\":\"#pragma once\\n#include <string>\\nstd::string process(int a, int b, int c);\\n\"}]}"
+          }
+        }
+      ],
+      "prompt_tokens": 80,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 90,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

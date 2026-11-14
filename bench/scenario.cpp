@@ -221,6 +221,9 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_array(j, "fake_replies", s.fake_replies);
     take_json_array(j, "subagent_replies", s.subagent_replies);
     take_bool(j, "stream", s.stream);
+    std::string approval;
+    take_string(j, "approval", approval);
+    s.allow_tools = approval == "allow";
     take_bool(j, "detection_loop", s.detection_loop);
     take_bool(j, "detection_duplicate", s.detection_duplicate);
     if (!take_oracle(j, s.oracle, err))

@@ -31,5 +31,27 @@
     "max_wall_ms": 120000
   },
   "difficulty": 3,
-  "expected_steps": 2
+  "expected_steps": 2,
+  "fake_replies": [
+    {
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "search",
+            "arguments": "{\"pattern\":\"TODO\"}"
+          }
+        }
+      ],
+      "prompt_tokens": 60,
+      "completion_tokens": 10
+    },
+    {
+      "content": "done",
+      "prompt_tokens": 70,
+      "completion_tokens": 5
+    }
+  ],
+  "approval": "allow"
 }

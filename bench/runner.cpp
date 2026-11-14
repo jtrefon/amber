@@ -157,7 +157,7 @@ struct RunComponents {
     agent::AgentHooks hooks;
     ResourceMeter meter;
 
-    explicit RunComponents(const agent::Config& cfg)
+    explicit RunComponents(const agent::Config& cfg, bool allow_tools = false)
         : comp_cfg(agent::load_compression_config(cfg)),
           gate(agent::make_compression_gate(comp_cfg)), compressor(agent::make_compressor()),
           exp_cfg(agent::load_experience_config(cfg)), mem_store(agent::make_memory_store(exp_cfg)),
@@ -165,12 +165,13 @@ struct RunComponents {
                               : nullptr),
           hooks(recorder.hooks()) {
         // Benchmark approval policy: workspace-confined process tools are always
-        // allowed; anything else approval-gated (dangerous bash) is denied —
-        // mirroring the headless CLI without --yes.
-        hooks.on_approval = [](const std::string& tool, const agent::json&,
-                               const std::string&) -> agent::Approval {
-            return tool.rfind("process_", 0) == 0 ? agent::Approval::AllowSession
-                                                  : agent::Approval::Deny;
+        // allowed; a scenario that scripts a side-effecting tool opts in with
+        // "approval": "allow"; anything else approval-gated (dangerous bash) is
+        // denied, mirroring the headless CLI without --yes.
+        hooks.on_approval = [allow_tools](const std::string& tool, const agent::json&,
+                                          const std::string&) -> agent::Approval {
+            return (allow_tools || tool.rfind("process_", 0) == 0) ? agent::Approval::AllowSession
+                                                                   : agent::Approval::Deny;
         };
     }
 };
@@ -741,7 +742,7 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
         return {};
     host.subagents.set_artifact_root((ws / "tasks").string());
 
-    RunComponents comps(host.cfg);
+    RunComponents comps(host.cfg, s.allow_tools);
     comps.meter.start();
     std::unique_ptr<agent::LLMClient> client = build_client(s, opts, host.subagents);
 
