@@ -261,6 +261,18 @@ static std::optional<Scenario> load_from_json(const std::string& body, std::stri
     return bench::load_scenario(dir + "/s.json", err);
 }
 
+TEST(scenario_loader_reads_the_approval_policy) {
+    std::string err;
+    auto allowed =
+        load_from_json(R"({"name": "n", "suite": "s", "prompt": "p", "approval": "allow"})", err);
+    ASSERT(allowed.has_value());
+    ASSERT(allowed->allow_tools);
+
+    auto denied = load_from_json(R"({"name": "n", "suite": "s", "prompt": "p"})", err);
+    ASSERT(denied.has_value());
+    ASSERT(!denied->allow_tools);
+}
+
 TEST(scenario_loader_parses_every_optional_field) {
     std::string err;
     auto s = load_from_json(R"({
