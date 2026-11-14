@@ -199,14 +199,16 @@ gate: any harness change that dips a family below 1.0 is a red build.
 
 ## Hermetic efficiency gate (CI)
 
-`make bench-check` runs the fake-LLM scenario set (`amber-bench run --cat model`)
-and compares every scenario with
+`make bench-check` runs the 40 scenarios that carry a `fake_replies` script
+(`amber-bench run --cat model`) and compares every one with
 `bench/results/harness-efficiency-baseline.json`:
 
 - **prompt + completion tokens**: fail above +10%;
 - **executed tool calls**: fail above +10%;
 - **task success**: a scenario that passed in the baseline and fails now is a
-  regression;
+  regression; a new scenario that fails is also a regression, not a note;
+- **corpus floor**: a report below 30 scenarios fails closed, because a gate
+  that measured less than it claims must not report a pass;
 - **wall time**: reported, and failed above a 2x + 500 ms ceiling. Wall time is
   machine- and load-dependent even with a fake LLM, so this is a pathology
   ceiling, not a precise budget; tokens and calls are the real gate.

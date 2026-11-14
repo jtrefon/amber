@@ -12,7 +12,9 @@ report with `bench/results/harness-efficiency-baseline.json`:
 - **tokens** (prompt + completion): fail above +10% per scenario;
 - **tool calls**: fail above +10% per scenario;
 - **task success**: a scenario that passed in the baseline and fails now is a
-  regression;
+  regression; a new scenario that fails is a regression too;
+- **corpus floor**: a report below 30 scenarios fails closed, so a gate that
+  measured less than it claims does not report a pass;
 - **wall time**: reported, and failed above a 2x + 500 ms ceiling. Wall time is
   machine- and load-dependent even with a fake LLM, so it is a pathology
   ceiling rather than a precise budget; tokens and calls are the real gate.
@@ -42,6 +44,9 @@ CALL_REGRESSION = 0.10
 WALL_CEILING_FACTOR = 2.0
 WALL_CEILING_MS = 500
 REQUIRED_METRICS = ("prompt_tokens", "completion_tokens", "tool_calls", "wall_ms", "success")
+# The hermetic corpus floor. A report below it measured less than the gate
+# claims, even when every scenario it did run passed.
+MIN_SCENARIOS = 30
 
 
 def load_json(path, what):
@@ -102,11 +107,15 @@ def compare(current, recorded):
 
     `missing` is a measurement failure: the baseline names a scenario the report
     did not run, so the comparison would silently cover less than it claims.
-    `added` is additive (a new scenario) and passes.
+    `added` is a new scenario. A passing addition is a note; a failing one is a
+    regression, because the corpus must not grow a red scenario unnoticed.
     """
     violations = []
     missing = sorted(set(recorded) - set(current))
     added = sorted(set(current) - set(recorded))
+    for name in added:
+        if not current[name]["success"]:
+            violations.append((name, "success", "new scenario", "failed", "additive scenario"))
     for name in sorted(set(recorded) & set(current)):
         base = recorded[name]
         cur = current[name]
@@ -142,8 +151,15 @@ def markdown(results, violations, added, allow=""):
             f"| {cur['tool_calls']} | {percent(cur['tool_calls'], base['tool_calls']):+.1f}% "
             f"| {cur['wall_ms']}ms | {result} |")
     if added:
+        failing = [n for n in added if n in failed]
+        passing = [n for n in added if n not in failed]
         lines.append("")
-        lines.append(f"Additive scenarios (no baseline): {', '.join(f'`{n}`' for n in added)}")
+        if failing:
+            lines.append(f"Additive scenarios that failed: "
+                         f"{', '.join(f'`{n}`' for n in failing)}")
+        if passing:
+            lines.append(f"Additive scenarios (no baseline): "
+                         f"{', '.join(f'`{n}`' for n in passing)}")
     if violations:
         lines.append("")
         lines.append(f"**{len(violations)} regression(s)**"
@@ -151,8 +167,13 @@ def markdown(results, violations, added, allow=""):
     return "\n".join(lines) + "\n"
 
 
-def check(current, recorded, allow="", verbose=True):
+def check(current, recorded, allow="", verbose=True, min_scenarios=0):
     """0 pass, 1 regression, 2 the measurement cannot be trusted."""
+    if len(current) < min_scenarios:
+        print(f"bench-check: FAILED CLOSED - the report ran {len(current)} "
+              f"scenario(s), below the corpus floor of {min_scenarios}",
+              file=sys.stderr)
+        return 2
     violations, added, missing = compare(current, recorded)
     if missing:
         print(f"bench-check: FAILED CLOSED - the report did not run "
@@ -206,6 +227,8 @@ def main():
     ap.add_argument("--update", action="store_true", help="rewrite the baseline")
     ap.add_argument("--allow", default="", help="reason from `bench-allow: <reason>`")
     ap.add_argument("--markdown", help="write the summary table here")
+    ap.add_argument("--min-scenarios", type=int, default=MIN_SCENARIOS,
+                    help=f"fail closed below this corpus size (default {MIN_SCENARIOS})")
     args = ap.parse_args()
 
     # The reason is user-controlled text. CI passes it through the environment
@@ -241,7 +264,7 @@ def main():
     if recorded is None:
         print(f"bench-check: FAILED CLOSED - {error}", file=sys.stderr)
         return 2
-    rc = check(current, recorded, args.allow)
+    rc = check(current, recorded, args.allow, min_scenarios=args.min_scenarios)
     if args.markdown:
         violations, added, _ = compare(current, recorded)
         results = [(name, (recorded[name], current[name])) for name in sorted(recorded)]
