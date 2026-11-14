@@ -5670,6 +5670,52 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     ASSERT(found);
 }
 
+namespace {
+// Finishes in about a millisecond: enough for the dispatcher's first scan to
+// miss the future, short enough that a poll quantum dominates the call.
+class FastTool : public agent::Tool {
+public:
+    std::string name() const noexcept override { return "fast"; }
+    std::string description() const noexcept override { return "fast"; }
+    agent::json parameters_schema() const override { return agent::json::object(); }
+    agent::ToolResult execute(const agent::json&) const override {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        return {true, "ok", ""};
+    }
+};
+} // namespace
+
+// Tool dispatch wakes when the tool finishes, not on a fixed poll quantum. The
+// old 10 ms sleep cannot produce a single dispatch under 8 ms; a completion
+// signal is 1-3 ms even on a loaded runner. The fastest of ten dispatches is
+// the measurement, so one scheduling spike does not make the check flaky.
+TEST(dispatch_fast_calls_do_not_pay_a_poll_quantum) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(std::make_unique<FastTool>());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+    agent::AgentHooks hooks;
+
+    long fastest = 1000;
+    for (int i = 0; i < 10; ++i) {
+        agent::json calls = agent::json::array();
+        calls.push_back({{"id", "c" + std::to_string(i)},
+                         {"type", "function"},
+                         {"function", {{"name", "fast"}, {"arguments", agent::json::object()}}}});
+        agent::Context ctx;
+        const auto started = std::chrono::steady_clock::now();
+        ASSERT(agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
+                                          &ctx));
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - started);
+        if (elapsed.count() < fastest)
+            fastest = elapsed.count();
+    }
+    ASSERT(fastest < 8); // flake-allow: old poll is 10 ms; fastest of ten is 1-3 ms
+}
+
 TEST(dispatch_projects_bulky_bash_output_at_the_source) {
     // A build log is the one tool result where the middle is noise: keep the
     // ends, hand the model a handle, and leave read untouched.
