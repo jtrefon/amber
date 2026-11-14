@@ -25,6 +25,8 @@ struct RunOptions {
     // distribution of failures is not a distribution of the model.
     int repeat_gap_ms = 0;
     std::string model;        // explicit model override (live)
+    bool matrix = false;      // run every declared variant cell
+    std::string variant;      // select one key=value cell
     double temperature = -1;  // <0 = leave default
     std::string thinking;     // "" = leave default; "on"/"off"/"auto"
     int thinking_budget = -1; // <0 = leave default

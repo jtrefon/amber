@@ -213,7 +213,7 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
         return cfg;
     }
     cfg.stream = s.stream;
-    cfg.context_size = 4096;
+    cfg.context_size = s.context_size > 0 ? s.context_size : 4096;
     cfg.model = "fake";
     cfg.detection_loop = s.detection_loop;
     cfg.detection_duplicate = s.detection_duplicate;
@@ -223,7 +223,7 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
         cfg.load("amber.conf");
     // Re-assert hermetic defaults that amber.conf may have clobbered.
     cfg.stream = s.stream;
-    cfg.context_size = 4096;
+    cfg.context_size = s.context_size > 0 ? s.context_size : 4096;
     cfg.model = "fake";
     return cfg;
 }

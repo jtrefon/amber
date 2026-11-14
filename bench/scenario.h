@@ -5,6 +5,7 @@
 // Declarative benchmark scenario: setup, prompt, tool-call oracle, answer
 // checks, budgets. See docs/spec/benchmark/kpi-framework.md for the schema.
 
+#include <map>
 #include <string>
 #include <vector>
 #include <optional>
@@ -64,6 +65,10 @@ struct Scenario {
     // "allow". The default keeps the benchmark's deny-unless-process policy so
     // the denied-tool scenarios still exercise the refusal path.
     bool allow_tools = false;
+    // Declared environment axes. `--matrix` runs the cross-product (capped at
+    // 8 cells); `--variant key=value` runs one cell. Empty = no variants.
+    std::map<std::string, std::vector<agent::json>> variants;
+    int context_size = 0; // 0 = the hermetic default
     std::vector<ScenarioStep> oracle;
     std::vector<std::string> forbidden_tools;
     Checks prompt_checks;
@@ -93,6 +98,12 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
 
 // Whether the scenario can run on the current host (platforms gate).
 bool platform_supported(const Scenario& s);
+
+// Expand a scenario's declared variants into runnable cells. `matrix` runs the
+// cross-product (capped at 8); `variant` selects one `key=value` cell. No
+// declared variants returns the scenario unchanged.
+std::vector<Scenario> expand_variants(const Scenario& s, bool matrix, const std::string& variant,
+                                      std::string& err);
 
 // Whether all textual checks hold for the given text (must/must-not contain).
 bool checks_pass(const Checks& c, const std::string& text) noexcept;

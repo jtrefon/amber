@@ -49,6 +49,8 @@ void print_usage(const char* prog) {
         << "Options:\n"
         << "  --suite NAME     filter by suite\n"
         << "  --scenario NAME  run a single scenario\n"
+        << "  --matrix         run every declared variant cell\n"
+        << "  --variant K=V    run one variant cell\n"
         << "  --live           use the real model (amber.conf / env / flags)\n"
         << "  --profile NAME   model profile from bench/profiles.json\n"
         << "  --model NAME     model override (live)\n"
@@ -180,6 +182,8 @@ struct CliOptions {
     std::string name;
     std::string profile;
     std::string model;
+    bool matrix = false;
+    std::string variant;
     double temperature = -1;
     int repeat = 1;
     int repeat_gap_ms = 0;
@@ -221,6 +225,10 @@ bool apply_run_flag(const std::string& a, const NextArg& next, CliOptions& o) {
         o.profile = next("");
     else if (a == "--model")
         o.model = next("");
+    else if (a == "--matrix")
+        o.matrix = true;
+    else if (a == "--variant")
+        o.variant = next("");
     else if (a == "--temperature")
         o.temperature = std::atof(next("0").c_str());
     else if (a == "--repeat")
@@ -302,6 +310,8 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.repeat = args.repeat;
     opts.repeat_gap_ms = args.repeat_gap_ms;
     opts.model = args.model;
+    opts.matrix = args.matrix;
+    opts.variant = args.variant;
     opts.temperature = args.temperature;
     opts.debug_dir = args.debug_dir;
     if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
@@ -311,6 +321,25 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     }
     apply_profile(opts, args.profile);
     return opts;
+}
+
+// Expand every discovered scenario into its selected cells. An empty matrix
+// and no --variant keeps the base scenarios, so a plain run is unchanged.
+std::vector<bench::Scenario> discover_expanded(const CliOptions& args,
+                                               const bench::RunOptions& opts, std::string& err) {
+    std::vector<bench::Scenario> out;
+    for (const auto& s : discover_scenarios(args.suite, args.name)) {
+        std::string e;
+        std::vector<bench::Scenario> cells =
+            bench::expand_variants(s, opts.matrix, opts.variant, e);
+        if (!e.empty()) {
+            err = s.name + ": " + e;
+            return {};
+        }
+        for (auto& cell : cells)
+            out.push_back(std::move(cell));
+    }
+    return out;
 }
 
 bench::RunMeta build_run_meta(const CliOptions& args, const bench::RunOptions& opts) {
@@ -376,7 +405,12 @@ int run_harness_axis(const std::string& out_file) {
 // sidecar when asked for.
 int run_model_axis(const CliOptions& args) {
     const bench::RunOptions opts = build_run_options(args);
-    auto scenarios = discover_scenarios(args.suite, args.name);
+    std::string err;
+    auto scenarios = discover_expanded(args, opts, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
     if (scenarios.empty()) {
         std::cerr << "error: no scenarios match\n";
         return 1;
@@ -395,7 +429,12 @@ int run_model_axis(const CliOptions& args) {
 // scenarios still reports the harness rather than failing.
 int run_both_axes(const CliOptions& args) {
     const bench::RunOptions opts = build_run_options(args);
-    auto scenarios = discover_scenarios(args.suite, args.name);
+    std::string err;
+    auto scenarios = discover_expanded(args, opts, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
     bench::RunMeta meta = build_run_meta(args, opts);
     std::vector<bench::ScenarioReport> reports;
     if (scenarios.empty()) {
