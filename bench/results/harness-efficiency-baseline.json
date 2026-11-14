@@ -7,21 +7,21 @@
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 25
+      "wall_ms": 14
     },
     "arch-02-clean-control": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 32
+      "wall_ms": 11
     },
     "c-01-fizzbuzz": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 14
     },
     "c-02-sorting-multi": {
       "completion_tokens": 35,
@@ -35,21 +35,21 @@
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 14
+      "wall_ms": 13
     },
     "c-04-lcs": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 25
+      "wall_ms": 14
     },
     "c-05-graph-bfs": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 20
+      "wall_ms": 16
     },
     "clean-01-magic-numbers": {
       "completion_tokens": 15,
@@ -63,7 +63,7 @@
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 28
+      "wall_ms": 11
     },
     "d-01-two-area-survey": {
       "completion_tokens": 0,
@@ -77,21 +77,21 @@
       "prompt_tokens": 235,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 13
+      "wall_ms": 12
     },
     "f-02-mistake-then-recover": {
       "completion_tokens": 25,
       "prompt_tokens": 180,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 11
+      "wall_ms": 10
     },
     "f-03-mid-stream-dropout": {
       "completion_tokens": 15,
       "prompt_tokens": 110,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 1210
+      "wall_ms": 1209
     },
     "f-04-parallel-vs-sequential": {
       "completion_tokens": 25,
@@ -105,7 +105,7 @@
       "prompt_tokens": 150,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 9
+      "wall_ms": 10
     },
     "f-07-tool-denied-grace": {
       "completion_tokens": 25,
@@ -119,7 +119,28 @@
       "prompt_tokens": 9500,
       "success": true,
       "tool_calls": 4,
-      "wall_ms": 13
+      "wall_ms": 14
+    },
+    "mt-01-read-edit-verify": {
+      "completion_tokens": 40,
+      "prompt_tokens": 320,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 12
+    },
+    "mt-02-search-then-edit": {
+      "completion_tokens": 40,
+      "prompt_tokens": 320,
+      "success": true,
+      "tool_calls": 3,
+      "wall_ms": 12
+    },
+    "mt-03-fail-then-recover": {
+      "completion_tokens": 50,
+      "prompt_tokens": 390,
+      "success": true,
+      "tool_calls": 4,
+      "wall_ms": 12
     },
     "p-01-envelope-format": {
       "completion_tokens": 15,
@@ -133,7 +154,7 @@
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 9
+      "wall_ms": 8
     },
     "p-03-verify-after-action": {
       "completion_tokens": 25,
@@ -147,105 +168,105 @@
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 59
     },
     "p-06-verify-before-claim": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 9
+      "wall_ms": 8
     },
     "r-01-extract-method": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 14
+      "wall_ms": 13
     },
     "r-02-polymorphism-over-switch": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 13
     },
     "r-03-adapter": {
       "completion_tokens": 55,
       "prompt_tokens": 510,
       "success": true,
       "tool_calls": 5,
-      "wall_ms": 20
+      "wall_ms": 16
     },
     "r-04-strategy": {
       "completion_tokens": 35,
       "prompt_tokens": 300,
       "success": true,
       "tool_calls": 3,
-      "wall_ms": 17
+      "wall_ms": 14
     },
     "refac-01-long-method": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 30
+      "wall_ms": 13
     },
     "refac-02-duplicated-logic": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 26
+      "wall_ms": 12
     },
     "t-01-ls-count-files": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 58
+      "wall_ms": 59
     },
     "t-01-search-vs-bash-grep": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 11
+      "wall_ms": 12
     },
     "t-02-grep-extract-value": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 61
+      "wall_ms": 59
     },
     "t-02-read-vs-cat": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 7
     },
     "t-03-compile-run-cpp": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 59
+      "wall_ms": 60
     },
     "t-03-write-vs-rewrite": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 8
+      "wall_ms": 9
     },
     "t-04-env-inventory": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 59
     },
     "t-04-process-vs-blocking": {
       "completion_tokens": 35,
@@ -273,7 +294,7 @@
       "prompt_tokens": 210,
       "success": true,
       "tool_calls": 2,
-      "wall_ms": 10
+      "wall_ms": 11
     },
     "t-07-planning-multi-file": {
       "completion_tokens": 55,

@@ -14,10 +14,10 @@ model-library strategy.
 
 ## Suites
 
-18 scenario suites on disk: agent-failures, coding, compression, delegate,
-headroom, loop-live, prompt, refactor, repo, shaping, terminal, tools plus the
-six review-* suites (quality perception: arch, refactor, quality,
-datastructures, patterns, clean). 58 scenarios total at the time of writing, 40
+19 scenario suites on disk: agent-failures, coding, compression, delegate,
+headroom, loop-live, multi-turn, prompt, refactor, repo, shaping, terminal,
+tools plus the six review-* suites (quality perception: arch, refactor, quality,
+datastructures, patterns, clean). 61 scenarios total at the time of writing, 43
 hermetic and 18 live-only; the review suites are phased (Phase A = 2 per
 category, Phase B target = 5 per category). `skills` and `mcp` remain planned
 suites with no scenarios yet. The hermetic corpus and its publishing contract
@@ -28,11 +28,12 @@ are specified in `benchmark/hermetic-corpus.md`.
 | Suite | Measures | Mode | Starter (P1) |
 |-------|----------|------|--------------|
 | `agent-failures` | Robustness vs typical agent failure modes: redundant calls, mistakes, dropouts, repeated executions | hermetic + live | 4 |
-| `terminal` | Real shell work with predefined outcomes; cross-platform (linux + darwin) commands | live (hermetic where scriptable) | 3 |
+| `terminal` | Real shell work with predefined outcomes; cross-platform (linux + darwin) commands | hermetic + live | 3 |
 | `tools` | Right tool for the job — prompt strength for advertised tools | hermetic + live | 4 |
 | `prompt` | System-prompt adherence: envelope format, banned-tool refusal, verify-after-action | hermetic + live | 3 |
-| `coding` | Algorithm/interview tasks via static templates (hidden tests) | live (template engine; hermetic with fake) | 2 |
-| `refactor` | Design-quality tasks: polymorphism, decoupling, adapter/proxy, complexity reduction — behavior-equivalence + structure checks | live (template engine) | 2 |
+| `multi-turn` | Follow-ups, context carry and recovery across two user requests | hermetic | 3 |
+| `coding` | Algorithm/interview tasks via static templates (hidden tests) | hermetic + live (template engine) | 2 |
+| `refactor` | Design-quality tasks: polymorphism, decoupling, adapter/proxy, complexity reduction — behavior-equivalence + structure checks | hermetic + live (template engine) | 2 |
 | `skills` | Skills catalog selection + step adherence | live | 2 (P2) |
 | `mcp` | MCP stub server: tool args, tool correctness | live (stub infra) | 2 (P2) |
 | `compression` | Long-context correctness under the compression gate | hermetic | 2 (P2) |

@@ -199,7 +199,7 @@ gate: any harness change that dips a family below 1.0 is a red build.
 
 ## Hermetic efficiency gate (CI)
 
-`make bench-check` runs the 40 scenarios that carry a `fake_replies` script
+`make bench-check` runs the 43 scenarios that carry a `fake_replies` script
 (`amber-bench run --cat model`) and compares every one with
 `bench/results/harness-efficiency-baseline.json`:
 

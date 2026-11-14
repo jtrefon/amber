@@ -73,11 +73,12 @@ cases. Everything else was live-only.
 | loop-live | 6 | 0 | 6 |
 | **total** | **58** | **8** | **50** |
 
-### After #597
+### After #597 and #598
 
-The deterministic suites now carry a scripted plan. The 18 remaining live-only
-scenarios are the ones that need a live model or a real repository:
-`headroom`, `loop-live`, `repo`, `shaping`, and the
+The deterministic suites now carry a scripted plan, and the multi-turn suite
+replays two user requests on one agent. The 18 remaining live-only scenarios
+are the ones that need a live model or a real repository: `headroom`,
+`loop-live`, `repo`, `shaping`, and the
 `review-datastructures`/`patterns`/`quality` suites.
 
 | suite | scenarios | hermetic | live-only |
@@ -88,6 +89,7 @@ scenarios are the ones that need a live model or a real repository:
 | delegate | 1 | 1 | 0 |
 | headroom | 2 | 0 | 2 |
 | loop-live | 6 | 0 | 6 |
+| multi-turn | 3 | 3 | 0 |
 | prompt | 5 | 5 | 0 |
 | refactor | 4 | 4 | 0 |
 | repo | 2 | 0 | 2 |
@@ -100,7 +102,7 @@ scenarios are the ones that need a live model or a real repository:
 | shaping | 2 | 0 | 2 |
 | terminal | 6 | 6 | 0 |
 | tools | 6 | 6 | 0 |
-| **total** | **58** | **40** | **18** |
+| **total** | **61** | **43** | **18** |
 
 `corpus.md` already labels `tools`, `prompt` and `coding` as "hermetic + live"
 or "hermetic with fake". This spec is the implementation of that intent, not a
