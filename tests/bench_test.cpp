@@ -317,6 +317,31 @@ TEST(report_json_carries_suite_summary_and_schema) {
     ASSERT_EQ(j["suite_summary"][0]["tool_calls"], 2);
 }
 
+TEST(harness_json_carries_the_scorecard) {
+    bench::HarnessScorecard sc;
+    sc.passed = 1;
+    sc.total = 2;
+    sc.integrity = 0.5;
+    sc.families["parse"] = {1, 2};
+    bench::ProbeResult probe;
+    probe.family = "parse";
+    probe.name = "probe";
+    probe.passed = true;
+    probe.detail = "d";
+    probe.expected = "e";
+    probe.ms = 1.5;
+
+    const agent::json j = bench::harness_json(sc, {probe}, /*with_probes=*/true);
+    ASSERT_EQ(j["harness_integrity"], 0.5);
+    ASSERT_EQ(j["harness_passed"], 1);
+    ASSERT_EQ(j["harness_total"], 2);
+    ASSERT_EQ(j["harness_families"]["parse"]["passed"], 1);
+    ASSERT_EQ(j["probes"].size(), 1u);
+
+    const agent::json summary = bench::harness_json(sc, {probe}, /*with_probes=*/false);
+    ASSERT_FALSE(summary.contains("probes"));
+}
+
 TEST(report_json_carries_the_turns) {
     bench::ScenarioReport rep;
     rep.name = "mt";
