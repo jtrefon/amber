@@ -1133,6 +1133,25 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT(rep.kpi.wall_ms >= 0);
 }
 
+TEST(e2e_hermetic_variant_cell_runs) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/tools/t-06-write-verify-loop.json", err);
+    ASSERT(s.has_value());
+    auto cells = bench::expand_variants(*s, /*matrix=*/true, /*variant=*/"", err);
+    ASSERT(err.empty());
+    ASSERT_EQ(cells.size(), 2u);
+    ASSERT_EQ(cells[1].context_size, 8192);
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(cells[1], opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(rep.kpi.success);
+    ASSERT_EQ(rep.name, std::string("t-06-write-verify-loop@context_size=8192"));
+}
+
 TEST(e2e_hermetic_multi_turn_scenario) {
     std::string dir = tmp_dir("e2e_multi");
     write_file(dir + "/s.json", R"({
