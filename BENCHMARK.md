@@ -225,6 +225,20 @@ deterministic. Live-model prompt evaluation stays manual (see the release gate
 above). Prompt-cache counters are not part of the hermetic gate because the fake
 LLM reports none; a live run exposes them in `/usage`.
 
+## Binary end-to-end gate (CI)
+
+`make bench-e2e` builds `amber-cli` and runs five scenarios through the real
+binary against a loopback OpenAI-compatible endpoint:
+
+- boot + read (`t-02`), plugin search (`t-01`), write (`t-03`);
+- a denied bash call (`f-07`), and a two-turn read/edit (`mt-01`).
+
+Each scenario also runs in-process first; the gate compares exit code and the
+ordered tool sequence. The run is isolated in a temp workspace with its own
+`XDG_CONFIG_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME`. The `bench-e2e` CI job
+gates `ci-gate` in the `cpp` dimension. A missing packaged prompt or data file
+fails the driver; that is the point.
+
 ## Baseline v4 (2026-08-12): first run with the loop-live axis
 
 First live run including the **`loop-live` suite** (6 scenarios measuring

@@ -342,44 +342,44 @@ One JSON summary at exit, written even when the run fails:
   "schema_version": 1,
   "exit_code": 0,
   "engine_version": "1.0.0",
-  "turns": [
-    {
-      "prompt": "...",
-      "reply": "...",
-      "tool_calls": [{"name": "read", "args": {"path": "main.cpp"}, "status": "ok", "ms": 3}],
-      "usage": {"prompt_tokens": 100, "completion_tokens": 20, "cache_read_tokens": 0},
-      "wall_ms": 12
-    }
+  "model": "fake",
+  "workspace": "/tmp/...",
+  "prompts": ["read a.txt"],
+  "final_text": "done",
+  "tool_calls": [
+    {"name": "read", "args": {"path": "a.txt"}, "status": "ok", "error": ""}
   ],
-  "usage": {"prompt_tokens": 100, "completion_tokens": 20, "cache_read_tokens": 0},
-  "wall_ms": 120,
-  "plugins": ["custom"],
-  "workspace": "/tmp/..."
+  "usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+  },
+  "wall_ms": 120
 }
 ```
 
-Streaming stays on stdout; the file is the telemetry surface. The exit code is
-unchanged.
+`--script <file>` supplies a JSON array of prompts for a multi-turn run on one
+session; `prompts` then names every turn. Streaming stays on stdout; the file
+is the telemetry surface. The exit code is unchanged.
 
 ### Mock server
 
 - A loopback HTTP server in `bench/`, ephemeral port.
 - Serves `/v1/models` and `/v1/chat/completions`, stream and non-stream.
-- Scripts tool calls, content, usage and retryable/non-retryable errors.
-- Serialises requests and records them for divergence checks.
-- No external network.
+- Scripts tool calls, content and usage; records request paths.
+- Handles one request per connection; no external network.
 
 ### Driver
 
 - `amber-bench run --driver binary` spawns `amber-cli` with isolated
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME`, and a temp
   workspace.
-- It compares the telemetry with the in-process run: exit code, tool sequence,
-  per-tool status and (where deterministic) usage.
-- At least 5 scenarios: boot + read, search + write, multi-turn, denied tool,
-  plugin tool.
-- A `bench-e2e` job gates `ci-gate` in the `cpp` dimension, bounded and
-  skipped for docs-only diffs.
+- It runs the scenario in-process first for the expected tool sequence, then
+  compares the binary's exit code and ordered tool names with it.
+- Five scenarios: boot + read, search + write, write, denied tool, multi-turn.
+- `make bench-e2e` is the local gate; the `bench-e2e` CI job gates `ci-gate`
+  in the `cpp` dimension, bounded and skipped for docs-only diffs.
 - A missing packaged prompt or data file fails the driver; that is the point.
 
 ## 10. Test plan
