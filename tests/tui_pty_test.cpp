@@ -3720,6 +3720,76 @@ TEST(cli_wait_tasks_joins_a_command) {
     }
 }
 
+// The machine-readable summary is the binary driver's telemetry surface: it
+// names the tools the process actually ran, with their status, and carries the
+// usage and final answer.
+TEST(cli_json_out_reports_the_run) {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
+    ASSERT(fs::exists(cli));
+    const std::string out = fixture().workspace + "/telemetry.json";
+    fs::remove(out);
+
+    Tui child;
+    child.name = "json_out";
+    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model", "pty-test",
+                                     "--prompt",   "intent probe",       "--yolo",
+                                     "--json-out", out};
+    ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
+    if (!require(child.wait_for("INTENT-DONE-ACK", 30000), "the JSON run never finished", child))
+        return;
+    if (!require(child.wait_exit(30000), "the JSON run did not exit", child))
+        return;
+    if (!require(child.exit_code == 0, "the JSON run did not exit 0", child))
+        return;
+
+    std::ifstream f(out);
+    if (!require(static_cast<bool>(f), "the JSON summary was not written", child))
+        return;
+    agent::json j;
+    f >> j;
+    ASSERT_EQ(j["exit_code"].get<int>(), 0);
+    ASSERT_EQ(j["tool_calls"].size(), 1u);
+    ASSERT_EQ(j["tool_calls"][0]["name"].get<std::string>(), std::string("bash"));
+    ASSERT_EQ(j["tool_calls"][0]["status"].get<std::string>(), std::string("ok"));
+    ASSERT(j["final_text"].get<std::string>().find("INTENT-DONE-ACK") != std::string::npos);
+    ASSERT(j["usage"]["prompt_tokens"].get<long>() > 0);
+}
+
+TEST(cli_script_runs_the_prompts) {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
+    ASSERT(fs::exists(cli));
+    const std::string script = fixture().workspace + "/prompts.json";
+    ASSERT(write_file(script, R"(["intent probe"])"));
+    const std::string out = fixture().workspace + "/telemetry-script.json";
+    fs::remove(out);
+
+    Tui child;
+    child.name = "json_script";
+    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model", "pty-test",
+                                     "--script",   script,               "--yolo",
+                                     "--json-out", out};
+    ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
+    if (!require(child.wait_for("INTENT-DONE-ACK", 30000), "the script run never finished", child))
+        return;
+    if (!require(child.wait_exit(30000), "the script run did not exit", child))
+        return;
+    if (!require(child.exit_code == 0, "the script run did not exit 0", child))
+        return;
+
+    std::ifstream f(out);
+    if (!require(static_cast<bool>(f), "the script summary was not written", child))
+        return;
+    agent::json j;
+    f >> j;
+    ASSERT_EQ(j["prompts"].size(), 1u);
+    ASSERT_EQ(j["prompts"][0].get<std::string>(), std::string("intent probe"));
+    ASSERT_EQ(j["tool_calls"].size(), 1u);
+}
+
 // ── the skills explorer is a real modal, not a dead command ──
 //
 // It must paint its own search line inside the dialog, survive a tab switch
