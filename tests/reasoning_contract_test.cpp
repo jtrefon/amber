@@ -99,6 +99,92 @@ TEST(openai_model_list_reads_deepseek_effort_metadata) {
            m.input_modalities.end());
 }
 
+TEST(openai_model_list_tolerates_malformed_capability_shapes) {
+    // Every field is untrusted JSON. A wrong type is "not advertised", never a
+    // crash and never a guess.
+    const std::string body = R"({"data":[
+      {"id":"bad1","supported_parameters":["reasoning"],"reasoning":"no","effort":"no","capabilities":"no","api":"no",
+       "limit":"no","architecture":"no","modalities":"no","top_provider":"no"},
+      {"model":"bad2","supported_parameters":["reasoning"],
+       "reasoning":{"supported_efforts":"no","default_effort":5,
+                    "default_enabled":"yes","mandatory":"no"}},
+      {"name":"bad3","capabilities":{"reasoning":{"supported":true,"effort":"no",
+                    "toggle":"no","default":"no"}}},
+      {"id":"bad4","capabilities":{"reasoning":{"supported":true,
+                    "default":{"type":"budget","value":5}}}},
+      {"id":"bad5","supported_parameters":["reasoning"],"api":{"chat-completions":"no","other":{},
+                    "third":{"compatibility":"no"},
+                    "fourth":{"compatibility":{"reasoning_field":5}}}},
+      {"id":"bad6","capabilities":{"reasoning":{"supported":true}},
+       "api":{"chat-completions":{"compatibility":{"reasoning_field":"reasoning",
+                    "require_reasoning":"yes"}}}},
+      {"id":"bad7","limit":{"context":0,"output":0}},
+      {"id":"bad8","modalities":{"input":["text",5],"output":["text"]},
+       "architecture":{"input_modalities":["text"],"output_modalities":["text"]}},
+      {"id":"bad9","supported_parameters":["include_reasoning"]},
+      {"id":"bad10","supported_parameters":["reasoning_effort"]},
+      {"id":"bad11","capabilities":{"reasoning":{"supported":false}}},
+      {"id":"bad12","reasoning":{"default_effort":"high"}},
+      {"id":"bad13","capabilities":{"reasoning":"no"}},
+      {"id":"bad14","capabilities":{"reasoning":{"supported":true,"effort":["none","low"]}}},
+      {"id":"bad15","supported_parameters":["reasoning"],"api":{}},
+      {"id":"bad16","capabilities":{"other":true}},
+      {"id":"bad17","limit":{"context":1,"output":2},
+       "top_provider":{"max_completion_tokens":3}},
+      {"id":"bad18","reasoning":{"supported_efforts":[]}},
+      {"id":"bad19","reasoning":{}},
+      {"id":"bad20","supported_parameters":["reasoning"],"api":{"x":{"compatibility":{"reasoning_field":""}}}},{"id":"bad21","supported_parameters":["reasoning"],"reasoning":"no","effort":"no"}
+    ]})";
+    const auto models = parse(body);
+    ASSERT_EQ(models.size(), 21u);
+    const auto& bad1 = models[0];
+    ASSERT(bad1.reasoning.supported); // the flag survives; the shape does not
+    ASSERT(bad1.reasoning.echo_field.empty());
+    ASSERT_EQ(bad1.context, 0);
+    ASSERT_EQ(bad1.max_output, 0);
+    const auto& bad2 = models[1];
+    ASSERT(bad2.reasoning.supported);
+    ASSERT(bad2.reasoning.efforts.empty());
+    ASSERT(bad2.reasoning.default_effort.empty());
+    const auto& bad3 = models[2];
+    ASSERT(bad3.reasoning.mandatory);
+    ASSERT(bad3.reasoning.off == ReasoningOff::Unsupported);
+    const auto& bad5 = models[4];
+    ASSERT(bad5.reasoning.echo_field.empty());
+    const auto& bad6 = models[5];
+    ASSERT_EQ(bad6.reasoning.echo_field, std::string("reasoning"));
+    ASSERT(bad6.reasoning.require_echo);
+    const auto& bad8 = models[7];
+    ASSERT_EQ(bad8.input_modalities.size(), 1u); // "text" survived the bad entry
+    const auto& bad9 = models[8];
+    ASSERT(bad9.reasoning.wire == ReasoningWire::ReasoningObject);
+    const auto& bad10 = models[9];
+    ASSERT(bad10.reasoning.wire == ReasoningWire::Effort);
+    ASSERT_FALSE(models[10].reasoning.supported);
+    ASSERT(models[11].reasoning.effort_levels);
+    ASSERT_EQ(models[11].reasoning.default_effort, std::string("high"));
+    ASSERT_FALSE(models[12].reasoning.supported);
+    ASSERT_FALSE(models[13].reasoning.mandatory); // "none" is an off level
+    ASSERT(models[14].reasoning.echo_field.empty());
+    ASSERT_FALSE(models[15].reasoning.supported);
+    ASSERT_EQ(models[16].max_output, 3);
+    ASSERT_EQ(models[16].context, 1);
+    ASSERT_FALSE(models[17].reasoning.effort_levels);
+    ASSERT_FALSE(models[18].reasoning.effort_levels);
+    ASSERT(models[19].reasoning.echo_field.empty());
+    ASSERT(models[20].reasoning.echo_field.empty());
+}
+
+TEST(openai_model_list_accepts_the_models_key_and_skips_an_empty_id) {
+    const auto models = parse(R"({"models":[{"id":"ok","context_length":4096},{}]})");
+    ASSERT_EQ(models.size(), 1u);
+    ASSERT_EQ(models[0].id, std::string("ok"));
+    ASSERT_EQ(models[0].context, 4096);
+
+    const auto missing = openai()->parse_models_response("not json");
+    ASSERT_FALSE(missing.ok);
+}
+
 TEST(openai_model_list_reads_openrouter_reasoning_object) {
     const auto& m = only(parse(kOpenRouter));
     ASSERT(m.reasoning.supported);
@@ -291,6 +377,52 @@ TEST(openai_completion_captures_reasoning_details) {
     ASSERT_EQ(m.content, std::string("done"));
     ASSERT(m.reasoning_details.is_array());
     ASSERT_EQ(m.reasoning_details[0]["text"].get<std::string>(), std::string("think first"));
+}
+
+TEST(openai_request_skips_reasoning_without_a_wire_shape) {
+    Config cfg;
+    cfg.model = "claude-sonnet-5-5";
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.adaptive = true;
+    cfg.model_reasoning.effort_levels = true;
+    cfg.model_reasoning.efforts = {"low", "high"};
+    cfg.reasoning_effort = "high";
+
+    auto body = openai()->build_chat_body(cfg, {}, {}, false);
+    ASSERT(!body.contains("reasoning"));
+    ASSERT(!body.contains("reasoning_effort"));
+
+    cfg.reasoning_effort = "off";
+    cfg.model_reasoning.off = ReasoningOff::ReasoningDisabled;
+    body = openai()->build_chat_body(cfg, {}, {}, false);
+    ASSERT(!body.contains("reasoning"));
+}
+
+TEST(openai_request_empty_effort_sends_no_field) {
+    const Config cfg = config_for(only(parse(kDeepSeek)));
+    Config empty = cfg;
+    empty.reasoning_effort.clear();
+    const auto body = openai()->build_chat_body(empty, {}, {}, false);
+    ASSERT(!body.contains("reasoning_effort"));
+    // Empty is treated like the default "off": DeepSeek's documented disable.
+    ASSERT_EQ(body["thinking"]["type"].get<std::string>(), "disabled");
+}
+
+TEST(openai_completion_drops_empty_tool_call_placeholders) {
+    const std::string body = R"({"choices":[{"message":{"role":"assistant","content":"",)"
+                             R"("tool_calls":[{}]}}]})";
+    const Message m = openai()->parse_completion(body);
+    ASSERT(m.tool_calls.is_null());
+}
+
+TEST(openai_completion_reads_a_string_reasoning_field_and_ignores_bad_details) {
+    const std::string body =
+        R"({"choices":[{"message":{"role":"assistant","content":"done",)"
+        R"("reasoning_content":5,"reasoning":"text","reasoning_details":"no"}}]})";
+    const Message m = openai()->parse_completion(body);
+    ASSERT_EQ(m.reasoning, std::string("text"));
+    ASSERT_EQ(m.reasoning_field, std::string("reasoning"));
+    ASSERT(m.reasoning_details.is_null());
 }
 
 TEST(openai_completion_drops_invalid_tool_arguments) {

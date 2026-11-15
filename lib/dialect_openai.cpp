@@ -318,6 +318,18 @@ bool has_parameter(const std::vector<std::string>& params, const char* name) {
     return std::find(params.begin(), params.end(), name) != params.end();
 }
 
+bool bool_field(const json& j, const char* key, bool fallback = false) {
+    if (!j.contains(key) || !j[key].is_boolean())
+        return fallback;
+    return j[key].get<bool>();
+}
+
+std::string string_field(const json& j, const char* key) {
+    if (!j.contains(key) || !j[key].is_string())
+        return {};
+    return j[key].get<std::string>();
+}
+
 // OpenRouter's top-level `reasoning` object: the levels the router accepts and
 // whether the model can be turned off. `supported_efforts: null` means every
 // gateway value is accepted, which is represented by an empty list (no clamp).
@@ -332,12 +344,9 @@ void parse_openrouter_reasoning(const json& r, ReasoningContract& out) {
     // absent or empty list means the model exposes no effort selection.
     const bool all_efforts = r.contains("supported_efforts") && r["supported_efforts"].is_null();
     out.effort_levels = all_efforts || !out.efforts.empty() || r.contains("default_effort");
-    if (r.contains("default_effort") && r["default_effort"].is_string())
-        out.default_effort = r["default_effort"].get<std::string>();
-    if (r.contains("default_enabled") && r["default_enabled"].is_boolean())
-        out.default_enabled = r["default_enabled"].get<bool>();
-    if (r.contains("mandatory") && r["mandatory"].is_boolean())
-        out.mandatory = r["mandatory"].get<bool>();
+    out.default_effort = string_field(r, "default_effort");
+    out.default_enabled = bool_field(r, "default_enabled");
+    out.mandatory = bool_field(r, "mandatory");
     out.off = out.mandatory ? ReasoningOff::Unsupported : ReasoningOff::ReasoningDisabled;
 }
 
@@ -352,8 +361,7 @@ void parse_deepseek_effort(const json& effort, ReasoningContract& out) {
     out.default_enabled = true;
     out.off = ReasoningOff::ThinkingDisabled;
     append_strings(effort, "supported_levels", out.efforts);
-    if (effort.contains("default_level") && effort["default_level"].is_string())
-        out.default_effort = effort["default_level"].get<std::string>();
+    out.default_effort = string_field(effort, "default_level");
 }
 
 // OpenCode (models.dev v2) `capabilities.reasoning`: supported, toggle, effort
@@ -361,21 +369,21 @@ void parse_deepseek_effort(const json& effort, ReasoningContract& out) {
 // variant; a model without it and without `none` in the list cannot be turned
 // off.
 void parse_opencode_reasoning(const json& r, ReasoningContract& out) {
-    if (!r.is_object() || !r.value("supported", false))
+    if (!r.is_object() || !bool_field(r, "supported"))
         return;
     out.supported = true;
     out.wire = ReasoningWire::Effort;
     out.default_enabled = true;
     append_strings(r, "effort", out.efforts);
     out.effort_levels = !out.efforts.empty() || r.contains("default");
-    const bool toggle = r.value("toggle", false);
+    const bool toggle = bool_field(r, "toggle");
     const bool has_none = has_parameter(out.efforts, "none");
     out.mandatory = !(toggle || has_none);
     out.off = out.mandatory ? ReasoningOff::Unsupported : ReasoningOff::EffortNone;
     if (r.contains("default") && r["default"].is_object()) {
         const json& def = r["default"];
-        if (def.value("type", "") == "effort" && def.contains("value") && def["value"].is_string())
-            out.default_effort = def["value"].get<std::string>();
+        if (string_field(def, "type") == "effort")
+            out.default_effort = string_field(def, "value");
     }
 }
 
@@ -391,13 +399,13 @@ bool parse_api_echo(const json& e, ReasoningContract& out) {
         if (!it.value().is_object())
             continue;
         const json compat = it.value().value("compatibility", json::object());
-        if (!compat.is_object() || !compat.contains("reasoning_field") ||
-            !compat["reasoning_field"].is_string())
+        if (!compat.is_object())
             continue;
-        out.echo_field = compat["reasoning_field"].get<std::string>();
-        out.require_echo = true;
-        if (compat.contains("require_reasoning") && compat["require_reasoning"].is_boolean())
-            out.require_echo = compat["require_reasoning"].get<bool>();
+        const std::string field = string_field(compat, "reasoning_field");
+        if (field.empty())
+            continue;
+        out.echo_field = field;
+        out.require_echo = bool_field(compat, "require_reasoning", true);
         return true;
     }
     return false;
@@ -944,7 +952,7 @@ void append_reasoning(json& body, const Config& cfg) {
         return;
     }
     const std::string effort = effective_reasoning_effort(contract, cfg.reasoning_effort);
-    if (effort.empty() || effort == "on" || effort == "off")
+    if (effort.empty())
         return;
     if (contract.wire == ReasoningWire::ReasoningObject)
         body["reasoning"] = {{"effort", effort}};
@@ -1025,8 +1033,10 @@ Message OpenAIDialect::parse_completion(const std::string& response) const {
     const json& msg = resp["choices"][0].value("message", json::object());
     out.content = strip_think(str_or_raw(msg, "content", ""));
     for (const char* key : {"reasoning_content", "reasoning"}) {
-        out.reasoning += str_or_raw(msg, key, "");
-        if (out.reasoning_field.empty() && msg.contains(key) && msg[key].is_string())
+        if (!msg.contains(key) || !msg[key].is_string())
+            continue;
+        out.reasoning += msg[key].get<std::string>();
+        if (out.reasoning_field.empty())
             out.reasoning_field = key;
     }
     if (msg.contains("reasoning_details") && msg["reasoning_details"].is_array())

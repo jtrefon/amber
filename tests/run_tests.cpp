@@ -3945,6 +3945,36 @@ TEST(llm_streaming_reasoning_details_are_merged) {
     close(srv);
 }
 
+TEST(llm_streaming_reasoning_details_ignore_malformed_fragments) {
+    std::string dummy;
+    // A non-object entry, a huge index and a missing index are ignored or
+    // appended safely; the valid block still arrives intact.
+    std::string sse = "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[null,5,"
+                      "{\"type\":\"reasoning.text\",\"text\":\"good\",\"index\":0},"
+                      "{\"type\":\"reasoning.text\",\"text\":\"bad\",\"index\":999},"
+                      "{\"type\":\"reasoning.summary\",\"summary\":\"tail\"},"
+                      "{\"type\":\"reasoning.text\",\"text\":\"neg\",\"index\":-1},"
+                      "{\"type\":\"reasoning.unknown\",\"index\":3}]}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\n"
+                      "data: [DONE]\n\n";
+    int srv = spawn_mock_sse(8917, dummy, sse);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8917/v1";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(m.content, "done");
+    ASSERT_EQ(m.reasoning_details.size(), size_t{4});
+    ASSERT_EQ(m.reasoning_details[0]["text"].get<std::string>(), std::string("good"));
+    ASSERT_EQ(m.reasoning_details[1]["summary"].get<std::string>(), std::string("tail"));
+    ASSERT_EQ(m.reasoning_details[3]["type"].get<std::string>(), std::string("reasoning.unknown"));
+    close(srv);
+}
+
 TEST(llm_streaming_captures_usage_stats) {
     std::string dummy;
     // Final include_usage chunk: usage present, empty choices[] (llama.cpp/vLLM).
