@@ -235,9 +235,11 @@ binary against a loopback OpenAI-compatible endpoint:
 
 Each scenario also runs in-process first; the gate compares exit code and the
 ordered tool sequence. The run is isolated in a temp workspace with its own
-`XDG_CONFIG_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME`. The `bench-e2e` CI job
-gates `ci-gate` in the `cpp` dimension. A missing packaged prompt or data file
-fails the driver; that is the point.
+`XDG_CONFIG_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME`. The driver executes the
+`amber-cli` beside `amber-bench`, or `./amber-cli` in a source checkout; there
+is no environment override, so the benchmark always runs the binary the build
+produced. The `bench-e2e` CI job gates `ci-gate` in the `cpp` dimension. A
+missing packaged prompt or data file fails the driver; that is the point.
 
 ## Baseline v4 (2026-08-12): first run with the loop-live axis
 

@@ -236,11 +236,22 @@ BinaryE2eResult run_one_binary(const Scenario& scenario, const std::string& cli_
 
 } // namespace
 
+std::string resolve_cli_path(const std::string& exe_path, const std::string& cwd) {
+    const auto executable = [](const fs::path& path) { return access(path.c_str(), X_OK) == 0; };
+    if (!exe_path.empty()) {
+        const fs::path beside = fs::path(exe_path).parent_path() / "amber-cli";
+        if (executable(beside))
+            return beside.string();
+    }
+    const fs::path checkout = fs::path(cwd) / "amber-cli";
+    return executable(checkout) ? checkout.string() : std::string();
+}
+
 std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
                                                   const std::string& cli_path, std::string& err) {
     std::vector<BinaryE2eResult> results;
     if (cli_path.empty()) {
-        err = "no amber-cli path (set AMBER_BENCH_CLI or build ./amber-cli)";
+        err = "no amber-cli to run (build it beside amber-bench or in the working directory)";
         return results;
     }
     if (access(cli_path.c_str(), X_OK) != 0) {

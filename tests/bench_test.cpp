@@ -3558,6 +3558,34 @@ TEST(mock_server_returns_a_tool_call) {
     ASSERT_EQ(reply.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
 }
 
+TEST(cli_path_prefers_the_binary_beside_the_executable) {
+    const std::string bin = tmp_dir("cli_beside_bin");
+    const std::string cwd = tmp_dir("cli_beside_cwd");
+    const std::string beside = bin + "/amber-cli";
+    write_file(beside, "#!/bin/sh\n");
+    fs::permissions(beside, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add);
+    write_file(cwd + "/amber-cli", "not executable\n");
+    ASSERT_EQ(bench::resolve_cli_path(bin + "/amber-bench", cwd), beside);
+}
+
+TEST(cli_path_falls_back_to_the_working_directory) {
+    const std::string bin = tmp_dir("cli_fallback_bin");
+    const std::string cwd = tmp_dir("cli_fallback_cwd");
+    const std::string checkout = cwd + "/amber-cli";
+    write_file(checkout, "#!/bin/sh\n");
+    fs::permissions(checkout,
+                    fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add);
+    ASSERT_EQ(bench::resolve_cli_path(bin + "/amber-bench", cwd), checkout);
+}
+
+TEST(cli_path_is_empty_when_neither_exists) {
+    const std::string bin = tmp_dir("cli_absent_bin");
+    const std::string cwd = tmp_dir("cli_absent_cwd");
+    ASSERT_EQ(bench::resolve_cli_path(bin + "/amber-bench", cwd), std::string());
+}
+
 TEST(binary_driver_runs_a_read_scenario) {
     Scenario scenario;
     scenario.name = "e2e-binary-read";

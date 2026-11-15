@@ -22,9 +22,18 @@ struct BinaryE2eResult {
     std::vector<std::string> actual_tools;
 };
 
-// `cli_path` is the amber-cli executable; callers pass AMBER_BENCH_CLI or
-// "./amber-cli". A scenario runs once in-process for the expected tool
-// sequence, then once through the binary against MockServer.
+// Where the amber-cli the driver executes lives: beside amber-bench for an
+// install, otherwise the working directory of a source checkout. Empty when
+// neither is an executable file.
+//
+// There is deliberately no environment override. The driver exists to run the
+// binary the build produced, and a path taken from the environment would let
+// the harness execute an arbitrary program under the benchmark's name.
+std::string resolve_cli_path(const std::string& exe_path, const std::string& cwd);
+
+// `cli_path` is the amber-cli executable resolved by resolve_cli_path. A
+// scenario runs once in-process for the expected tool sequence, then once
+// through the binary against MockServer.
 std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
                                                   const std::string& cli_path, std::string& err);
 

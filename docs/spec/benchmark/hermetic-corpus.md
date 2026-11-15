@@ -374,7 +374,9 @@ is the telemetry surface. The exit code is unchanged.
 
 - `amber-bench run --driver binary` spawns `amber-cli` with isolated
   `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME`, and a temp
-  workspace.
+  workspace. The CLI is the `amber-cli` beside `amber-bench`, or `./amber-cli`
+  in a checkout; there is no environment override, so the driver always runs
+  the binary the build produced.
 - It runs the scenario in-process first for the expected tool sequence, then
   compares the binary's exit code and ordered tool names with it.
 - Five scenarios: boot + read, search + write, write, denied tool, multi-turn.

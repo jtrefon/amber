@@ -464,6 +464,17 @@ int run_both_axes(const CliOptions& args) {
     return sc.passed == sc.total ? 0 : 1;
 }
 
+// The CLI is the sibling the build produced, never a path from the
+// environment (see resolve_cli_path).
+bool find_cli(std::string& cli) {
+    cli = bench::resolve_cli_path(agent::exe_path(), std::filesystem::current_path().string());
+    if (!cli.empty())
+        return true;
+    std::cerr << "error: amber-cli not found beside " << agent::exe_path()
+              << " or in the working directory\n";
+    return false;
+}
+
 // The installed-tree tier: run each scenario through amber-cli against a
 // scripted endpoint and compare the tool sequence with the in-process run.
 int run_binary_axis(const CliOptions& args) {
@@ -478,8 +489,9 @@ int run_binary_axis(const CliOptions& args) {
         std::cerr << "error: no scenarios match\n";
         return 1;
     }
-    const char* configured = std::getenv("AMBER_BENCH_CLI");
-    const std::string cli = configured && *configured ? configured : "./amber-cli";
+    std::string cli;
+    if (!find_cli(cli))
+        return 2;
     const std::vector<bench::BinaryE2eResult> results =
         bench::run_binary_scenarios(scenarios, cli, err);
     if (!err.empty()) {
