@@ -1,5 +1,10 @@
 ## Spec: TUI Menu Select
 
+> **Status:** legacy widget description. Blocking modals now run through
+> `ModalHost` and paint through `DialogView` (`dialogs.md`), which is the
+> contract for approval, confirm, list, info and form sheets. This file covers
+> the remaining `menu_select` call sites outside that stack.
+
 ### Purpose
 A reusable ncurses selection widget used by approval dialogs, provider
 selection, model lists, and the multi-tab completion popup. Renders a
