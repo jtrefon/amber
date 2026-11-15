@@ -22,13 +22,18 @@
 #include "tests/test_util.h"
 
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <netinet/in.h>
 #include <sstream>
+#include <sys/socket.h>
 #include <system_error>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -3558,6 +3563,140 @@ TEST(mock_server_returns_a_tool_call) {
     ASSERT_EQ(reply.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
 }
 
+static int port_from_url(const std::string& url) {
+    const std::size_t colon = url.rfind(':');
+    const std::size_t slash = url.find('/', colon);
+    return std::stoi(url.substr(colon + 1, slash - colon - 1));
+}
+
+static std::string raw_http(int port, const std::string& request) {
+    const int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0)
+        return {};
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(static_cast<std::uint16_t>(port));
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        close(fd);
+        return {};
+    }
+    if (request.empty()) {
+        close(fd);
+        return {};
+    }
+    send(fd, request.data(), request.size(), 0);
+    std::string response;
+    char buffer[4096];
+    ssize_t n = 0;
+    while ((n = recv(fd, buffer, sizeof(buffer), 0)) > 0)
+        response.append(buffer, static_cast<std::size_t>(n));
+    close(fd);
+    return response;
+}
+
+static Scenario read_scenario(const std::string& name) {
+    Scenario scenario;
+    scenario.name = name;
+    scenario.suite = "tools";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello"}}}};
+    scenario.allow_tools = true;
+    agent::json call = {{"id", "c1"},
+                        {"type", "function"},
+                        {"function", {{"name", "read"}, {"arguments", "{\"path\":\"a.txt\"}"}}}};
+    agent::json calls = agent::json::array();
+    calls.push_back(std::move(call));
+    scenario.fake_replies.push_back(
+        {{"tool_calls", std::move(calls)}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
+    scenario.fake_replies.push_back(
+        {{"content", "done"}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
+    return scenario;
+}
+
+static std::string fake_cli(const std::string& dir, const std::string& body) {
+    const std::string path = dir + "/amber-cli";
+    write_file(path, "#!/bin/sh\n" + body);
+    fs::permissions(path, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+                    fs::perm_options::add);
+    return path;
+}
+
+static std::string write_telemetry_script(const std::string& payload) {
+    return "out=\n"
+           "while [ $# -gt 0 ]; do\n"
+           "  if [ \"$1\" = \"--json-out\" ]; then shift; out=\"$1\"; fi\n"
+           "  shift\n"
+           "done\n"
+           "printf '%s' '" +
+           payload + "' > \"$out\"\n";
+}
+
+TEST(mock_server_answers_an_unknown_path) {
+    bench::MockServer server({});
+    ASSERT(server.start());
+    const std::string response =
+        raw_http(port_from_url(server.base_url()), "GET /v1/nope?x=1 HTTP/1.1\r\nHost: x\r\n\r\n");
+    ASSERT(response.find("not found") != std::string::npos);
+    ASSERT(server.paths() == std::vector<std::string>{"/v1/nope"});
+}
+
+TEST(mock_server_rejects_a_malformed_request_line) {
+    bench::MockServer server({});
+    ASSERT(server.start());
+    const std::string response = raw_http(port_from_url(server.base_url()), "GARBAGE\r\n\r\n");
+    ASSERT(response.find("not found") != std::string::npos);
+    ASSERT(server.paths() == std::vector<std::string>{"/"});
+}
+
+TEST(mock_server_ignores_an_empty_connection) {
+    bench::MockServer server({});
+    ASSERT(server.start());
+    raw_http(port_from_url(server.base_url()), "");
+    const std::string response =
+        raw_http(port_from_url(server.base_url()), "GET /v1/models HTTP/1.1\r\nHost: x\r\n\r\n");
+    ASSERT(response.find("\"fake\"") != std::string::npos);
+    ASSERT(server.paths() == std::vector<std::string>{"/v1/models"});
+}
+
+TEST(mock_server_replies_done_when_the_script_runs_out) {
+    std::deque<bench::MockReply> script;
+    script.push_back({"first", agent::json::array(), 10, 2});
+    bench::MockServer server(std::move(script));
+    ASSERT(server.start());
+
+    agent::Config cfg;
+    cfg.api_base = server.base_url();
+    cfg.model = "fake";
+    cfg.flavor = "openai";
+    cfg.stream = false;
+    agent::HttpLLMClient client(cfg);
+    ASSERT_EQ(client.chat({}, {}).content, std::string("first"));
+    ASSERT_EQ(client.chat({}, {}).content, std::string("done"));
+}
+
+TEST(mock_server_streams_a_tool_call) {
+    agent::json call = {{"id", "c1"},
+                        {"type", "function"},
+                        {"function", {{"name", "read"}, {"arguments", "{\"path\":\"a.txt\"}"}}}};
+    agent::json calls = agent::json::array();
+    calls.push_back(std::move(call));
+    std::deque<bench::MockReply> script;
+    script.push_back({"", std::move(calls), 10, 2});
+    bench::MockServer server(std::move(script));
+    ASSERT(server.start());
+
+    agent::Config cfg;
+    cfg.api_base = server.base_url();
+    cfg.model = "fake";
+    cfg.flavor = "openai";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+    const agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(reply.tool_calls.size(), 1u);
+    ASSERT_EQ(reply.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
+}
+
 TEST(cli_path_prefers_the_binary_beside_the_executable) {
     const std::string bin = tmp_dir("cli_beside_bin");
     const std::string cwd = tmp_dir("cli_beside_cwd");
@@ -3586,30 +3725,93 @@ TEST(cli_path_is_empty_when_neither_exists) {
     ASSERT_EQ(bench::resolve_cli_path(bin + "/amber-bench", cwd), std::string());
 }
 
-TEST(binary_driver_runs_a_read_scenario) {
-    Scenario scenario;
-    scenario.name = "e2e-binary-read";
-    scenario.suite = "tools";
-    scenario.prompt = "read a.txt";
-    scenario.setup = {{"files", {{"a.txt", "hello"}}}};
-    agent::json call = {{"id", "c1"},
-                        {"type", "function"},
-                        {"function", {{"name", "read"}, {"arguments", "{\"path\":\"a.txt\"}"}}}};
-    agent::json calls = agent::json::array();
-    calls.push_back(std::move(call));
-    scenario.fake_replies = agent::json::array();
-    scenario.fake_replies.push_back(
-        {{"tool_calls", std::move(calls)}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
-    scenario.fake_replies.push_back(
-        {{"content", "done"}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
-    scenario.checks.must_contain = {"done"};
+TEST(binary_driver_requires_an_executable) {
+    std::string err;
+    ASSERT(bench::run_binary_scenarios({}, "", err).empty());
+    ASSERT(err.find("no amber-cli") != std::string::npos);
+    err.clear();
+    ASSERT(bench::run_binary_scenarios({}, "/nonexistent/amber-cli", err).empty());
+    ASSERT(err.find("not executable") != std::string::npos);
+}
 
+TEST(binary_driver_runs_a_read_scenario) {
     std::string err;
     const std::vector<bench::BinaryE2eResult> results =
-        bench::run_binary_scenarios({scenario}, "./amber-cli", err);
+        bench::run_binary_scenarios({read_scenario("e2e-binary-read")}, "./amber-cli", err);
     ASSERT_EQ(err, "");
     ASSERT_EQ(results.size(), 1u);
     ASSERT(results[0].ok);
     ASSERT_EQ(results[0].actual_tools.size(), 1u);
     ASSERT_EQ(results[0].actual_tools[0], std::string("read"));
+}
+
+TEST(binary_driver_tolerates_a_scenario_without_setup) {
+    Scenario scenario;
+    scenario.name = "e2e-no-setup";
+    scenario.prompt = "hello";
+    scenario.fake_replies.push_back({{"content", "done"}});
+    scenario.fake_replies.push_back(7);
+    const std::string cli = fake_cli(tmp_dir("no_setup"), write_telemetry_script("{}"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(results[0].ok);
+    ASSERT(results[0].actual_tools.empty());
+}
+
+TEST(binary_driver_reports_missing_telemetry) {
+    const std::string cli = fake_cli(tmp_dir("no_telemetry"), "exit 3\n");
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({read_scenario("e2e-no-telemetry")}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("no telemetry (exit 3)") != std::string::npos);
+}
+
+TEST(binary_driver_reports_invalid_telemetry) {
+    const std::string cli = fake_cli(tmp_dir("bad_telemetry"), write_telemetry_script("not json"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({read_scenario("e2e-bad-telemetry")}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("telemetry is not JSON") != std::string::npos);
+}
+
+TEST(binary_driver_reports_a_signalled_cli) {
+    const std::string cli = fake_cli(tmp_dir("signalled"), "kill -9 $$\n");
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({read_scenario("e2e-signalled")}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("did not exit") != std::string::npos);
+}
+
+TEST(binary_driver_reports_a_tool_sequence_mismatch) {
+    const std::string cli = fake_cli(
+        tmp_dir("mismatch"), write_telemetry_script("{\"tool_calls\":[{\"name\":\"bash\"}]}"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({read_scenario("e2e-mismatch")}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT_EQ(results[0].actual_tools.size(), 1u);
+    ASSERT_EQ(results[0].actual_tools[0], std::string("bash"));
+    ASSERT(results[0].error.find("tool sequence differs") != std::string::npos);
+}
+
+TEST(binary_driver_runs_a_multi_turn_scenario) {
+    Scenario scenario = read_scenario("e2e-multi-turn");
+    for (const char* prompt : {"read a.txt", "read a.txt again"}) {
+        bench::Turn turn;
+        turn.prompt = prompt;
+        scenario.turns.push_back(std::move(turn));
+    }
+    const std::string cli = fake_cli(
+        tmp_dir("multi_turn"), write_telemetry_script("{\"tool_calls\":[{\"name\":\"read\"}]}"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(results[0].ok);
 }
