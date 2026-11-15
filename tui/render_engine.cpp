@@ -102,6 +102,17 @@ std::optional<menu::Hit> RenderEngine::menu_hit(int x, int y) const {
     return menu::hit_test(menu_layout_, x, y);
 }
 
+bool RenderEngine::mark_at(int x, int y) const {
+    if (y != 0 || top_rows() <= 0)
+        return false;
+    if (tui_.menu_->is_open()) {
+        const menu::Rect& mark = menu_layout_.mark;
+        return mark.visible() && mark.contains(x, y);
+    }
+    return top_layout_.mark_width > 0 && x >= top_layout_.mark_col &&
+           x < top_layout_.mark_col + top_layout_.mark_width;
+}
+
 int RenderEngine::chat_top() const {
     return top_rows();
 }

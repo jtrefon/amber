@@ -272,6 +272,13 @@ Layout layout(const std::vector<Tab>& tabs, int width, bool utf8) {
     out.spans.push_back({" ", Role::Separator});
     out.spans.push_back({app_mark(utf8), Role::AppMark});
     int used = kAppLeftMargin + kAppMarkWidth;
+    // Painting is clipped to `width`, so the mark owns a cell only when the rail
+    // is wide enough to reach it. Recording the columns keeps the mouse handler
+    // and the painter on the same arithmetic.
+    if (width > kAppLeftMargin) {
+        out.mark_col = kAppLeftMargin;
+        out.mark_width = std::min(kAppMarkWidth, width - kAppLeftMargin);
+    }
     if (tabs.empty())
         return out;
     if (width > used + kAppGap) {

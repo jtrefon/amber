@@ -60,6 +60,11 @@ struct Layout {
     int active_start = -1; // column of the active tab's opening cap
     int active_width = 0;  // display width of the active tab
     int overflow = 0;      // sessions not shown
+    // Where the amber mark was painted. The mark toggles the menu, so the mouse
+    // handler hit-tests this instead of guessing a column: the rail insets the
+    // mark by one, and a click one column off is a click that does nothing.
+    int mark_col = -1;
+    int mark_width = 0;
 };
 
 inline constexpr int kAppMarkWidth = 1;
