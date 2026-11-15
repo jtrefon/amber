@@ -172,6 +172,13 @@ void apply_sampling_keys(Config& c, const std::string& key, const std::string& v
         c.reasoning_effort = val;
     else if (key == "show_reasoning")
         c.show_reasoning = parse_bool(val);
+    else if (key == "input_multiline")
+        c.input_multiline = parse_bool(val);
+    else if (key == "input_max_lines") {
+        parse_int(key, val, warnings, c.input_max_lines);
+        c.input_max_lines =
+            c.input_max_lines < 1 ? 1 : (c.input_max_lines > 20 ? 20 : c.input_max_lines);
+    }
 }
 
 void apply_agent_keys(Config& c, const std::string& key, const std::string& val,
@@ -514,6 +521,8 @@ RetentionPolicy Config::log_retention_policy() const {
 
 void write_ui_settings(std::ostream& f, const Config& c) {
     f << "show_reasoning=" << (c.show_reasoning ? 1 : 0) << "\n";
+    f << "input_multiline=" << (c.input_multiline ? 1 : 0) << "\n";
+    f << "input_max_lines=" << c.input_max_lines << "\n";
     f << "ui_theme=" << c.ui_theme << "\n";
     f << "ui_glyphs=" << c.ui_glyphs << "\n";
     f << "ui_motion=" << c.ui_motion << "\n";
@@ -615,6 +624,9 @@ void Config::apply_environment() {
     max_tool_result_bytes = env_int("AMBER_MAX_TOOL_RESULT_BYTES", max_tool_result_bytes);
     thinking_budget = env_int("AMBER_THINKING_BUDGET", thinking_budget);
     show_reasoning = env_flag("AMBER_SHOW_REASONING", show_reasoning);
+    input_multiline = env_flag("AMBER_INPUT_MULTILINE", input_multiline);
+    input_max_lines = env_int("AMBER_INPUT_MAX_LINES", input_max_lines);
+    input_max_lines = input_max_lines < 1 ? 1 : (input_max_lines > 20 ? 20 : input_max_lines);
 
     // AMBER_CONTEXT also marks the window explicit, so "auto" is not used.
     if (const char* cs = std::getenv("AMBER_CONTEXT")) {

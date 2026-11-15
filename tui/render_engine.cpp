@@ -117,7 +117,7 @@ int RenderEngine::chat_top() const {
     return top_rows();
 }
 int RenderEngine::chat_height() const {
-    return std::max(1, height() - top_rows() - 2);
+    return std::max(1, height() - top_rows() - 1 - input_rows_);
 }
 int RenderEngine::lines_per_page() const {
     return chat_height();
@@ -644,7 +644,7 @@ void RenderEngine::draw_right_zone(int y, int w, int right_w, const std::vector<
 
 void RenderEngine::draw_status_bar() {
     const int w = width();
-    const int y = height() - 2;
+    const int y = status_row();
 
     // The clock used to be built here and its width reserved before the bar
     // knew what else it held. It is a right-aligned segment now (the clock
@@ -1004,30 +1004,47 @@ void draw_input_slice(FramePainter& paint, int y, int w, int prompt_w, int scrol
 
 void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::string& shadow) {
     dirty_ = true;
+    const int h = height();
+    const int w = width();
+    const int prev_rows = input_rows_;
+    const input_line_layout::Block block =
+        input_line_layout::block_for(s, cursor, input_max_lines_);
+    const int rows = std::min(std::max(1, block.rows), std::max(1, h));
+    const int top = std::max(0, h - rows);
+    input_rows_ = rows;
+
     begin_frame();
     draw_drawer(s);
-    const int y = height() - 1;
-    const int w = width();
-    int x = 0;
-
-    paint_.move(y, 0);
-    paint_.clrtoeol();
+    clear_input_rows(h, top, prev_rows);
 
     const auto git = git_state(); // one immutable snapshot for this frame
-    for (const auto& piece : input_line_layout::prompt_pieces(
-             git ? git->project : std::string(), git ? git->branch : std::string(),
-             git ? git->ins : 0, git ? git->del : 0))
-        put_input(y, w, x, piece.text, role_pair(piece.role), role_attrs(piece.role));
+    const auto pieces = input_line_layout::prompt_pieces(git ? git->project : std::string(),
+                                                         git ? git->branch : std::string(),
+                                                         git ? git->ins : 0, git ? git->del : 0);
+    int prompt_w = 0;
+    for (const auto& piece : pieces)
+        prompt_w += text::display_cols(piece.text);
 
-    const int prompt_w = x;
-    const input_line_layout::Scroll sc =
-        input_line_layout::scroll_for(prompt_w, s, cursor, shadow, w);
-    draw_input_slice(paint_, y, w, prompt_w, sc.offset, s);
-    draw_input_shadow(y, w, prompt_w, sc.offset, s, cursor, shadow);
+    const auto cursor_pos =
+        paint_input_block(block, {top, rows, w, prompt_w, &pieces, &s, &shadow});
+    draw_status_bar();
+    present_input_overlay(s, shadow, top, prompt_w, cursor_pos);
+}
 
+void RenderEngine::clear_input_rows(int h, int top, int prev_rows) {
+    // Blank the new block and every row the previous (possibly taller) block
+    // owned, so shrinking the composer does not leave a stale line behind.
+    for (int row = std::max(0, std::min(h - prev_rows, top)); row < h; ++row) {
+        paint_.move(row, 0);
+        paint_.clrtoeol();
+    }
+}
+
+void RenderEngine::present_input_overlay(const std::string& s, const std::string& shadow, int top,
+                                         int prompt_w, std::pair<int, int> cursor_pos) {
     if (s.empty() && shadow.empty() && !tui_.menu_->hint().empty()) {
-        int hx = std::max(0, prompt_w - sc.offset);
-        put_input(y, w, hx, tui_.menu_->hint(), P_HINT);
+        int hx = std::max(0, prompt_w);
+        put_input(top, width(), hx, tui_.menu_->hint(), P_HINT);
         paint_.show_cursor(false);
         present_frame();
         return;
@@ -1038,8 +1055,46 @@ void RenderEngine::draw_input(const std::string& s, size_t cursor, const std::st
         return;
     }
     paint_.show_cursor(true);
-    paint_.move(y, cursor_column(sc.cursor_col, sc.offset, w));
+    paint_.move(cursor_pos.first, cursor_pos.second);
     present_frame();
+}
+
+std::pair<int, int> RenderEngine::paint_input_block(const input_line_layout::Block& block,
+                                                    const InputBlockPaint& paint) {
+    const int top = paint.top;
+    const int w = paint.width;
+    std::pair<int, int> cursor_pos{top, 0};
+    for (int i = 0; i < paint.rows; ++i) {
+        const int logical = block.first + i;
+        const int y = top + i;
+        const std::string& line = block.lines[static_cast<std::size_t>(logical)];
+        const bool cursor_line = (logical == block.cursor_row);
+
+        if (i == 0 && block.first == 0) {
+            int x = 0;
+            for (const auto& piece : *paint.pieces)
+                put_input(y, w, x, piece.text, role_pair(piece.role), role_attrs(piece.role));
+        }
+
+        input_line_layout::Scroll sc = input_line_layout::scroll_for(
+            paint.prompt_w, line,
+            cursor_line ? static_cast<std::size_t>(block.cursor_col) : line.size(),
+            cursor_line ? *paint.shadow : std::string(), w);
+        if (!cursor_line) {
+            sc.offset = 0; // each line keeps its own view; only the caret's scrolls
+        } else {
+            cursor_pos = {y, cursor_column(sc.cursor_col, sc.offset, w)};
+        }
+        draw_input_slice(paint_, y, w, paint.prompt_w, sc.offset, line);
+        if (cursor_line && paint.input->find('\n') == std::string::npos)
+            draw_input_shadow(y, w, paint.prompt_w, sc.offset, line,
+                              static_cast<std::size_t>(block.cursor_col), *paint.shadow);
+    }
+    return cursor_pos;
+}
+
+int RenderEngine::status_row() const {
+    return std::max(0, height() - 1 - input_rows_);
 }
 
 void RenderEngine::draw_input_shadow(int y, int w, int prompt_w, int scroll_off,
@@ -1064,7 +1119,8 @@ void RenderEngine::draw_drawer(const std::string& input) {
     // parser (and killed the process from the idle tick).
     if (!drawer_open_ || input.empty() || input.front() != '/')
         return;
-    const int bar_row = height() - 2;
+
+    const int bar_row = status_row();
     if (modal_open()) {
         for (int row = std::max(0, bar_row - 8); row < bar_row; ++row) {
             paint_.move(row, 0);

@@ -1762,6 +1762,21 @@ void SlashDispatcher::register_set_engine_actions() {
         tui_.append_line(P_STATUS, "markdown rendering: " + v);
         tui_.draw();
     });
+    register_set_input_actions();
+}
+
+// /set input, split out so the engine group stays inside its size cap.
+void SlashDispatcher::register_set_input_actions() {
+    // Both leaves route through the registry so the one save site and its
+    // documented behaviour is shared with every other dotted setting.
+    register_action("core.config.set.input.multiline", [this](const std::string& v) {
+        if (!apply_setting_key("input.multiline " + v))
+            tui_.append_line(P_STATUS, "usage: /set input multiline on|off|toggle");
+    });
+    register_action("core.config.set.input.max_lines", [this](const std::string& v) {
+        if (!apply_setting_key("input.max_lines " + v))
+            tui_.append_line(P_STATUS, "usage: /set input max_lines <1-20>");
+    });
 }
 
 // /set policy.
@@ -2030,6 +2045,7 @@ void SlashDispatcher::register_readout_actions() {
                     [this](const std::string&) { cmd_get_detection("duplicate"); });
     register_action("core.config.get.debug", [this](const std::string&) { show_debug_status(); });
     register_action("core.config.get.subagent", [this](const std::string&) { cmd_get_subagent(); });
+    register_action("core.config.get.input", [this](const std::string&) { cmd_get("input"); });
 }
 
 // /set reasoning, /get reasoning, /get compression and /get skills.
@@ -4700,15 +4716,25 @@ void SlashDispatcher::add_display_settings() {
             tui_.win().markdown_on = (v == "on");
             tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
         });
+    // The composer's two knobs. Both are read by the input route on the next
+    // key, so a change applies to the prompt already on screen.
     add_setting(
-        "display.theme", [this]() { return tui_.cfg_.ui_theme; },
-        [this](const std::string& v) { cmd_set_display("theme", v); });
+        "input.multiline", [this]() { return tui_.cfg_.input_multiline ? "on" : "off"; },
+        [this](const std::string& v) {
+            if (!valid_toggle(v))
+                throw std::invalid_argument("expected on|off|toggle");
+            tui_.cfg_.input_multiline = parse_toggle(v, tui_.cfg_.input_multiline);
+            tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+        });
     add_setting(
-        "display.glyphs", [this]() { return tui_.cfg_.ui_glyphs; },
-        [this](const std::string& v) { cmd_set_display("glyphs", v); });
-    add_setting(
-        "display.motion", [this]() { return tui_.cfg_.ui_motion; },
-        [this](const std::string& v) { cmd_set_display("motion", v); });
+        "input.max_lines", [this]() { return std::to_string(tui_.cfg_.input_max_lines); },
+        [this](const std::string& v) {
+            auto n = text::parse_setting_int(v, 1, 20);
+            if (!n)
+                throw std::invalid_argument("expected 1-20");
+            tui_.cfg_.input_max_lines = *n;
+            tui_.cfg_.save_settings(tui_.session_controller_->settings_path());
+        });
 }
 
 // Mode lives on the agent (the approval gate reads it live) — propagate to the

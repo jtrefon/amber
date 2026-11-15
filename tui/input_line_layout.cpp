@@ -61,4 +61,33 @@ int visible_bytes(const std::string& input, std::size_t from, int room) {
     return static_cast<int>(end - from);
 }
 
+Block block_for(const std::string& input, std::size_t cursor, int max_rows) {
+    Block b;
+    const int rows = std::max(1, max_rows);
+    const std::size_t clamped = std::min(cursor, input.size());
+
+    std::size_t start = 0;
+    std::size_t seen = 0;
+    for (;;) {
+        const std::size_t nl = input.find('\n', start);
+        const std::size_t end = (nl == std::string::npos) ? input.size() : nl;
+        if (clamped >= start && clamped <= end) {
+            b.cursor_row = static_cast<int>(seen);
+            b.cursor_col = static_cast<int>(clamped - start);
+        }
+        b.lines.push_back(input.substr(start, end - start));
+        ++seen;
+        if (nl == std::string::npos)
+            break;
+        start = nl + 1;
+    }
+
+    const int total = static_cast<int>(b.lines.size());
+    b.rows = std::min(rows, total);
+    b.first = std::max(0, b.cursor_row - b.rows + 1);
+    if (b.cursor_row < b.first)
+        b.cursor_row = b.first;
+    return b;
+}
+
 } // namespace tui::input_line_layout

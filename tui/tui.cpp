@@ -1,7 +1,9 @@
 #include "tui.h"
+#include "bracket_paste.h"
 #include "command_line.h"
 #include "menu_controller.h"
 #include "confirm_panel.h"
+#include "draft_store.h"
 #include "tool_display.h"
 #include "scroll_dispatch.h"
 #include "help_page.h"
@@ -692,19 +694,20 @@ AgentEvent Tui::run_compression(Window& my_win, size_t window_id) {
 void Tui::run() {
     CommandLine cl;
     run_startup(cl);
+    draft_store::DraftKeeper draft(active_workspace_root(), cl.text());
 
     while (!quit_) {
         // Deferred signal handling: the handler only set a flag (and restored
         // the terminal). Turn it into a graceful save + teardown here, on the
         // main thread, where file I/O and endwin are safe. Never returns.
         if (g_signal_state.consume())
-            shutdown_from_signal();
+            shutdown_from_signal(draft);
 
         const bool had_events = pump_io(cl);
 
         int ch = terminal_.read_key();
         if (ch == keys::kNone) {
-            idle_tick(had_events, cl);
+            idle_tick(had_events, cl, draft);
             continue;
         }
 
@@ -727,6 +730,11 @@ void Tui::run() {
         case detail::PromptOutcome::Consumed:
             break;
         case detail::PromptOutcome::Routed:
+            // A submitted prompt is no longer an unsent draft. Clear before the
+            // command runs: leaving a worktree must not see the draft it just
+            // typed as uncommitted work.
+            if (result.action == CommandLine::Result::Dispatch)
+                draft.clear();
             run_prompt_action(result, cl);
             break;
         case detail::PromptOutcome::NotOurs:
@@ -734,6 +742,7 @@ void Tui::run() {
             break;
         }
     }
+    draft.flush();
 }
 
 // First paint, config, and the command tree. The registry and tree are built
@@ -741,11 +750,20 @@ void Tui::run() {
 // merges the live feeds (models, providers, policy rules, jobs, plugin states),
 // and merging feeds before the rebuild wiped their leaves from the tree.
 void Tui::run_startup(CommandLine& cl) {
+    cl.set_multiline(cfg_.input_multiline);
+    cl.set_max_lines(cfg_.input_max_lines);
+    const std::string restored = draft_store::load(active_workspace_root());
+    if (!restored.empty())
+        cl.set_text(restored);
     render_engine_->request_git_refresh(
         active_workspace_root()); // worker-side: never blocks the first paint
     render_engine_->draw();       // first paint: nothing below this line may fork before it
-    render_engine_->draw_input("");
+    render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
     render_engine_->flush();
+    if (!restored.empty()) {
+        append_line(P_STATUS, "draft restored \u2014 Enter sends, Ctrl+J adds a line");
+        render_engine_->draw();
+    }
     // Sub-agent usage is reported from the shared executor's worker threads;
     // the owner window is resolved on the UI thread at drain time.
     subagents_.set_usage_sink([this](const agent::UsageSample& sample) {
@@ -797,11 +815,12 @@ void Tui::refresh_completion_context(CommandLine& cl) {
 
 // Graceful teardown after a signal, on the main thread. Never returns: the
 // process exits with the shell-conventional 128+signal status.
-[[noreturn]] void Tui::shutdown_from_signal() {
+[[noreturn]] void Tui::shutdown_from_signal(draft_store::DraftKeeper& draft) {
     // Persist per-window conversation sessions. snapshot() races the worker, so
     // only save when it has finished (agent_busy_ is cleared as its last
     // action); a mid-run signal exits without the final turn's session —
     // bounded shutdown beats a torn save.
+    draft.flush();
     cancel_all_runs();
     {
         std::scoped_lock lk(router_->mutex());
@@ -908,7 +927,7 @@ void Tui::poll_watch_usage() {
 // tool spinners alive. The transcript keeps its 150 ms cadence; the two rows
 // that animate (the working line and the status bar) repaint on every tick, so
 // the sweep moves in the event loop's own steps instead of jumping at 150 ms.
-void Tui::idle_tick(bool had_events, CommandLine& cl) {
+void Tui::idle_tick(bool had_events, CommandLine& cl, draft_store::DraftKeeper& draft) {
     const auto now = std::chrono::steady_clock::now();
     const bool hint_eligible = cl.text().empty() && !runs_.busy(win().id) && !modal_open() &&
                                !menu_->is_open() && !render_engine_->drawer_open();
@@ -932,13 +951,47 @@ void Tui::idle_tick(bool had_events, CommandLine& cl) {
                 render_engine_->tick_clock();
         }
     }
+    draft.update(active_workspace_root(), cl.text(), std::chrono::steady_clock::now());
     render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
     drain_pending_prompts(cl.text().empty());
     if (render_engine_->dirty())
         render_engine_->flush();
 }
 
-// macOS Option-as-text form: terminals with default Option settings send the
+// A bracketed paste arrives as one burst behind ESC. Drain what is already
+// readable: a paste starts with the marker, and anything else goes back so a
+// lone ESC (or Alt+key) still reaches the binder unchanged.
+namespace {
+
+bool consume_paste(Terminal& term, CommandLine& cl) {
+    std::vector<int> ready;
+    for (int b = term.read_key_timeout(0); b != keys::kNone; b = term.read_key_timeout(0))
+        ready.push_back(b);
+    if (ready.empty())
+        return false;
+
+    BracketPasteDecoder decoder;
+    char ignored = 0;
+    decoder.feed(27, ignored);
+    const PasteBurst burst = consume_paste_burst(decoder, ready);
+    if (!burst.started) {
+        for (auto it = ready.rbegin(); it != ready.rend(); ++it)
+            term.push_key(*it);
+        return false;
+    }
+    cl.on_paste(std::string(burst.insert.begin(), burst.insert.end()));
+    while (decoder.pasting()) {
+        const int b = term.read_key();
+        if (b == keys::kNone)
+            break;
+        const PasteBurst more = consume_paste_burst(decoder, {b});
+        cl.on_paste(std::string(more.insert.begin(), more.insert.end()));
+    }
+    return true;
+}
+
+} // namespace
+
 // literal Option characters as UTF-8 (Option+1 = '¡' U+00A1, ...) instead of an
 // ESC prefix. Assemble the sequence and normalize digit-row glyphs to the
 // meta-digit path so Alt+number works with no terminal configuration. Other
@@ -983,6 +1036,23 @@ bool Tui::handle_option_key(int& ch, CommandLine& cl) {
 // stateful). The KeyBinder is pure (no ncurses); the ESC followup read is
 // terminal I/O and stays here.
 bool Tui::handle_key_binding(int ch, CommandLine& cl) {
+    // A bracketed paste is consumed here, before route_to_command_line applies
+    // the composer settings. Read them first, or a paste after
+    // /set input multiline off still inserts newlines.
+    cl.set_multiline(cfg_.input_multiline);
+    cl.set_max_lines(cfg_.input_max_lines);
+    // ESC may be a bracketed paste rather than a key. Consume the burst here,
+    // before the binder decides ESC means "toggle scroll mode".
+    if (ch == 27 && consume_paste(terminal_, cl)) {
+        refresh_completion_context(cl);
+        render_engine_->set_drawer_open(cl.drawer_open());
+        render_engine_->set_drawer_sel(cl.drawer_sel());
+        render_engine_->draw();
+        render_engine_->draw_input(cl.text(), cl.cursor(), cl.shadow());
+        flush_if_dirty();
+        return true;
+    }
+
     InputState state;
     state.drawer_open = cl.drawer_open();
     // "busy" to the key layer means THE ACTIVE window's agent is running — it
@@ -1188,18 +1258,48 @@ const EditKey kEditKeys[] = {
     {4, &CommandLine::on_ctrl_d},
 };
 
-// Route a key to CommandLine (pure logic, unit tested).
-detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
-                                                 CommandLine::Result& result) {
-    if (scroll_mode_nav(ch))
-        return detail::PromptOutcome::Routed; // redrawn; no CommandLine action
+namespace {
 
+bool route_edit_key(int ch, CommandLine& cl, CommandLine::Result& result) {
     for (const EditKey& b : kEditKeys) {
         if (b.key == ch) {
             result = (cl.*b.handler)();
-            return detail::PromptOutcome::Routed;
+            return true;
         }
     }
+    return false;
+}
+
+// LF is Ctrl+J (and Shift+Enter on terminals that send it): a new line in the
+// composer. CR / KEY_ENTER submits. With the composer off, LF keeps its old
+// meaning, so single-line behaviour is untouched.
+bool route_submit_key(int ch, CommandLine& cl, CommandLine::Result& result) {
+    if (ch == 10 && cl.multiline()) {
+        result = cl.on_newline();
+        return true;
+    }
+    if (ch != 10 && ch != 13 && ch != keys::kEnter)
+        return false;
+    result = cl.on_enter();
+    return true;
+}
+
+} // namespace
+
+// Route a key to CommandLine (pure logic, unit tested).
+detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
+                                                 CommandLine::Result& result) {
+    // One place reads the composer settings, so /set input multiline applies to
+    // the very next key rather than to the next launch.
+    cl.set_multiline(cfg_.input_multiline);
+    cl.set_max_lines(cfg_.input_max_lines);
+    render_engine_->set_input_max_lines(cfg_.input_max_lines);
+
+    if (scroll_mode_nav(ch))
+        return detail::PromptOutcome::Routed; // redrawn; no CommandLine action
+
+    if (route_edit_key(ch, cl, result))
+        return detail::PromptOutcome::Routed;
 
     // Ctrl-G: send the line as typed, bypassing the completion drawer. The
     // help line has promised this key; without it, Enter while the drawer is
@@ -1211,12 +1311,11 @@ detail::PromptOutcome Tui::route_to_command_line(int ch, CommandLine& cl,
         return detail::PromptOutcome::Routed;
     }
 
-    if (ch == 10 || ch == 13 || ch == keys::kEnter) {
+    if (route_submit_key(ch, cl, result)) {
         if (render_engine_->scroll_mode()) {
             render_engine_->set_scroll_mode(false);
             render_engine_->draw();
         }
-        result = cl.on_enter();
         return detail::PromptOutcome::Routed;
     }
 

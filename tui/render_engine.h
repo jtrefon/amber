@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "text_canvas.h"
@@ -167,6 +168,10 @@ public:
     }
     bool scroll_mode() const noexcept { return scroll_mode_; }
     void set_scroll_mode(bool v) noexcept { scroll_mode_ = v; }
+    // The composer's growth cap; the block still scrolls internally past it.
+    void set_input_max_lines(int n) noexcept { input_max_lines_ = n < 1 ? 1 : (n > 20 ? 20 : n); }
+    // Rows currently painted for the input block (1 for a single-line prompt).
+    int input_rows() const noexcept { return input_rows_; }
     bool show_reasoning() const noexcept { return show_reasoning_; }
     void set_show_reasoning(bool v) noexcept { show_reasoning_ = v; }
     bool working_visible() const noexcept { return working_visible_; }
@@ -208,6 +213,27 @@ private:
     // Draw the dim completion hint after the input, when the cursor is at the end.
     void draw_input_shadow(int y, int w, int prompt_w, int scroll_off, const std::string& input,
                            std::size_t cursor, const std::string& shadow);
+    // Paint the visible rows of the composer block and return the terminal
+    // cursor's (row, column).
+    struct InputBlockPaint {
+        int top = 0;
+        int rows = 0;
+        int width = 0;
+        int prompt_w = 0;
+        const std::vector<input_line_layout::Piece>* pieces = nullptr;
+        const std::string* input = nullptr;
+        const std::string* shadow = nullptr;
+    };
+    std::pair<int, int> paint_input_block(const input_line_layout::Block& block,
+                                          const InputBlockPaint& paint);
+    // Blank the rows the composer owned last frame and the new block's rows.
+    void clear_input_rows(int h, int top, int prev_rows);
+    // Draw the hint/menu overlay, or place the terminal cursor.
+    void present_input_overlay(const std::string& s, const std::string& shadow, int top,
+                               int prompt_w, std::pair<int, int> cursor_pos);
+    // The status bar's row: directly above the input block, so a grown composer
+    // pushes it up instead of painting over it.
+    int status_row() const;
 
     // The activity word leading the working indicator ("thinking", "talking",
     // "compressing", "searching", "working", ...) derived from the agent's
@@ -243,6 +269,8 @@ private:
     std::string drawer_provider_;
     bool scroll_mode_ = false;
     bool show_reasoning_ = true;
+    int input_max_lines_ = 8;
+    int input_rows_ = 1;
     int anim_phase_ = 0;
     std::chrono::steady_clock::time_point anim_tick_{};
     // The sweep's epoch: the pulse reads a position from the wall clock, so it

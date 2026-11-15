@@ -3050,6 +3050,47 @@ TEST(input_line_layout_visible_bytes_stops_at_the_column_budget) {
     ASSERT_EQ(ILL::visible_bytes("abcdef", 2, 10), 4); // to the end of the string
 }
 
+TEST(input_block_layout_splits_lines_and_tracks_the_cursor) {
+    const auto b = ILL::block_for("abc\ndef", 5, 8);
+    ASSERT_EQ(b.lines.size(), 2u);
+    ASSERT_EQ(b.lines[0], std::string("abc"));
+    ASSERT_EQ(b.lines[1], std::string("def"));
+    ASSERT_EQ(b.cursor_row, 1);
+    ASSERT_EQ(b.cursor_col, 1);
+    ASSERT_EQ(b.first, 0);
+    ASSERT_EQ(b.rows, 2);
+}
+
+TEST(input_block_layout_empty_input_is_one_line) {
+    const auto b = ILL::block_for("", 0, 8);
+    ASSERT_EQ(b.lines.size(), 1u);
+    ASSERT_EQ(b.rows, 1);
+    ASSERT_EQ(b.cursor_row, 0);
+    ASSERT_EQ(b.cursor_col, 0);
+}
+
+// The renderer grows the input block with the line count and returns to one
+// row when the multi-line text is removed. This is the layout half of the
+// composer's UI mutation; the pty suite checks the painted screen.
+TEST(input_block_layout_grows_and_falls_back_when_cleared) {
+    ASSERT_EQ(ILL::block_for("a\nb\nc", 5, 8).rows, 3);
+    ASSERT_EQ(ILL::block_for("a\nb", 3, 8).rows, 2);
+    ASSERT_EQ(ILL::block_for("", 0, 8).rows, 1);
+}
+
+TEST(input_block_layout_scrolls_to_keep_the_cursor_visible) {
+    const auto b = ILL::block_for("a\nb\nc\nd\ne", 8, 3); // cursor on the last line
+    ASSERT_EQ(b.rows, 3);
+    ASSERT_EQ(b.cursor_row, 4);
+    ASSERT_EQ(b.first, 2);
+}
+
+TEST(input_block_layout_counts_a_cursor_on_a_newline_as_the_line_end) {
+    const auto b = ILL::block_for("abc\ndef", 3, 8); // cursor sits on the '\n'
+    ASSERT_EQ(b.cursor_row, 0);
+    ASSERT_EQ(b.cursor_col, 3);
+}
+
 // --- AnsiSgr (L1): SGR sequence parsing ---
 
 namespace SGR = tui::ansi_sgr;
