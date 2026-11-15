@@ -1,8 +1,11 @@
 
 #include "agent.h"
+#include "agent/llm.h"
 #include "agent/todo.h"
 #include "agent/tools.h"
+#include "bench/binary_driver.h"
 #include "bench/fake.h"
+#include "bench/mock_server.h"
 #include "bench/data_root.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
@@ -21,6 +24,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -3493,4 +3497,91 @@ TEST(bench_root_last_resort_is_the_checkout) {
     ASSERT_EQ(bench::resolve_bench_root("/usr/share/amber-bench", "/usr/bin/amber-bench", "/work",
                                         nothing),
               std::string("/work/bench"));
+}
+
+TEST(mock_server_serves_models_and_chat) {
+    std::deque<bench::MockReply> script;
+    script.push_back({"hello", agent::json::array(), 10, 2});
+    bench::MockServer server(std::move(script));
+    ASSERT(server.start());
+
+    agent::Config cfg;
+    cfg.api_base = server.base_url();
+    cfg.model = "fake";
+    cfg.flavor = "openai";
+    cfg.stream = false;
+    agent::HttpLLMClient client(cfg);
+    ASSERT(client.probe_server().ok);
+    const agent::Message reply = client.chat({}, {});
+    ASSERT_EQ(reply.content, std::string("hello"));
+    ASSERT_EQ(server.paths().size(), 2u);
+}
+
+TEST(mock_server_streams_content) {
+    std::deque<bench::MockReply> script;
+    script.push_back({"streamed", agent::json::array(), 10, 2});
+    bench::MockServer server(std::move(script));
+    ASSERT(server.start());
+
+    agent::Config cfg;
+    cfg.api_base = server.base_url();
+    cfg.model = "fake";
+    cfg.flavor = "openai";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+    std::string text;
+    const agent::Message reply = client.chat_stream(
+        {}, {}, [&text](const agent::StreamChunk& chunk) { text += chunk.delta; });
+    ASSERT_EQ(text, std::string("streamed"));
+    ASSERT_EQ(reply.content, std::string("streamed"));
+}
+
+TEST(mock_server_returns_a_tool_call) {
+    agent::json call = {{"id", "c1"},
+                        {"type", "function"},
+                        {"function", {{"name", "read"}, {"arguments", "{\"path\":\"a.txt\"}"}}}};
+    agent::json calls = agent::json::array();
+    calls.push_back(std::move(call));
+    std::deque<bench::MockReply> script;
+    script.push_back({"", std::move(calls), 10, 2});
+    bench::MockServer server(std::move(script));
+    ASSERT(server.start());
+
+    agent::Config cfg;
+    cfg.api_base = server.base_url();
+    cfg.model = "fake";
+    cfg.flavor = "openai";
+    cfg.stream = false;
+    agent::HttpLLMClient client(cfg);
+    const agent::Message reply = client.chat({}, {});
+    ASSERT_EQ(reply.tool_calls.size(), 1u);
+    ASSERT_EQ(reply.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
+}
+
+TEST(binary_driver_runs_a_read_scenario) {
+    Scenario scenario;
+    scenario.name = "e2e-binary-read";
+    scenario.suite = "tools";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello"}}}};
+    agent::json call = {{"id", "c1"},
+                        {"type", "function"},
+                        {"function", {{"name", "read"}, {"arguments", "{\"path\":\"a.txt\"}"}}}};
+    agent::json calls = agent::json::array();
+    calls.push_back(std::move(call));
+    scenario.fake_replies = agent::json::array();
+    scenario.fake_replies.push_back(
+        {{"tool_calls", std::move(calls)}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
+    scenario.fake_replies.push_back(
+        {{"content", "done"}, {"prompt_tokens", 10}, {"completion_tokens", 2}});
+    scenario.checks.must_contain = {"done"};
+
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, "./amber-cli", err);
+    ASSERT_EQ(err, "");
+    ASSERT_EQ(results.size(), 1u);
+    ASSERT(results[0].ok);
+    ASSERT_EQ(results[0].actual_tools.size(), 1u);
+    ASSERT_EQ(results[0].actual_tools[0], std::string("read"));
 }

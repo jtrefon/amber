@@ -16,6 +16,7 @@
 #include "agent/data_path.h"
 #include "agent/version.h"
 #include "agent/workspace.h"
+#include "bench/binary_driver.h"
 #include "bench/probe.h"
 #include "bench/data_root.h"
 #include "bench/report.h"
@@ -54,6 +55,7 @@ void print_usage(const char* prog) {
         << "  --live           use the real model (amber.conf / env / flags)\n"
         << "  --profile NAME   model profile from bench/profiles.json\n"
         << "  --model NAME     model override (live)\n"
+        << "  --driver KIND    inproc (default) or binary (amber-cli e2e)\n"
         << "  --temperature T  temperature override (live)\n"
         << "  --repeat N       run each scenario N times\n"
         << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
@@ -182,6 +184,7 @@ struct CliOptions {
     std::string name;
     std::string profile;
     std::string model;
+    std::string driver = "inproc";
     bool matrix = false;
     std::string variant;
     double temperature = -1;
@@ -225,6 +228,8 @@ bool apply_run_flag(const std::string& a, const NextArg& next, CliOptions& o) {
         o.profile = next("");
     else if (a == "--model")
         o.model = next("");
+    else if (a == "--driver")
+        o.driver = next("");
     else if (a == "--matrix")
         o.matrix = true;
     else if (a == "--variant")
@@ -459,7 +464,59 @@ int run_both_axes(const CliOptions& args) {
     return sc.passed == sc.total ? 0 : 1;
 }
 
+// The installed-tree tier: run each scenario through amber-cli against a
+// scripted endpoint and compare the tool sequence with the in-process run.
+int run_binary_axis(const CliOptions& args) {
+    const bench::RunOptions opts = build_run_options(args);
+    std::string err;
+    auto scenarios = discover_expanded(args, opts, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
+    if (scenarios.empty()) {
+        std::cerr << "error: no scenarios match\n";
+        return 1;
+    }
+    const char* configured = std::getenv("AMBER_BENCH_CLI");
+    const std::string cli = configured && *configured ? configured : "./amber-cli";
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios(scenarios, cli, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 2;
+    }
+    bool ok = true;
+    for (const auto& result : results) {
+        std::cout << (result.ok ? "PASS " : "FAIL ") << result.name;
+        if (!result.error.empty())
+            std::cout << "  (" << result.error << ")";
+        if (!result.ok) {
+            std::cout << "  expected=";
+            for (const auto& tool : result.expected_tools)
+                std::cout << tool << ",";
+            std::cout << " actual=";
+            for (const auto& tool : result.actual_tools)
+                std::cout << tool << ",";
+        }
+        std::cout << "\n";
+        ok = ok && result.ok;
+    }
+    return ok ? 0 : 1;
+}
+
 int cmd_run(const CliOptions& args) {
+    if (args.driver != "inproc" && args.driver != "binary") {
+        std::cerr << "error: unknown driver \"" << args.driver << "\" (expected inproc | binary)\n";
+        return 1;
+    }
+    if (args.driver == "binary") {
+        if (args.category == "harness") {
+            std::cerr << "error: --driver binary does not run the harness axis\n";
+            return 1;
+        }
+        return run_binary_axis(args);
+    }
     if (!args.category.empty() && args.category != "model" && args.category != "harness" &&
         args.category != "both") {
         std::cerr << "error: unknown category \"" << args.category
