@@ -1,9 +1,11 @@
 # amber TUI Design Guide
 
-- **Status:** Living standard
+- **Status:** Living standard. The modal layer (§2.2–§2.4, §3.1, §3.4,
+  §4.3–§4.5 and §9) is specified by `docs/spec/tui/dialogs.md`; where this guide
+  shows the legacy ncurses `Panel`/pair API, that example is historical.
 - **Applies to:** `tui/` (ncurses client)
 - **Inspiration:** Midnight Commander, Vim, htop, Norton Commander, dialog, CDK
-- **Last updated:** 2026-07-24
+- **Last updated:** 2026-11-15
 
 ---
 
@@ -64,10 +66,10 @@ like `+`, `-`, `|` for framing.
 
 ### 2.2 Title bar
 
-Titles are placed in the top border, centered:
+Titles are placed in the top border, centered, between `┤` and `├`:
 
 ```
-┌─── Sessions ─────────────────────────────┐
+┌───┤ Sessions ├────────────────────────────┐
 │                                           │
 └───────────────────────────────────────────┘
 ```
@@ -76,33 +78,38 @@ Implementation:
 ```cpp
 int t = (width - title.size()) / 2;
 if (t < 2) t = 2;
-mvwaddch(win, 0, t - 1, ACS_VLINE);
+mvwaddch(win, 0, t - 1, ACS_RTEE);
 mvwprintw(win, 0, t, "%s", title.c_str());
-mvwaddch(win, 0, t + title.size(), ACS_VLINE);
+mvwaddch(win, 0, t + title.size(), ACS_LTEE);
 ```
+
+The title segment sits on the sheet background; painting the terminal default
+behind it punches a hole in the frame (see `docs/spec/tui/dialogs.md` §4.4).
 
 ### 2.3 Footer bar
 
-Action shortcuts in the bottom border:
+Action shortcuts in the bottom border, with the key as a filled chip:
 
 ```
-│  [Up/Down] navigate  [Enter] select  [Esc] cancel  │
+└─ [1-4] Pick  [Tab] Move  [Enter] Confirm  [Esc] Cancel ──────┘
 ```
 
-Keys in bold, descriptions in normal weight:
-```cpp
-wattron(win, A_BOLD | COLOR_PAIR(PP_FOOTER));
-wprintw(win, " [%s]", key.c_str());
-wattroff(win, A_BOLD | COLOR_PAIR(PP_FOOTER));
-wprintw(win, " %s ", description.c_str());
-```
+Keys are bold on a contrasting background; descriptions sit on the sheet
+background. The footer is the bottom border row, not an extra body row
+(`docs/spec/tui/dialogs.md` §4.5).
 
 ### 2.4 Drop shadow
 
-Modals cast a shadow 1 row below and 1 col to the right:
-```cpp
-WINDOW* shadow = newwin(h, w, top + 1, left + 1);
-wbkgd(shadow, COLOR_PAIR(COLOR_SHADOW) | ' ');
+Modals cast a shadow 1 row below and 1 col to the right. The shadow must remain
+visible on a black terminal, so it is a shaded glyph in the `Shadow` role, not
+a solid black block:
+
+```
+┌──────────────┐
+│ Dialog       │░
+│              │░
+└──────────────┘░
+ ░░░░░░░░░░░░░░░
 ```
 
 ---
@@ -119,10 +126,10 @@ wbkgd(shadow, COLOR_PAIR(COLOR_SHADOW) | ' ');
 | `P_DEBUG` | Magenta | Default | Debug traces |
 | `P_REASONING` | White (dim) | Default | Model thinking/reasoning |
 | `P_BANNER` | White | Blue | Status bar background |
-| `P_DIALOG` | White | Black | Dialog body background |
-| `P_BUTTON` | White | Black | Unselected button |
-| `P_BUTTON_ACT` | Black | White | Selected button / highlight |
-| `P_SHADOW` | Black | Black | Drop shadow (same fg/bg) |
+| `P_DIALOG` | White | Blue | Dialog sheet background (the modal roles are in `themes.md`) |
+| `P_BUTTON` | Black | Cyan | Unselected button in the legacy pair layer |
+| `P_BUTTON_ACT` | Black | White | Focused button / selected row |
+| `P_SHADOW` | Dark gray | Default | Drop shadow, drawn with `░` (not a solid block) |
 | `P_FIELD` | Black | White | Form field background |
 | `P_FIELD_ACT` | White | Cyan | Active form field |
 
@@ -152,20 +159,17 @@ wbkgd(shadow, COLOR_PAIR(COLOR_SHADOW) | ' ');
 
 ### 3.4 Selection highlight
 
-Use `A_REVERSE` for selected items in lists:
+A selection is a full-width bar in `DialogSelected` (black on cyan in
+Amber/Modern), not a text-only attribute change. Every cell from the inner left
+edge to the inner right edge of the row is painted, so the eye reads one bar:
 
 ```cpp
-if (is_selected) {
-    wattron(win, A_REVERSE | COLOR_PAIR(PP_SELECT));
-} else {
-    wattron(win, COLOR_PAIR(PP_ITEM));
-}
-// ... draw item ...
-if (is_selected)
-    wattroff(win, A_REVERSE | COLOR_PAIR(PP_SELECT));
-else
-    wattroff(win, COLOR_PAIR(PP_ITEM));
+surface.fill({1, row, width - 2, 1}, Cell{" ", Style{Role::DialogSelected}});
+surface.put_text(2, row, item, Style{Role::DialogSelected});
 ```
+
+The legacy pair layer's `A_REVERSE` examples remain valid only for screens
+that have not migrated to the cell grid; a modal uses the dialog roles.
 
 ---
 
@@ -211,20 +215,17 @@ Filter bar at the bottom (before footer) with `/ ` prefix.
 ### 4.3 Confirmation dialog
 
 ```
-┌─── Delete Session ────────────────────────┐
-│                                           │
-│         Delete "Today's work"?            │
-│                                           │
-│         [ Yes ]   [ No ]                  │  ← Tab to switch, Enter to confirm
-│                                           │
-│  [Tab] switch  [Enter] confirm  [Esc] can │
-└───────────────────────────────────────────┘
+┌──┤ Delete Session ├──────────────────────────────┐
+│ Delete "Today's work"?                           │
+│                                                  │
+│            [ Yes ]       [ No ]                  │
+└─ [Tab] Switch  [Enter] Confirm  [Esc] Cancel ────┘
 ```
 
-- Default to "No" (safe default)
-- Tab/Left/Right to switch between Yes and No
-- Enter to confirm current selection
-- Esc to cancel (equivalent to No)
+- Default to "No" (safe default), drawn as a filled block in
+  `DialogButtonFocus`; "Yes" is `DialogButton` (black on cyan).
+- Tab/Left/Right switch, Enter confirms, Esc cancels (equivalent to No).
+- The footer is the bottom border row; the buttons are one row above it.
 
 ### 4.4 Info dialog
 
@@ -409,20 +410,24 @@ ERROR: denied by user: bash was not approved
 
 ## 9. Implementation Checklist
 
-When creating a new panel or dialog:
+When creating a new sheet or screen:
 
-- [ ] Uses `Panel` base class (not raw ncurses windows)
-- [ ] Has a title in the top border
-- [ ] Has footer with keyboard shortcuts
-- [ ] Uses ACS line drawing for borders
-- [ ] Has drop shadow if modal
+- [ ] Uses `ModalHost`/`DialogView` for a blocking dialog, not a raw ncurses
+      `WINDOW`/`PANEL`
+- [ ] Uses `Surface`/`Cell` and semantic `Role`s, not hardcoded colour pairs
+- [ ] Has a title in the top border, surrounded by `┤`/`├`
+- [ ] Has a footer key bar in the bottom border (not a body row)
+- [ ] Uses `DialogSurface`/`DialogText`/`DialogMuted` inside a sheet; no
+      `Text`/`Muted` cells that paint the terminal default behind the sheet
+- [ ] Has a visible one-cell drop shadow using the `Shadow` role and `░`
+- [ ] Draws buttons as filled blocks, inside the frame, never clipped
+- [ ] Draws a selected row as a full-width `DialogSelected` bar
+- [ ] Uses `Glyphs` for borders (`+ - |` in ASCII), never hardcoded UTF-8
 - [ ] Supports `Esc` to cancel/close
-- [ ] Supports `Tab` navigation (if multiple focusable elements)
-- [ ] Uses consistent color pairs from `Pair` enum (not hardcoded)
-- [ ] Content area has 1-cell padding
-- [ ] Selection uses `A_REVERSE` (not custom colors)
-- [ ] Scroll indicators shown when content overflows
-- [ ] Uses `ModalScope` if blocking (sets modal flag)
+- [ ] Supports Tab/arrow navigation for multiple focusable elements
+- [ ] Shows scroll markers when content overflows
+- [ ] Uses `ModalScope` if blocking (sets the modal flag)
+- [ ] Fits 80×24 and 120×40; paints nothing outside the screen
 
 ---
 

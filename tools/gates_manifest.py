@@ -143,6 +143,12 @@ JOBS = {
         "gating": True,
         "local": "make bench-check",
     },
+    "bench-e2e": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make bench-e2e",
+    },
     "fuzz": {
         "dimension": "cpp",
         "events": ALL_EVENTS,
