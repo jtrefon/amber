@@ -20,7 +20,10 @@ class Dialect;
 struct Message {
     std::string role;
     std::string content;
-    std::string reasoning;    // assistant thinking (not sent back)
+    // Assistant thinking. Replayed on later turns when the provider requires it
+    // (DeepSeek's reasoning_content, OpenRouter's reasoning string); otherwise
+    // it stays local to the UI.
+    std::string reasoning;
     std::string tool_call_id; // for role == "tool"
     std::string name;         // tool name for tool messages
     json tool_calls;          // assistant messages may carry calls
@@ -47,6 +50,14 @@ struct Message {
     // them modified or omits them, so the raw blocks travel with the message.
     // Protocols without such blocks leave this null and never read it.
     json raw_content{};
+    // The provider's structured reasoning blocks, replayed verbatim when the
+    // listing asks for them (OpenRouter's reasoning_details). Empty when the
+    // protocol has no such shape.
+    json reasoning_details{};
+    // The assistant-message field the reasoning actually arrived in
+    // (reasoning_content, reasoning, ...). A cold catalogue can still replay
+    // the provider's own field instead of guessing one.
+    std::string reasoning_field;
 };
 
 // One parsed Server-Sent-Event delta from a streaming response.
@@ -65,17 +76,10 @@ struct ServerInfo {
     int context_size = 0;  // n_ctx (loaded context window), 0 if unknown
     int context_train = 0; // n_ctx_train (model's native max), 0 if unknown
     int max_output = 0;    // max completion tokens, 0 if unknown
-    bool reasoning = false;
+    // How the model accepts reasoning. A listing that names nothing is unknown
+    // and gets no field: unknown is never guessed.
+    ReasoningContract reasoning;
     std::string line; // provider family line (Anthropic "line"), informational
-    // How the model accepts reasoning. A listing that names none of these is
-    // unknown and gets no thinking block: unknown is never guessed.
-    bool thinking_adaptive = false;         // thinking.type=adaptive + output_config.effort
-    bool thinking_legacy = false;           // thinking.type=enabled + budget_tokens
-    bool thinking_always_on = false;        // cannot disable; omitting keeps the default
-    bool thinking_disabled_ok = false;      // thinking.type=disabled accepted
-    bool thinking_between_tools_ok = false; // thinking.type=between_tools accepted
-    std::vector<std::string> efforts;       // accepted output_config.effort values
-    std::string default_effort;             // provider default effort
     std::vector<std::string> supported_parameters;
 };
 
@@ -106,15 +110,8 @@ struct ModelInfo {
     int context = 0;       // input context window
     int context_train = 0; // native max
     int max_output = 0;    // max completion/output tokens
-    bool reasoning = false;
+    ReasoningContract reasoning;
     std::string line;
-    bool thinking_adaptive = false;
-    bool thinking_legacy = false;
-    bool thinking_always_on = false;
-    bool thinking_disabled_ok = false;
-    bool thinking_between_tools_ok = false;
-    std::vector<std::string> efforts;
-    std::string default_effort;
     std::vector<std::string> input_modalities;
     std::vector<std::string> output_modalities;
     std::vector<std::string> supported_parameters;
@@ -126,68 +123,27 @@ struct ModelInfo {
 struct ModelCapabilities {
     int context = 0;
     int max_output = 0;
-    bool reasoning = false;
+    ReasoningContract reasoning;
     std::string line;
-    bool thinking_adaptive = false;
-    bool thinking_legacy = false;
-    bool thinking_always_on = false;
-    bool thinking_disabled_ok = false;
-    bool thinking_between_tools_ok = false;
-    std::vector<std::string> efforts;
-    std::string default_effort;
     std::vector<std::string> supported_parameters;
 };
 
 inline ModelCapabilities capabilities_of(const ModelInfo& m) {
-    return {m.context,
-            m.max_output,
-            m.reasoning,
-            m.line,
-            m.thinking_adaptive,
-            m.thinking_legacy,
-            m.thinking_always_on,
-            m.thinking_disabled_ok,
-            m.thinking_between_tools_ok,
-            m.efforts,
-            m.default_effort,
-            m.supported_parameters};
+    return {m.context, m.max_output, m.reasoning, m.line, m.supported_parameters};
 }
 
 inline ModelCapabilities capabilities_of(const ServerInfo& s) {
-    return {s.context_size,
-            s.max_output,
-            s.reasoning,
-            s.line,
-            s.thinking_adaptive,
-            s.thinking_legacy,
-            s.thinking_always_on,
-            s.thinking_disabled_ok,
-            s.thinking_between_tools_ok,
-            s.efforts,
-            s.default_effort,
-            s.supported_parameters};
+    return {s.context_size, s.max_output, s.reasoning, s.line, s.supported_parameters};
 }
 
 inline ModelCapabilities capabilities_of(const Config& c) {
-    return {c.context_size,
-            c.model_max_output,
-            c.model_supports_reasoning,
-            c.model_line,
-            c.model_thinking_adaptive,
-            c.model_thinking_legacy,
-            c.model_thinking_always_on,
-            c.model_thinking_disabled_ok,
-            c.model_thinking_between_tools_ok,
-            c.model_efforts,
-            c.model_default_effort,
+    return {c.context_size, c.model_max_output, c.model_reasoning, c.model_line,
             c.model_supported_parameters};
 }
 
 inline bool has_capabilities(const ModelCapabilities& c) {
-    return c.context > 0 || c.max_output > 0 || c.reasoning || !c.line.empty() ||
-           c.thinking_adaptive || c.thinking_legacy || c.thinking_always_on ||
-           c.thinking_disabled_ok || c.thinking_between_tools_ok || !c.efforts.empty() ||
-           !c.default_effort.empty() || !c.supported_parameters.empty();
+    return c.context > 0 || c.max_output > 0 || c.reasoning.supported || !c.line.empty() ||
+           !c.supported_parameters.empty();
 }
 
 // Documented Claude family defaults. A listing is authoritative; these fill
@@ -261,15 +217,32 @@ inline constexpr ClaudeFamily kClaudeFamilies[] = {
 };
 
 // The vendor prefix some gateways put in front of the model id
-// (`anthropic/claude-sonnet-5`). Family matching looks at the basename so the
-// same table serves the Anthropic listing and an OpenAI-compatible gateway.
-inline const ClaudeFamily* claude_family_for(const std::string& id) {
+// (`anthropic/claude-sonnet-5`) and the `:free`/`:batch` variants OpenRouter
+// appends. Family matching looks at the basename, strips the variant suffix,
+// and treats a dotted version (`claude-opus-5.5`) like the hyphenated native
+// id (`claude-opus-5-5`) so one table serves both listings.
+inline std::string model_basename(const std::string& id) {
     const std::size_t slash = id.rfind('/');
-    const std::string name = slash == std::string::npos ? id : id.substr(slash + 1);
+    std::string name = slash == std::string::npos ? id : id.substr(slash + 1);
+    const std::size_t colon = name.find(':');
+    if (colon != std::string::npos)
+        name.erase(colon);
+    return name;
+}
+
+inline std::string family_name(const std::string& id) {
+    std::string name = model_basename(id);
+    std::replace(name.begin(), name.end(), '.', '-');
+    return name;
+}
+
+inline const ClaudeFamily* claude_family_for(const std::string& id) {
+    const std::string name = family_name(id);
     const ClaudeFamily* best = nullptr;
     std::size_t best_len = 0;
     for (const auto& family : kClaudeFamilies) {
-        const std::string prefix(family.prefix);
+        std::string prefix(family.prefix);
+        std::replace(prefix.begin(), prefix.end(), '.', '-');
         if (name.rfind(prefix, 0) != 0 || prefix.size() <= best_len)
             continue;
         best = &family;
@@ -288,6 +261,32 @@ inline int min_cacheable_tokens(const std::string& id) {
     return family ? family->min_cacheable : 0;
 }
 
+inline void apply_claude_family_reasoning(ReasoningContract& r, const ClaudeFamily& f) {
+    r.supported = r.supported || f.reasoning;
+    if (f.reasoning && (f.adaptive || f.always_on))
+        r.default_enabled = true;
+    if (f.adaptive || f.legacy || f.efforts)
+        r.effort_levels = true;
+    if (!r.adaptive && !r.legacy && !r.mandatory) {
+        r.adaptive = f.adaptive;
+        r.legacy = f.legacy;
+        r.mandatory = f.always_on;
+    }
+    if (r.efforts.empty() && f.efforts)
+        for (const char* const* p = f.efforts; *p; ++p)
+            r.efforts.emplace_back(*p);
+    if (r.default_effort.empty() && f.default_effort)
+        r.default_effort = f.default_effort;
+    if (r.adaptive)
+        r.between_tools_ok = true;
+    if (r.adaptive && !r.mandatory)
+        r.disabled_ok = true;
+    if (r.mandatory)
+        r.off = ReasoningOff::Unsupported;
+    else if (r.disabled_ok || r.between_tools_ok)
+        r.off = ReasoningOff::ReasoningDisabled;
+}
+
 inline void apply_claude_family(ModelInfo& m) {
     const ClaudeFamily* f = claude_family_for(m.id);
     if (!f)
@@ -296,21 +295,7 @@ inline void apply_claude_family(ModelInfo& m) {
         m.context = f->context;
     if (m.max_output == 0)
         m.max_output = f->max_output;
-    m.reasoning = m.reasoning || f->reasoning;
-    if (!m.thinking_adaptive && !m.thinking_legacy && !m.thinking_always_on) {
-        m.thinking_adaptive = f->adaptive;
-        m.thinking_legacy = f->legacy;
-        m.thinking_always_on = f->always_on;
-    }
-    if (m.efforts.empty() && f->efforts)
-        for (const char* const* p = f->efforts; *p; ++p)
-            m.efforts.emplace_back(*p);
-    if (m.default_effort.empty() && f->default_effort)
-        m.default_effort = f->default_effort;
-    if (m.thinking_adaptive)
-        m.thinking_between_tools_ok = true;
-    if (m.thinking_adaptive && !m.thinking_always_on)
-        m.thinking_disabled_ok = true;
+    apply_claude_family_reasoning(m.reasoning, *f);
 }
 
 inline void apply_claude_family(ServerInfo& s) {
@@ -321,35 +306,127 @@ inline void apply_claude_family(ServerInfo& s) {
         s.context_size = f->context;
     if (s.max_output == 0)
         s.max_output = f->max_output;
-    s.reasoning = s.reasoning || f->reasoning;
-    if (!s.thinking_adaptive && !s.thinking_legacy && !s.thinking_always_on) {
-        s.thinking_adaptive = f->adaptive;
-        s.thinking_legacy = f->legacy;
-        s.thinking_always_on = f->always_on;
-    }
-    if (s.efforts.empty() && f->efforts)
-        for (const char* const* p = f->efforts; *p; ++p)
-            s.efforts.emplace_back(*p);
-    if (s.default_effort.empty() && f->default_effort)
-        s.default_effort = f->default_effort;
-    if (s.thinking_adaptive)
-        s.thinking_between_tools_ok = true;
-    if (s.thinking_adaptive && !s.thinking_always_on)
-        s.thinking_disabled_ok = true;
+    apply_claude_family_reasoning(s.reasoning, *f);
+}
+
+// Documented OpenAI families. Their /v1/models listing is deliberately bare,
+// so the family table is the only catalogue source for the request shape. It
+// fills only a contract the listing did not provide, and the request builder
+// never reads a model id. Levels stay empty: the listing named none, so the
+// configured level is sent without a clamp.
+struct OpenAIFamily {
+    const char* prefix;
+};
+
+inline constexpr OpenAIFamily kOpenAIFamilies[] = {
+    {"o1"},
+    {"o3"},
+    {"o4"},
+    {"gpt-5"},
+};
+
+inline void apply_openai_family_reasoning(ReasoningContract& r) {
+    if (r.supported)
+        return;
+    r.supported = true;
+    r.effort_levels = true;
+    r.wire = ReasoningWire::Effort;
+    r.mandatory = true;       // no documented off shape on the bare listing
+    r.default_enabled = true; // reasoning is on unless the request says otherwise
+    r.off = ReasoningOff::Omit;
+}
+
+inline void apply_openai_family(ModelInfo& m) {
+    const std::string name = family_name(m.id);
+    for (const auto& family : kOpenAIFamilies)
+        if (name.rfind(family.prefix, 0) == 0) {
+            apply_openai_family_reasoning(m.reasoning);
+            return;
+        }
 }
 
 inline void apply_model_capabilities(Config& cfg, const ModelCapabilities& c) {
     cfg.model_max_output = c.max_output;
-    cfg.model_supports_reasoning = c.reasoning;
     cfg.model_supported_parameters = c.supported_parameters;
     cfg.model_line = c.line;
-    cfg.model_thinking_adaptive = c.thinking_adaptive;
-    cfg.model_thinking_legacy = c.thinking_legacy;
-    cfg.model_thinking_always_on = c.thinking_always_on;
-    cfg.model_thinking_disabled_ok = c.thinking_disabled_ok;
-    cfg.model_thinking_between_tools_ok = c.thinking_between_tools_ok;
-    cfg.model_efforts = c.efforts;
-    cfg.model_default_effort = c.default_effort;
+    cfg.model_reasoning = c.reasoning;
+}
+
+// The reasoning levels the protocol understands. A listing narrows this set;
+// it does not invent a new spelling.
+inline constexpr const char* kReasoningEfforts[] = {"off",  "minimal", "low", "medium",
+                                                    "high", "xhigh",   "max", nullptr};
+
+inline bool is_reasoning_effort(const std::string& effort) {
+    for (const char* const* p = kReasoningEfforts; *p; ++p)
+        if (effort == *p)
+            return true;
+    return false;
+}
+
+// Whether the active dialect has a field it can actually send for this model.
+// An OpenAI-compatible request needs a wire shape; the Messages dialect speaks
+// the adaptive/legacy shapes even though it has no `reasoning_effort` field.
+inline bool reasoning_control_available(const Config& cfg) {
+    const ReasoningContract& r = cfg.model_reasoning;
+    if (!r.supported)
+        return false;
+    if (r.wire != ReasoningWire::None)
+        return true;
+    return cfg.flavor == "anthropic" && (r.adaptive || r.legacy);
+}
+
+// The level the next request will actually send. Empty means "send no field":
+// the model cannot disable reasoning, the listing named no level, or the
+// configured value is not selectable. "on" means the model reasons at its
+// default and the request cannot turn it off.
+inline std::string effective_reasoning_effort(const ReasoningContract& r,
+                                              const std::string& configured) {
+    if (!r.supported)
+        return {};
+    if (configured.empty() || configured == "off") {
+        if (r.mandatory || r.off == ReasoningOff::Unsupported)
+            return "on";
+        if (r.off == ReasoningOff::Omit)
+            return r.legacy ? "off" : (r.default_enabled ? "on" : "");
+        return "off";
+    }
+    if (!r.effort_levels)
+        return {};
+    if (r.efforts.empty())
+        return configured;
+    if (std::find(r.efforts.begin(), r.efforts.end(), configured) != r.efforts.end())
+        return configured;
+    // The listing named levels but no default: an unlisted configured value is
+    // not sent. Omitting is the conservative answer; inventing one of the
+    // listed levels could silently disable reasoning (OpenCode's first level is
+    // often "none").
+    return r.default_effort;
+}
+
+inline std::string effective_reasoning_effort(const Config& cfg) {
+    if (!reasoning_control_available(cfg))
+        return cfg.model_reasoning.supported ? "on" : "";
+    return effective_reasoning_effort(cfg.model_reasoning, cfg.reasoning_effort);
+}
+
+// Whether the model can be asked for this level. `off` is selectable when the
+// model advertises a way to disable reasoning; a level is selectable when the
+// listing named it (or named no levels, in which case the configured value is
+// sent as-is).
+inline bool reasoning_effort_allowed(const Config& cfg, const std::string& effort) {
+    const ReasoningContract& r = cfg.model_reasoning;
+    if (!is_reasoning_effort(effort))
+        return false;
+    if (!reasoning_control_available(cfg))
+        return effort == "off";
+    if (effort == "off")
+        return !r.mandatory && r.off != ReasoningOff::Unsupported;
+    if (!r.effort_levels)
+        return false;
+    if (r.efforts.empty())
+        return true;
+    return std::find(r.efforts.begin(), r.efforts.end(), effort) != r.efforts.end();
 }
 
 // Per-request telemetry, surfaced to UIs for the status bar. Filled in after a

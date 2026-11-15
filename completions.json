@@ -522,7 +522,7 @@
     "reasoning": {
      "action": "core.config.get.reasoning",
      "help": "Show reasoning effort.",
-     "man": "Shows the current reasoning effort value sent to the server (off/low/medium/high)."
+     "man": "Shows the configured effort and the level the next request will actually send, after clamping to the active model's advertised levels. A model that cannot disable reasoning reports sent=on."
     },
     "learn": {
      "action": "core.config.get.learn",
@@ -935,17 +935,20 @@
     "reasoning": {
      "action": "core.config.set.reasoning",
      "help": "Reasoning effort settings.",
-     "man": "Controls the model's reasoning strength for OpenAI-compatible servers that support the reasoning_effort field (o-series, vLLM, DeepSeek). off disables it; low/medium/high trade depth against speed and cost.",
+     "man": "Controls the model's reasoning strength. The active model's listing decides the accepted levels and the wire field; an unlisted level is clamped to the model's default (or omitted when it names none). off maps to the provider's own disable shape, and a model that cannot disable reasoning keeps its default.",
      "children": {
       "effort": {
        "action": "core.config.set.reasoning.effort",
-       "help": "Reasoning effort (off/low/medium/high).",
-       "man": "Sent as the reasoning_effort field in chat completions. off omits nothing and disables reasoning where supported; low/medium/high select the reasoning budget. Changes apply to the next turn and are persisted.",
+       "help": "Reasoning effort (model-advertised levels plus off).",
+       "man": "Validated against the levels the active model advertises. DeepSeek accepts low/high/max, OpenRouter may offer minimal/xhigh/max, and Anthropic offers its own output_config levels; the request builder sends the field that listing named. off uses thinking.type=disabled, reasoning.enabled=false, or reasoning_effort=none as the provider documents. Changes apply to the next turn and are persisted.",
        "choices": [
         "off",
+        "minimal",
         "low",
         "medium",
-        "high"
+        "high",
+        "xhigh",
+        "max"
        ]
       }
      }

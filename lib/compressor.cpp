@@ -220,8 +220,16 @@ void collapse_and_prune(std::vector<Message>& copy, const CompressionConfig& cfg
         observer->on_progress(estimate_tokens(copy), copy.size());
     }
     prune_tool_io(copy, &cfg);
-    for (auto& m : copy)
-        m.reasoning.clear();
+    for (auto& m : copy) {
+        // A provider that replays reasoning on tool turns needs it exactly
+        // there; a plain assistant turn can still shed the text.
+        const bool keep =
+            cfg.keep_assistant_reasoning && m.role == "assistant" && !m.tool_calls.is_null();
+        if (!keep) {
+            m.reasoning.clear();
+            m.reasoning_details = json::value_t::null;
+        }
+    }
     if (observer)
         observer->on_progress(estimate_tokens(copy), copy.size());
 }
@@ -303,6 +311,11 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
 }
 
 } // namespace
+
+void reduce_free(std::vector<Message>& history, const CompressionConfig& cfg,
+                 CompressionObserver* observer) {
+    collapse_and_prune(history, cfg, observer);
+}
 
 // A single oversized turn has no older history for the classifier to archive:
 // its only relief is its own older evidence, which is a deterministic pass
@@ -435,6 +448,7 @@ CompressionConfig load_compression_config(const Config& cfg) {
     if (cfg.compression_keep_last_prompts_explicit)
         cc.keep_last_prompts = cfg.compression_keep_last_prompts;
     cc.context_size = cfg.context_size;
+    cc.keep_assistant_reasoning = cfg.model_reasoning.require_echo;
     return cc;
 }
 

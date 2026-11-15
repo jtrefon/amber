@@ -16,6 +16,65 @@ namespace agent {
 // orchestration depth. Switchable at runtime via /mode.
 enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 
+// How an OpenAI-compatible provider accepts a reasoning level. The listing (or
+// a documented family fallback) names the shape; the request builder never
+// guesses it from a model id.
+enum class ReasoningWire : std::uint8_t {
+    None,
+    Effort,          // top-level `reasoning_effort`
+    ReasoningObject, // `reasoning: { "effort": ... }`
+};
+
+// How a provider expresses "off". `Unsupported` is a model that cannot disable
+// reasoning; `Omit` is a provider whose listing named no off shape, so the
+// request stays conservative.
+enum class ReasoningOff : std::uint8_t {
+    Omit,
+    Unsupported,
+    ReasoningDisabled,
+    EffortNone,
+    ThinkingDisabled,
+};
+
+// One model's advertised reasoning contract, carried from the catalogue through
+// ServerInfo/ModelCapabilities to the request builder and the UI. `adaptive`,
+// `legacy`, `disabled_ok` and `between_tools_ok` describe the Anthropic
+// Messages shapes; the remaining fields describe the OpenAI-compatible shapes.
+struct ReasoningContract {
+    bool supported = false;
+    bool mandatory = false;       // reasoning cannot be disabled
+    bool default_enabled = false; // provider's default when no request field is sent
+    // The listing named an effort control (levels, a default, or a legacy
+    // supported_parameters flag). A model that only says "reasoning: supported"
+    // has no level dial; sending one would be a guess.
+    bool effort_levels = false;
+    bool adaptive = false;         // Anthropic: thinking.type=adaptive + output_config.effort
+    bool legacy = false;           // Anthropic: thinking.type=enabled + budget_tokens
+    bool disabled_ok = false;      // Anthropic: thinking.type=disabled accepted
+    bool between_tools_ok = false; // Anthropic: thinking.type=between_tools accepted
+    std::vector<std::string> efforts;
+    std::string default_effort;
+    ReasoningWire wire = ReasoningWire::None;
+    ReasoningOff off = ReasoningOff::Omit;
+    // How a tool turn echoes its chain of thought back. `echo_details` replays
+    // the provider's structured reasoning_details array; otherwise `echo_field`
+    // names the assistant-message field (reasoning_content, reasoning, ...).
+    std::string echo_field;
+    bool echo_details = false;
+    bool require_echo = false;
+
+    bool operator==(const ReasoningContract& other) const noexcept {
+        return supported == other.supported && mandatory == other.mandatory &&
+               default_enabled == other.default_enabled && effort_levels == other.effort_levels &&
+               adaptive == other.adaptive && legacy == other.legacy &&
+               disabled_ok == other.disabled_ok && between_tools_ok == other.between_tools_ok &&
+               efforts == other.efforts && default_effort == other.default_effort &&
+               wire == other.wire && off == other.off && echo_field == other.echo_field &&
+               echo_details == other.echo_details && require_echo == other.require_echo;
+    }
+    bool operator!=(const ReasoningContract& other) const noexcept { return !(*this == other); }
+};
+
 // Runtime configuration for the harness. Sourced from command-line flags,
 // environment variables, and global/project config files.
 // The library layer is intentionally free of any UI concerns.
@@ -112,27 +171,23 @@ struct Config {
     // local server cannot redirect `/set provider`'s traffic to it.
     bool api_base_from_provider = false;
 
-    // Compatibility fallback for OpenAI o-series / vLLM style servers that use
-    // the reasoning_effort field instead of a jinja kwarg: "off" disables it.
+    // The configured reasoning level. The active model's contract decides the
+    // accepted levels and the wire field; "off" maps to the provider's own
+    // disable shape, and a model that cannot disable reasoning keeps its
+    // default instead of receiving a field it rejects.
     std::string reasoning_effort = "off";
 
     // The active model's advertised capabilities, derived from the listing and
-    // never persisted. model_max_output = 0 / reasoning false / empty params
-    // mean the provider did not advertise them: the request stays conservative.
+    // never persisted. model_max_output = 0 / empty reasoning contract / empty
+    // params mean the provider did not advertise them: the request stays
+    // conservative.
     int model_max_output = 0;
-    bool model_supports_reasoning = false;
     std::vector<std::string> model_supported_parameters;
     // The reasoning contract the listing advertised. Empty/false means the
     // provider did not say: the request stays conservative rather than guessing
     // a thinking shape the model may reject.
     std::string model_line;
-    bool model_thinking_adaptive = false;
-    bool model_thinking_legacy = false;
-    bool model_thinking_always_on = false;
-    bool model_thinking_disabled_ok = false;
-    bool model_thinking_between_tools_ok = false;
-    std::vector<std::string> model_efforts;
-    std::string model_default_effort;
+    ReasoningContract model_reasoning;
 
     // Conversation / telemetry log. When non-empty, the agent appends one JSON
     // object per event (JSON Lines) to this path. Supports a literal "{ts}"

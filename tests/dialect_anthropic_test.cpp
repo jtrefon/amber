@@ -547,7 +547,7 @@ TEST(anthropic_model_list_and_probe_parse) {
     // proxy omits the listing fields; this is not a guess for an unknown id.
     ASSERT_EQ(models[0].context, 200000);
     ASSERT_EQ(models[0].max_output, 64000);
-    ASSERT_TRUE(models[0].reasoning);
+    ASSERT_TRUE(models[0].reasoning.supported);
 
     agent::ServerInfo info = d->parse_models_response(body, "claude-haiku-4-5");
     ASSERT_TRUE(info.ok);
@@ -588,11 +588,11 @@ TEST(anthropic_known_family_fallback_is_bounded) {
     // The documented family supplies the context; a reported output limit wins.
     ASSERT_EQ(models[0].context, 200000);
     ASSERT_EQ(models[0].max_output, 32000);
-    ASSERT_TRUE(models[0].reasoning);
+    ASSERT_TRUE(models[0].reasoning.supported);
     // An unknown id is not guessed.
     ASSERT_EQ(models[1].context, 0);
     ASSERT_EQ(models[1].max_output, 0);
-    ASSERT_FALSE(models[1].reasoning);
+    ASSERT_FALSE(models[1].reasoning.supported);
     ASSERT_EQ(models[2].context, 0);
 }
 
@@ -602,8 +602,8 @@ TEST(anthropic_request_respects_output_and_reasoning) {
     cfg.model = "claude-sonnet-4-5";
     cfg.max_tokens = 16384;
     cfg.model_max_output = 8192;
-    cfg.model_supports_reasoning = true;
-    cfg.model_thinking_legacy = true;
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.legacy = true;
     cfg.reasoning_effort = "high";
     std::vector<agent::Message> msgs;
 
@@ -619,8 +619,8 @@ TEST(anthropic_request_respects_output_and_reasoning) {
 
     // A model whose listing said nothing about thinking gets no block, even
     // when a previous model advertised reasoning: unknown is not a guess.
-    cfg.model_supports_reasoning = false;
-    cfg.model_thinking_legacy = false;
+    cfg.model_reasoning.supported = false;
+    cfg.model_reasoning.legacy = false;
     cfg.max_tokens = 16384;
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(!body.contains("thinking"));
@@ -648,30 +648,30 @@ TEST(anthropic_model_list_reads_limits_capabilities_and_efforts) {
 
     ASSERT_EQ(models[0].context, 1000000);
     ASSERT_EQ(models[0].max_output, 128000);
-    ASSERT_TRUE(models[0].thinking_adaptive);
-    ASSERT_FALSE(models[0].thinking_legacy);
-    ASSERT_FALSE(models[0].thinking_always_on);
-    ASSERT_TRUE(models[0].thinking_disabled_ok);
-    ASSERT_TRUE(models[0].thinking_between_tools_ok);
+    ASSERT_TRUE(models[0].reasoning.adaptive);
+    ASSERT_FALSE(models[0].reasoning.legacy);
+    ASSERT_FALSE(models[0].reasoning.mandatory);
+    ASSERT_TRUE(models[0].reasoning.disabled_ok);
+    ASSERT_TRUE(models[0].reasoning.between_tools_ok);
     ASSERT_EQ(models[0].line, "sonnet");
-    ASSERT_EQ(models[0].default_effort, "high");
-    ASSERT_EQ(models[0].efforts.size(), 5u); // low, medium, high, xhigh, max
+    ASSERT_EQ(models[0].reasoning.default_effort, "high");
+    ASSERT_EQ(models[0].reasoning.efforts.size(), 5u); // low, medium, high, xhigh, max
 
     // The 5.5 Opus is always-on; the listing's disabled:false wins over the
     // family default.
-    ASSERT_TRUE(models[1].thinking_adaptive);
-    ASSERT_TRUE(models[1].thinking_always_on);
-    ASSERT_FALSE(models[1].thinking_disabled_ok);
-    ASSERT_EQ(models[1].default_effort, "medium");
+    ASSERT_TRUE(models[1].reasoning.adaptive);
+    ASSERT_TRUE(models[1].reasoning.mandatory);
+    ASSERT_FALSE(models[1].reasoning.disabled_ok);
+    ASSERT_EQ(models[1].reasoning.default_effort, "medium");
 
     // Old spelling still works when a gateway sends it.
     ASSERT_EQ(models[2].max_output, 32000);
     ASSERT_EQ(models[2].context, 200000);
-    ASSERT_TRUE(models[2].thinking_legacy);
+    ASSERT_TRUE(models[2].reasoning.legacy);
 
     // A pre-reasoning family stays non-reasoning.
-    ASSERT_FALSE(models[3].reasoning);
-    ASSERT_FALSE(models[3].thinking_adaptive);
+    ASSERT_FALSE(models[3].reasoning.supported);
+    ASSERT_FALSE(models[3].reasoning.adaptive);
 }
 
 // 4.6+ takes adaptive thinking plus output_config.effort. Sending a budget
@@ -681,11 +681,11 @@ TEST(anthropic_request_uses_adaptive_thinking_and_effort) {
     agent::Config cfg;
     cfg.model = "claude-sonnet-5";
     cfg.max_tokens = 16384;
-    cfg.model_supports_reasoning = true;
-    cfg.model_thinking_adaptive = true;
-    cfg.model_thinking_disabled_ok = true;
-    cfg.model_efforts = {"low", "medium", "high", "xhigh", "max"};
-    cfg.model_default_effort = "high";
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.adaptive = true;
+    cfg.model_reasoning.disabled_ok = true;
+    cfg.model_reasoning.efforts = {"low", "medium", "high", "xhigh", "max"};
+    cfg.model_reasoning.default_effort = "high";
     cfg.reasoning_effort = "xhigh";
     std::vector<agent::Message> msgs;
 
@@ -697,8 +697,8 @@ TEST(anthropic_request_uses_adaptive_thinking_and_effort) {
 
     // The model does not list xhigh (4.6): send its documented default, not a
     // level the API would reject.
-    cfg.model_efforts = {"low", "medium", "high", "max"};
-    cfg.model_default_effort = "high";
+    cfg.model_reasoning.efforts = {"low", "medium", "high", "max"};
+    cfg.model_reasoning.default_effort = "high";
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["output_config"]["effort"], "high");
 
@@ -717,17 +717,17 @@ TEST(anthropic_request_off_on_always_on_model_never_sends_disabled) {
     agent::Config cfg;
     cfg.model = "claude-opus-5-5";
     cfg.max_tokens = 16384;
-    cfg.model_supports_reasoning = true;
-    cfg.model_thinking_adaptive = true;
-    cfg.model_thinking_always_on = true;
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.adaptive = true;
+    cfg.model_reasoning.mandatory = true;
     cfg.reasoning_effort = "off";
     std::vector<agent::Message> msgs;
 
-    cfg.model_thinking_between_tools_ok = true;
+    cfg.model_reasoning.between_tools_ok = true;
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["thinking"]["type"], "between_tools");
 
-    cfg.model_thinking_between_tools_ok = false;
+    cfg.model_reasoning.between_tools_ok = false;
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(!body.contains("thinking"));
 }
@@ -739,10 +739,10 @@ TEST(anthropic_request_legacy_budget_and_effort) {
     agent::Config cfg;
     cfg.model = "claude-opus-4-5";
     cfg.max_tokens = 16384;
-    cfg.model_supports_reasoning = true;
-    cfg.model_thinking_legacy = true;
-    cfg.model_efforts = {"low", "medium", "high"};
-    cfg.model_default_effort = "high";
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.legacy = true;
+    cfg.model_reasoning.efforts = {"low", "medium", "high"};
+    cfg.model_reasoning.default_effort = "high";
     cfg.reasoning_effort = "high";
     std::vector<agent::Message> msgs;
 
@@ -758,7 +758,7 @@ TEST(anthropic_request_legacy_budget_and_effort) {
     ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 4096);
 
     // No effort list: budget from the configured level, no effort block.
-    cfg.model_efforts.clear();
+    cfg.model_reasoning.efforts.clear();
     cfg.reasoning_effort = "medium";
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["thinking"]["budget_tokens"].get<int>(), 2048);

@@ -228,9 +228,8 @@ void SlashDispatcher::cmd_set_reasoning_effort(const std::string& val) {
     if (busy_reject("reasoning effort"))
         return;
 
-    if (val != "off" && val != "low" && val != "medium" && val != "high") {
-        tui_.append_line(P_STATUS,
-                         "usage: /set reasoning effort off|low|medium|high (got: " + val + ")");
+    if (!agent::reasoning_effort_allowed(tui_.cfg_, val)) {
+        tui_.append_line(P_STATUS, reasoning_rejection_text(tui_.cfg_, val));
         return;
     }
     tui_.cfg_.reasoning_effort = val;
@@ -242,7 +241,9 @@ void SlashDispatcher::cmd_set_reasoning_effort(const std::string& val) {
 }
 
 void SlashDispatcher::cmd_get_reasoning() {
-    tui_.append_line(P_STATUS, "reasoning effort: " + tui_.cfg_.reasoning_effort);
+    const std::string sent = agent::effective_reasoning_effort(tui_.cfg_);
+    tui_.append_line(P_STATUS, "reasoning effort: configured=" + tui_.cfg_.reasoning_effort +
+                                   " sent=" + (sent.empty() ? "(none)" : sent));
     tui_.draw();
 }
 
@@ -2037,12 +2038,8 @@ void SlashDispatcher::register_get_reasoning_actions() {
                     [this](const std::string& v) { cmd_set_reasoning_effort(v); });
     // Bare /set reasoning <val>: same handler as the effort leaf so
     // "/set reasoning high" works, not just the fully-qualified path.
-    register_action("core.config.set.reasoning", [this](const std::string& v) {
-        if (v == "off" || v == "low" || v == "medium" || v == "high")
-            cmd_set_reasoning_effort(v);
-        else
-            tui_.append_line(P_STATUS, "usage: /set reasoning <off|low|medium|high>");
-    });
+    register_action("core.config.set.reasoning",
+                    [this](const std::string& v) { cmd_set_reasoning_effort(v); });
     register_action("core.config.get.reasoning",
                     [this](const std::string&) { cmd_get_reasoning(); });
     register_action("core.config.get.compression",
@@ -2327,13 +2324,9 @@ void SlashDispatcher::cmd_get_model_list() {
             line += "  in " + compact_tokens(ctx);
         if (m.max_output > 0)
             line += " | out " + compact_tokens(m.max_output);
-        if (m.thinking_adaptive)
-            line +=
-                " | thinking adaptive" + (m.default_effort.empty() ? "" : " " + m.default_effort);
-        else if (m.thinking_legacy)
-            line += " | thinking budget";
-        else if (m.reasoning)
-            line += " | reasoning";
+        const std::string reasoning = reasoning_capability_text(m.reasoning);
+        if (!reasoning.empty())
+            line += " | " + reasoning;
         if (!m.input_modalities.empty()) {
             line += " | in";
             for (const auto& modality : m.input_modalities)
@@ -4667,7 +4660,7 @@ void SlashDispatcher::add_reasoning_settings() {
     add_setting(
         "reasoning.effort", [this]() { return tui_.cfg_.reasoning_effort; },
         [this](const std::string& v) {
-            if (v != "off" && v != "low" && v != "medium" && v != "high")
+            if (!agent::reasoning_effort_allowed(tui_.cfg_, v))
                 return;
             if (busy_reject("reasoning effort"))
                 return;

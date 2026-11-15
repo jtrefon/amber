@@ -1,5 +1,6 @@
 #pragma once
 
+#include "agent/config.h"
 #include "agent/provider_health.h"
 #include "tui/rich.h"
 
@@ -24,13 +25,18 @@ struct ProviderModel {
     std::string id;       // model id as the provider spells it
     int context = 0;      // context window, 0 when unknown
     int max_output = 0;   // completion/output limit, 0 when unknown
-    bool reasoning = false;
-    bool thinking_adaptive = false;
-    bool thinking_legacy = false;
-    bool thinking_always_on = false;
-    std::string default_effort{};
+    agent::ReasoningContract reasoning;
     std::vector<std::string> input_modalities{};
 };
+
+// Compact capability text for a reasoning contract: "thinking adaptive high",
+// "thinking budget", "reasoning low,high,max", or empty when the listing named
+// no control. Shared by the picker and the /get model list readout.
+std::string reasoning_capability_text(const agent::ReasoningContract& reasoning);
+
+// Why /set reasoning <value> was refused for the active model. Pure so the
+// wording and the advertised-level list are testable without a TUI.
+std::string reasoning_rejection_text(const agent::Config& cfg, const std::string& value);
 
 // Human-readable token counts for picker/readout lines: 2000000 -> "2M",
 // 200000 -> "200k", 128000 -> "128k". A non-round value keeps one decimal

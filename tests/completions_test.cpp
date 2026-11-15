@@ -1129,9 +1129,12 @@ TEST(test_reasoning_tree_nodes) {
     auto ch = reg.choices_for("reasoning.effort");
     REQUIRE_NONEMPTY(ch);
     ASSERT_EQ(ch[0], "off");
-    ASSERT_EQ(ch[1], "low");
-    ASSERT_EQ(ch[2], "medium");
-    ASSERT_EQ(ch[3], "high");
+    ASSERT_EQ(ch[1], "minimal");
+    ASSERT_EQ(ch[2], "low");
+    ASSERT_EQ(ch[3], "medium");
+    ASSERT_EQ(ch[4], "high");
+    ASSERT_EQ(ch[5], "xhigh");
+    ASSERT_EQ(ch[6], "max");
 }
 
 // ── Test: provider lives in the set tree (feed merges saved names) ──

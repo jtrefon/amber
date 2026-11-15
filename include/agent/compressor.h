@@ -127,6 +127,10 @@ struct CompressionConfig {
     // recent user prompts survive verbatim. Defaults match the pipeline.
     int target_pct = kDefaultCompressionTargetPct;
     int keep_last_prompts = kDefaultCompressionKeepLastPrompts;
+    // A protocol that replays reasoning on tool turns (DeepSeek, OpenRouter,
+    // OpenCode) needs the chain of thought to survive the free reduction. The
+    // assistant tool-call turns keep it; plain assistant turns still drop it.
+    bool keep_assistant_reasoning = false;
 };
 
 // One classified span in the LLM response.
@@ -241,6 +245,15 @@ public:
 
 // Collapse detected loops in history (modifies in place).
 void collapse_loops(std::vector<Message>& history);
+
+// Free reduction pass: collapse loops, prune bulky tool output and drop
+// reasoning text. It runs on the pipeline output, after classification, so the
+// classifier still sees the full evidence. `cfg.keep_assistant_reasoning`
+// preserves the chain of thought on assistant tool-call turns for protocols
+// that replay it (DeepSeek, OpenRouter, OpenCode); plain assistant turns still
+// drop it.
+void reduce_free(std::vector<Message>& history, const CompressionConfig& cfg,
+                 CompressionObserver* observer = nullptr);
 
 // Phase-0 cheap pass: replace bulky tool outputs (>200 chars) with a short
 // placeholder. When `cfg` is non-null the whole history is pruned EXCEPT the

@@ -77,6 +77,37 @@ std::string compact_tokens(int tokens) {
     return std::to_string(tokens);
 }
 
+std::string reasoning_capability_text(const agent::ReasoningContract& r) {
+    if (!r.supported)
+        return {};
+    if (r.adaptive)
+        return "thinking adaptive" + (r.default_effort.empty() ? "" : " " + r.default_effort);
+    if (r.legacy)
+        return "thinking budget";
+    std::string levels;
+    for (const auto& effort : r.efforts)
+        levels += (levels.empty() ? "" : ",") + effort;
+    return levels.empty() ? "reasoning" : "reasoning " + levels;
+}
+
+std::string reasoning_rejection_text(const agent::Config& cfg, const std::string& value) {
+    std::string msg = "reasoning effort: '" + value + "' is not available for " + cfg.model;
+    const auto& r = cfg.model_reasoning;
+    if (!agent::reasoning_control_available(cfg)) {
+        msg += " (the model advertises no reasoning control)";
+    } else if (value == "off") {
+        msg += " (the model cannot disable reasoning)";
+    } else if (!r.efforts.empty()) {
+        msg += " (advertised: ";
+        for (const auto& effort : r.efforts)
+            msg += (effort == r.efforts.front() ? "" : ",") + effort;
+        msg += ")";
+    } else if (!r.effort_levels) {
+        msg += " (the model does not advertise effort levels)";
+    }
+    return msg;
+}
+
 nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::string& prefix) {
     nlohmann::json subtree = nlohmann::json::object();
     for (const auto& m : rows) {
@@ -95,12 +126,9 @@ nlohmann::json model_subtree(const std::vector<ProviderModel>& rows, const std::
             add("in " + compact_tokens(m.context));
         if (m.max_output > 0)
             add("out " + compact_tokens(m.max_output));
-        if (m.thinking_adaptive)
-            add("thinking adaptive" + (m.default_effort.empty() ? "" : " " + m.default_effort));
-        else if (m.thinking_legacy)
-            add("thinking budget");
-        else if (m.reasoning)
-            add("reasoning");
+        const std::string reasoning = reasoning_capability_text(m.reasoning);
+        if (!reasoning.empty())
+            add(reasoning);
         if (std::find(m.input_modalities.begin(), m.input_modalities.end(), "image") !=
             m.input_modalities.end())
             add("image");
@@ -122,10 +150,6 @@ std::vector<ProviderModel> cached_models_for(const ProviderEndpoint& e) {
         pm.context = m.context ? m.context : m.context_train;
         pm.max_output = m.max_output;
         pm.reasoning = m.reasoning;
-        pm.thinking_adaptive = m.thinking_adaptive;
-        pm.thinking_legacy = m.thinking_legacy;
-        pm.thinking_always_on = m.thinking_always_on;
-        pm.default_effort = m.default_effort;
         pm.input_modalities = m.input_modalities;
         out.push_back(std::move(pm));
     }

@@ -42,10 +42,15 @@ json msg_to_json(const Message& m) {
         j["tool_calls"] = m.tool_calls;
     if (m.harness)
         j["harness"] = true;
-    // Protocol blocks that cannot be reconstructed (Anthropic's signed thinking)
-    // must survive a restart: a tool-use turn replayed without them is a 400.
+    // Protocol blocks that cannot be reconstructed (Anthropic's signed thinking,
+    // OpenRouter's reasoning_details) must survive a restart: a tool-use turn
+    // replayed without them loses the reasoning continuity the API documents.
     if (!m.raw_content.is_null())
         j["raw_content"] = m.raw_content;
+    if (!m.reasoning_details.is_null())
+        j["reasoning_details"] = m.reasoning_details;
+    if (!m.reasoning_field.empty())
+        j["reasoning_field"] = m.reasoning_field;
     return j;
 }
 
@@ -62,6 +67,9 @@ Message msg_from_json(const json& j) {
         m.harness = j["harness"].get<bool>();
     if (j.contains("raw_content"))
         m.raw_content = j["raw_content"];
+    if (j.contains("reasoning_details"))
+        m.reasoning_details = j["reasoning_details"];
+    take_string(j, "reasoning_field", m.reasoning_field);
     return m;
 }
 

@@ -23,6 +23,9 @@ inline size_t message_tokens(const Message& msg) noexcept {
     size_t n = (msg.content.size() + msg.reasoning.size()) / 4;
     if (!msg.tool_calls.is_null())
         n += msg.tool_calls.dump().size() / 4;
+    if (!msg.reasoning_details.is_null())
+        n += msg.reasoning_details.dump().size() / 4;
+    n += msg.reasoning_field.size() / 4;
     return n + kPerMessageTokenOverhead;
 }
 
@@ -120,11 +123,15 @@ private:
     // input = prev_hash (8 bytes LE) || role || \0 || content || \0
     //         || reasoning || \0 || tool_call_id || \0 || name
     //         [|| \0 || tool_calls.dump()] || \0 || harness
+    //         [|| \0 || reasoning_details.dump()]
     static uint64_t chain_hash(uint64_t prev, const Message& msg) noexcept {
         auto cap = 8 + msg.role.size() + 1 + msg.content.size() + 1 + msg.reasoning.size() + 1 +
-                   msg.tool_call_id.size() + 1 + msg.name.size() + 1 + 1;
+                   msg.tool_call_id.size() + 1 + msg.name.size() + 1 + 1 +
+                   msg.reasoning_field.size() + 1;
         if (!msg.tool_calls.is_null())
             cap += msg.tool_calls.dump().size() + 1;
+        if (!msg.reasoning_details.is_null())
+            cap += msg.reasoning_details.dump().size() + 1;
         std::string buf;
         buf.reserve(cap);
         for (size_t i = 0; i < 8; ++i)
@@ -141,6 +148,9 @@ private:
         if (!msg.tool_calls.is_null())
             append(msg.tool_calls.dump());
         append(msg.harness ? "1" : "0");
+        append(msg.reasoning_field);
+        if (!msg.reasoning_details.is_null())
+            append(msg.reasoning_details.dump());
         return fnv1a(buf);
     }
 

@@ -194,9 +194,9 @@ TEST(model_picker_catalogs_skip_endpoints_with_no_api_base) {
 
 TEST(model_picker_leaf_keys_are_composite_and_carry_action_and_ctx) {
     std::vector<tui::ProviderModel> rows{
-        {"kilocode", "kilo-auto/free", 256000},
-        {"openrouter", "anthropic/claude-opus-4.8", 200000},
-        {"anthropic", "no-ctx-model", 0},
+        {"kilocode", "kilo-auto/free", 256000, 0, {}, {}},
+        {"openrouter", "anthropic/claude-opus-4.8", 200000, 0, {}, {}},
+        {"anthropic", "no-ctx-model", 0, 0, {}, {}},
     };
     auto sub = tui::model_subtree(rows, "core.config.set.model.");
     const auto& leaves = sub["set"]["children"]["model"]["children"];
@@ -214,8 +214,8 @@ TEST(model_picker_leaf_keys_are_composite_and_carry_action_and_ctx) {
 // The whole reason keys are composite: two providers, one id, two leaves.
 TEST(model_picker_subtree_keeps_both_providers_of_a_shared_id) {
     std::vector<tui::ProviderModel> rows{
-        {"kilocode", "anthropic/claude-opus-4.8", 200000},
-        {"openrouter", "anthropic/claude-opus-4.8", 200000},
+        {"kilocode", "anthropic/claude-opus-4.8", 200000, 0, {}, {}},
+        {"openrouter", "anthropic/claude-opus-4.8", 200000, 0, {}, {}},
     };
     auto sub = tui::model_subtree(rows, "a.");
     const auto& leaves = sub["set"]["children"]["model"]["children"];
@@ -532,8 +532,8 @@ TEST(model_picker_shows_adaptive_reasoning_mode) {
     ASSERT_EQ(rows.size(), 1u);
     ASSERT_EQ(rows[0].context, 1000000);
     ASSERT_EQ(rows[0].max_output, 128000);
-    ASSERT(rows[0].thinking_adaptive);
-    ASSERT_EQ(rows[0].default_effort, std::string("high"));
+    ASSERT(rows[0].reasoning.adaptive);
+    ASSERT_EQ(rows[0].reasoning.default_effort, std::string("high"));
 
     const auto subtree = tui::model_subtree(rows, "core.config.set.model.");
     const std::string help =
@@ -562,7 +562,7 @@ TEST(model_picker_carries_output_reasoning_and_modalities) {
     ASSERT_EQ(rows.size(), 2u);
     ASSERT_EQ(rows[0].context, 128000);
     ASSERT_EQ(rows[0].max_output, 16384);
-    ASSERT(rows[0].reasoning);
+    ASSERT(rows[0].reasoning.supported);
     ASSERT(std::find(rows[0].input_modalities.begin(), rows[0].input_modalities.end(), "image") !=
            rows[0].input_modalities.end());
     // top_provider is the fallback when the top-level context is absent.
@@ -580,6 +580,66 @@ TEST(model_picker_carries_output_reasoning_and_modalities) {
     ASSERT(help.find("image") != std::string::npos);
     ASSERT(help.find("ctx ") == std::string::npos);
     ASSERT(help.find(" \u00b7 ") == std::string::npos);
+}
+
+TEST(model_picker_reasoning_capability_text_names_the_shape) {
+    agent::ReasoningContract adaptive;
+    adaptive.supported = true;
+    adaptive.adaptive = true;
+    adaptive.default_effort = "high";
+    ASSERT_EQ(tui::reasoning_capability_text(adaptive), std::string("thinking adaptive high"));
+
+    agent::ReasoningContract legacy;
+    legacy.supported = true;
+    legacy.legacy = true;
+    ASSERT_EQ(tui::reasoning_capability_text(legacy), std::string("thinking budget"));
+
+    agent::ReasoningContract levels;
+    levels.supported = true;
+    levels.efforts = {"low", "high"};
+    ASSERT_EQ(tui::reasoning_capability_text(levels), std::string("reasoning low,high"));
+
+    agent::ReasoningContract bare;
+    bare.supported = true;
+    ASSERT_EQ(tui::reasoning_capability_text(bare), std::string("reasoning"));
+
+    ASSERT_TRUE(tui::reasoning_capability_text(agent::ReasoningContract{}).empty());
+}
+
+TEST(model_picker_reasoning_rejection_names_the_contract) {
+    agent::Config deepseek;
+    deepseek.model = "deepseek-flash";
+    deepseek.model_reasoning.supported = true;
+    deepseek.model_reasoning.effort_levels = true;
+    deepseek.model_reasoning.wire = agent::ReasoningWire::Effort;
+    deepseek.model_reasoning.efforts = {"low", "high", "max"};
+    const std::string advertised = tui::reasoning_rejection_text(deepseek, "medium");
+    ASSERT(advertised.find("advertised: low,high,max") != std::string::npos);
+
+    agent::Config mandatory = deepseek;
+    mandatory.model_reasoning.mandatory = true;
+    mandatory.model_reasoning.off = agent::ReasoningOff::Unsupported;
+    ASSERT(tui::reasoning_rejection_text(mandatory, "off").find("cannot disable") !=
+           std::string::npos);
+
+    agent::Config no_control;
+    no_control.model = "claude-sonnet-5-5";
+    no_control.model_reasoning.supported = true;
+    no_control.model_reasoning.adaptive = true;
+    no_control.model_reasoning.effort_levels = true;
+    no_control.model_reasoning.efforts = {"low", "high"};
+    ASSERT(tui::reasoning_rejection_text(no_control, "high").find("no reasoning control") !=
+           std::string::npos);
+    ASSERT_FALSE(agent::reasoning_effort_allowed(no_control, "high"));
+    ASSERT_FALSE(agent::reasoning_effort_allowed(deepseek, "bogus"));
+
+    agent::Config no_levels;
+    no_levels.model = "big-pickle";
+    no_levels.model_reasoning.supported = true;
+    no_levels.model_reasoning.wire = agent::ReasoningWire::Effort;
+    ASSERT(
+        tui::reasoning_rejection_text(no_levels, "high").find("does not advertise effort levels") !=
+        std::string::npos);
 }
 
 // The cache key is api_base+flavor, so a provider speaking a different dialect

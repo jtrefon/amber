@@ -548,13 +548,13 @@ TEST(agent_set_model_carries_capabilities) {
 
     agent::ModelCapabilities full = caps(1000);
     full.max_output = 8192;
-    full.reasoning = true;
+    full.reasoning.supported = true;
     full.supported_parameters = {"reasoning"};
     ag.set_model("m", full);
     auto snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->model_max_output, 8192);
-    ASSERT(snapshot->model_supports_reasoning);
+    ASSERT(snapshot->model_reasoning.supported);
     ASSERT_EQ(snapshot->model_supported_parameters.size(), 1u);
 
     // A same-model call without capabilities keeps what the catalogue set.
@@ -568,7 +568,7 @@ TEST(agent_set_model_carries_capabilities) {
     snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
     ASSERT_EQ(snapshot->model_max_output, 0);
-    ASSERT_FALSE(snapshot->model_supports_reasoning);
+    ASSERT_FALSE(snapshot->model_reasoning.supported);
     ASSERT(snapshot->model_supported_parameters.empty());
 }
 
@@ -768,6 +768,43 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     agent::CompressionResponse cr;
     auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
     ASSERT(agent::estimate_tokens(out) <= before_tokens);
+}
+
+TEST(compression_keeps_reasoning_only_on_tool_turns_that_must_echo_it) {
+    std::vector<agent::Message> history;
+    agent::Message call;
+    call.role = "assistant";
+    call.reasoning = "chain of thought";
+    call.reasoning_details =
+        agent::json::array({{{"type", "reasoning.text"}, {"text", "chain of thought"}}});
+    call.tool_calls = agent::json::array({{{"id", "c1"},
+                                           {"type", "function"},
+                                           {"function", {{"name", "read"}, {"arguments", "{}"}}}}});
+    history.push_back(call);
+
+    agent::Message plain;
+    plain.role = "assistant";
+    plain.content = "final answer";
+    plain.reasoning = "private thought";
+    history.push_back(plain);
+
+    agent::CompressionConfig keep;
+    keep.keep_assistant_reasoning = true;
+    agent::reduce_free(history, keep);
+    ASSERT_EQ(history[0].reasoning, std::string("chain of thought"));
+    ASSERT(history[0].reasoning_details.is_array());
+    ASSERT(history[1].reasoning.empty());
+    ASSERT(history[1].reasoning_details.is_null());
+
+    history[0].reasoning = "chain of thought";
+    history[0].reasoning_details =
+        agent::json::array({{{"type", "reasoning.text"}, {"text", "chain of thought"}}});
+    history[1].reasoning = "private thought";
+    agent::CompressionConfig drop;
+    agent::reduce_free(history, drop);
+    ASSERT(history[0].reasoning.empty());
+    ASSERT(history[0].reasoning_details.is_null());
+    ASSERT(history[1].reasoning.empty());
 }
 
 TEST(compression_digests_old_results_inside_a_single_active_turn) {
