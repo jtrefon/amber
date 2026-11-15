@@ -7,6 +7,9 @@
 *.d
 *.dSYM/
 
+# Local build-check cache (the WERROR probe writes here)
+/.build/
+
 # libFuzzer binaries and instrumented objects (make fuzz)
 .fuzz-build/
 Makefile
