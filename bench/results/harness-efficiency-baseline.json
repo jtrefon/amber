@@ -8,7 +8,7 @@
       "success": true,
       "suite": "review-arch",
       "tool_calls": 1,
-      "wall_ms": 13
+      "wall_ms": 12
     },
     "arch-02-clean-control": {
       "completion_tokens": 15,
@@ -32,7 +32,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 21
     },
     "c-03-ring-buffer": {
       "completion_tokens": 35,
@@ -48,7 +48,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 14
+      "wall_ms": 11
     },
     "c-05-graph-bfs": {
       "completion_tokens": 35,
@@ -56,7 +56,7 @@
       "success": true,
       "suite": "coding",
       "tool_calls": 3,
-      "wall_ms": 16
+      "wall_ms": 13
     },
     "clean-01-magic-numbers": {
       "completion_tokens": 15,
@@ -64,7 +64,7 @@
       "success": true,
       "suite": "review-clean",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 8
     },
     "clean-02-clean-control": {
       "completion_tokens": 15,
@@ -88,7 +88,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 3,
-      "wall_ms": 10
+      "wall_ms": 30
     },
     "f-02-mistake-then-recover": {
       "completion_tokens": 25,
@@ -112,7 +112,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 2,
-      "wall_ms": 10
+      "wall_ms": 11
     },
     "f-06-empty-reply-recovery": {
       "completion_tokens": 15,
@@ -120,7 +120,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 1,
-      "wall_ms": 8
+      "wall_ms": 10
     },
     "f-07-tool-denied-grace": {
       "completion_tokens": 25,
@@ -128,7 +128,7 @@
       "success": true,
       "suite": "agent-failures",
       "tool_calls": 2,
-      "wall_ms": 11
+      "wall_ms": 10
     },
     "k-01-compression-stress": {
       "completion_tokens": 25,
@@ -144,7 +144,7 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 3,
-      "wall_ms": 10
+      "wall_ms": 12
     },
     "mt-02-search-then-edit": {
       "completion_tokens": 40,
@@ -152,7 +152,7 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 3,
-      "wall_ms": 12
+      "wall_ms": 14
     },
     "mt-03-fail-then-recover": {
       "completion_tokens": 50,
@@ -160,9 +160,17 @@
       "success": true,
       "suite": "multi-turn",
       "tool_calls": 4,
-      "wall_ms": 12
+      "wall_ms": 11
     },
-    "p-01-envelope-format": {
+    "p-01-envelope-format@stream=off": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "suite": "prompt",
+      "tool_calls": 1,
+      "wall_ms": 9
+    },
+    "p-01-envelope-format@stream=on": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
@@ -176,7 +184,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 9
     },
     "p-03-verify-after-action": {
       "completion_tokens": 25,
@@ -184,7 +192,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 2,
-      "wall_ms": 9
+      "wall_ms": 7
     },
     "p-05-multi-constraint": {
       "completion_tokens": 15,
@@ -200,7 +208,7 @@
       "success": true,
       "suite": "prompt",
       "tool_calls": 1,
-      "wall_ms": 7
+      "wall_ms": 9
     },
     "r-01-extract-method": {
       "completion_tokens": 35,
@@ -216,7 +224,7 @@
       "success": true,
       "suite": "refactor",
       "tool_calls": 3,
-      "wall_ms": 15
+      "wall_ms": 14
     },
     "r-03-adapter": {
       "completion_tokens": 55,
@@ -224,7 +232,7 @@
       "success": true,
       "suite": "refactor",
       "tool_calls": 5,
-      "wall_ms": 16
+      "wall_ms": 18
     },
     "r-04-strategy": {
       "completion_tokens": 35,
@@ -240,7 +248,7 @@
       "success": true,
       "suite": "review-refactor",
       "tool_calls": 1,
-      "wall_ms": 11
+      "wall_ms": 13
     },
     "refac-02-duplicated-logic": {
       "completion_tokens": 15,
@@ -248,7 +256,7 @@
       "success": true,
       "suite": "review-refactor",
       "tool_calls": 1,
-      "wall_ms": 12
+      "wall_ms": 11
     },
     "t-01-ls-count-files": {
       "completion_tokens": 15,
@@ -256,7 +264,7 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 58
+      "wall_ms": 59
     },
     "t-01-search-vs-bash-grep": {
       "completion_tokens": 15,
@@ -274,7 +282,15 @@
       "tool_calls": 1,
       "wall_ms": 60
     },
-    "t-02-read-vs-cat": {
+    "t-02-read-vs-cat@stream=off": {
+      "completion_tokens": 15,
+      "prompt_tokens": 130,
+      "success": true,
+      "suite": "tools",
+      "tool_calls": 1,
+      "wall_ms": 8
+    },
+    "t-02-read-vs-cat@stream=on": {
       "completion_tokens": 15,
       "prompt_tokens": 130,
       "success": true,
@@ -288,7 +304,7 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 58
+      "wall_ms": 59
     },
     "t-03-write-vs-rewrite": {
       "completion_tokens": 25,
@@ -296,7 +312,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 2,
-      "wall_ms": 7
+      "wall_ms": 9
     },
     "t-04-env-inventory": {
       "completion_tokens": 15,
@@ -312,7 +328,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 3,
-      "wall_ms": 2009
+      "wall_ms": 2012
     },
     "t-05-pipeline-transform": {
       "completion_tokens": 25,
@@ -320,7 +336,7 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 2,
-      "wall_ms": 59
+      "wall_ms": 58
     },
     "t-06-multi-dir-count": {
       "completion_tokens": 15,
@@ -328,15 +344,23 @@
       "success": true,
       "suite": "terminal",
       "tool_calls": 1,
-      "wall_ms": 60
+      "wall_ms": 58
     },
-    "t-06-write-verify-loop": {
+    "t-06-write-verify-loop@context_size=4096": {
       "completion_tokens": 25,
       "prompt_tokens": 210,
       "success": true,
       "suite": "tools",
       "tool_calls": 2,
-      "wall_ms": 8
+      "wall_ms": 11
+    },
+    "t-06-write-verify-loop@context_size=8192": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "success": true,
+      "suite": "tools",
+      "tool_calls": 2,
+      "wall_ms": 10
     },
     "t-07-planning-multi-file": {
       "completion_tokens": 55,
@@ -344,7 +368,7 @@
       "success": true,
       "suite": "tools",
       "tool_calls": 5,
-      "wall_ms": 61
+      "wall_ms": 113
     }
   }
 }

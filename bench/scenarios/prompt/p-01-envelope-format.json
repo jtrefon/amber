@@ -58,5 +58,11 @@
       "completion_tokens": 5
     }
   ],
-  "approval": "allow"
+  "approval": "allow",
+  "variants": {
+    "stream": [
+      false,
+      true
+    ]
+  }
 }

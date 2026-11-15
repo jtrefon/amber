@@ -342,6 +342,62 @@ TEST(harness_json_carries_the_scorecard) {
     ASSERT_FALSE(summary.contains("probes"));
 }
 
+TEST(scenario_loader_parses_variants) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "v", "suite": "tools", "prompt": "p",
+        "variants": {"stream": [false, true], "context_size": [4096, 8192],
+                     "approval": ["allow", "deny"]}
+    })",
+                            err);
+    ASSERT(s.has_value());
+    ASSERT_EQ(s->variants.size(), 3u);
+    ASSERT_EQ(s->variants["stream"].size(), 2u);
+}
+
+TEST(scenario_loader_rejects_an_unknown_variant_axis) {
+    std::string err;
+    auto s = load_from_json(R"({
+        "name": "v", "suite": "tools", "prompt": "p",
+        "variants": {"temperature": [0.2]}
+    })",
+                            err);
+    ASSERT_FALSE(s.has_value());
+    ASSERT(err.find("temperature") != std::string::npos);
+}
+
+TEST(expand_variants_runs_the_matrix_and_selects_one_cell) {
+    Scenario s;
+    s.name = "v";
+    s.variants["stream"] = {false, true};
+    s.variants["approval"] = {"allow", "deny"};
+    std::string err;
+    auto cells = bench::expand_variants(s, /*matrix=*/true, /*variant=*/"", err);
+    ASSERT(err.empty());
+    ASSERT_EQ(cells.size(), 4u);
+    ASSERT(cells[0].name.find("@approval=allow") != std::string::npos);
+    ASSERT(cells[0].name.find("@stream=off") != std::string::npos);
+    ASSERT(cells[3].stream);
+
+    auto one = bench::expand_variants(s, /*matrix=*/false, /*variant=*/"stream=on", err);
+    ASSERT(err.empty());
+    ASSERT_EQ(one.size(), 1u);
+    ASSERT(one[0].stream);
+    ASSERT_EQ(one[0].name, std::string("v@stream=on"));
+}
+
+TEST(expand_variants_caps_the_matrix_at_eight_cells) {
+    Scenario s;
+    s.name = "v";
+    s.variants["stream"] = {false, true};
+    s.variants["context_size"] = {4096, 8192, 16384};
+    s.variants["approval"] = {"allow", "deny"};
+    std::string err;
+    const auto cells = bench::expand_variants(s, /*matrix=*/true, /*variant=*/"", err);
+    ASSERT(cells.empty());
+    ASSERT(err.find("8") != std::string::npos);
+}
+
 TEST(report_json_carries_the_turns) {
     bench::ScenarioReport rep;
     rep.name = "mt";
@@ -1075,6 +1131,25 @@ TEST(e2e_hermetic_read_scenario) {
     ASSERT_EQ(rep.kpi.tool_call_accuracy, 1.0);
     ASSERT_EQ(rep.kpi.prompt_adherence, 1.0);
     ASSERT(rep.kpi.wall_ms >= 0);
+}
+
+TEST(e2e_hermetic_variant_cell_runs) {
+    std::string err;
+    auto s = bench::load_scenario("bench/scenarios/tools/t-06-write-verify-loop.json", err);
+    ASSERT(s.has_value());
+    auto cells = bench::expand_variants(*s, /*matrix=*/true, /*variant=*/"", err);
+    ASSERT(err.empty());
+    ASSERT_EQ(cells.size(), 2u);
+    ASSERT_EQ(cells[1].context_size, 8192);
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    meta.mode = "hermetic";
+    meta.model = "fake";
+    bench::ScenarioReport rep = bench::run_one_scenario(cells[1], opts, meta, err);
+    ASSERT_EQ(err, "");
+    ASSERT(rep.kpi.success);
+    ASSERT_EQ(rep.name, std::string("t-06-write-verify-loop@context_size=8192"));
 }
 
 TEST(e2e_hermetic_multi_turn_scenario) {

@@ -242,6 +242,97 @@ bool take_turns(const agent::json& j, Scenario& s, std::string& err) {
     return true;
 }
 
+// The axes the harness can actually vary at runtime. Keep this closed: an
+// unknown axis must fail at load, not silently do nothing.
+bool valid_variant_axis(const std::string& key) {
+    return key == "stream" || key == "context_size" || key == "approval";
+}
+
+bool valid_variant_value(const std::string& key, const agent::json& value, std::string& err) {
+    if (key == "stream") {
+        if (!value.is_boolean()) {
+            err = "variant 'stream' values must be booleans";
+            return false;
+        }
+        return true;
+    }
+    if (key == "context_size") {
+        if (!value.is_number_integer() || value.get<int>() <= 0) {
+            err = "variant 'context_size' values must be positive integers";
+            return false;
+        }
+        return true;
+    }
+    if (key == "approval") {
+        if (!value.is_string() ||
+            (value.get<std::string>() != "allow" && value.get<std::string>() != "deny")) {
+            err = "variant 'approval' values must be 'allow' or 'deny'";
+            return false;
+        }
+        return true;
+    }
+    err = "unknown variant axis: " + key;
+    return false;
+}
+
+std::string variant_label(const std::string& key, const agent::json& value) {
+    if (key == "stream" && value.is_boolean())
+        return value.get<bool>() ? "on" : "off";
+    if (value.is_string())
+        return value.get<std::string>();
+    return value.dump();
+}
+
+bool apply_variant(Scenario& s, const std::string& key, const agent::json& value,
+                   std::string& err) {
+    if (key == "stream") {
+        s.stream = value.get<bool>();
+        return true;
+    }
+    if (key == "context_size") {
+        s.context_size = value.get<int>();
+        return true;
+    }
+    if (key == "approval") {
+        s.allow_tools = value.get<std::string>() == "allow";
+        return true;
+    }
+    err = "unknown variant axis: " + key;
+    return false;
+}
+
+bool take_variants(const agent::json& j, Scenario& s, std::string& err) {
+    if (!has_object(j, "variants"))
+        return true;
+    for (auto it = j["variants"].begin(); it != j["variants"].end(); ++it) {
+        const std::string key = it.key();
+        if (!valid_variant_axis(key)) {
+            err = "unknown variant axis: " + key;
+            return false;
+        }
+        if (!it.value().is_array() || it.value().empty()) {
+            err = "variant '" + key + "' must be a non-empty array";
+            return false;
+        }
+        for (const auto& value : it.value()) {
+            if (!valid_variant_value(key, value, err))
+                return false;
+        }
+        s.variants[key] = it.value().get<std::vector<agent::json>>();
+    }
+    return true;
+}
+
+bool take_extensions(const agent::json& j, Scenario& s, std::string& err) {
+    if (!take_turns(j, s, err) || !take_variants(j, s, err))
+        return false;
+    if (s.turns.empty() && s.prompt.empty()) {
+        err = "scenario missing string field: prompt";
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
@@ -273,12 +364,8 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_string_array(j, "forbidden_tools", s.forbidden_tools);
     if (!take_checks(j, s, err))
         return std::nullopt;
-    if (!take_turns(j, s, err))
+    if (!take_extensions(j, s, err))
         return std::nullopt;
-    if (s.turns.empty() && s.prompt.empty()) {
-        err = "scenario missing string field: prompt";
-        return std::nullopt;
-    }
     take_string(j, "template", s.template_dir);
     take_object(j, "optimal_plan", s.optimal_plan);
     take_clamped_int(j, "difficulty", s.difficulty, 1, 6);
@@ -293,6 +380,74 @@ bool platform_supported(const Scenario& s) {
     const std::string host = current_platform();
     return std::any_of(s.platforms.begin(), s.platforms.end(),
                        [&host](const std::string& p) { return p == host; });
+}
+
+// One `key=value` cell, or an empty vector with `err` set.
+std::vector<Scenario> select_variant(const Scenario& s, const std::string& variant,
+                                     std::string& err) {
+    const size_t eq = variant.find('=');
+    if (eq == std::string::npos || eq == 0 || eq + 1 >= variant.size()) {
+        err = "--variant expects key=value";
+        return {};
+    }
+    const std::string key = variant.substr(0, eq);
+    std::string want = variant.substr(eq + 1);
+    auto it = s.variants.find(key);
+    if (it == s.variants.end()) {
+        err = "unknown variant axis: " + key;
+        return {};
+    }
+    if (key == "stream") {
+        if (want == "true")
+            want = "on";
+        if (want == "false")
+            want = "off";
+    }
+    for (const auto& value : it->second) {
+        if (variant_label(key, value) != want)
+            continue;
+        Scenario cell = s;
+        if (!apply_variant(cell, key, value, err))
+            return {};
+        cell.name.append("@").append(key).append("=").append(want);
+        return {cell};
+    }
+    err = "variant not declared: " + variant;
+    return {};
+}
+
+// The bounded cross-product of every declared axis.
+std::vector<Scenario> matrix_cells(const Scenario& s, std::string& err) {
+    std::vector<Scenario> cells{s};
+    for (const auto& [key, values] : s.variants) {
+        std::vector<Scenario> next;
+        for (const auto& cell : cells) {
+            for (const auto& value : values) {
+                Scenario expanded = cell;
+                if (!apply_variant(expanded, key, value, err))
+                    return {};
+                expanded.name.append("@").append(key).append("=").append(variant_label(key, value));
+                next.push_back(std::move(expanded));
+            }
+        }
+        cells = std::move(next);
+        if (cells.size() > 8) {
+            err = "variant matrix exceeds 8 cells";
+            return {};
+        }
+    }
+    return cells;
+}
+
+std::vector<Scenario> expand_variants(const Scenario& s, bool matrix, const std::string& variant,
+                                      std::string& err) {
+    if (s.variants.empty())
+        return {s};
+    if (!variant.empty())
+        return select_variant(s, variant, err);
+    if (!matrix)
+        return {s};
+    return matrix_cells(s, err);
 }
 
 bool checks_pass(const Checks& c, const std::string& text) noexcept {
