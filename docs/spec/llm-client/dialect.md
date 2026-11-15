@@ -146,62 +146,119 @@ dialect.
   `anthropic_wire_synthesizes_missing_tool_ids`,
   `anthropic_wire_drops_tool_results_nobody_asked_for` tests.
 
-#### [DL-09] The listing carries the limits and the thinking contract
+#### [DL-09] The listing carries the limits and the reasoning contract
 
-- **Given**: An Anthropic Models API response (`max_input_tokens`, `max_tokens`,
-  `line`, `capabilities.thinking.types`) or an OpenAI-compatible gateway that
-  lists `anthropic/claude-*` with limits omitted
+- **Given**: An Anthropic Models API response, an OpenRouter-shaped catalogue
+  (`supported_parameters` + top-level `reasoning`), DeepSeek's `effort` object,
+  OpenCode's models.dev `capabilities.reasoning`, or an OpenAI-compatible
+  gateway that lists `anthropic/claude-*` with limits omitted
 - **Input**: `parse_model_list_response` / `parse_models_response`
-- **Expected**: The output ceiling is read from `max_tokens` (the documented
-  field), falling back to `max_output_tokens`; the input window from
-  `max_input_tokens`. A documented Claude family fills only fields the listing
-  omitted, matched on the basename by longest prefix (`claude-opus-4-5` never
-  resolves as `claude-opus-4`), and the family carries the thinking mode
-  (adaptive, legacy budget, always-on), the accepted effort levels and their
-  default. A `capabilities.thinking.types` entry that says `supported: false`
-  overrides the family default. An unknown id stays 0/false: unknown is never
-  guessed. The 5.x/4.6+ families are 1M/128K adaptive; 4.5 is 200K/64K legacy;
-  4.1/4.0 are 200K/32K; 3.x keeps its documented limits.
+- **Expected**: One `ReasoningContract` is filled from the shape the listing
+  actually publishes:
+  - `supported_parameters` with `reasoning` / `include_reasoning` or
+    `reasoning_effort` (the OpenRouter/kilocode legacy spelling),
+  - a top-level `reasoning` object (`supported_efforts`, `default_effort`,
+    `default_enabled`, `mandatory`, `supports_max_tokens`),
+  - a top-level `effort` object (`supported_levels`, `default_level`;
+    DeepSeek), including the `thinking.type=disabled` off shape,
+  - `capabilities.reasoning` (`supported`, `toggle`, `effort`, `budget`,
+    `default`; OpenCode/models.dev).
+  The contract carries the wire shape, the off shape, and the echo field. A
+  model that only says `supported: true` with no levels gets no level dial: an
+  effort is never invented.
+- **Limits**: The output ceiling is read from `max_tokens` / `max_tokens`-style
+  fields, falling back to `max_output_tokens` and
+  `top_provider.max_completion_tokens`; the input window from
+  `max_input_tokens`, `n_ctx`/`meta.n_ctx`, `context_length`, `context_window`
+  or OpenCode's `limit.context`. OpenCode's `limit.output` and the top-level
+  `input_modalities`/`output_modalities` are read too. A documented Claude
+  family fills only fields the listing omitted, matched on the basename by
+  longest prefix; a dotted gateway id (`claude-opus-5.5`) and a `:free`/`:batch`
+  suffix resolve like the native spelling (`claude-opus-5-5`). A
+  `capabilities.thinking.types` entry that says `supported: false` overrides
+  the family default. The documented OpenAI families (`o1`, `o3`, `o4`,
+  `gpt-5`) fill a bare listing; the request builder never tests a model id.
+  An unknown id stays 0/false: unknown is never guessed.
 - **Regression guard**: `anthropic_model_list_reads_limits_capabilities_and_efforts`,
   `anthropic_model_list_reports_the_input_window`,
   `anthropic_known_family_fallback_is_bounded`,
-  `probe_parse_model_list_fills_documented_claude_families` tests.
+  `probe_parse_model_list_fills_documented_claude_families`,
+  `openai_model_list_reads_deepseek_effort_metadata`,
+  `openai_model_list_reads_openrouter_reasoning_object`,
+  `openai_model_list_reads_opencode_reasoning_capabilities`,
+  `openai_model_list_reads_context_and_output_aliases` tests.
+
+`parse_models_response` copies the whole contract into `ServerInfo`; the
+startup/autodetect path and the picker path cannot disagree.
 
 #### [DL-10] The request uses the model's reasoning shape, not a guess
 
 - **Given**: A model whose listing established a reasoning contract, and a
-  configured effort (`off|low|medium|high|xhigh|max`)
+  configured effort (`off|minimal|low|medium|high|xhigh|max`)
 - **Input**: `build_chat_body`
-- **Expected**: Adaptive models send `thinking:{type:"adaptive"}` plus
-  `output_config.effort` when the effort is listed (otherwise the model's
+- **Expected**: Anthropic adaptive models send `thinking:{type:"adaptive"}`
+  plus `output_config.effort` when the effort is listed (otherwise the model's
   documented default); they never send `budget_tokens`. Legacy models send
   `thinking:{type:"enabled",budget_tokens}` (kept below `max_tokens`) and, when
   the model lists efforts (Opus 4.5), the clamped effort too. "Off" is sent as
   `disabled` or `between_tools` only when the capability advertises that type;
-  an always-on model is left with its default instead of receiving a block the
-  API rejects. A model whose listing said nothing about thinking gets no
-  block. The adaptive Claude families also reject non-default sampling
+  an always-on model is left with its default.
+
+  OpenAI-compatible models send the field the listing named:
+  - `reasoning_effort` for `supported_parameters`/OpenCode/DeepSeek,
+  - `reasoning:{effort}` for OpenRouter's unified object,
+  - `thinking:{type:"disabled"}` for DeepSeek off,
+  - `reasoning:{enabled:false}` for OpenRouter off,
+  - `reasoning_effort:"none"` for an advertised `none`/toggle.
+  A configured level is clamped to the advertised `efforts` (falling back to
+  `default_effort`); when the listing named levels but no default, an unlisted
+  value sends nothing rather than inventing a level. A mandatory model is never
+  sent an off block. A contract with no `effort_levels` sends no level field at
+  all. The adaptive Claude families also reject non-default sampling
   temperature, so the OpenAI-compatible dialect omits it for them (amber's 0.2
   would 400 on every request); every other model keeps the configured value.
 - **Regression guard**: `anthropic_request_uses_adaptive_thinking_and_effort`,
   `anthropic_request_off_on_always_on_model_never_sends_disabled`,
   `anthropic_request_legacy_budget_and_effort`,
   `anthropic_request_respects_output_and_reasoning`,
+  `openai_request_sends_deepseek_reasoning_contract`,
+  `openai_request_sends_openrouter_reasoning_object`,
+  `openai_request_sends_opencode_effort_and_none`,
+  `openai_request_sends_openai_family_fallback`,
+  `openai_model_without_effort_controls_gets_no_level_field`,
   `openai_request_omits_temperature_only_for_adaptive_claude` tests.
 
-#### [DL-11] Thinking blocks survive the tool round trip
+#### [DL-11] Thinking survives the tool round trip
 
 - **Given**: An assistant turn that contains thinking blocks (with signatures)
-  and tool_use blocks, from a buffered response or an SSE stream
-- **Input**: `parse_completion` then `build_chat_body` with that turn and its
-  tool result
-- **Expected**: The protocol's own content blocks travel with the `Message`
+  or OpenAI-compatible reasoning, and tool_use/tool_calls blocks, from a
+  buffered response or an SSE stream
+- **Input**: `parse_completion` / the stream decoder, then `build_chat_body`
+  with that turn and its tool result
+- **Expected**: Anthropic's protocol content blocks travel with the `Message`
   (`raw_content`); the next assistant message replays them verbatim. The API
   requires the signed thinking blocks back unmodified, so reconstructing the
   turn from text plus parsed arguments is a 400 on every later request in the
-  session. Text-only assistant turns use the same raw blocks when present.
-- **Regression guard**: `anthropic_thinking_blocks_survive_the_tool_round_trip`
-  test.
+  session. OpenAI-compatible providers that require the chain of thought echo
+  it on the assistant message: DeepSeek's `reasoning_content`, OpenRouter's
+  `reasoning` string or `reasoning_details` array, and OpenCode's advertised
+  `compatibility.reasoning_field`. The assistant turn also remembers the field
+  it actually arrived in (`Message::reasoning_field`), so a cold catalogue
+  replays the provider's own field rather than guessing one. `reasoning_details`
+  persists in the session like `raw_content`; the free compression pass keeps
+  reasoning on an assistant tool-call turn when `require_echo` is set, and drops
+  it elsewhere. A provider that does not require the echo sends a non-empty
+  reasoning string when one is present and never an empty field.
+- **Regression guard**: `anthropic_thinking_blocks_survive_the_tool_round_trip`,
+  `openai_body_replays_reasoning_content_on_tool_turns`,
+  `openai_body_replays_reasoning_details_on_tool_turns`,
+  `openai_body_replays_plain_reasoning_when_details_are_absent`,
+  `openai_body_replays_the_response_field_without_a_catalogue`,
+  `openai_body_replays_reasoning_details_without_a_catalogue`,
+  `openai_body_echoes_an_empty_field_when_the_provider_requires_it`,
+  `llm_streaming_reasoning_details_are_merged`,
+  `session_json_roundtrip_preserves_reasoning_details`,
+  `compression_keeps_reasoning_only_on_tool_turns_that_must_echo_it` tests.
 
 ---
 
@@ -223,3 +280,4 @@ dialect.
 |------|--------|
 | 2026-09-09 | Initial spec (FIX-027..032, dialect seam, capability wiring, Anthropic proof, learned-window fix) |
 | 2026-10-21 | DL-09..11: documented 5.x/4.6+ limits and thinking contract, adaptive/legacy/off request shapes and effort clamping, thinking-block round trip, OpenAI Claude-family fallback and sampling guard; catalogue TTL 6h |
+| 2026-11-15 | DL-09..11 generalise: one reasoning contract for OpenRouter/kilocode, DeepSeek, OpenCode and the documented OpenAI families; listing-owned effort vocabulary, off shapes, context/output aliases, dotted/variant family matching, and reasoning echo through session persistence and compression |
