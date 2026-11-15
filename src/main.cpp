@@ -172,6 +172,19 @@ struct CliArgs {
 using NextArg = std::function<std::string(const char*)>;
 
 // Flags that consume the following argument.
+// --wait-tasks accepts 0..86400; a malformed value stays -1 for the parser.
+int parse_wait_tasks(const std::string& value) {
+    std::size_t used = 0;
+    long seconds = 0;
+    try {
+        seconds = std::stol(value, &used);
+    } catch (const std::exception&) {
+        return -1;
+    }
+    return (used == value.size() && seconds >= 0 && seconds <= 86400) ? static_cast<int>(seconds)
+                                                                      : -1;
+}
+
 bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& cfg, CliArgs& out) {
     if (a == "--api-base")
         cfg.api_base = next("");
@@ -186,19 +199,9 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
         cfg.tools_prompt_path = next("");
     else if (a == "--config")
         out.config_file = next("");
-    else if (a == "--wait-tasks") {
-        const std::string value = next("");
-        std::size_t used = 0;
-        long seconds = 0;
-        try {
-            seconds = std::stol(value, &used);
-        } catch (const std::exception&) {
-            seconds = -1;
-        }
-        out.wait_tasks_s = (used == value.size() && seconds >= 0 && seconds <= 86400)
-                               ? static_cast<int>(seconds)
-                               : -1;
-    } else if (a == "--prompt")
+    else if (a == "--wait-tasks")
+        out.wait_tasks_s = parse_wait_tasks(next(""));
+    else if (a == "--prompt")
         out.prompt = next("");
     else if (a == "--script")
         out.script = next("");
@@ -324,6 +327,7 @@ bool validate_config(const agent::Config& cfg) {
 // Machine-readable summary of one headless run. The e2e driver reads this;
 // stdout stays the human surface.
 struct RunTelemetry {
+    std::string out_path;
     std::vector<std::string> prompts;
     std::vector<agent::json> tool_calls;
     long prompt_tokens = 0;
@@ -335,8 +339,7 @@ struct RunTelemetry {
     std::string final_text;
 };
 
-void write_run_telemetry(const std::string& path, const RunTelemetry& t,
-                         const agent::Config& cfg) {
+void write_run_telemetry(const std::string& path, const RunTelemetry& t, const agent::Config& cfg) {
     agent::json out = agent::json::object();
     out["schema_version"] = 1;
     out["exit_code"] = t.exit_code;
@@ -654,6 +657,44 @@ void load_run_config(agent::Config& cfg, const CliArgs& args, const agent::Globa
     cfg.apply_environment();
 }
 
+// Wrap the display hooks with the telemetry sinks. Kept separate from the
+// host wiring so the order is explicit: display first, record second.
+void attach_telemetry(agent::AgentHooks& hooks, RunTelemetry* telemetry) {
+    if (!telemetry)
+        return;
+    const auto base_call = hooks.on_tool_call;
+    hooks.on_tool_call = [base_call, telemetry](const std::string& name, const agent::json& args) {
+        if (base_call)
+            base_call(name, args);
+        telemetry->tool_calls.push_back(
+            {{"name", name}, {"args", args}, {"status", "pending"}, {"error", ""}});
+    };
+    const auto base_result = hooks.on_tool_result;
+    hooks.on_tool_result = [base_result, telemetry](const std::string& name,
+                                                    const agent::ToolResult& res,
+                                                    const agent::json& args) {
+        if (base_result)
+            base_result(name, res, args);
+        for (auto it = telemetry->tool_calls.rbegin(); it != telemetry->tool_calls.rend(); ++it) {
+            if ((*it)["name"] == name && (*it)["status"] == "pending") {
+                (*it)["status"] = res.ok ? "ok" : "error";
+                (*it)["error"] = res.error;
+                break;
+            }
+        }
+    };
+    hooks.on_usage = [telemetry](const agent::UsageSample& s) {
+        if (s.prompt_tokens > 0)
+            telemetry->prompt_tokens += s.prompt_tokens;
+        if (s.completion_tokens > 0)
+            telemetry->completion_tokens += s.completion_tokens;
+        if (s.cache_read_tokens > 0)
+            telemetry->cache_read_tokens += s.cache_read_tokens;
+        if (s.cache_write_tokens > 0)
+            telemetry->cache_write_tokens += s.cache_write_tokens;
+    };
+}
+
 // The headless hooks, installed in the order the executor needs: set_hooks
 // copies, so the sub-agent executor sees the status hook only.
 agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool auto_approve,
@@ -670,41 +711,7 @@ agent::AgentHooks apply_headless_hooks(CliHost& host, agent::Config& cfg, bool a
     hooks.on_tool_result = hook_tool_result;
     hooks.on_approval = make_approval_hook(auto_approve, tty);
     hooks.on_api_key = make_api_key_hook(cfg, tty);
-    if (telemetry) {
-        const auto base_call = hooks.on_tool_call;
-        hooks.on_tool_call = [base_call, telemetry](const std::string& name,
-                                                    const agent::json& args) {
-            if (base_call)
-                base_call(name, args);
-            telemetry->tool_calls.push_back(
-                {{"name", name}, {"args", args}, {"status", "pending"}, {"error", ""}});
-        };
-        const auto base_result = hooks.on_tool_result;
-        hooks.on_tool_result = [base_result, telemetry](const std::string& name,
-                                                        const agent::ToolResult& res,
-                                                        const agent::json& args) {
-            if (base_result)
-                base_result(name, res, args);
-            for (auto it = telemetry->tool_calls.rbegin(); it != telemetry->tool_calls.rend();
-                 ++it) {
-                if ((*it)["name"] == name && (*it)["status"] == "pending") {
-                    (*it)["status"] = res.ok ? "ok" : "error";
-                    (*it)["error"] = res.error;
-                    break;
-                }
-            }
-        };
-        hooks.on_usage = [telemetry](const agent::UsageSample& s) {
-            if (s.prompt_tokens > 0)
-                telemetry->prompt_tokens += s.prompt_tokens;
-            if (s.completion_tokens > 0)
-                telemetry->completion_tokens += s.completion_tokens;
-            if (s.cache_read_tokens > 0)
-                telemetry->cache_read_tokens += s.cache_read_tokens;
-            if (s.cache_write_tokens > 0)
-                telemetry->cache_write_tokens += s.cache_write_tokens;
-        };
-    }
+    attach_telemetry(hooks, telemetry);
     return hooks;
 }
 
@@ -844,7 +851,7 @@ void prune_logs_before_run(const agent::Config& cfg) {
 // guessing how long a one-shot turn takes on the machine it is running on.
 int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
                    const std::vector<std::string>& prompts, int wait_tasks_s,
-                   const std::string& json_out, RunTelemetry* telemetry) {
+                   RunTelemetry* telemetry) {
     prune_logs_before_run(cfg);
     if (telemetry)
         telemetry->prompts = prompts;
@@ -855,8 +862,8 @@ int run_agent_once(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
                                  std::chrono::steady_clock::now() - started)
                                  .count();
         telemetry->exit_code = rc;
-        if (!json_out.empty())
-            write_run_telemetry(json_out, *telemetry, cfg);
+        if (!telemetry->out_path.empty())
+            write_run_telemetry(telemetry->out_path, *telemetry, cfg);
     }
     agent::announce_exit_ready();
     return rc;
@@ -889,37 +896,26 @@ int run_subcommands(int argc, char** argv) {
     return run_skills_surface(argc, argv);
 }
 
-int main(int argc, char** argv) try {
-    if (const int rc = run_subcommands(argc, argv); rc >= 0)
-        return rc;
-
-    agent::Config cfg;
-    CliArgs args;
-
-    const agent::GlobalConfig global = agent::apply_global_selection(cfg);
-    write_default_config_once(args);
-
-    if (std::optional<int> rc = parse_args(argc, argv, cfg, args))
-        return *rc;
+int run_configured(agent::Config& cfg, CliArgs& args, const agent::GlobalConfig& global,
+                   const char* argv0) {
     load_run_config(cfg, args, global);
     agent::secure_private_state_async();
-
     if (const int rc = run_mcp_surfaces(cfg, args, args.no_plugins); rc >= 0)
         return rc;
-
     detect_model(cfg);
     if (!validate_config(cfg))
         return 2;
     std::vector<std::string> prompts;
     if (!read_prompts(args, prompts))
         return 1;
-    resolve_prompt_paths(cfg, argv[0]);
-    if (!check_bootstrap_files(cfg, argv[0]))
+    resolve_prompt_paths(cfg, argv0);
+    if (!check_bootstrap_files(cfg, argv0))
         return 2;
 
     const bool tty = isatty(STDIN_FILENO) != 0;
     CliHost host(cfg, tty);
     RunTelemetry telemetry;
+    telemetry.out_path = args.json_out;
     const agent::AgentHooks hooks =
         apply_headless_hooks(host, cfg, args.auto_approve, tty, &telemetry);
     start_plugin_runtime(host, cfg, args.no_plugins);
@@ -938,8 +934,20 @@ int main(int argc, char** argv) try {
             return 1;
         }
     }
-    return run_agent_once(cfg, host, hooks, prompts, args.wait_tasks_s, args.json_out,
-                          &telemetry);
+    return run_agent_once(cfg, host, hooks, prompts, args.wait_tasks_s, &telemetry);
+}
+
+int main(int argc, char** argv) try {
+    if (const int rc = run_subcommands(argc, argv); rc >= 0)
+        return rc;
+
+    agent::Config cfg;
+    CliArgs args;
+    const agent::GlobalConfig global = agent::apply_global_selection(cfg);
+    write_default_config_once(args);
+    if (std::optional<int> rc = parse_args(argc, argv, cfg, args))
+        return *rc;
+    return run_configured(cfg, args, global, argv[0]);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";
     return 1;

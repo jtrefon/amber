@@ -3733,9 +3733,9 @@ TEST(cli_json_out_reports_the_run) {
 
     Tui child;
     child.name = "json_out";
-    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model", "pty-test",
-                                     "--prompt",   "intent probe",       "--yolo",
-                                     "--json-out", out};
+    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model",
+                                     "pty-test",   "--prompt",         "intent probe",
+                                     "--yolo",     "--json-out",       out};
     ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
     if (!require(child.wait_for("INTENT-DONE-ACK", 30000), "the JSON run never finished", child))
         return;
@@ -3769,9 +3769,9 @@ TEST(cli_script_runs_the_prompts) {
 
     Tui child;
     child.name = "json_script";
-    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model", "pty-test",
-                                     "--script",   script,               "--yolo",
-                                     "--json-out", out};
+    std::vector<std::string> args = {"--api-base", api.base() + "/v1", "--model",
+                                     "pty-test",   "--script",         script,
+                                     "--yolo",     "--json-out",       out};
     ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
     if (!require(child.wait_for("INTENT-DONE-ACK", 30000), "the script run never finished", child))
         return;
@@ -3788,6 +3788,29 @@ TEST(cli_script_runs_the_prompts) {
     ASSERT_EQ(j["prompts"].size(), 1u);
     ASSERT_EQ(j["prompts"][0].get<std::string>(), std::string("intent probe"));
     ASSERT_EQ(j["tool_calls"].size(), 1u);
+}
+
+TEST(cli_script_rejects_missing_and_invalid_files) {
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    const std::string cli = (fs::path(fixture().binary).parent_path() / "amber-cli").string();
+    ASSERT(fs::exists(cli));
+    const std::string missing = fixture().workspace + "/missing-prompts.json";
+    const std::string invalid = fixture().workspace + "/invalid-prompts.json";
+    ASSERT(write_file(invalid, "not json"));
+
+    const std::pair<std::string, std::string> cases[] = {{"missing", missing},
+                                                         {"invalid", invalid}};
+    for (const auto& [name, script] : cases) {
+        Tui child;
+        child.name = "script_" + name;
+        std::vector<std::string> args = {
+            "--api-base", api.base() + "/v1", "--model", "pty-test", "--script", script, "--yolo"};
+        ASSERT(child.start(cli, fixture().workspace, "", 0, 0, args));
+        if (!require(child.wait_exit(30000), "the invalid script did not exit", child))
+            return;
+        require(child.exit_code == 1, "an invalid script did not exit 1", child);
+    }
 }
 
 // ── the skills explorer is a real modal, not a dead command ──
