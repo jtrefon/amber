@@ -1460,8 +1460,12 @@ TEST(shell_amber_mark_click_opens_the_menu) {
     if (!require(mouse_enabled(tui), "the app never enabled mouse reporting", tui))
         return;
 
+    // Aim at the glyph, not the margin: the rail paints " ◆" -- a one-column
+    // margin, then the mark -- and the tab strip starts one gap further on. The
+    // regression this pins is a handler that only accepted column 0, so a click
+    // on the visible mark did nothing.
     size_t mark = tui.raw.size();
-    send_click(tui, sgr, 0, 0); // left press on the amber mark
+    send_click(tui, sgr, 1, 0); // left press on the amber mark glyph
     if (!require(wait_since(tui, mark, "File", 5000),
                  "clicking the amber mark did not open the menu", tui))
         return;
@@ -1471,8 +1475,42 @@ TEST(shell_amber_mark_click_opens_the_menu) {
     tui.pump(300);
     mark = tui.raw.size();
     tui.send("mark-menu-closed");
-    require(wait_since(tui, mark, "mark-menu-closed", 3000),
-            "a click outside the menu did not close it", tui);
+    if (!require(wait_since(tui, mark, "mark-menu-closed", 3000),
+                 "a click outside the menu did not close it", tui))
+        return;
+
+    // While the menu is open the mark moves flush to column 0. Reopening from
+    // the inset cell proves the handler follows the paint rather than a fixed
+    // column.
+    mark = tui.raw.size();
+    send_click(tui, sgr, 1, 0);
+    require(wait_since(tui, mark, "File", 5000), "the menu did not reopen", tui);
+}
+
+TEST(shell_amber_mark_click_closes_the_open_menu) {
+    Tui tui;
+    tui.name = "shell_amber_mark_click_closes_the_open_menu";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    const bool sgr = mouse_sgr(tui);
+    if (!require(mouse_enabled(tui), "the app never enabled mouse reporting", tui))
+        return;
+
+    size_t mark = tui.raw.size();
+    send_click(tui, sgr, 1, 0);
+    if (!require(wait_since(tui, mark, "File", 5000),
+                 "clicking the amber mark did not open the menu", tui))
+        return;
+
+    // The mark is painted at column 0 while the bar is open; clicking it must
+    // return the rail to tabs, which is observable as the prompt taking keys.
+    send_click(tui, sgr, 0, 0);
+    tui.pump(300);
+    mark = tui.raw.size();
+    tui.send("mark-toggles");
+    require(wait_since(tui, mark, "mark-toggles", 3000),
+            "clicking the mark again did not close the menu", tui);
 }
 
 TEST(shell_tab_click_switches_and_the_close_cell_closes) {
@@ -4387,6 +4425,7 @@ int main(int argc, char** argv) {
     top_rail_is_one_row_with_the_amber_mark_and_tabs();
     shell_menu_navigates_runs_an_action_and_releases_the_prompt();
     shell_amber_mark_click_opens_the_menu();
+    shell_amber_mark_click_closes_the_open_menu();
     shell_tab_click_switches_and_the_close_cell_closes();
     plugin_keybinding_runs_the_command_action();
     keybinding_actions_edit_and_toggle_the_shell();

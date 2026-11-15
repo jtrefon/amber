@@ -384,6 +384,22 @@ TEST(menu_layout_places_titles_and_a_bounded_dropdown) {
     ASSERT(layout.items[1].rect.y == 5);
 }
 
+TEST(menu_layout_pins_the_mark_cell_while_open) {
+    const Model model = sample_model();
+    State closed;
+    // Closed: the rail owns the mark, so the menu layout claims nothing.
+    ASSERT_FALSE(tui::menu::layout(model, closed, 80, 1, 23).mark.visible());
+
+    State state;
+    tui::menu::open(state, model);
+    const auto layout = tui::menu::layout(model, state, 80, 1, 23);
+    // The open bar paints the mark flush at column 0, ahead of the first title.
+    ASSERT(layout.mark.visible());
+    ASSERT(layout.mark.contains(0, 0));
+    ASSERT(layout.mark.w == 1);
+    ASSERT(layout.titles.front().rect.x > layout.mark.w);
+}
+
 TEST(menu_layout_opens_a_submenu_beside_the_item) {
     const Model model = sample_model();
     State state;

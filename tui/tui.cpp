@@ -1096,7 +1096,10 @@ bool Tui::handle_mouse(int ch, CommandLine& cl) {
     if (!terminal_.read_mouse(ev))
         return true;
     const bool click = (ev.bstate & keys::kButton1) != 0;
-    if (click && ev.y == 0 && ev.x == 0) {
+    // The mark toggles the menu in both states, so it is hit-tested from the
+    // painted layout rather than a fixed column: the rail insets the mark by one
+    // while tabs are shown and paints it flush while the menu is open.
+    if (click && render_engine_->mark_at(ev.x, ev.y)) {
         menu_->toggle();
         return true;
     }

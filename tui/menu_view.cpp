@@ -108,7 +108,11 @@ std::optional<Hit> hit_test(const Layout& layout, int x, int y) {
 
 Layout layout(const Model& model, const State& state, int width, int top, int bottom) {
     Layout out;
-    if (state.mode == Mode::Closed || model.menus.empty() || width <= 0 || top >= bottom)
+    if (state.mode == Mode::Closed || width <= 0)
+        return out;
+    // The open bar paints the mark flush at column 0, ahead of the titles.
+    out.mark = {0, 0, std::min(top_bar::kAppMarkWidth, width), 1};
+    if (model.menus.empty() || top >= bottom)
         return out;
     out.titles = titles_for(model, width);
     if (out.titles.empty() || state.mode == Mode::Bar || state.menu >= model.menus.size())

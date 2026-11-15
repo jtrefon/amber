@@ -45,6 +45,10 @@ public:
     std::optional<std::size_t> tab_close_at(int x, int y) const;
     // The menu title/item/dropdown under a screen cell.
     std::optional<menu::Hit> menu_hit(int x, int y) const;
+    // Whether the cell is the amber mark, which toggles the menu. It is painted
+    // at column 0 while the menu is open and inset by one while the rail shows
+    // tabs, so both the cell and the state come from the last paint.
+    bool mark_at(int x, int y) const;
     int chat_top() const;
     int chat_height() const;
     int lines_per_page() const;

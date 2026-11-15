@@ -40,6 +40,10 @@ struct Layout {
     std::vector<ItemHit> items;
     Rect submenu;
     std::vector<ItemHit> sub_items;
+    // The amber mark on the open rail. It sits flush at column 0 here (the
+    // closed rail insets it), so the mouse handler reads the cell from the
+    // layout rather than assuming the mark keeps one column across both states.
+    Rect mark;
 };
 
 // `top` is the first row available below the rail; `bottom` is exclusive (the

@@ -66,6 +66,29 @@ TEST(top_bar_marks_the_app_and_the_active_tab) {
     ASSERT(layout.active_width == tui::text::display_cols(active->text));
 }
 
+TEST(top_bar_records_the_amber_marks_clickable_cell) {
+    const Layout layout = tui::top_bar::layout(two_tabs(), 80);
+    // The mark toggles the menu. It must be hit-testable where it is painted,
+    // which is one column in from the edge -- not the margin beside it.
+    ASSERT_EQ(layout.mark_col, 1);
+    ASSERT_EQ(layout.mark_width, 1);
+    ASSERT_EQ(tui::text::display_cols(layout.spans.front().text),
+              static_cast<int>(layout.mark_col));
+    // The first tab starts after the mark and the gap, so a click cannot land on
+    // both.
+    ASSERT(layout.hits.front().start > layout.mark_col + layout.mark_width);
+}
+
+TEST(top_bar_drops_the_mark_cell_when_the_rail_is_too_narrow) {
+    // A rail one column wide paints only the margin: reporting a mark cell there
+    // would let a click open the menu from a cell the glyph never reached.
+    const Layout one = tui::top_bar::layout(two_tabs(), 1);
+    ASSERT_EQ(one.mark_width, 0);
+    const Layout two = tui::top_bar::layout(two_tabs(), 2);
+    ASSERT_EQ(two.mark_col, 1);
+    ASSERT_EQ(two.mark_width, 1);
+}
+
 TEST(top_bar_records_clickable_tab_hits) {
     const Layout layout = tui::top_bar::layout(two_tabs(), 80);
     ASSERT_EQ(layout.hits.size(), 2u);
