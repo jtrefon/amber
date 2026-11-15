@@ -6015,7 +6015,11 @@ TEST(dispatch_missing_tool_reports_unknown) {
 
 static agent::Message msg(const std::string& role, const std::string& content,
                           const std::string& name = "") {
-    return {role, content, "", "", name, json::object(), false, ""};
+    agent::Message m;
+    m.role = role;
+    m.content = content;
+    m.name = name;
+    return m;
 }
 
 // An assistant message carrying one tool call, with the id a result must echo.

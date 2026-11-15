@@ -558,7 +558,10 @@ bool build_fixture(Fixture& fx) {
         s.id = *seed.id;
         s.title = seed.title;
         s.model = "pty-test";
-        s.messages.push_back(agent::Message{"user", "hello from " + s.title, "", "", "", nullptr});
+        agent::Message message;
+        message.role = "user";
+        message.content = "hello from " + s.title;
+        s.messages.push_back(message);
         if (!store.save(s))
             return false;
         // save() stamps updated_ms with now(); pin it so the listing order is fixed.
