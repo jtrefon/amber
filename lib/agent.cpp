@@ -113,6 +113,22 @@ void Agent::publish_config() {
                                std::memory_order_release);
 }
 
+void Agent::set_owner_id(std::string id) {
+    owner_id_ = std::move(id);
+    set_session_id(owner_id_);
+}
+
+void Agent::set_session_id(std::string id) {
+    if (cfg_.session_id == id)
+        return;
+    cfg_.session_id = std::move(id);
+    // The client owns a Config copy, so tell it directly rather than rebuilding
+    // it (an injected client must survive).
+    if (client_)
+        client_->set_session_id(cfg_.session_id);
+    publish_config();
+}
+
 void Agent::set_mode(AgentMode mode) {
     cfg_.mode = mode;
     // The status bar renders from the published snapshot, not cfg_; without

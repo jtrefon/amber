@@ -84,6 +84,12 @@ struct Config {
     // (make_dialect). Set from the provider's capabilities on selection;
     // "openai" covers every OpenAI-compatible endpoint.
     std::string flavor = "openai";
+    // A provider may require a stable conversation id on every request (the
+    // OpenCode Go gateway's x-opencode-session). The provider names the header;
+    // the host supplies the id from the window/session it owns. Runtime only,
+    // never persisted: an id belongs to a conversation, not to a config file.
+    std::string session_header;
+    std::string session_id;
     std::string api_base = "http://localhost:8000/v1";
     std::string api_key; // required for managed providers
     std::string model = "gpt-4o-mini";

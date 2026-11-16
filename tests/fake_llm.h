@@ -35,6 +35,9 @@ public:
     std::vector<std::vector<agent::Message>> requests;
     std::vector<size_t> tool_counts;
     int chat_calls = 0;
+    std::string session_id;
+
+    void set_session_id(const std::string& id) override { session_id = id; }
 
     agent::ServerInfo probe_server() const override {
         agent::ServerInfo info;

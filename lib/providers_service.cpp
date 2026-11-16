@@ -100,6 +100,11 @@ std::vector<Provider> ProviderService::available() const {
                 Provider merged = p;
                 if (merged.flavor.empty())
                     merged.flavor = it->flavor;
+                // A file overrides a same-named preset, but a preset capability
+                // it does not name (the session header) still travels with the
+                // provider: the file has no field to author it.
+                if (merged.session_header.empty())
+                    merged.session_header = it->session_header;
                 *it = std::move(merged);
             }
         }
@@ -117,6 +122,8 @@ std::optional<Provider> ProviderService::find(const std::string& name) const {
         if (auto p = repo->find(name)) {
             if (p->flavor.empty() && found)
                 p->flavor = found->flavor;
+            if (p->session_header.empty() && found)
+                p->session_header = found->session_header;
             found = *p;
         }
     }
@@ -215,8 +222,10 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.model_line.clear();
     // The dialect the client resolves travels with the provider, so a provider
     // contributed by a plugin needs nothing from a table in the core. Derived
-    // on every selection, never persisted.
+    // on every selection, never persisted. The session header name travels the
+    // same way; its value is the running conversation's id.
     cfg.flavor = sel.provider.flavor;
+    cfg.session_header = sel.provider.session_header;
 }
 
 Config provider_edit_seed(const Config& active, const Provider& editing) {
@@ -261,6 +270,9 @@ Provider provider_from_edit(const Provider& existing, const Config& cfg, bool bu
     p.default_context_size = cfg.context_size;
     p.builtin = builtin;
     p.flavor = existing.flavor;
+    // A capability, not a user field: an edit must not drop the header the
+    // provider's plugin declared.
+    p.session_header = existing.session_header;
     return p;
 }
 

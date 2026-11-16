@@ -354,8 +354,15 @@ public:
 
     // The host's stable identity for this agent's window/session. It travels
     // in the run scope so a tool that starts work outliving the turn can route
-    // its completion back to the right window.
-    void set_owner_id(std::string id) override { owner_id_ = std::move(id); }
+    // its completion back to the right window. A window is one conversation,
+    // so this is also its default provider conversation id.
+    void set_owner_id(std::string id) override;
+
+    // The id a provider that routes by conversation may ask for in a request
+    // header. Defaults to the owner id; a host whose routing identity is
+    // broader than one conversation overrides it (the one-shot CLI keeps a
+    // durable "cli" task owner across processes, which is not one conversation).
+    void set_session_id(std::string id);
 
     // Switch the active model at runtime (/set model). LLM clients hold a
     // Config snapshot from construction, so the client is rebuilt through the

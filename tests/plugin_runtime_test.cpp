@@ -3768,6 +3768,26 @@ public:
 
 WalletSnapshot QuotaProbePlugin::fixed_snapshot;
 
+// The Go gateway rejects a chat request without a conversation id. The preset
+// declares the header; the host, not the plugin, supplies its value per
+// window/session.
+TEST(opencode_go_preset_asks_for_its_session_header) {
+    ScratchConfig scratch("opencode_go_session");
+    Fixture f;
+    PluginRuntime runtime(f.tools, f.cfg, f.ws);
+    runtime.add_bundled();
+    runtime.start();
+
+    bool listed = false;
+    for (const auto& p : plugin_provider_presets())
+        if (p.name == "opencode_go") {
+            listed = true;
+            ASSERT_EQ(p.flavor, std::string("openai"));
+            ASSERT_EQ(p.session_header, std::string("x-opencode-session"));
+        }
+    ASSERT(listed);
+}
+
 TEST(opencode_go_usage_parser_parses_three_windows) {
     const std::string body = R"({
         "usage": {

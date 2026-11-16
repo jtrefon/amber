@@ -675,6 +675,7 @@ InstallResult ProviderCapability::install(PluginServices& services) {
         p.requires_key = preset.requires_key;
         p.builtin = true;
         p.flavor = flavor_;
+        p.session_header = preset.session_header;
         register_provider_preset(p, owner);
     }
 

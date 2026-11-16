@@ -42,6 +42,10 @@ struct Provider {
     // and falls back to openai, so a file saved before the flavor was carried
     // through a save is healed rather than silently speaking another protocol.
     std::string flavor = "openai";
+    // The request header this gateway wants the host's stable conversation id
+    // in, empty when it needs none. A plugin preset declares it; a provider
+    // file never authors it.
+    std::string session_header;
 };
 
 // Provider-specific behaviour is declared by the provider itself: the wire
