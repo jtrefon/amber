@@ -5913,15 +5913,19 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
 }
 
 namespace {
-// Finishes in about a millisecond: enough for the dispatcher's first scan to
-// miss the future, short enough that a poll quantum dominates the call.
+// Stays running long enough for the dispatcher's first scan to miss it, without
+// a sleep: sleep_for(1ms) measures the runner's timer granularity (about 10 ms
+// on macOS), which is the same order as the poll quantum this test rules out.
+// A busy-wait is bounded by the clock, so it costs the same everywhere.
 class FastTool : public agent::Tool {
 public:
     std::string name() const noexcept override { return "fast"; }
     std::string description() const noexcept override { return "fast"; }
     agent::json parameters_schema() const override { return agent::json::object(); }
     agent::ToolResult execute(const agent::json&) const override {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const auto until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2);
+        while (std::chrono::steady_clock::now() < until) {
+        }
         return {true, "ok", ""};
     }
 };
