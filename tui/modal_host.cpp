@@ -28,23 +28,26 @@ DialogKey map_choice(ListState& list, int ch, int visible) {
     return action == ListState::Action::Redraw ? DialogKey::Redraw : DialogKey::None;
 }
 
-std::string approval_label(int index, int remaining) {
-    static const char* const kLabels[] = {"[1] Allow once", "[2] Allow session", "[3] Always allow",
-                                          "[4] Always deny"};
-    if (index < 0 || index > 3)
-        return {};
-    std::string label = kLabels[index];
-    if (remaining > 0)
-        label += " (" + std::to_string(remaining) + "s)";
-    return label;
+std::vector<DialogOption> approval_options() {
+    return {
+        {"1", "Allow once"}, {"2", "Allow session"}, {"3", "Always allow"}, {"4", "Always deny"}};
 }
 
-std::vector<std::string> approval_buttons(int remaining) {
-    std::vector<std::string> buttons;
-    buttons.reserve(4);
-    for (int i = 0; i < 4; ++i)
-        buttons.push_back(approval_label(i, remaining));
-    return buttons;
+std::string approval_status(int timeout_sec, int remaining) {
+    if (timeout_sec <= 0)
+        return {};
+    return "auto-deny in " + std::to_string(std::max(0, remaining)) + "s";
+}
+
+DialogView approval_view(const ApprovalModel& model, int timeout_sec) {
+    DialogView view;
+    view.title = "Approve action?";
+    view.footer_keys = {{"1-4", "Pick"}, {"Tab", "Move"}, {"Enter", "Confirm"}, {"Esc", "Cancel"}};
+    view.options = approval_options();
+    view.selected_option = model.selection();
+    view.status = approval_status(timeout_sec, model.remaining_sec());
+    view.preferred_width = 62;
+    return view;
 }
 
 } // namespace
@@ -56,7 +59,7 @@ bool ModalHost::confirm(const std::string& title, const std::string& message) {
     view.lines = {message};
     view.buttons = {"[ Yes ]", "[ No ]"};
     view.selected_button = 1; // the safe choice starts focused
-    view.footer = "Tab/left/right: switch   y/n or Enter: confirm   Esc: cancel";
+    view.footer_keys = {{"Tab", "Switch"}, {"Enter", "Confirm"}, {"Esc", "Cancel"}};
 
     const Outcome outcome = run(
         view,
@@ -79,7 +82,8 @@ int ModalHost::choose(const std::string& title, const std::vector<std::string>& 
     const int visible = list_rows(Terminal{}.size());
     DialogView view;
     view.title = title;
-    view.footer = "Up/Down: move   Enter: select   /: filter   Esc: cancel";
+    view.footer_keys = {
+        {"Up/Down", "Move"}, {"Enter", "Select"}, {"/", "Filter"}, {"Esc", "Cancel"}};
     view.items = list.filtered();
     view.selected_item = list.selection();
 
@@ -107,7 +111,7 @@ void ModalHost::info(const std::string& title, const std::vector<std::string>& r
     const int visible = std::clamp(Terminal{}.size().h - 8, 3, 20);
     DialogView view;
     view.title = title;
-    view.footer = "Up/Down: scroll   Enter/Esc: close";
+    view.footer_keys = {{"Up/Down", "Scroll"}, {"Esc", "Close"}};
     const auto fill = [&] {
         const int total = static_cast<int>(rows.size());
         const int top = std::min(state.top(), std::max(0, total - visible));
@@ -168,7 +172,7 @@ bool ModalHost::form(const std::string& title, std::vector<FieldSpec>& fields,
     view.title = title;
     view.notice = notice;
     view.buttons = {"[  OK  ]", "[ Cancel ]"};
-    view.footer = "Tab: next field   Enter: confirm   Esc: cancel";
+    view.footer_keys = {{"Tab", "Next"}, {"Enter", "Confirm"}, {"Esc", "Cancel"}};
     const auto fill = [&] {
         view.fields = state.fields();
         view.focused_field = state.on_field() ? static_cast<int>(state.field_index()) : -1;
@@ -203,12 +207,8 @@ bool ModalHost::form(const std::string& title, std::vector<FieldSpec>& fields,
 
 agent::Approval ModalHost::approve(const std::string& summary, int timeout_sec, int default_idx) {
     ApprovalModel model(timeout_sec, default_idx, ApprovalModel::steady_seconds);
-    DialogView view;
-    view.title = "Approve action?";
+    DialogView view = approval_view(model, timeout_sec);
     view.lines = {summary};
-    view.footer = "1-4: pick   Tab/left/right: move   Enter: confirm   Esc: cancel";
-    view.buttons = approval_buttons(model.remaining_sec());
-    view.selected_button = model.selection();
 
     const Outcome outcome = run(
         view,
@@ -217,15 +217,15 @@ agent::Approval ModalHost::approve(const std::string& summary, int timeout_sec, 
                 model.select(model.selection() + (ch == keys::kLeft ? -1 : 1));
             } else if (ch >= '1' && ch <= '4') {
                 model.select(ch - '1');
-                view.selected_button = model.selection();
+                view.selected_option = model.selection();
                 return Outcome::Accept;
             } else if (ch == '\n' || ch == '\r' || ch == keys::kEnter) {
                 return Outcome::Accept;
             } else if (ch == 27) {
                 return Outcome::Cancel;
             }
-            view.selected_button = model.selection();
-            view.buttons = approval_buttons(model.remaining_sec());
+            view.selected_option = model.selection();
+            view.status = approval_status(timeout_sec, model.remaining_sec());
             return Outcome::Continue;
         },
         250,
@@ -233,8 +233,8 @@ agent::Approval ModalHost::approve(const std::string& summary, int timeout_sec, 
             model.poll();
             if (model.timed_out())
                 return true; // fail safe: deny, never auto-confirm
-            view.buttons = approval_buttons(model.remaining_sec());
-            view.selected_button = model.selection();
+            view.selected_option = model.selection();
+            view.status = approval_status(timeout_sec, model.remaining_sec());
             return false;
         });
     if (outcome == Outcome::Cancel || model.timed_out())

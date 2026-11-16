@@ -68,6 +68,21 @@ enum class Role : std::uint8_t {
     GaugeBright,
     ShineMid,
     ShineHi,
+    // The modal sheet. These are separate from Surface/Text because a sheet is
+    // one blue background: a body cell painted with the transcript's default
+    // background punches a hole in it.
+    DialogSurface,
+    DialogText,
+    DialogMuted,
+    DialogTitle,
+    DialogFrame,
+    DialogAccent,
+    DialogSelected,
+    DialogButton,
+    DialogButtonFocus,
+    DialogFooterKey,
+    DialogFooterLabel,
+    DialogError,
     Count,
 };
 

@@ -128,7 +128,19 @@ void apply_amber(Theme& theme) {
     set(Role::Error, role(Color::Red, Color::Default, true));
     set(Role::Warning, role(Color::Yellow, Color::Default));
     set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
-    set(Role::Shadow, role(Color::Black, Color::Black));
+    set(Role::Shadow, role(Color::DarkGray, Color::Default));
+    set(Role::DialogSurface, role(Color::White, Color::Blue));
+    set(Role::DialogText, role(Color::White, Color::Blue));
+    set(Role::DialogMuted, role(Color::Cyan, Color::Blue));
+    set(Role::DialogTitle, role(Color::White, Color::Blue, true));
+    set(Role::DialogFrame, role(Color::Cyan, Color::Blue, true));
+    set(Role::DialogAccent, role(Color::Yellow, Color::Blue));
+    set(Role::DialogSelected, role(Color::Black, Color::Cyan));
+    set(Role::DialogButton, role(Color::Black, Color::Cyan));
+    set(Role::DialogButtonFocus, role(Color::Black, Color::White));
+    set(Role::DialogFooterKey, role(Color::Black, Color::Cyan));
+    set(Role::DialogFooterLabel, role(Color::Cyan, Color::Blue));
+    set(Role::DialogError, role(Color::White, Color::Red));
     set(Role::Banner, role(Color::White, Color::Blue));
     set(Role::Brand, role(Color::Amber, Color::Blue, true));
     set(Role::GaugeOk, role(Color::Green, Color::Blue));
@@ -156,7 +168,19 @@ void apply_modern(Theme& theme) {
     set(Role::Error, role(Color::Red, Color::Default, true));
     set(Role::Warning, role(Color::Yellow, Color::Default, true));
     set(Role::Hint, role(Color::DarkGray, Color::Default, false, true));
-    set(Role::Shadow, role(Color::Black, Color::Black));
+    set(Role::Shadow, role(Color::DarkGray, Color::Default));
+    set(Role::DialogSurface, role(Color::White, Color::Blue));
+    set(Role::DialogText, role(Color::White, Color::Blue));
+    set(Role::DialogMuted, role(Color::Cyan, Color::Blue));
+    set(Role::DialogTitle, role(Color::White, Color::Blue, true));
+    set(Role::DialogFrame, role(Color::Cyan, Color::Blue, true));
+    set(Role::DialogAccent, role(Color::Yellow, Color::Blue));
+    set(Role::DialogSelected, role(Color::Black, Color::Cyan));
+    set(Role::DialogButton, role(Color::Black, Color::Cyan));
+    set(Role::DialogButtonFocus, role(Color::Black, Color::White));
+    set(Role::DialogFooterKey, role(Color::Black, Color::Cyan));
+    set(Role::DialogFooterLabel, role(Color::Cyan, Color::Blue));
+    set(Role::DialogError, role(Color::White, Color::Red));
     set(Role::Banner, role(Color::White, Color::Blue));
     set(Role::Brand, role(Color::Magenta, Color::Blue, true));
     set(Role::GaugeOk, role(Color::Green, Color::Blue, true));
@@ -166,6 +190,44 @@ void apply_modern(Theme& theme) {
     set(Role::GaugeBright, role(Color::White, Color::Blue, true));
     set(Role::ShineMid, role(Color::Magenta, Color::Default, true));
     set(Role::ShineHi, role(Color::White, Color::Default, true));
+}
+
+void set_dialog_high_contrast(Theme& theme) {
+    auto set = [&theme](Role role_id, const RoleStyle& style) { theme.set(role_id, style); };
+    set(Role::DialogSurface, role(Color::Black, Color::White));
+    set(Role::DialogText, role(Color::Black, Color::White));
+    set(Role::DialogMuted, role(Color::Black, Color::White, false, true));
+    set(Role::DialogTitle, role(Color::Black, Color::White, true));
+    set(Role::DialogFrame, role(Color::Black, Color::White, true));
+    set(Role::DialogAccent, role(Color::Black, Color::White, true));
+    set(Role::DialogSelected, role(Color::White, Color::Black));
+    set(Role::DialogButton, role(Color::Black, Color::White));
+    set(Role::DialogButtonFocus, role(Color::White, Color::Black));
+    set(Role::DialogFooterKey, role(Color::Black, Color::White, true));
+    set(Role::DialogFooterLabel, role(Color::Black, Color::White));
+    RoleStyle dialog_error = role(Color::Black, Color::White, true);
+    dialog_error.underline = true;
+    set(Role::DialogError, dialog_error);
+}
+
+void set_dialog_monochrome(Theme& theme) {
+    auto set = [&theme](Role role_id, RoleStyle style) { theme.set(role_id, style); };
+    set(Role::DialogSurface, role(Color::Default, Color::Default));
+    set(Role::DialogText, role(Color::Default, Color::Default));
+    set(Role::DialogMuted, role(Color::Default, Color::Default, false, true));
+    set(Role::DialogTitle, role(Color::Default, Color::Default, true));
+    set(Role::DialogFrame, role(Color::Default, Color::Default, true));
+    set(Role::DialogAccent, role(Color::Default, Color::Default, true));
+    RoleStyle selected = role(Color::Default, Color::Default);
+    selected.reverse = true;
+    set(Role::DialogSelected, selected);
+    set(Role::DialogButton, selected);
+    RoleStyle focus = selected;
+    focus.bold = true;
+    set(Role::DialogButtonFocus, focus);
+    set(Role::DialogFooterKey, selected);
+    set(Role::DialogFooterLabel, role(Color::Default, Color::Default));
+    set(Role::DialogError, focus);
 }
 
 void apply_high_contrast(Theme& theme) {
@@ -184,7 +246,8 @@ void apply_high_contrast(Theme& theme) {
     set(Role::Error, role(Color::White, Color::Default, true));
     set(Role::Warning, role(Color::White, Color::Default, true));
     set(Role::Hint, role(Color::White, Color::Default, false, true));
-    set(Role::Shadow, role(Color::Black, Color::Black));
+    set(Role::Shadow, role(Color::Black, Color::Default));
+    set_dialog_high_contrast(theme);
     // The bar is a white band with black text, the strongest contrast available
     // without relying on hue. The gauge keeps its shape, not its colour.
     set(Role::Banner, role(Color::Black, Color::White, true));
@@ -219,6 +282,7 @@ void apply_monochrome(Theme& theme) {
     set(Role::Warning, role(Color::Default, Color::Default, true));
     set(Role::Hint, role(Color::Default, Color::Default, false, true));
     set(Role::Shadow, role(Color::Default, Color::Default, false, true));
+    set_dialog_monochrome(theme);
     RoleStyle banner = role(Color::Default, Color::Default);
     banner.reverse = true;
     set(Role::Banner, banner);

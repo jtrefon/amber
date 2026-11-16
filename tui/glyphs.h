@@ -25,6 +25,7 @@ struct Glyphs {
     const char* tab_right; // the cap that closes it
     const char* filled;    // scrollbar thumb
     const char* shade;     // scrollbar track
+    const char* shadow;    // modal drop shadow
     const char* diamond;   // the amber mark
     const char* dot;       // completed / unread
     const char* cross_mark;

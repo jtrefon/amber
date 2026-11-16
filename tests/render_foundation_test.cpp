@@ -226,6 +226,41 @@ TEST(theme_roles_are_semantic_and_modes_differ) {
         ASSERT(glyph[1] == '\0');
 }
 
+TEST(dialog_roles_are_blue_and_distinct) {
+    const tui::Theme amber = tui::Theme::amber(tui::GlyphMode::Unicode);
+    for (const Role role :
+         {Role::DialogSurface, Role::DialogText, Role::DialogMuted, Role::DialogTitle,
+          Role::DialogFrame, Role::DialogAccent, Role::DialogFooterLabel}) {
+        ASSERT(amber.style(role).bg == tui::Color::Blue);
+    }
+    ASSERT(amber.style(Role::DialogSurface).fg != amber.style(Role::DialogMuted).fg);
+    ASSERT(amber.style(Role::DialogTitle).bold);
+    ASSERT(amber.style(Role::DialogFrame).bold);
+    ASSERT(amber.style(Role::DialogSelected).fg == tui::Color::Black);
+    ASSERT(amber.style(Role::DialogSelected).bg == tui::Color::Cyan);
+    ASSERT(amber.style(Role::DialogButtonFocus).bg == tui::Color::White);
+
+    // The shadow is a glyph on the default background, not black-on-black.
+    ASSERT(amber.style(Role::Shadow).bg == tui::Color::Default);
+    ASSERT(amber.style(Role::Shadow).fg != amber.style(Role::DialogSurface).bg);
+}
+
+TEST(dialog_palettes_keep_the_hierarchy_without_hue) {
+    const tui::Theme high = tui::Theme::make(tui::ThemeKind::HighContrast, tui::GlyphMode::Unicode);
+    ASSERT(high.style(Role::DialogSurface).bg == tui::Color::White);
+    ASSERT(high.style(Role::DialogSelected).fg == tui::Color::White);
+    ASSERT(high.style(Role::DialogSelected).bg == tui::Color::Black);
+    ASSERT(high.style(Role::DialogFrame).bold);
+    ASSERT(high.style(Role::DialogTitle).bold);
+
+    const tui::Theme mono = tui::Theme::make(tui::ThemeKind::Monochrome, tui::GlyphMode::Unicode);
+    ASSERT(mono.style(Role::DialogSurface).fg == tui::Color::Default);
+    ASSERT(mono.style(Role::DialogSelected).reverse);
+    ASSERT(mono.style(Role::DialogButtonFocus).reverse);
+    ASSERT(mono.style(Role::DialogFooterKey).reverse);
+    ASSERT(mono.style(Role::DialogError).reverse);
+}
+
 // ---------------------------------------------------------------------------
 // Components, focus and hit testing
 // ---------------------------------------------------------------------------
