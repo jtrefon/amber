@@ -4,15 +4,18 @@
 // A loopback OpenAI-compatible endpoint for the binary driver. It serves the
 // scenario's scripted assistant replies in order and records the paths it saw.
 // No network beyond 127.0.0.1; no external process.
+//
+// This is a thin FIFO compatibility layer over ScriptedEndpoint. New code uses
+// ScriptedEndpoint directly; MockServer stays so existing callers keep their
+// scripted-reply API.
 
-#include <atomic>
 #include <deque>
-#include <mutex>
+#include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "agent/tool.h"
+#include "bench/scripted_endpoint.h"
 
 namespace bench {
 
@@ -37,19 +40,7 @@ public:
     std::vector<std::string> paths() const;
 
 private:
-    void serve();
-    void handle(int fd);
-    bool next_reply(MockReply& out);
-    void send_all(int fd, const std::string& body, const char* content_type);
-
-    std::deque<MockReply> script_;
-    mutable std::mutex script_mtx_;
-    mutable std::mutex paths_mtx_;
-    std::vector<std::string> paths_;
-    int listen_fd_ = -1;
-    int port_ = 0;
-    std::atomic<bool> stopping_{false};
-    std::thread thread_;
+    std::unique_ptr<ScriptedEndpoint> endpoint_;
 };
 
 } // namespace bench

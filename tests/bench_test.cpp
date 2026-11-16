@@ -6,6 +6,7 @@
 #include "bench/binary_driver.h"
 #include "bench/fake.h"
 #include "bench/mock_server.h"
+#include "bench/scripted_endpoint.h"
 #include "bench/data_root.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
@@ -3697,6 +3698,227 @@ TEST(mock_server_streams_a_tool_call) {
     const agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
     ASSERT_EQ(reply.tool_calls.size(), 1u);
     ASSERT_EQ(reply.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
+}
+
+// ── ScriptedEndpoint ──
+//
+// The shared loopback endpoint used by amber-bench, the CLI E2E driver and the
+// TUI pty harness. It must serve a FIFO script, let a responder inspect the
+// request, stream SSE and inject deterministic faults.
+
+static std::string post_chat(int port, const std::string& body) {
+    return raw_http(port, "POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
+                          "Content-Type: application/json\r\nContent-Length: " +
+                              std::to_string(body.size()) + "\r\n\r\n" + body);
+}
+
+TEST(scripted_endpoint_replies_in_order_and_logs_the_request) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().content = "first";
+    script.push_back({});
+    script.back().content = "second";
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[{"role":"user","content":"alpha"}],"stream":false})";
+    const std::string first = post_chat(port_from_url(server.base_url()), body);
+    const std::string second = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(first.find("first") != std::string::npos);
+    ASSERT(second.find("second") != std::string::npos);
+
+    const std::vector<bench::EndpointRequest> requests = server.requests();
+    ASSERT_EQ(requests.size(), 2u);
+    ASSERT_EQ(requests[0].path, std::string("/v1/chat/completions"));
+    ASSERT_EQ(requests[0].sequence, 0);
+    ASSERT_EQ(requests[0].messages.size(), 1u);
+    ASSERT_EQ(requests[0].messages[0].content, std::string("alpha"));
+    ASSERT_EQ(requests[1].sequence, 1);
+    ASSERT_EQ(server.chat_calls(), 2);
+}
+
+TEST(scripted_endpoint_responder_sees_the_request) {
+    bench::ScriptedEndpoint server([](const bench::EndpointRequest& request) {
+        bench::EndpointReply reply;
+        reply.content = request.messages.empty() ? "none" : request.messages.back().content;
+        return reply;
+    });
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[{"role":"user","content":"beta"}],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("beta") != std::string::npos);
+}
+
+TEST(scripted_endpoint_streams_sse) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().content = "streamed";
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[{"role":"user","content":"go"}],"stream":true})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("text/event-stream") != std::string::npos);
+    ASSERT(response.find("streamed") != std::string::npos);
+    ASSERT(response.find("[DONE]") != std::string::npos);
+}
+
+TEST(scripted_endpoint_returns_an_http_error_with_retry_after) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().status = 429;
+    script.back().body = R"({"error":{"message":"slow down"}})";
+    script.back().retry_after_s = 2;
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("HTTP/1.1 429") != std::string::npos);
+    ASSERT(response.find("Retry-After: 2") != std::string::npos);
+    ASSERT(response.find("slow down") != std::string::npos);
+}
+
+TEST(scripted_endpoint_can_disconnect_without_a_response) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().disconnect = true;
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    ASSERT(post_chat(port_from_url(server.base_url()), body).empty());
+}
+
+TEST(scripted_endpoint_can_malform_json) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().malformed_json = true;
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("{bad") != std::string::npos);
+}
+
+TEST(scripted_endpoint_drops_after_the_requested_chunks) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().sse_chunks = {"data: one\n\n", "data: two\n\n", "data: [DONE]\n\n"};
+    script.back().drop_after_chunks = 1;
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":true})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("one") != std::string::npos);
+    ASSERT(response.find("two") == std::string::npos);
+    ASSERT(response.find("[DONE]") == std::string::npos);
+}
+
+TEST(scripted_endpoint_reset_chat_restarts_the_sequence) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().content = "first";
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    post_chat(port_from_url(server.base_url()), body);
+    post_chat(port_from_url(server.base_url()), body);
+    ASSERT_EQ(server.requests()[1].sequence, 1);
+    server.reset_chat();
+    post_chat(port_from_url(server.base_url()), body);
+    ASSERT_EQ(server.requests()[2].sequence, 0);
+}
+
+TEST(scripted_endpoint_parses_anthropic_text_blocks) {
+    const agent::json body = agent::json::parse(
+        R"({"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]},)"
+        R"({"role":"tool","content":"ok","tool_call_id":"c1"}]})",
+        nullptr, false);
+    ASSERT(!body.is_discarded());
+    const std::vector<agent::Message> messages = bench::endpoint_messages(body);
+    ASSERT_EQ(messages.size(), 2u);
+    ASSERT_EQ(messages[0].content, std::string("hello"));
+    ASSERT_EQ(messages[1].tool_call_id, std::string("c1"));
+}
+
+TEST(scripted_endpoint_raw_body_wins_over_content) {
+    std::deque<bench::EndpointReply> script;
+    script.push_back({});
+    script.back().content = "ignored";
+    script.back().body = R"({"raw":true})";
+    bench::ScriptedEndpoint server(std::move(script));
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("\"raw\":true") != std::string::npos);
+    ASSERT(response.find("ignored") == std::string::npos);
+}
+
+TEST(scripted_endpoint_defaults_to_done_when_the_script_is_empty) {
+    bench::ScriptedEndpoint server(std::deque<bench::EndpointReply>{});
+    ASSERT(server.start());
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("done") != std::string::npos);
+}
+
+TEST(scripted_endpoint_turns_a_responder_exception_into_a_500) {
+    bench::ScriptedEndpoint server([](const bench::EndpointRequest&) -> bench::EndpointReply {
+        throw std::runtime_error("policy blew up");
+    });
+    ASSERT(server.start());
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("HTTP/1.1 500") != std::string::npos);
+    ASSERT(response.find("policy blew up") != std::string::npos);
+}
+
+TEST(scripted_endpoint_parses_gemini_contents) {
+    const agent::json body = agent::json::parse(
+        R"({"contents":[{"role":"user","parts":[{"text":"hello from gemini"}]}]})", nullptr, false);
+    ASSERT(!body.is_discarded());
+    const std::vector<agent::Message> messages = bench::endpoint_messages(body);
+    ASSERT_EQ(messages.size(), 1u);
+    ASSERT_EQ(messages[0].content, std::string("hello from gemini"));
+}
+
+TEST(scripted_endpoint_exposes_request_headers) {
+    bench::ScriptedEndpoint server([](const bench::EndpointRequest& request) {
+        bench::EndpointReply reply;
+        reply.content = request.headers.count("content-type") == 0 ? "missing" : "present";
+        return reply;
+    });
+    ASSERT(server.start());
+
+    const std::string body = R"({"messages":[],"stream":false})";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("present") != std::string::npos);
+}
+
+TEST(scripted_endpoint_accepts_a_non_object_json_body) {
+    bench::ScriptedEndpoint server(std::deque<bench::EndpointReply>{});
+    ASSERT(server.start());
+    const std::string body = R"([1,2,3])";
+    const std::string response = post_chat(port_from_url(server.base_url()), body);
+    ASSERT(response.find("done") != std::string::npos);
+}
+
+TEST(scripted_endpoint_answers_models_and_unknown_paths) {
+    bench::ScriptedEndpoint server(std::deque<bench::EndpointReply>{});
+    ASSERT(server.start());
+    const std::string models =
+        raw_http(port_from_url(server.base_url()), "GET /v1/models HTTP/1.1\r\nHost: x\r\n\r\n");
+    ASSERT(models.find("\"fake\"") != std::string::npos);
+    const std::string unknown =
+        raw_http(port_from_url(server.base_url()), "GET /v1/nope HTTP/1.1\r\nHost: x\r\n\r\n");
+    ASSERT(unknown.find("not found") != std::string::npos);
+    ASSERT((server.paths() == std::vector<std::string>{"/v1/models", "/v1/nope"}));
 }
 
 TEST(cli_path_prefers_the_binary_beside_the_executable) {
