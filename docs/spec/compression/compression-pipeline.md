@@ -46,7 +46,7 @@ chat_once
             6. invariant1: no reduction → return the original
        └─ rebuild_context(clear + push) on success
        └─ apply memory/skill ops + session brief
-  └─ inject_prompt_blocks (the same blocks the classify call replayed)
+  └─ PromptAssembler::inject_blocks (the same blocks the classify call replayed)
   └─ the normal request on the compressed context
 ```
 
@@ -61,8 +61,8 @@ chat_once
 | reducible history | more than one non-system message. A pass with only the system prompt and the opening ask would buy a summary of one sentence. |
 | cooldown | `user_turn_counter - last_compress_turn < cooldown_turns` blocks. The unit is **real user turns**; one tool-using turn is many LLM calls and must not expire it. The first compression is never blocked: the cooldown protects a freshly compressed context, and a single-turn session may be the only chance it gets. |
 
-The gate is checked before `inject_prompt_blocks`, so a rebuild can never lose
-the blocks injected for the current request.
+The gate is checked before `PromptAssembler::inject_blocks`, so a rebuild can
+never lose the blocks injected for the current request.
 
 ### The classifier
 

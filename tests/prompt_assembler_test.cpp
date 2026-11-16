@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -76,14 +77,13 @@ struct Sources {
     }
 };
 
-SkillCatalog make_catalog(const SkillDir& dir, Config& cfg) {
-    SkillCatalog skills(cfg, SkillScanPaths{dir.path() + "/.amber/skills",
-                                             dir.path() + "/global",
-                                             dir.path() + "/universal",
-                                             dir.path() + "/claude",
-                                             dir.path() + "/codex"},
-                        dir.path() + "/home");
-    skills.discover({});
+std::unique_ptr<SkillCatalog> make_catalog(const SkillDir& dir, Config& cfg) {
+    auto skills = std::make_unique<SkillCatalog>(
+        cfg,
+        SkillScanPaths{dir.path() + "/.amber/skills", dir.path() + "/global",
+                       dir.path() + "/universal", dir.path() + "/claude", dir.path() + "/codex"},
+        dir.path() + "/home");
+    skills->discover({});
     return skills;
 }
 
@@ -115,23 +115,23 @@ TEST(prompt_assembler_collects_blocks_in_priority_order) {
     SkillDir dir("amber_prompt_assembler_order");
     Workspace::set_root(dir.path());
     Config cfg;
-    SkillCatalog skills = make_catalog(dir, cfg);
+    auto skills = make_catalog(dir, cfg);
 
     Sources s;
     s.sources.registry = &registry;
-    s.sources.skills = &skills;
+    s.sources.skills = skills.get();
     s.activated.record("demo", "the activated body");
     SessionBrief current;
     current.intent = "ship the assembler";
     s.brief.merge(current);
 
     PromptRegistry prompts;
-    prompts.add("plug", "head", 300, [] { return std::string("PLUGIN HEAD"); },
-                PromptPlacement::Head);
-    prompts.add("plug", "tail-a", 300, [] { return std::string("PLUGIN TAIL A"); },
-                PromptPlacement::Tail);
-    prompts.add("plug", "tail-b", 300, [] { return std::string("PLUGIN TAIL B"); },
-                PromptPlacement::Tail);
+    prompts.add(
+        "plug", "head", 300, [] { return std::string("PLUGIN HEAD"); }, PromptPlacement::Head);
+    prompts.add(
+        "plug", "tail-a", 300, [] { return std::string("PLUGIN TAIL A"); }, PromptPlacement::Tail);
+    prompts.add(
+        "plug", "tail-b", 300, [] { return std::string("PLUGIN TAIL B"); }, PromptPlacement::Tail);
     s.sources.prompts = &prompts;
 
     std::vector<PromptBlock> head;
@@ -163,9 +163,9 @@ TEST(prompt_assembler_omits_discovery_without_read_skill) {
     SkillDir dir("amber_prompt_assembler_gate");
     Workspace::set_root(dir.path());
     Config cfg;
-    SkillCatalog skills = make_catalog(dir, cfg);
+    auto skills = make_catalog(dir, cfg);
     s.sources.registry = &registry;
-    s.sources.skills = &skills;
+    s.sources.skills = skills.get();
 
     std::vector<PromptBlock> head;
     std::vector<PromptBlock> tail;
@@ -231,8 +231,9 @@ TEST(prompt_assembler_system_prompt_keeps_the_documented_order) {
 
     ToolRegistry registry;
     PromptRegistry prompts;
-    prompts.add("plug", "system", 100, [] { return std::string("PLUGIN SYSTEM"); },
-                PromptPlacement::System);
+    prompts.add(
+        "plug", "system", 100, [] { return std::string("PLUGIN SYSTEM"); },
+        PromptPlacement::System);
 
     SystemPromptSources sources;
     sources.cfg = &cfg;

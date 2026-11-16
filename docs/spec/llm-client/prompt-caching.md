@@ -14,8 +14,8 @@ from the same live context without touching it, and that is exactly the
 regression this spec exists to prevent.
 
 ### Ownership
-- **Projection**: `lib/agent.cpp` (`insert_prompt_blocks`,
-  `collect_prompt_blocks`), `lib/dialect_openai.cpp` (`merge_system_content`),
+- **Projection**: `lib/prompt_assembler.cpp` (`PromptAssembler::inject_blocks`,
+  `collect_blocks`), `lib/dialect_openai.cpp` (`merge_system_content`),
   `lib/dialect_anthropic.cpp` (`build_chat_body`), `lib/dialect_gemini.cpp`.
 - **Directives**: `lib/dialect_anthropic.cpp` (`mark_cacheable`,
   `mark_last_turn_cacheable`), `Config::prompt_cache_ttl`.
