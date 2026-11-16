@@ -223,6 +223,7 @@ private:
     void register_tab_actions(), register_view_actions(), register_input_actions();
     void register_queue_actions();
     void register_set_engine_actions();
+    void register_set_input_actions();
     void register_set_policy_actions();
     void register_set_feature_actions();
     void register_skills_actions();

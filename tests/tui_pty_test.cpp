@@ -144,9 +144,17 @@ struct Tui {
 
     bool start(const std::string& binary, const std::string& workspace,
                const std::string& path_prefix = "", int rows = 0, int cols = 0,
-               const std::vector<std::string>& extra_args = {}, bool preserve_task_state = false) {
+               const std::vector<std::string>& extra_args = {}, bool preserve_task_state = false,
+               bool keep_draft = false) {
         if (!preserve_task_state)
             reset_task_inventory(workspace);
+        // The composer keeps an unsent draft per workspace, and every test in
+        // this file shares one fixture workspace. Start each one clean unless
+        // the test is deliberately exercising restore.
+        if (!keep_draft) {
+            std::error_code ec;
+            std::filesystem::remove(std::filesystem::path(workspace) / ".amber" / "draft", ec);
+        }
         std::vector<std::string> argv_strings;
         argv_strings.push_back(binary);
         argv_strings.insert(argv_strings.end(), extra_args.begin(), extra_args.end());
@@ -4396,6 +4404,113 @@ int repeat_suite(const std::string& self, const std::string& binary, int repeat)
     return 0;
 }
 
+TEST(a_restored_draft_is_cleared_on_submit) {
+    namespace fs = std::filesystem;
+    const std::string draft = fixture().workspace + "/.amber/draft";
+    fs::create_directories(fs::path(draft).parent_path());
+    ASSERT(write_file(draft, "restored across a restart\nsecond line"));
+
+    Tui tui;
+    tui.name = "a_restored_draft_is_cleared_on_submit";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 0, 0, {}, false, true));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.wait_for("draft restored", 5000), "the draft was not restored", tui))
+        return;
+    if (!require(tui.wait_for("second line", 5000), "the restored text never reached the prompt",
+                 tui))
+        return;
+
+    tui.send("\r");
+    if (!require(tui.wait_for("> restored across a restart", 10000),
+                 "the restored draft was not submitted", tui))
+        return;
+
+    bool cleared = false;
+    for (int i = 0; i < 20 && !cleared; ++i) {
+        tui.pump(100);
+        std::error_code ec;
+        cleared = !fs::exists(draft, ec);
+    }
+    require(cleared, "the draft survived a successful submit", tui);
+}
+
+// The composer is the only place the unsent text lives before a submit, so
+// "both lines are on screen" is the proof the input block grew. Turning the
+// composer off must fall back to the old single-line paste contract.
+TEST(multiline_composer_grows_and_falls_back_to_single_line) {
+    Tui tui;
+    tui.name = "multiline_composer_grows_and_falls_back_to_single_line";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set input multiline on\r");
+    if (!require(tui.wait_for("input.multiline: on", 5000), "the composer did not turn on", tui))
+        return;
+    tui.send("firstcomposerline");
+    tui.pump(200);
+    tui.send("\n"); // Ctrl+J inserts a line in the composer
+    tui.pump(200);
+    tui.send("secondcomposerline");
+    if (!require(tui.wait_for("secondcomposerline", 5000),
+                 "the second line never reached the input block", tui))
+        return;
+    require(tui.text().find("firstcomposerline") != std::string::npos,
+            "the first line left the input block when the second was added", tui);
+
+    const std::string draft = fixture().workspace + "/.amber/draft";
+    bool drafted = false;
+    for (int i = 0; i < 25 && !drafted; ++i) {
+        tui.pump(100);
+        std::ifstream f(draft, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+        drafted = text.find("firstcomposerline\nsecondcomposerline") != std::string::npos;
+    }
+    require(drafted, "the multi-line composer text was not drafted", tui);
+
+    tui.send("\r");
+    if (!require(tui.wait_for("> firstcomposerline", 10000),
+                 "the multi-line prompt was not submitted", tui))
+        return;
+    bool cleared = false;
+    for (int i = 0; i < 25 && !cleared; ++i) {
+        tui.pump(100);
+        std::error_code ec;
+        cleared = !std::filesystem::exists(draft, ec);
+    }
+    require(cleared, "the multi-line draft survived a successful submit", tui);
+}
+
+// The off switch is the old single-line path: a multiline paste becomes one
+// line in the draft (the raw text proves the newline was flattened, not just
+// hidden by the renderer). This sits last because it leaves the setting off.
+TEST(multiline_composer_off_flattens_a_paste_to_one_line) {
+    Tui tui;
+    tui.name = "multiline_composer_off_flattens_a_paste_to_one_line";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/set input multiline off\r");
+    if (!require(tui.wait_for("input.multiline: off", 5000), "the composer did not turn off", tui))
+        return;
+    tui.send("\x1b[200~alpha\nbeta\x1b[201~");
+
+    const std::string draft = fixture().workspace + "/.amber/draft";
+    bool flattened = false;
+    for (int i = 0; i < 25 && !flattened; ++i) {
+        tui.pump(100);
+        std::ifstream f(draft, std::ios::binary);
+        const std::string text((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+        flattened = text.find("alpha beta") != std::string::npos &&
+                    text.find("alpha\nbeta") == std::string::npos;
+    }
+    require(flattened, "a multiline paste was not flattened with the composer off", tui);
+}
+
 int main(int argc, char** argv) {
     std::string binary_arg = "./amber";
     std::string self_arg = argc > 0 ? argv[0] : "tui_pty_test";
@@ -4449,6 +4564,8 @@ int main(int argc, char** argv) {
     get_model_list_reports_why_the_catalogue_is_empty();
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
+    a_restored_draft_is_cleared_on_submit();
+    multiline_composer_grows_and_falls_back_to_single_line();
     get_config_paths_prints_the_resolved_layout();
     get_logs_reports_the_policy_and_the_totals();
     set_logs_retention_round_trips();
@@ -4488,6 +4605,7 @@ int main(int argc, char** argv) {
     watch_report_waits_for_a_draft_then_wakes();
     watch_cli_does_not_wake_by_default_and_opts_in();
     cli_wait_tasks_joins_a_command();
+    multiline_composer_off_flattens_a_paste_to_one_line();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.

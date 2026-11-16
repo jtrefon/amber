@@ -1,8 +1,11 @@
 #include <cassert>
+#include <filesystem>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 
 #include "tui/command_line.h"
+#include "tui/draft_store.h"
 
 // Minimal test framework for CommandLine.
 #define TEST(name) void name()
@@ -514,8 +517,201 @@ static int test_enter_dispatches_drawer_row_descend() {
     return 0;
 }
 
+// ── Tests: multi-line input ──
+
+static int test_newline_inserts_a_line_break() {
+    tui::CommandLine cl;
+    cl.on_char('a');
+    cl.on_newline();
+    cl.on_char('b');
+    ASSERT_EQ(cl.text(), std::string("a\nb"));
+    ASSERT_EQ(cl.cursor(), 3u);
+    ASSERT_EQ(cl.line_count(), 2);
+    return 0;
+}
+
+static int test_newline_is_ignored_when_multiline_is_off() {
+    tui::CommandLine cl;
+    cl.set_multiline(false);
+    cl.on_char('a');
+    cl.on_newline();
+    ASSERT_EQ(cl.text(), std::string("a"));
+    ASSERT_EQ(cl.line_count(), 1);
+    return 0;
+}
+
+static int test_up_moves_within_the_input_then_reaches_history() {
+    tui::CommandLine cl;
+    cl.set_history({"old"});
+    cl.set_text("abc\ndef");
+    cl.on_up(); // same column, previous line
+    ASSERT_EQ(cl.cursor(), 3u);
+    ASSERT_EQ(cl.text(), std::string("abc\ndef"));
+    cl.on_up(); // already on the first line: history
+    ASSERT_EQ(cl.text(), std::string("old"));
+    return 0;
+}
+
+static int test_down_moves_within_the_input() {
+    tui::CommandLine cl;
+    cl.set_text("abc\ndef");
+    cl.set_text_and_cursor(cl.text(), 3); // end of the first line
+    cl.on_down();
+    ASSERT_EQ(cl.cursor(), 7u);
+    ASSERT_EQ(cl.text(), std::string("abc\ndef"));
+    cl.on_down(); // last line and no history: nothing to move to
+    ASSERT_EQ(cl.text(), std::string("abc\ndef"));
+    ASSERT_EQ(cl.cursor(), 7u);
+    return 0;
+}
+
+static int test_vertical_movement_clamps_to_a_shorter_line() {
+    tui::CommandLine cl;
+    cl.set_text_and_cursor("abcdef\nxy", 6); // end of the long first line
+    cl.on_down();                            // the short line can only take column 2
+    ASSERT_EQ(cl.cursor(), 9u);
+    cl.on_up();
+    ASSERT_EQ(cl.cursor(), 2u); // the return trip keeps the clamped column
+    return 0;
+}
+
+static int test_ctrl_a_e_use_the_current_line() {
+    tui::CommandLine cl;
+    cl.set_text_and_cursor("abc\ndef", 5);
+    cl.on_ctrl_a();
+    ASSERT_EQ(cl.cursor(), 4u);
+    cl.on_ctrl_e();
+    ASSERT_EQ(cl.cursor(), 7u);
+    return 0;
+}
+
+static int test_home_end_use_the_current_line() {
+    tui::CommandLine cl;
+    cl.set_text_and_cursor("abc\ndef", 5);
+    cl.on_home();
+    ASSERT_EQ(cl.cursor(), 4u);
+    cl.on_end();
+    ASSERT_EQ(cl.cursor(), 7u);
+    return 0;
+}
+
+static int test_backspace_joins_lines() {
+    tui::CommandLine cl;
+    cl.set_text_and_cursor("ab\ncd", 3);
+    cl.on_backspace();
+    ASSERT_EQ(cl.text(), std::string("abcd"));
+    ASSERT_EQ(cl.cursor(), 2u);
+    return 0;
+}
+
+static int test_paste_keeps_newlines_when_multiline_is_on() {
+    tui::CommandLine cl;
+    cl.on_paste("a\r\nb");
+    ASSERT_EQ(cl.text(), std::string("a\nb"));
+    return 0;
+}
+
+static int test_paste_flattens_newlines_when_multiline_is_off() {
+    tui::CommandLine cl;
+    cl.set_multiline(false);
+    cl.on_paste("a\r\nb");
+    ASSERT_EQ(cl.text(), std::string("a b"));
+    return 0;
+}
+
+// ── Tests: draft persistence ──
+
+static std::string draft_temp_root(const char* tag) {
+    namespace fs = std::filesystem;
+    const fs::path p =
+        fs::temp_directory_path() / (std::string("amber_draft_") + tag + "_" +
+                                     std::to_string(static_cast<long long>(::getpid())));
+    fs::remove_all(p);
+    fs::create_directories(p);
+    return p.string();
+}
+
+static int test_draft_round_trips_through_the_workspace_file() {
+    const std::string root = draft_temp_root("roundtrip");
+    ASSERT_EQ(tui::draft_store::path(root), root + "/.amber/draft");
+    ASSERT(tui::draft_store::save(root, "hello\nworld"));
+    ASSERT_EQ(tui::draft_store::load(root), std::string("hello\nworld"));
+    tui::draft_store::clear(root);
+    ASSERT_EQ(tui::draft_store::load(root), std::string(""));
+    std::filesystem::remove_all(root);
+    return 0;
+}
+
+static int test_a_missing_or_unreadable_draft_reads_as_empty() {
+    namespace fs = std::filesystem;
+    const std::string root = draft_temp_root("unreadable");
+    ASSERT_EQ(tui::draft_store::load(root), std::string(""));
+    fs::create_directories(tui::draft_store::path(root)); // a directory cannot be read
+    ASSERT_EQ(tui::draft_store::load(root), std::string(""));
+    fs::remove_all(root);
+    return 0;
+}
+
+static int test_the_draft_keeper_writes_after_the_debounce() {
+    const std::string root = draft_temp_root("debounce");
+    tui::draft_store::DraftKeeper keeper;
+    const auto start = tui::draft_store::DraftKeeper::Clock::now();
+    keeper.seed(root, "");
+
+    keeper.update(root, "hello", start);
+    ASSERT_EQ(tui::draft_store::load(root), std::string("")); // not due yet
+    keeper.update(root, "hello", start + std::chrono::milliseconds(400));
+    ASSERT_EQ(tui::draft_store::load(root), std::string(""));
+    keeper.update(root, "hello", start + std::chrono::milliseconds(500));
+    ASSERT_EQ(tui::draft_store::load(root), std::string("hello"));
+
+    keeper.clear();
+    ASSERT_EQ(tui::draft_store::load(root), std::string(""));
+    std::filesystem::remove_all(root);
+    return 0;
+}
+
+static int test_a_new_keystroke_restarts_the_debounce() {
+    const std::string root = draft_temp_root("restart");
+    tui::draft_store::DraftKeeper keeper;
+    const auto start = tui::draft_store::DraftKeeper::Clock::now();
+    keeper.seed(root, "");
+    keeper.update(root, "he", start);
+    keeper.update(root, "hel", start + std::chrono::milliseconds(400));
+    keeper.update(root, "hel", start + std::chrono::milliseconds(600));
+    ASSERT_EQ(tui::draft_store::load(root), std::string("")); // 600 < 900
+    keeper.update(root, "hel", start + std::chrono::milliseconds(900));
+    ASSERT_EQ(tui::draft_store::load(root), std::string("hel"));
+    tui::draft_store::clear(root);
+    std::filesystem::remove_all(root);
+    return 0;
+}
+
 int main() {
     int failed = 0;
+    failed += run_test("newline inserts a line break", test_newline_inserts_a_line_break);
+    failed += run_test("newline ignored when multiline is off",
+                       test_newline_is_ignored_when_multiline_is_off);
+    failed += run_test("up moves within the input then reaches history",
+                       test_up_moves_within_the_input_then_reaches_history);
+    failed += run_test("down moves within the input", test_down_moves_within_the_input);
+    failed += run_test("vertical movement clamps to a shorter line",
+                       test_vertical_movement_clamps_to_a_shorter_line);
+    failed += run_test("Ctrl-A/E use the current line", test_ctrl_a_e_use_the_current_line);
+    failed += run_test("Home/End use the current line", test_home_end_use_the_current_line);
+    failed += run_test("backspace joins lines", test_backspace_joins_lines);
+    failed += run_test("paste keeps newlines when multiline is on",
+                       test_paste_keeps_newlines_when_multiline_is_on);
+    failed += run_test("paste flattens newlines when multiline is off",
+                       test_paste_flattens_newlines_when_multiline_is_off);
+    failed += run_test("draft round trips through the workspace file",
+                       test_draft_round_trips_through_the_workspace_file);
+    failed += run_test("a missing or unreadable draft reads as empty",
+                       test_a_missing_or_unreadable_draft_reads_as_empty);
+    failed += run_test("the draft keeper writes after the debounce",
+                       test_the_draft_keeper_writes_after_the_debounce);
+    failed += run_test("a new keystroke restarts the debounce",
+                       test_a_new_keystroke_restarts_the_debounce);
     failed += run_test("basic insertion", test_basic_insertion);
     failed += run_test("slash triggers drawer", test_slash_triggers_drawer);
     failed += run_test("left moves tabs when the drawer is open",

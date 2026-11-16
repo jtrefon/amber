@@ -26,6 +26,14 @@ public:
     bool drawer_open() const { return drawer_open_; }
     int drawer_sel() const { return drawer_sel_; }
     const std::string& shadow() const { return shadow_; }
+    std::size_t line_count() const;
+
+    // Multi-line composer. With it off every newline-producing path is a no-op
+    // and the input stays a single line, exactly as before the composer landed.
+    void set_multiline(bool on) noexcept { multiline_ = on; }
+    bool multiline() const noexcept { return multiline_; }
+    void set_max_lines(int n) noexcept { max_lines_ = n < 1 ? 1 : (n > 20 ? 20 : n); }
+    int max_lines() const noexcept { return max_lines_; }
 
     // Result of an event.
     struct Result {
@@ -50,6 +58,8 @@ public:
     Result on_tab();        // Tab
     Result on_shift_tab();  // Shift-Tab (backward cycle)
     Result on_enter();
+    Result on_newline();                      // Ctrl+J / Shift+Enter: insert '\n'
+    Result on_paste(const std::string& text); // bracketed-paste content
     Result on_backspace();
     Result on_ctrl_d();
     Result on_ctrl_r(); // reverse history search (stub)
@@ -163,6 +173,8 @@ private:
     std::string completion_shadow(const std::string& partial) const;
     std::string input_;
     size_t cursor_ = 0;
+    bool multiline_ = true;
+    int max_lines_ = 8;
     bool drawer_open_ = false;
     int drawer_sel_ = 0;
     std::string shadow_;      // faded completion hint after cursor

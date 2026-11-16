@@ -154,7 +154,8 @@ void Terminal::start() {
     if (!initscr())
         throw std::runtime_error("initscr failed");
     impl_->started = true;
-    raw(); // Ctrl-C is a keypress, not SIGINT
+    raw();  // Ctrl-C is a keypress, not SIGINT
+    nonl(); // Enter arrives as CR (13), so Ctrl+J (LF, 10) can mean newline
     noecho();
     keypad(stdscr, TRUE);
     meta(stdscr, TRUE); // the high-bit Alt+digit form

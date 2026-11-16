@@ -23,7 +23,7 @@ because their logic is welded to ncurses.
     markdown,markdown_md4c,reasoning_block,window,ui_state,status_bar_layout,
     gauge_text,input_line_layout,completion_context,help_page,option_key_decode,
     form_focus,list_state,dialog_pager,panel_view_text,session_browser_view,
-    wrap_columns,cmdline_edit,geometry,cell,glyphs,theme,surface,compositor,
+    wrap_columns,cmdline_edit,draft_store,geometry,cell,glyphs,theme,surface,compositor,
     component,gallery,dialog_state,dialog_view,screen_view,rich_surface,
     text_screen,skills_screen_view,drawer_view,text_canvas,frame_painter,
     welcome}.{h,cpp}`

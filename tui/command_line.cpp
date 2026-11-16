@@ -24,9 +24,58 @@ bool completion_matches(const std::string& name, const std::string& p) {
     return name.size() >= suffix.size() && name.substr(0, suffix.size()) == suffix;
 }
 
+// The composer's line boundaries. A cursor sitting ON a newline belongs to the
+// line that newline terminates, so its line end is the newline itself.
+bool is_word_sep(char c) {
+    return c == ' ' || c == '\n';
+}
+
+std::size_t line_start_for(const std::string& s, std::size_t pos) {
+    if (pos == 0)
+        return 0;
+    const std::size_t nl = s.rfind('\n', pos - 1);
+    return (nl == std::string::npos) ? 0 : nl + 1;
+}
+
+std::size_t line_end_for(const std::string& s, std::size_t pos) {
+    const std::size_t nl = s.find('\n', pos);
+    return (nl == std::string::npos) ? s.size() : nl;
+}
+
+// The flat index directly above (-1) or below (+1) `pos`, keeping the column
+// where the target line is long enough. npos means "no line that way".
+std::size_t vertical_target(const std::string& s, std::size_t pos, int direction) {
+    const std::size_t start = line_start_for(s, pos);
+    const std::size_t col = pos - start;
+    if (direction < 0) {
+        if (start == 0)
+            return std::string::npos;
+        const std::size_t prev_end = start - 1;
+        const std::size_t prev_start = line_start_for(s, prev_end);
+        return prev_start + std::min(col, prev_end - prev_start);
+    }
+    const std::size_t end = line_end_for(s, pos);
+    if (end >= s.size())
+        return std::string::npos;
+    const std::size_t next_start = end + 1;
+    const std::size_t next_end = line_end_for(s, next_start);
+    return next_start + std::min(col, next_end - next_start);
+}
+
+// Never leave the caret inside a UTF-8 continuation byte.
+std::size_t snap_to_boundary(const std::string& s, std::size_t pos) {
+    while (pos > 0 && pos < s.size() && (static_cast<unsigned char>(s[pos]) & 0xC0) == 0x80)
+        --pos;
+    return pos;
+}
+
 } // namespace
 
 CommandLine::CommandLine() = default;
+
+std::size_t CommandLine::line_count() const {
+    return static_cast<std::size_t>(std::count(input_.begin(), input_.end(), '\n')) + 1;
+}
 
 // ── Internal helpers ────────────────────────────────────────────────
 
@@ -111,13 +160,17 @@ void CommandLine::edited() {
 void CommandLine::recompute() {
     shadow_.clear();
 
-    // Update drawer state — it should close when / is deleted.
-    drawer_open_ = (!input_.empty() && input_[0] == '/');
+    // Update drawer state — it should close when / is deleted, and a
+    // multi-line buffer is prompt text, never a slash command.
+    const bool single_line = input_.find('\n') == std::string::npos;
+    drawer_open_ = single_line && !input_.empty() && input_[0] == '/';
 
     // Only show shadow when cursor is at end of input.
     if (cursor_ != input_.size())
         return;
     if (input_.empty() || input_[0] != '/')
+        return;
+    if (!single_line)
         return;
 
     // Find the partial token (text after last space or start).
@@ -193,7 +246,7 @@ CommandLine::Result CommandLine::on_char(char c) {
     Result r;
     save_undo();
 
-    if (c == '?' && !input_.empty() && input_[0] == '/')
+    if (c == '?' && !input_.empty() && input_[0] == '/' && input_.find('\n') == std::string::npos)
         return intercept_help_question(c);
 
     if (c == '@' && input_.size() < 65536) {
@@ -209,10 +262,53 @@ CommandLine::Result CommandLine::on_char(char c) {
     if (c >= 32 && c <= 126 && input_.size() < 65536) {
         input_.insert(cursor_, 1, c);
         ++cursor_;
-        reset_cycle();
-        drawer_open_ = (!input_.empty() && input_[0] == '/');
-        recompute();
+        edited();
     }
+    return r;
+}
+
+CommandLine::Result CommandLine::on_newline() {
+    Result r;
+    if (!multiline_ || input_.size() >= 65536)
+        return r;
+    save_undo();
+    input_.insert(cursor_, 1, '\n');
+    ++cursor_;
+    edited();
+    return r;
+}
+
+// Insert pasted content as text, not as keystrokes: a pasted '?' or '@' is
+// content, so it must not open the help page or the file picker. Carriage
+// returns are normalized; with the composer off, line breaks flatten to spaces
+// exactly as a single-line paste always did.
+CommandLine::Result CommandLine::on_paste(const std::string& text) {
+    Result r;
+    std::string clean;
+    clean.reserve(text.size());
+    std::size_t i = 0;
+    while (i < text.size()) {
+        if (input_.size() + clean.size() >= 65536)
+            break;
+        const char c = text[i];
+        if (c == '\r' || c == '\n') {
+            // CRLF is one line break, not two.
+            if (c == '\r' && i + 1 < text.size() && text[i + 1] == '\n')
+                ++i;
+            clean.push_back(multiline_ ? '\n' : ' ');
+        } else if (c == '\t') {
+            clean.push_back(' ');
+        } else if (static_cast<unsigned char>(c) >= 32) {
+            clean.push_back(c);
+        }
+        ++i;
+    }
+    if (clean.empty())
+        return r;
+    save_undo();
+    input_.insert(cursor_, clean);
+    cursor_ += clean.size();
+    edited();
     return r;
 }
 
@@ -390,12 +486,12 @@ CommandLine::Result CommandLine::on_ctrl_r() {
 }
 
 CommandLine::Result CommandLine::on_ctrl_a() {
-    cursor_ = 0;
+    cursor_ = line_start_for(input_, cursor_);
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_ctrl_e() {
-    cursor_ = input_.size();
+    cursor_ = line_end_for(input_, cursor_);
     return Result{};
 }
 
@@ -403,11 +499,11 @@ CommandLine::Result CommandLine::on_ctrl_w() {
     save_undo();
     if (cursor_ > 0) {
         size_t start = cursor_;
-        // Skip spaces backward.
-        while (start > 0 && input_[start - 1] == ' ')
+        // Skip separators backward.
+        while (start > 0 && is_word_sep(input_[start - 1]))
             --start;
-        // Skip non-space backward.
-        while (start > 0 && input_[start - 1] != ' ')
+        // Skip non-separator backward, never crossing into the previous line.
+        while (start > 0 && !is_word_sep(input_[start - 1]))
             --start;
         kill_buffer_ = input_.substr(start, cursor_ - start);
         input_.erase(start, cursor_ - start);
@@ -419,15 +515,17 @@ CommandLine::Result CommandLine::on_ctrl_w() {
 
 CommandLine::Result CommandLine::on_ctrl_u() {
     save_undo();
-    input_.erase(0, cursor_);
-    cursor_ = 0;
+    const std::size_t start = line_start_for(input_, cursor_);
+    input_.erase(start, cursor_ - start);
+    cursor_ = start;
     edited();
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_ctrl_k() {
     save_undo();
-    input_.erase(cursor_);
+    const std::size_t end = line_end_for(input_, cursor_);
+    input_.erase(cursor_, end - cursor_);
     edited();
     return Result{};
 }
@@ -476,11 +574,22 @@ CommandLine::Result CommandLine::on_up() {
             return r;
         }
     }
+    // A multi-line buffer: Up walks the composer first and only leaves it from
+    // the first line, where history is what the key has always meant.
+    if (input_.find('\n') != std::string::npos) {
+        const std::size_t target = vertical_target(input_, cursor_, -1);
+        if (target != std::string::npos) {
+            cursor_ = snap_to_boundary(input_, target);
+            recompute();
+            return r;
+        }
+    }
     // Otherwise, history.
     if (!history_.empty() && history_pos_ > 0) {
         --history_pos_;
         input_ = history_[history_pos_];
         cursor_ = input_.size();
+        recompute();
     }
     return r;
 }
@@ -500,14 +609,26 @@ CommandLine::Result CommandLine::on_down() {
             return r;
         }
     }
+    // Down walks the composer first; only the last line falls through to
+    // history, which is the readline contract.
+    if (input_.find('\n') != std::string::npos) {
+        const std::size_t target = vertical_target(input_, cursor_, +1);
+        if (target != std::string::npos) {
+            cursor_ = snap_to_boundary(input_, target);
+            recompute();
+            return r;
+        }
+    }
     if (!history_.empty() && history_pos_ < history_.size() - 1) {
         ++history_pos_;
         input_ = history_[history_pos_];
         cursor_ = input_.size();
+        recompute();
     } else if (!history_.empty()) {
         history_pos_ = history_.size();
         input_.clear();
         cursor_ = 0;
+        recompute();
     }
     return r;
 }
@@ -546,12 +667,12 @@ CommandLine::Result CommandLine::on_right() {
 }
 
 CommandLine::Result CommandLine::on_home() {
-    cursor_ = 0;
+    cursor_ = line_start_for(input_, cursor_);
     return Result{};
 }
 
 CommandLine::Result CommandLine::on_end() {
-    cursor_ = input_.size();
+    cursor_ = line_end_for(input_, cursor_);
     return Result{};
 }
 

@@ -36,6 +36,21 @@ Scroll scroll_for(int prompt_w, const std::string& input, std::size_t cursor,
 // never splitting a UTF-8 codepoint.
 int visible_bytes(const std::string& input, std::size_t from, int room);
 
+// A multi-line input, split on '\n'. The composer grows upward until max_rows,
+// then keeps the cursor's line in view (first is the top visible line).
+struct Block {
+    std::vector<std::string> lines;
+    int first = 0;      // logical index of the top visible line
+    int rows = 1;       // visible rows (<= max_rows and <= lines.size())
+    int cursor_row = 0; // logical row holding the cursor
+    int cursor_col = 0; // byte column of the cursor within that line
+};
+
+// Split `input` into display lines and place `cursor` inside it. `cursor` is a
+// flat byte index; an index on a '\n' belongs to the line before it (the line
+// end). Empty text is one empty line, so the composer always has a row.
+Block block_for(const std::string& input, std::size_t cursor, int max_rows);
+
 } // namespace tui::input_line_layout
 
 #endif // AMBER_TUI_INPUT_LINE_LAYOUT_H

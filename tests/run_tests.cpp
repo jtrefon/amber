@@ -83,6 +83,70 @@ TEST(config_defaults) {
               "http://localhost:8000/v1/chat/completions");
 }
 
+// The composer is on by default; a settings file that predates the keys (or
+// simply omits them) keeps that default. An explicit off/3 applies, and the
+// pair survives save_settings -> load.
+TEST(config_input_settings_default_and_removed_keys_fall_back) {
+    agent::Config defaults;
+    ASSERT_TRUE(defaults.input_multiline);
+    ASSERT_EQ(defaults.input_max_lines, 8);
+
+    const char* path = "/tmp/amber_cfg_input.conf";
+    {
+        std::ofstream f(path);
+        f << "stream=1\n";
+    }
+    agent::Config absent;
+    absent.load(path);
+    ASSERT_TRUE(absent.input_multiline);
+    ASSERT_EQ(absent.input_max_lines, 8);
+
+    {
+        std::ofstream f(path);
+        f << "input_multiline=0\n";
+        f << "input_max_lines=3\n";
+    }
+    agent::Config off;
+    off.load(path);
+    ASSERT_FALSE(off.input_multiline);
+    ASSERT_EQ(off.input_max_lines, 3);
+
+    {
+        std::ofstream f(path);
+        f << "input_max_lines=100\n";
+    }
+    agent::Config high;
+    high.load(path);
+    ASSERT_EQ(high.input_max_lines, 20); // the declared range is 1..20
+
+    {
+        std::ofstream f(path);
+        f << "input_max_lines=0\n";
+    }
+    agent::Config low;
+    low.load(path);
+    ASSERT_EQ(low.input_max_lines, 1);
+
+    setenv("AMBER_INPUT_MAX_LINES", "100", 1);
+    agent::Config env_high;
+    env_high.apply_environment();
+    ASSERT_EQ(env_high.input_max_lines, 20);
+    setenv("AMBER_INPUT_MAX_LINES", "0", 1);
+    agent::Config env_low;
+    env_low.apply_environment();
+    ASSERT_EQ(env_low.input_max_lines, 1);
+    unsetenv("AMBER_INPUT_MAX_LINES");
+
+    const char* saved = "/tmp/amber_cfg_input_saved.conf";
+    ASSERT_TRUE(off.save_settings(saved));
+    agent::Config back;
+    back.load(saved);
+    ASSERT_FALSE(back.input_multiline);
+    ASSERT_EQ(back.input_max_lines, 3);
+    std::remove(path);
+    std::remove(saved);
+}
+
 TEST(config_global_dir_honours_absolute_xdg) {
     setenv("XDG_CONFIG_HOME", "/tmp/amber_cfg_abs", 1);
     ASSERT_EQ(agent::global_config_dir(), "/tmp/amber_cfg_abs/amber");

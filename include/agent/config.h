@@ -146,6 +146,12 @@ struct Config {
     std::string ui_glyphs = "auto"; // auto|unicode|ascii
     std::string ui_motion = "full"; // full|reduced
 
+    // Multi-line prompt composer (Ctrl+J / Shift+Enter inserts a newline). Off
+    // keeps the input a single line, flattening pasted line breaks to spaces.
+    bool input_multiline = true;
+    // Rows the composer grows to before it scrolls internally.
+    int input_max_lines = 8;
+
     // Model context window (n_ctx) in tokens. Used by UIs to render a
     // context-usage gauge (prompt_tokens vs this). Auto-detected from the
     // server's /v1/models endpoint on startup unless set explicitly. <=0 means

@@ -18,6 +18,7 @@
 #include "setting_registry.h"
 #include "agent_event.h"
 #include "command_line.h"
+#include "draft_store.h"
 #include "key_binder.h"
 #include "tui_ui_services.h"
 #include "event_router.h"
@@ -398,9 +399,9 @@ private:
     // --- loop does: start up, drain, dispatch a key, act on the result.
     void run_startup(CommandLine& cl);
     void refresh_completion_context(CommandLine& cl);
-    [[noreturn]] void shutdown_from_signal();
+    [[noreturn]] void shutdown_from_signal(draft_store::DraftKeeper& draft);
     bool pump_io(CommandLine& cl);
-    void idle_tick(bool had_events, CommandLine& cl);
+    void idle_tick(bool had_events, CommandLine& cl, draft_store::DraftKeeper& draft);
     // Open/close background resource viewers for work whose state changed;
     // never moves focus.
     void auto_attach_resources();

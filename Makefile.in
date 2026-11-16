@@ -258,6 +258,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/tui_workspace.o \
              $(BUILD_DIR)/tui/tui_main.o \
              $(BUILD_DIR)/tui/command_line.o \
+             $(BUILD_DIR)/tui/draft_store.o \
              $(BUILD_DIR)/tui/action_registry.o \
              $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o \
              $(BUILD_DIR)/tui/drawer_view.o \
@@ -1250,8 +1251,9 @@ $(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/widgets.o $(BUILD_DIR)/tui/dialog_state.o $(BUILD_DIR)/tui/dialog_view.o $(BUILD_DIR)/tui/rich_surface.o $(BUILD_DIR)/tui/text_screen.o $(BUILD_DIR)/tui/skills_screen_view.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/modal_host.o $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/frame_painter.o $(BUILD_DIR)/tui/drawer_view.o $(BUILD_DIR)/tui/text_canvas.o $(BUILD_DIR)/tui/screen_view.o $(BUILD_DIR)/tui/screen_host.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
 
 
-$(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o
+
+$(BUILD_DIR)/command_line_test: $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/draft_store.o
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CL_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/draft_store.o
 
 $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_browser_core.o
