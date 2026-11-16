@@ -248,6 +248,7 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/shape_replay.o \
              $(BUILD_DIR)/bench/probe.o \
              $(BUILD_DIR)/bench/data_root.o \
+             $(BUILD_DIR)/bench/scripted_endpoint.o \
              $(BUILD_DIR)/bench/mock_server.o \
              $(BUILD_DIR)/bench/binary_driver.o
 BENCH_MAIN = $(BUILD_DIR)/bench/main.o
@@ -1262,8 +1263,8 @@ $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_brows
 
 # Drives the real TUI in a pty. The fixture is written with SessionStore, so the
 # test links the core library the same way plugin_test does.
-$(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PTY_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+$(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PTY_TEST_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
