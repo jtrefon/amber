@@ -3400,6 +3400,43 @@ TEST(approval_in_a_background_window_names_its_session) {
     if (!require(tui.wait_for("[worker]", 5000),
                  "the approval did not name the originating session", tui))
         return;
+
+    // The sheet's visual contract, on the real 80x24 screen: the title is inset
+    // in the top border, the verdicts stack vertically, the countdown is one
+    // status line (not a suffix on every option), the footer names the keys and
+    // the drop shadow is painted. Visibility of the last footer key proves the
+    // sheet fits the screen; the unit tests pin its measured width.
+    if (!require(tui.wait_for("\u2524 Approve action? \u251c", 5000),
+                 "the approval title is not inset in the top border", tui))
+        return;
+    if (!require(tui.wait_for("Always deny", 5000), "the last verdict never painted", tui))
+        return;
+    // The pty stream is ncurses' diff, so a short capture can miss rows it
+    // repainted earlier. The accumulated text keeps the first full paint, which
+    // is the frame this test is about.
+    const std::string sheet = tui.text();
+    const size_t once = sheet.find("Allow once");
+    const size_t session = sheet.find("Allow session");
+    const size_t allow = sheet.find("Always allow");
+    const size_t deny = sheet.find("Always deny");
+    if (!require(once != std::string::npos && once < session && session < allow && allow < deny,
+                 "the four verdicts are not four rows in order", tui))
+        return;
+    if (!require(sheet.find("auto-deny in") != std::string::npos,
+                 "the approval has no auto-deny countdown", tui))
+        return;
+    if (!require(sheet.find("Allow once (") == std::string::npos,
+                 "the countdown is repeated inside the verdicts", tui))
+        return;
+    for (const char* key : {"[1-4] Pick", "[Tab] Move", "[Enter] Confirm", "[Esc] Cancel"}) {
+        if (!require(sheet.find(key) != std::string::npos,
+                     std::string("the approval footer is missing ") + key, tui))
+            return;
+    }
+    if (!require(sheet.find("\u2591") != std::string::npos,
+                 "the approval sheet paints no drop shadow", tui))
+        return;
+
     const std::string marker_file = "/tmp/amber-pty-approval";
     std::error_code ec;
     fs::remove(marker_file, ec);
