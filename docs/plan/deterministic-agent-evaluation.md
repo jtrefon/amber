@@ -23,7 +23,7 @@ Measured on `main` at the time of writing:
 | Unit + probes | 42 harness probes, large `run_tests` suite | parsers, loop, dispatch, budgets, recovery primitives | no real binary, no multi-step task |
 | Hermetic bench | 61 scenarios / 19 suites; 43 hermetic, 18 live-only; 46 matrix cells | the harness executes a **known** plan and scores it | the plan never reacts to a tool result |
 | CLI E2E | `bench-e2e`, 5 scenarios through `amber-cli` + mock HTTP | boot, config, plugins, tools, tool sequence | no final workspace, no answer, no exit-code assertion |
-| TUI E2E | `tui_pty_test`, 75 tests, real pty + fake endpoint | UI state, modals, providers, approvals, some agent turns | fake scripts use `bash`/`watch`/`delegate`; no read/write/verify journey |
+| TUI E2E | `tui_pty_test`, 75 tests, real pty + fake endpoint | UI state, modals, providers, approvals, some agent turns | fake scripts use `bash`/`process_start`/`watch`/`delegate`/`tdd`; no read/write/verify journey |
 | Live | manual release artifact | model quality | correctly outside CI; unreliable and costly as a gate |
 
 Two concrete gaps follow:
@@ -279,7 +279,7 @@ tool calls; cache counters; 429; malformed JSON; empty replies; truncated SSE.
 Capture is manual (`amber-bench record --live --trace-out`), redacts secrets and
 never runs in CI. The gate replays only.
 
-### 3.6 CLI E2E — [#634](https://github.com/jtrefon/amber/issues/634)
+### 3.6 CLI E2E — [#634](https://github.com/jtrefon/amber/issues/634), [#645](https://github.com/jtrefon/amber/issues/645)
 
 `bench/binary_driver.cpp` gains final-answer, workspace, exit-code, usage and
 request-contract assertions. It already runs the real `amber-cli` against a
@@ -301,8 +301,9 @@ Initial journeys:
 12. subagent delegation;
 13. compression mid-task.
 
-`make agent-e2e` runs the suite. A wrong file, extra file, missing file, wrong
-tool, wrong exit code or missing telemetry fails the journey.
+#634 lands journeys 1–5; #645 adds 6–8, 12 and 13; #639 adds 9–11.
+`make agent-e2e` runs the combined suite. A wrong file, extra file, missing
+file, wrong tool, wrong exit code or missing telemetry fails the journey.
 
 ### 3.7 TUI E2E — [#635](https://github.com/jtrefon/amber/issues/635), [#636](https://github.com/jtrefon/amber/issues/636)
 
@@ -445,7 +446,8 @@ behavioral coverage; they do not replace the hermetic overhead gate.
 | 0 | [#631](https://github.com/jtrefon/amber/issues/631) | closed-loop `PolicyClient` + state machine | — |
 | 1 | [#632](https://github.com/jtrefon/amber/issues/632) | policy zoo and score discrimination | #631 |
 | 1 | [#633](https://github.com/jtrefon/amber/issues/633) | workspace, request-contract and fault schema | #630, #631 |
-| 2 | [#634](https://github.com/jtrefon/amber/issues/634) | CLI agent journeys | #630, #631, #633 |
+| 2 | [#634](https://github.com/jtrefon/amber/issues/634) | CLI agent journeys (first 5) | #630, #631, #633 |
+| 2 | [#645](https://github.com/jtrefon/amber/issues/645) | CLI approval/cancel/session/subagent/compression | #634 |
 | 2 | [#635](https://github.com/jtrefon/amber/issues/635) | TUI harness extraction + 3 journeys | #630, #631, #633 |
 | 2 | [#636](https://github.com/jtrefon/amber/issues/636) | TUI approval/cancel/session/subagent journeys | #635 |
 | 3 | [#637](https://github.com/jtrefon/amber/issues/637) | trace replay | #630 |
@@ -453,7 +455,7 @@ behavioral coverage; they do not replace the hermetic overhead gate.
 | 4 | [#639](https://github.com/jtrefon/amber/issues/639) | skills/MCP/plugin coverage | #634, #635 |
 | 4 | [#640](https://github.com/jtrefon/amber/issues/640) | long-horizon repository scenarios | #633, #634 |
 | 5 | [#641](https://github.com/jtrefon/amber/issues/641) | fault, invariant and seeded fuzz | #630, #631, #637 |
-| 6 | [#642](https://github.com/jtrefon/amber/issues/642) | CI gates, baselines, local parity | #634–#638, #641 |
+| 6 | [#642](https://github.com/jtrefon/amber/issues/642) | CI gates, baselines, local parity | #634–#638, #641, #645 |
 | 6 | [#643](https://github.com/jtrefon/amber/issues/643) | specs and contributor workflow | all |
 
 ### Dependency graph
@@ -465,7 +467,8 @@ behavioral coverage; they do not replace the hermetic overhead gate.
    ├──► #633 schema   └──► #641 faults                  │
    │        │                                           │
 #631 policy ─► #632 zoo                                │
-   │        └──► #633 ──► #634 CLI ──► #639 surfaces    │
+   │        └──► #633 ──► #634 CLI ──► #645 CLI+        │
+   │                         │         #639 surfaces    │
    │                         │         #640 long-horizon│
    │                         └──► #635 TUI ──► #636     │
    └──────────────────────────────► #642 CI ◄───────────┘
@@ -477,7 +480,7 @@ Parallel work:
 
 - #630 and #631 can start together; #633 joins them.
 - #637 can start once #630 lands; #638 follows.
-- #634 and #635 can run in parallel once #633 lands.
+- #634 and #635 can run in parallel once #633 lands; #645 follows #634.
 - #641 can start after #630/#631/#637; it does not block the first CLI/TUI
   journeys.
 - #642 is the integration point; do not start it until at least one CLI and one
