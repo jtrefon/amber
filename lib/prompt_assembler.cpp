@@ -136,7 +136,7 @@ void collect_skill_blocks(const PromptSources& sources, std::vector<PromptBlock>
     // block would name a tool the registry cannot serve — the same rule the
     // tool prose follows. Activated bodies are not gated: they are content the
     // model has already seen, and dropping them would lose context.
-    if (sources.registry && sources.registry->find("read_skill")) {
+    if (sources.read_skill_available) {
         const auto discovery = sources.skills->discovery_block();
         if (!discovery.empty()) {
             std::string text = "Available skills (activate with read_skill):\n";

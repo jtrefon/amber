@@ -28,7 +28,7 @@ struct PromptBlock {
 // none of it: the agent remains the owner, and one request reads these
 // sources. Null pointers mean that source contributes nothing.
 struct PromptSources {
-    const ToolRegistry* registry = nullptr;
+    bool read_skill_available = false;
     const MemoryRetriever* memory = nullptr;
     const SkillCatalog* skills = nullptr;
     const ActivationSink* activated = nullptr;

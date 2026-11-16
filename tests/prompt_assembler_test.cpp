@@ -109,16 +109,13 @@ Message plain_message(const std::string& role, const std::string& content) {
 // (1000). Insertion order breaks ties, so two plugin blocks keep registration
 // order.
 TEST(prompt_assembler_collects_blocks_in_priority_order) {
-    ToolRegistry registry;
-    registry.register_tool(std::make_unique<NamedTool>("read_skill"));
-
     SkillDir dir("amber_prompt_assembler_order");
     Workspace::set_root(dir.path());
     Config cfg;
     auto skills = make_catalog(dir, cfg);
 
     Sources s;
-    s.sources.registry = &registry;
+    s.sources.read_skill_available = true;
     s.sources.skills = skills.get();
     s.activated.record("demo", "the activated body");
     SessionBrief current;
@@ -156,7 +153,6 @@ TEST(prompt_assembler_collects_blocks_in_priority_order) {
 // cannot serve, so it is omitted. Activated bodies are content the model has
 // already seen and stay.
 TEST(prompt_assembler_omits_discovery_without_read_skill) {
-    ToolRegistry registry;
     Sources s;
     s.activated.record("demo", "the activated body");
 
@@ -164,7 +160,6 @@ TEST(prompt_assembler_omits_discovery_without_read_skill) {
     Workspace::set_root(dir.path());
     Config cfg;
     auto skills = make_catalog(dir, cfg);
-    s.sources.registry = &registry;
     s.sources.skills = skills.get();
 
     std::vector<PromptBlock> head;
@@ -274,4 +269,225 @@ TEST(prompt_assembler_missing_system_prompt_is_an_error) {
         threw = true;
     }
     ASSERT(threw);
+}
+
+TEST(prompt_assembler_system_prompt_validates_its_sources) {
+    SystemPromptSources missing_all;
+    bool threw = false;
+    try {
+        PromptAssembler::system_prompt(missing_all);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    ASSERT(threw);
+
+    Config cfg;
+    cfg.system_prompt_path = "/nonexistent/amber/system.md";
+    SystemPromptSources missing_registry;
+    missing_registry.cfg = &cfg;
+    threw = false;
+    try {
+        PromptAssembler::system_prompt(missing_registry);
+    } catch (const std::invalid_argument&) {
+        threw = true;
+    }
+    ASSERT(threw);
+}
+
+TEST(prompt_assembler_missing_tools_prompt_is_an_error) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_tools";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
+
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
+    cfg.tools_prompt_path = (dir / "missing-tools.md").string();
+    ToolRegistry registry;
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
+    sources.registry = &registry;
+
+    bool threw = false;
+    try {
+        PromptAssembler::system_prompt(sources);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    ASSERT(threw);
+    fs::remove_all(dir);
+}
+
+// Absent sources are omitted, not guessed at: an empty registry contributes no
+// tool prose, null cards contribute no section, and Read/Yolo still get their
+// mode paragraph. A registry with a tool renders the advertising prose when no
+// tools prompt file is configured.
+TEST(prompt_assembler_system_prompt_handles_absent_sections) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_absent";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
+
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
+    cfg.mode = AgentMode::Read;
+    ToolRegistry empty_registry;
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
+    sources.registry = &empty_registry;
+    static const std::string empty_text;
+    sources.environment_card = &empty_text;
+    sources.workspace_note = &empty_text;
+
+    std::string system = PromptAssembler::system_prompt(sources);
+    ASSERT(system.find("You are in READ mode") != std::string::npos);
+    ASSERT(system.find("## Plugins") == std::string::npos);
+
+    cfg.mode = AgentMode::Yolo;
+    ASSERT(PromptAssembler::system_prompt(sources).find("You are in YOLO mode") !=
+           std::string::npos);
+
+    cfg.mode = AgentMode::Write;
+    ToolRegistry with_tool;
+    with_tool.register_tool(std::make_unique<NamedTool>("demo_tool"));
+    sources.registry = &with_tool;
+    system = PromptAssembler::system_prompt(sources);
+    ASSERT(system.find("demo_tool") != std::string::npos);
+
+    // A mode outside the documented set adds no paragraph: the fallback is a
+    // prompt without a claim about how the agent is operating.
+    cfg.mode = static_cast<AgentMode>(99);
+    system = PromptAssembler::system_prompt(sources);
+    ASSERT(system.find("You are in ") == std::string::npos);
+    fs::remove_all(dir);
+}
+
+// A blank section file is a section that renders nothing: it neither adds a
+// separator nor makes the prompt drift. The same rule applies to an empty
+// environment card and workspace note.
+TEST(prompt_assembler_skips_blank_sections) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_blank";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
+    {
+        std::ofstream out(dir / "tools.md");
+        out << "\n\n";
+    }
+
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
+    cfg.tools_prompt_path = (dir / "tools.md").string();
+    ToolRegistry registry;
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
+    sources.registry = &registry;
+
+    const std::string system = PromptAssembler::system_prompt(sources);
+    ASSERT_EQ(system.rfind("BASE PROMPT", 0), (std::size_t)0);
+    ASSERT(system.find("You are in WRITE mode") != std::string::npos);
+    fs::remove_all(dir);
+}
+
+TEST(prompt_assembler_order_blocks_breaks_ties_by_insertion) {
+    std::vector<PromptBlock> blocks = {
+        {500, 2, "second"}, {100, 0, "first"}, {500, 1, "tie winner"}};
+    PromptAssembler::order_blocks(blocks);
+    ASSERT_EQ(blocks[0].text, std::string("first"));
+    ASSERT_EQ(blocks[1].text, std::string("tie winner"));
+    ASSERT_EQ(blocks[2].text, std::string("second"));
+}
+
+TEST(prompt_assembler_empty_sources_add_no_blocks) {
+    PromptSources sources;
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    PromptAssembler::collect_blocks(sources, head, tail);
+    ASSERT(head.empty());
+    ASSERT(tail.empty());
+
+    std::vector<Message> prompt_copy;
+    prompt_copy.push_back(plain_message("system", "BASE PROMPT"));
+    PromptAssembler::inject_blocks(sources, prompt_copy);
+    ASSERT_EQ(prompt_copy.size(), 1u);
+}
+
+// A retriever with nothing to say and an empty brief are both silent: the
+// block is omitted rather than pushed as an empty message.
+TEST(prompt_assembler_omits_empty_memory_and_brief) {
+    auto store = make_memory_store(ExperienceConfig{});
+    MemoryRetriever memory(*store);
+    SessionBriefStore brief;
+    PromptSources sources;
+    sources.memory = &memory;
+    sources.brief = &brief;
+
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    PromptAssembler::collect_blocks(sources, head, tail);
+    ASSERT(head.empty());
+    ASSERT(tail.empty());
+}
+
+TEST(prompt_assembler_omits_empty_discovery) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_empty_discovery";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    Config cfg;
+    const std::string none = (dir / "none").string();
+    SkillCatalog empty(cfg, SkillScanPaths{none, none, none, none, none}, (dir / "home").string());
+    empty.discover({});
+    PromptSources sources;
+    sources.read_skill_available = true;
+    sources.skills = &empty;
+
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    PromptAssembler::collect_blocks(sources, head, tail);
+    ASSERT(head.empty());
+    ASSERT(tail.empty());
+    fs::remove_all(dir);
+}
+
+// A catalog can contribute discovery while the activation sink is absent; the
+// missing sink is a missing source, not an empty list that has to exist.
+TEST(prompt_assembler_supports_skills_without_an_activation_sink) {
+    SkillDir dir("amber_prompt_assembler_no_sink");
+    Workspace::set_root(dir.path());
+    Config cfg;
+    auto skills = make_catalog(dir, cfg);
+    PromptSources sources;
+    sources.read_skill_available = true;
+    sources.skills = skills.get();
+    sources.activated = nullptr;
+
+    std::vector<PromptBlock> head;
+    std::vector<PromptBlock> tail;
+    PromptAssembler::collect_blocks(sources, head, tail);
+    ASSERT_EQ(head.size(), 1u);
+    ASSERT(head.front().text.find("Available skills") != std::string::npos);
+    ASSERT(tail.empty());
+}
+
+// A prompt copy with no system message (a host replaying a raw conversation)
+// still receives its head blocks, at the front.
+TEST(prompt_assembler_injects_without_a_system_message) {
+    Sources s;
+    std::vector<Message> prompt_copy;
+    prompt_copy.push_back(plain_message("user", "hello"));
+    prompt_copy.push_back(plain_message("assistant", "hi"));
+
+    PromptAssembler::inject_blocks(s.sources, prompt_copy);
+    ASSERT_EQ(prompt_copy.front().role, std::string("system"));
+    ASSERT(prompt_copy.front().content.find("the build system is make") != std::string::npos);
+    ASSERT_EQ(prompt_copy[1].content, std::string("hello"));
 }

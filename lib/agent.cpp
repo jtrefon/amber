@@ -271,7 +271,7 @@ std::string Agent::render_system_prompt() const {
 
 PromptSources Agent::prompt_sources() const {
     PromptSources sources;
-    sources.registry = &registry_;
+    sources.read_skill_available = registry_.has("read_skill");
     sources.memory = retriever_.get();
     sources.skills = skills_.get();
     sources.activated = &activated_skills_;
