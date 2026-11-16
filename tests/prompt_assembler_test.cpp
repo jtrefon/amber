@@ -322,9 +322,8 @@ TEST(prompt_assembler_missing_tools_prompt_is_an_error) {
 }
 
 // Absent sources are omitted, not guessed at: an empty registry contributes no
-// tool prose, null cards contribute no section, and Read/Yolo still get their
-// mode paragraph. A registry with a tool renders the advertising prose when no
-// tools prompt file is configured.
+// tool prose and null cards contribute no section, while Read still gets its
+// mode paragraph.
 TEST(prompt_assembler_system_prompt_handles_absent_sections) {
     const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_absent";
     fs::remove_all(dir);
@@ -345,26 +344,79 @@ TEST(prompt_assembler_system_prompt_handles_absent_sections) {
     sources.environment_card = &empty_text;
     sources.workspace_note = &empty_text;
 
-    std::string system = PromptAssembler::system_prompt(sources);
+    const std::string system = PromptAssembler::system_prompt(sources);
     ASSERT(system.find("You are in READ mode") != std::string::npos);
     ASSERT(system.find("## Plugins") == std::string::npos);
+    fs::remove_all(dir);
+}
 
-    cfg.mode = AgentMode::Yolo;
-    ASSERT(PromptAssembler::system_prompt(sources).find("You are in YOLO mode") !=
-           std::string::npos);
+// A registry with a tool renders the advertising prose when no tools prompt
+// file is configured.
+TEST(prompt_assembler_renders_tool_prose_without_a_tools_prompt) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_tool_prose";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
 
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
     cfg.mode = AgentMode::Write;
     ToolRegistry with_tool;
     with_tool.register_tool(std::make_unique<NamedTool>("demo_tool"));
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
     sources.registry = &with_tool;
-    system = PromptAssembler::system_prompt(sources);
-    ASSERT(system.find("demo_tool") != std::string::npos);
 
-    // A mode outside the documented set adds no paragraph: the fallback is a
-    // prompt without a claim about how the agent is operating.
+    const std::string system = PromptAssembler::system_prompt(sources);
+    ASSERT(system.find("demo_tool") != std::string::npos);
+    fs::remove_all(dir);
+}
+
+TEST(prompt_assembler_yolo_mode_has_its_paragraph) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_yolo";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
+
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
+    cfg.mode = AgentMode::Yolo;
+    ToolRegistry registry;
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
+    sources.registry = &registry;
+
+    ASSERT(PromptAssembler::system_prompt(sources).find("You are in YOLO mode") !=
+           std::string::npos);
+    fs::remove_all(dir);
+}
+
+// A mode outside the documented set adds no paragraph: the fallback is a prompt
+// without a claim about how the agent is operating.
+TEST(prompt_assembler_unknown_mode_adds_no_paragraph) {
+    const fs::path dir = fs::temp_directory_path() / "amber_prompt_assembler_mode";
+    fs::remove_all(dir);
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "system.md");
+        out << "BASE PROMPT\n";
+    }
+
+    Config cfg;
+    cfg.system_prompt_path = (dir / "system.md").string();
     cfg.mode = static_cast<AgentMode>(99);
-    system = PromptAssembler::system_prompt(sources);
-    ASSERT(system.find("You are in ") == std::string::npos);
+    ToolRegistry registry;
+    SystemPromptSources sources;
+    sources.cfg = &cfg;
+    sources.registry = &registry;
+
+    ASSERT(PromptAssembler::system_prompt(sources).find("You are in ") == std::string::npos);
     fs::remove_all(dir);
 }
 
