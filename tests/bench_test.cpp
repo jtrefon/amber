@@ -12,6 +12,7 @@
 #include "bench/oracle.h"
 #include "bench/policy.h"
 #include "bench/policy_client.h"
+#include "bench/policy_zoo.h"
 #include "bench/probe.h"
 #include "bench/recorder.h"
 #include "bench/report.h"
@@ -4346,6 +4347,49 @@ TEST(policy_scenario_recovers_from_a_missing_file) {
     ASSERT_EQ(reports.size(), 1u);
     ASSERT(reports[0].kpi.success);
     ASSERT(reports[0].failures.empty());
+}
+
+TEST(policy_zoo_discriminates_and_matches_expectations) {
+    std::string err;
+    const auto scenario = bench::load_scenario("bench/scenarios/policy/zoo.json", err);
+    ASSERT(scenario);
+
+    std::vector<bench::PolicyMatrixRow> rows;
+    for (const std::string& name : bench::policy_zoo_names()) {
+        bench::RunOptions opts;
+        opts.policy_name = name;
+        bench::RunMeta meta;
+        const std::vector<bench::ScenarioReport> reports =
+            bench::run_scenarios({*scenario}, opts, meta);
+        ASSERT_EQ(reports.size(), 1u);
+        bench::PolicyMatrixRow row;
+        row.scenario = reports[0].name;
+        row.policy = name;
+        row.success = reports[0].kpi.success;
+        row.score = reports[0].score.total;
+        row.recoveries = reports[0].kpi.recoveries;
+        row.tool_failures = reports[0].kpi.tool_failures;
+        row.failures = reports[0].failures;
+        rows.push_back(std::move(row));
+    }
+
+    std::map<std::string, bench::PolicyMatrixRow> by_policy;
+    for (const bench::PolicyMatrixRow& row : rows)
+        by_policy[row.policy] = row;
+    ASSERT(by_policy["planner"].success);
+    ASSERT(by_policy["retrier"].success);
+    ASSERT(by_policy["wrong_tool"].success);
+    ASSERT(!by_policy["lazy"].success);
+    ASSERT(!by_policy["hallucinator"].success);
+    ASSERT(!by_policy["quitter"].success);
+    ASSERT(!by_policy["over_eager"].success);
+    ASSERT(by_policy["retrier"].tool_failures >= 1);
+    ASSERT(by_policy["planner"].score > by_policy["lazy"].score);
+    ASSERT(by_policy["wrong_tool"].score < by_policy["planner"].score);
+
+    std::string check_err;
+    ASSERT(bench::check_policy_expectations("bench/policies/expectations.json", rows, check_err));
+    ASSERT(check_err.empty());
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {

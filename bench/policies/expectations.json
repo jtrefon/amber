@@ -1,0 +1,36 @@
+{
+  "scenarios": {
+    "zoo": {
+      "policies": {
+        "planner": {
+          "success": true,
+          "min_score": 80
+        },
+        "lazy": {
+          "success": false,
+          "reason_contains": "oracle"
+        },
+        "wrong_tool": {
+          "success": true,
+          "max_score": 99
+        },
+        "hallucinator": {
+          "success": false,
+          "reason_contains": "checks"
+        },
+        "quitter": {
+          "success": false,
+          "reason_contains": ["oracle", "checks"]
+        },
+        "over_eager": {
+          "success": false,
+          "reason_contains": "oracle"
+        },
+        "retrier": {
+          "success": true,
+          "min_tool_failures": 1
+        }
+      }
+    }
+  }
+}
