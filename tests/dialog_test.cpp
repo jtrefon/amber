@@ -136,7 +136,7 @@ TEST(dialog_view_frames_a_message_at_both_target_sizes) {
         view.lines = {"Delete this session?"};
         view.buttons = {"[ Yes ]", "[ No ]"};
         view.selected_button = 1;
-        view.footer = "Enter: confirm   Esc: cancel";
+        view.footer_keys = {{"Enter", "Confirm"}, {"Esc", "Cancel"}};
 
         const PaintedDialog painted = tui::paint_dialog(view, screen);
         ASSERT(painted.x >= 0 && painted.y >= 0);
@@ -145,13 +145,21 @@ TEST(dialog_view_frames_a_message_at_both_target_sizes) {
         ASSERT(painted.surface.width() >= 40);
         ASSERT(painted.surface.at(0, 0).glyph == std::string("┌") ||
                painted.surface.at(0, 0).glyph == std::string("+"));
-        ASSERT(has_role(painted.surface, Role::Selected));
-        ASSERT(has_role(painted.surface, Role::Muted));
+        ASSERT(has_role(painted.surface, Role::DialogButtonFocus));
+        ASSERT(has_role(painted.surface, Role::DialogFrame));
+        ASSERT(has_role(painted.surface, Role::DialogTitle));
+        ASSERT(has_role(painted.surface, Role::DialogFooterKey));
 
         bool title = false;
         for (int y = 0; y < painted.surface.height(); ++y)
             title = title || painted.surface.row_text(y).find("Confirm") != std::string::npos;
         ASSERT(title);
+        const std::string top = painted.surface.row_text(0);
+        ASSERT(top.find("┤") != std::string::npos); // ┤
+        ASSERT(top.find("├") != std::string::npos); // ├
+        const std::string bottom = painted.surface.row_text(painted.surface.height() - 2);
+        ASSERT(bottom.find("[Esc]") != std::string::npos);
+        ASSERT(bottom.find("Cancel") != std::string::npos);
     }
 }
 
@@ -168,7 +176,7 @@ TEST(dialog_view_list_marks_the_selection_and_the_filter) {
     bool filter = false;
     for (int y = 0; y < painted.surface.height(); ++y) {
         for (int x = 0; x < painted.surface.width(); ++x)
-            selected = selected || (painted.surface.at(x, y).style.role == Role::Selected &&
+            selected = selected || (painted.surface.at(x, y).style.role == Role::DialogSelected &&
                                     painted.surface.at(x, y).glyph == std::string("g"));
         filter = filter || painted.surface.row_text(y).find("/ ga") != std::string::npos;
     }
@@ -188,7 +196,8 @@ TEST(dialog_view_form_shows_the_value_and_places_the_cursor) {
 
     ASSERT(painted.cursor_x > 0);
     ASSERT(painted.cursor_y > 0);
-    ASSERT(painted.surface.at(painted.cursor_x, painted.cursor_y).style.role == Role::Selected);
+    ASSERT(painted.surface.at(painted.cursor_x, painted.cursor_y).style.role ==
+           Role::DialogSelected);
     bool value = false;
     for (int y = 0; y < painted.surface.height(); ++y)
         value = value || painted.surface.row_text(y).find("sk-test") != std::string::npos;
@@ -203,11 +212,88 @@ TEST(dialog_view_notice_is_an_error_and_buttons_are_drawn) {
     view.buttons = {"[  OK  ]", "[ Cancel ]"};
     view.selected_button = 0;
     const PaintedDialog painted = tui::paint_dialog(view, {100, 30});
-    ASSERT(has_role(painted.surface, Role::Error));
+    ASSERT(has_role(painted.surface, Role::DialogError));
     bool buttons = false;
     for (int y = 0; y < painted.surface.height(); ++y)
         buttons = buttons || painted.surface.row_text(y).find("[ Cancel ]") != std::string::npos;
     ASSERT(buttons);
+}
+
+TEST(dialog_view_shadow_is_visible) {
+    DialogView view;
+    view.title = "Confirm";
+    view.lines = {"Delete it?"};
+    view.buttons = {"[ Yes ]", "[ No ]"};
+    const PaintedDialog painted = tui::paint_dialog(view, {80, 24});
+
+    bool shadow = false;
+    for (int y = 1; y < painted.surface.height(); ++y) {
+        const tui::Cell& cell = painted.surface.at(painted.surface.width() - 1, y);
+        if (cell.style.role == Role::Shadow && cell.glyph != " ")
+            shadow = true;
+    }
+    for (int x = 1; x < painted.surface.width(); ++x) {
+        const tui::Cell& cell = painted.surface.at(x, painted.surface.height() - 1);
+        if (cell.style.role == Role::Shadow && cell.glyph != " ")
+            shadow = true;
+    }
+    ASSERT(shadow);
+    ASSERT(painted.surface.at(0, 0).style.role == Role::DialogFrame);
+    ASSERT(painted.surface.at(1, 1).style.role == Role::DialogSurface);
+}
+
+TEST(approval_sheet_is_vertical_and_stable_at_80x24) {
+    const auto make = [](const std::string& status) {
+        DialogView view;
+        view.title = "Approve action?";
+        view.lines = {"[main] bash: rm -rf build/"};
+        view.options = {{"1", "Allow once"},
+                        {"2", "Allow session"},
+                        {"3", "Always allow"},
+                        {"4", "Always deny"}};
+        view.selected_option = 1;
+        view.status = status;
+        view.footer_keys = {
+            {"1-4", "Pick"}, {"Tab", "Move"}, {"Enter", "Confirm"}, {"Esc", "Cancel"}};
+        view.preferred_width = 62;
+        return tui::paint_dialog(view, {80, 24});
+    };
+    const PaintedDialog sixty = make("auto-deny in 60s");
+    const PaintedDialog nine = make("auto-deny in 9s");
+
+    ASSERT_EQ(sixty.surface.width(), nine.surface.width());
+    ASSERT_EQ(sixty.x, nine.x);
+    ASSERT_EQ(sixty.y, nine.y);
+    ASSERT(sixty.surface.width() <= 78);
+    ASSERT(sixty.surface.width() >= 58);
+
+    int option_rows = 0;
+    int countdown_rows = 0;
+    bool selected_bar = false;
+    for (int y = 0; y < sixty.surface.height(); ++y) {
+        const std::string row = sixty.surface.row_text(y);
+        if (row.find("Allow once") != std::string::npos)
+            ++option_rows;
+        if (row.find("Allow session") != std::string::npos) {
+            ++option_rows;
+            selected_bar = true;
+            for (int x = 1; x < sixty.surface.width() - 2; ++x)
+                selected_bar =
+                    selected_bar && sixty.surface.at(x, y).style.role == Role::DialogSelected;
+        }
+        if (row.find("Always allow") != std::string::npos)
+            ++option_rows;
+        if (row.find("Always deny") != std::string::npos)
+            ++option_rows;
+        if (row.find("auto-deny in") != std::string::npos)
+            ++countdown_rows;
+    }
+    ASSERT_EQ(option_rows, 4);
+    ASSERT_EQ(countdown_rows, 1);
+    ASSERT(selected_bar);
+    ASSERT(sixty.surface.row_text(0).find("Approve action?") != std::string::npos);
+    ASSERT(sixty.surface.row_text(0).find("\u2524") != std::string::npos);
+    ASSERT(sixty.surface.row_text(sixty.surface.height() - 2).find("[Esc]") != std::string::npos);
 }
 
 TEST(dialog_view_clamps_to_a_small_screen) {
