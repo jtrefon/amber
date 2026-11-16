@@ -34,6 +34,7 @@
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -47,6 +48,7 @@
 #include "agent/session.h"
 #include "agent/workspace.h"
 #include "agent/worktree.h"
+#include "bench/scripted_endpoint.h"
 #include "tests/minitest.h"
 
 namespace {
@@ -685,313 +687,200 @@ void assert_no_escape_tail(const std::string& delta, const std::string& tail) {
     failed++;
 }
 
-// A fake Anthropic endpoint that records every request path it is asked for.
-// /v1/models answers with an Anthropic-shaped listing; anything else is a 404,
-// exactly like the real API (api.anthropic.com/models is a 404). A test that
-// cares WHICH URL the app builds -- not what it parses -- asserts the path.
+// A fake provider endpoint used by the pty agent tests. The HTTP plumbing,
+// request parsing and SSE framing live in bench::ScriptedEndpoint; this class
+// only owns the deterministic script keyed on the prompt markers the pty tests
+// send.
 class FakeModelsEndpoint {
 public:
     ~FakeModelsEndpoint() { stop(); }
 
     bool start() {
-        listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-        if (listen_fd_ < 0)
-            return false;
-        int opt = 1;
-        setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        addr.sin_port = 0; // ephemeral: two tests can never collide on a port
-        if (bind(listen_fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
-            return fail();
-        socklen_t len = sizeof(addr);
-        if (getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&addr), &len) < 0)
-            return fail();
-        port_ = ntohs(addr.sin_port);
-        if (listen(listen_fd_, 8) < 0)
-            return fail();
-        thread_ = std::thread([this] { serve(); });
-        return true;
+        server_ = std::make_unique<bench::ScriptedEndpoint>(
+            [this](const bench::EndpointRequest& request) { return respond(request); });
+        return server_->start();
     }
-
-    int port() const { return port_; }
-
-    std::string base() const { return "http://127.0.0.1:" + std::to_string(port_); }
-
-    // The most recent path requested, e.g. "/v1/models".
-    std::string last_path() {
-        std::scoped_lock lk(mtx_);
-        return paths_.empty() ? std::string() : paths_.back();
-    }
-
-    bool saw(const std::string& path) {
-        std::scoped_lock lk(mtx_);
-        return std::find(paths_.begin(), paths_.end(), path) != paths_.end();
-    }
-
-    void reset_chat() { chat_calls_ = 0; }
-
-    // Answer the Gemini listing with Google's refused-key body (HTTP 400
-    // API_KEY_INVALID) instead of a catalogue, so the form's credential check
-    // sees exactly what the real endpoint says about a bad key.
-    void reject_gemini_key() { reject_gemini_ = true; }
 
     void stop() {
-        stopping_ = true;
-        if (thread_.joinable())
-            thread_.join();
-        if (listen_fd_ >= 0) {
-            close(listen_fd_);
-            listen_fd_ = -1;
-        }
+        if (server_)
+            server_->stop();
     }
+
+    std::string base() const { return server_->root_url(); }
+
+    std::string last_path() const {
+        const std::vector<std::string> paths = server_->paths();
+        return paths.empty() ? std::string() : paths.back();
+    }
+
+    bool saw(const std::string& path) const {
+        const std::vector<std::string> paths = server_->paths();
+        return std::find(paths.begin(), paths.end(), path) != paths.end();
+    }
+
+    void reset_chat() { server_->reset_chat(); }
+    void reject_gemini_key() { reject_gemini_ = true; }
 
 private:
-    bool fail() {
-        close(listen_fd_);
-        listen_fd_ = -1;
-        return false;
-    }
-
-    void serve() {
-        while (!stopping_) {
-            fd_set rfds;
-            FD_ZERO(&rfds);
-            FD_SET(listen_fd_, &rfds);
-            timeval tv{0, 200000}; // 200 ms: the loop must see `stopping_`
-            if (select(listen_fd_ + 1, &rfds, nullptr, nullptr, &tv) <= 0)
-                continue;
-            int c = accept(listen_fd_, nullptr, nullptr);
-            if (c < 0)
-                continue;
-            handle(c);
-            close(c);
-        }
-    }
-
-    void handle(int c) {
-        std::string req;
-        char buf[4096];
-        while (req.find("\r\n\r\n") == std::string::npos) {
-            const ssize_t n = recv(c, buf, sizeof(buf), 0);
-            if (n <= 0)
-                return;
-            req.append(buf, static_cast<size_t>(n));
-        }
-        const std::size_t header_end = req.find("\r\n\r\n");
-        std::size_t content_length = 0;
-        const std::size_t cl = req.find("Content-Length:");
-        if (cl != std::string::npos && cl < header_end) {
-            content_length =
-                static_cast<std::size_t>(std::strtoul(req.c_str() + cl + 15, nullptr, 10));
-        }
-        while (req.size() < header_end + 4 + content_length) {
-            const ssize_t n = recv(c, buf, sizeof(buf), 0);
-            if (n <= 0)
-                break;
-            req.append(buf, static_cast<size_t>(n));
-        }
-        const std::string body = req.substr(header_end + 4);
-        // The conversation is re-sent on every turn, so a marker from an earlier
-        // test's restored session would match the whole body. Script off the
-        // last user message, which is the prompt this request is answering.
-        std::string last_user;
-        {
-            const agent::json request = agent::json::parse(body, nullptr, false);
-            if (!request.is_discarded() && request.contains("messages") &&
-                request["messages"].is_array()) {
-                for (const auto& message : request["messages"])
-                    if (message.value("role", std::string()) == "user")
-                        last_user = message.value("content", std::string());
-            }
-        }
-        // "GET /path HTTP/1.1" -> "/path" (query dropped: the anthropic
-        // listing asks for one page with ?limit=1000, and the test asserts the
-        // endpoint, not the query -- the dialect test pins the query).
-        std::string path = "/";
-        const size_t sp1 = req.find(' ');
-        const size_t sp2 = sp1 == std::string::npos ? std::string::npos : req.find(' ', sp1 + 1);
-        if (sp1 != std::string::npos && sp2 != std::string::npos) {
-            path = req.substr(sp1 + 1, sp2 - sp1 - 1);
-            const size_t q = path.find('?');
-            if (q != std::string::npos)
-                path.resize(q);
-        }
-        {
-            std::scoped_lock lk(mtx_);
-            paths_.push_back(path);
-        }
-        bool ok = path == "/v1/models";
-        const bool rejected_gemini = reject_gemini_ && path == "/v1beta/models";
-        std::string response;
-        std::string content_type = "application/json";
-        if (rejected_gemini) {
-            response =
-                R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
-                R"("status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",)"
-                R"("reason":"API_KEY_INVALID","domain":"googleapis.com"}]}})";
-        } else if (ok) {
-            response =
+    bench::EndpointReply respond(const bench::EndpointRequest& request) {
+        bench::EndpointReply reply;
+        if (request.path == "/v1/models") {
+            reply.body =
                 R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
-        } else if (path == "/v1/chat/completions") {
-            ok = true;
-            ++chat_calls_;
-            const bool intent_probe = last_user.find("intent probe") != std::string::npos;
-            const bool streaming = body.find("\"stream\":true") != std::string::npos;
-            if (intent_probe && streaming) {
-                content_type = "text/event-stream";
-                if (chat_calls_ == 1) {
-                    agent::json narrate;
-                    narrate["choices"] = agent::json::array();
-                    agent::json nchoice;
-                    nchoice["delta"]["content"] =
-                        "Let me check the parser.\nI'll run a slow check now.";
-                    nchoice["finish_reason"] = nullptr;
-                    narrate["choices"].push_back(nchoice);
-
-                    agent::json call;
-                    call["index"] = 0;
-                    call["id"] = "call_intent";
-                    call["type"] = "function";
-                    call["function"]["name"] = "bash";
-                    call["function"]["arguments"] = R"({"command":"sleep 2; printf INTENT-DONE"})";
-                    agent::json invoke;
-                    invoke["choices"] = agent::json::array();
-                    agent::json ichoice;
-                    ichoice["delta"]["tool_calls"] = agent::json::array({call});
-                    ichoice["finish_reason"] = "tool_calls";
-                    invoke["choices"].push_back(ichoice);
-                    response = "data: " + narrate.dump() + "\n\ndata: " + invoke.dump() +
-                               "\n\ndata: [DONE]\n\n";
-                } else {
-                    agent::json done;
-                    done["choices"] = agent::json::array();
-                    agent::json dchoice;
-                    dchoice["delta"]["content"] = "INTENT-DONE-ACK";
-                    dchoice["finish_reason"] = "stop";
-                    done["choices"].push_back(dchoice);
-                    response = "data: " + done.dump() + "\n\ndata: [DONE]\n\n";
-                }
-                const std::string http = std::string("HTTP/1.1 200 OK\r\nContent-Type: ") +
-                                         content_type +
-                                         "\r\nContent-Length: " + std::to_string(response.size()) +
-                                         "\r\nConnection: close\r\n\r\n" + response;
-                ssize_t ignored = send(c, http.c_str(), http.size(), 0);
-                (void)ignored;
-                return;
-            }
-            // Both spellings during the transition: the TUI now delivers the
-            // generic task digest, while the legacy CLI --wait-tasks path
-            // still reports a watch directly.
-            const bool approval_probe = last_user.find("approval probe") != std::string::npos;
-            const bool delegate_probe = last_user.find("delegate probe") != std::string::npos;
-            const bool worker_probe = last_user.find("worker approval probe") != std::string::npos;
-            const bool worker_report = body.find("WORKER-REPORT") != std::string::npos;
-            const bool queue_probe = last_user.find("queue probe") != std::string::npos;
-            const bool clear_probe = last_user.find("clear probe") != std::string::npos;
-            const bool command_probe = last_user.find("command probe") != std::string::npos;
-            const bool second_prompt = last_user.find("second prompt") != std::string::npos;
-            const bool doomed_prompt = last_user.find("doomed prompt") != std::string::npos;
-            const bool report = last_user.find("background task report") != std::string::npos ||
-                                last_user.find("background watch") != std::string::npos;
-            const bool first = chat_calls_ == 1 && !report && !approval_probe;
-            std::string message;
-            std::string finish = "stop";
-            if (command_probe && chat_calls_ == 1) {
-                finish = "tool_calls";
-                message =
-                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 8; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
-            } else if (command_probe) {
-                message = R"({"role":"assistant","content":"COMMAND-STARTED"})";
-            } else if (queue_probe && chat_calls_ == 1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-                message = R"({"role":"assistant","content":"QUEUE-DONE"})";
-            } else if (queue_probe) {
-                message = R"({"role":"assistant","content":"NEXT-DONE"})";
-            } else if (clear_probe && chat_calls_ == 1) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(2500));
-                message = R"({"role":"assistant","content":"CLEAR-QUEUE-DONE"})";
-            } else if (clear_probe) {
-                message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
-            } else if (second_prompt) {
-                message = R"({"role":"assistant","content":"NEXT-DONE"})";
-            } else if (doomed_prompt) {
-                message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
-            } else if (worker_report) {
-                message = R"({"role":"assistant","content":"PARENT-DONE"})";
-            } else if (worker_probe) {
-                if (body.find("call_worker_approval") == std::string::npos) {
-                    finish = "tool_calls";
-                    message =
-                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_worker_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo worker > /tmp/amber-pty-worker-approval\"}"}}]})";
-                } else {
-                    message = R"({"role":"assistant","content":"WORKER-REPORT"})";
-                }
-            } else if (delegate_probe) {
-                if (body.find("call_delegate") == std::string::npos) {
-                    finish = "tool_calls";
-                    message =
-                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_delegate","type":"function","function":{"name":"delegate","arguments":"{\"goal\":\"worker approval probe: run the marker command\",\"context\":\"the workspace\",\"expect\":\"a report\"}"}}]})";
-                } else {
-                    message = R"({"role":"assistant","content":"DELEGATE-STARTED"})";
-                }
-            } else if (approval_probe) {
-                // Give the user time to leave the window, so the approval is a
-                // background event rather than the active tab's dialog.
-                std::this_thread::sleep_for(std::chrono::milliseconds(800));
-                if (chat_calls_ == 1) {
-                    finish = "tool_calls";
-                    message =
-                        R"({"role":"assistant","content":"","tool_calls":[{"id":"call_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo approved > /tmp/amber-pty-approval\"}"}}]})";
-                } else {
-                    message = R"({"role":"assistant","content":"APPROVAL-DONE"})";
-                }
-            } else if (report) {
-                message = R"({"role":"assistant","content":"REPORT-ACK"})";
-            } else if (first) {
-                const std::string args =
-                    R"({"action":"start","profile":"process","command":"sh -c 'sleep 8; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
-                std::string escaped;
-                for (char ch : args) {
-                    if (ch == '"' || ch == '\\')
-                        escaped += '\\';
-                    escaped += ch;
-                }
-                finish = "tool_calls";
-                message =
-                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_watch","type":"function","function":{"name":"watch","arguments":")" +
-                    escaped + R"("}}]})";
-            } else {
-                message = R"({"role":"assistant","content":"WATCH-STARTED"})";
-            }
-            response =
-                R"({"id":"chatcmpl-pty","object":"chat.completion","created":1,"model":"pty-test","choices":[{"index":0,"message":)" +
-                message + R"(,"finish_reason":")" + finish +
-                R"("}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
-        } else {
-            response =
-                R"({"type":"error","error":{"type":"not_found_error","message":"not found"}})";
+            return reply;
         }
-        const std::string status = rejected_gemini ? "400 Bad Request"
-                                   : ok            ? "200 OK"
-                                                   : "404 Not Found";
-        const std::string http = std::string("HTTP/1.1 ") + status +
-                                 "\r\nContent-Type: application/json\r\nContent-Length: " +
-                                 std::to_string(response.size()) + "\r\nConnection: close\r\n\r\n" +
-                                 response;
-        ssize_t ignored = send(c, http.c_str(), http.size(), 0);
-        (void)ignored;
+        if (request.path == "/v1beta/models") {
+            if (reject_gemini_) {
+                reply.status = 400;
+                reply.body =
+                    R"({"error":{"code":400,"message":"API key not valid. Please pass a valid API key.",)"
+                    R"("status":"INVALID_ARGUMENT","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo",)"
+                    R"("reason":"API_KEY_INVALID","domain":"googleapis.com"}]}})";
+            } else {
+                reply.status = 404;
+                reply.body = R"({"error":{"message":"not found"}})";
+            }
+            return reply;
+        }
+        if (request.path != "/v1/chat/completions") {
+            reply.handled = false;
+            return reply;
+        }
+
+        const int call = request.sequence + 1;
+        std::string last_user;
+        for (const agent::Message& message : request.messages) {
+            if (message.role == "user")
+                last_user = message.content;
+        }
+        const bool intent_probe = last_user.find("intent probe") != std::string::npos;
+        if (intent_probe && request.stream) {
+            reply.content_type = "text/event-stream";
+            if (call == 1) {
+                agent::json narrate;
+                narrate["choices"] = agent::json::array();
+                agent::json nchoice;
+                nchoice["delta"]["content"] =
+                    "Let me check the parser.\nI'll run a slow check now.";
+                nchoice["finish_reason"] = nullptr;
+                narrate["choices"].push_back(nchoice);
+
+                agent::json tool;
+                tool["index"] = 0;
+                tool["id"] = "call_intent";
+                tool["type"] = "function";
+                tool["function"]["name"] = "bash";
+                tool["function"]["arguments"] = R"({"command":"sleep 2; printf INTENT-DONE"})";
+                agent::json invoke;
+                invoke["choices"] = agent::json::array();
+                agent::json ichoice;
+                ichoice["delta"]["tool_calls"] = agent::json::array({tool});
+                ichoice["finish_reason"] = "tool_calls";
+                invoke["choices"].push_back(ichoice);
+                reply.sse_chunks = {"data: " + narrate.dump() + "\n\n",
+                                    "data: " + invoke.dump() + "\n\n", "data: [DONE]\n\n"};
+            } else {
+                agent::json done;
+                done["choices"] = agent::json::array();
+                agent::json dchoice;
+                dchoice["delta"]["content"] = "INTENT-DONE-ACK";
+                dchoice["finish_reason"] = "stop";
+                done["choices"].push_back(dchoice);
+                reply.sse_chunks = {"data: " + done.dump() + "\n\n", "data: [DONE]\n\n"};
+            }
+            return reply;
+        }
+
+        const bool approval_probe = last_user.find("approval probe") != std::string::npos;
+        const bool delegate_probe = last_user.find("delegate probe") != std::string::npos;
+        const bool worker_probe = last_user.find("worker approval probe") != std::string::npos;
+        const bool worker_report = request.body.find("WORKER-REPORT") != std::string::npos;
+        const bool queue_probe = last_user.find("queue probe") != std::string::npos;
+        const bool clear_probe = last_user.find("clear probe") != std::string::npos;
+        const bool command_probe = last_user.find("command probe") != std::string::npos;
+        const bool second_prompt = last_user.find("second prompt") != std::string::npos;
+        const bool doomed_prompt = last_user.find("doomed prompt") != std::string::npos;
+        const bool report = last_user.find("background task report") != std::string::npos ||
+                            last_user.find("background watch") != std::string::npos;
+        const bool first = call == 1 && !report && !approval_probe;
+        std::string message;
+        std::string finish = "stop";
+        if (command_probe && call == 1) {
+            finish = "tool_calls";
+            message =
+                R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 8; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
+        } else if (command_probe) {
+            message = R"({"role":"assistant","content":"COMMAND-STARTED"})";
+        } else if (queue_probe && call == 1) {
+            reply.delay_ms = 2500;
+            message = R"({"role":"assistant","content":"QUEUE-DONE"})";
+        } else if (queue_probe) {
+            message = R"({"role":"assistant","content":"NEXT-DONE"})";
+        } else if (clear_probe && call == 1) {
+            reply.delay_ms = 2500;
+            message = R"({"role":"assistant","content":"CLEAR-QUEUE-DONE"})";
+        } else if (clear_probe) {
+            message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
+        } else if (second_prompt) {
+            message = R"({"role":"assistant","content":"NEXT-DONE"})";
+        } else if (doomed_prompt) {
+            message = R"({"role":"assistant","content":"CLEAR-NEXT-DONE"})";
+        } else if (worker_report) {
+            message = R"({"role":"assistant","content":"PARENT-DONE"})";
+        } else if (worker_probe) {
+            if (request.body.find("call_worker_approval") == std::string::npos) {
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_worker_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo worker > /tmp/amber-pty-worker-approval\"}"}}]})";
+            } else {
+                message = R"({"role":"assistant","content":"WORKER-REPORT"})";
+            }
+        } else if (delegate_probe) {
+            if (request.body.find("call_delegate") == std::string::npos) {
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_delegate","type":"function","function":{"name":"delegate","arguments":"{\"goal\":\"worker approval probe: run the marker command\",\"context\":\"the workspace\",\"expect\":\"a report\"}"}}]})";
+            } else {
+                message = R"({"role":"assistant","content":"DELEGATE-STARTED"})";
+            }
+        } else if (approval_probe) {
+            reply.delay_ms = 800;
+            if (call == 1) {
+                finish = "tool_calls";
+                message =
+                    R"({"role":"assistant","content":"","tool_calls":[{"id":"call_approval","type":"function","function":{"name":"bash","arguments":"{\"command\":\"echo approved > /tmp/amber-pty-approval\"}"}}]})";
+            } else {
+                message = R"({"role":"assistant","content":"APPROVAL-DONE"})";
+            }
+        } else if (report) {
+            message = R"({"role":"assistant","content":"REPORT-ACK"})";
+        } else if (first) {
+            const std::string args =
+                R"({"action":"start","profile":"process","command":"sh -c 'sleep 8; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
+            std::string escaped;
+            for (char ch : args) {
+                if (ch == '"' || ch == '\\')
+                    escaped += '\\';
+                escaped += ch;
+            }
+            finish = "tool_calls";
+            message =
+                R"({"role":"assistant","content":"","tool_calls":[{"id":"call_watch","type":"function","function":{"name":"watch","arguments":")" +
+                escaped + R"("}}]})";
+        } else {
+            message = R"({"role":"assistant","content":"WATCH-STARTED"})";
+        }
+        reply.prompt_tokens = 1;
+        reply.completion_tokens = 1;
+        reply.body =
+            R"({"id":"chatcmpl-pty","object":"chat.completion","created":1,"model":"pty-test","choices":[{"index":0,"message":)" +
+            message + R"(,"finish_reason":")" + finish +
+            R"("}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
+        return reply;
     }
 
-    int listen_fd_ = -1;
-    int port_ = 0;
-    std::atomic<bool> stopping_{false};
+    std::unique_ptr<bench::ScriptedEndpoint> server_;
     std::atomic<bool> reject_gemini_{false};
-    std::atomic<int> chat_calls_{0};
-    std::thread thread_;
-    std::mutex mtx_;
-    std::vector<std::string> paths_;
 };
 
 // A loopback stand-in for skills.sh + GitHub. The explorer talks to three
