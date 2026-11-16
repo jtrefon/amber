@@ -286,7 +286,8 @@ CommandLine::Result CommandLine::on_paste(const std::string& text) {
     Result r;
     std::string clean;
     clean.reserve(text.size());
-    for (std::size_t i = 0; i < text.size(); ++i) {
+    std::size_t i = 0;
+    while (i < text.size()) {
         if (input_.size() + clean.size() >= 65536)
             break;
         const char c = text[i];
@@ -300,6 +301,7 @@ CommandLine::Result CommandLine::on_paste(const std::string& text) {
         } else if (static_cast<unsigned char>(c) >= 32) {
             clean.push_back(c);
         }
+        ++i;
     }
     if (clean.empty())
         return r;
