@@ -17,6 +17,7 @@
 #include "agent/version.h"
 #include "agent/workspace.h"
 #include "bench/binary_driver.h"
+#include "bench/policy.h"
 #include "bench/probe.h"
 #include "bench/data_root.h"
 #include "bench/report.h"
@@ -56,6 +57,7 @@ void print_usage(const char* prog) {
         << "  --profile NAME   model profile from bench/profiles.json\n"
         << "  --model NAME     model override (live)\n"
         << "  --driver KIND    inproc (default) or binary (amber-cli e2e)\n"
+        << "  --policy FILE    closed-loop state-machine policy (hermetic)\n"
         << "  --temperature T  temperature override (live)\n"
         << "  --repeat N       run each scenario N times\n"
         << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
@@ -192,6 +194,7 @@ struct CliOptions {
     int repeat_gap_ms = 0;
     std::string out_file;
     std::string debug_dir;
+    agent::json policy;
     std::string category;
     std::string disable;
     std::string format = "text";
@@ -268,6 +271,22 @@ bool apply_value_flag(const std::string& a, const NextArg& next, CliOptions& o) 
     return apply_run_flag(a, next, o) || apply_output_flag(a, next, o);
 }
 
+bool apply_policy_file(const std::string& path, agent::json& policy) {
+    std::ifstream in(path);
+    if (path.empty() || !in) {
+        std::cerr << "error: --policy needs a readable JSON file\n";
+        return false;
+    }
+    policy = agent::json::parse(in, nullptr, false);
+    std::string policy_err;
+    if (policy.is_discarded() || !bench::validate_state_machine(policy, policy_err)) {
+        std::cerr << "error: --policy " << path << ": "
+                  << (policy_err.empty() ? "invalid JSON" : policy_err) << "\n";
+        return false;
+    }
+    return true;
+}
+
 // Parse the command line after the subcommand. Returns 0 when a flag asked to
 // stop (-h/--help), otherwise nullopt.
 std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
@@ -283,6 +302,9 @@ std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
         } else if (a == "-h" || a == "--help") {
             print_usage(argv[0]);
             return 0;
+        } else if (a == "--policy") {
+            if (!apply_policy_file(next(""), o.policy))
+                return 2;
         } else if (a == "--apply") {
             o.reap_apply = true;
         } else if (a == "--older-than-days") {
@@ -319,6 +341,7 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.variant = args.variant;
     opts.temperature = args.temperature;
     opts.debug_dir = args.debug_dir;
+    opts.policy_override = args.policy;
     if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
         const int ms = std::atoi(join);
         if (ms >= 0)

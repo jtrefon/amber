@@ -1,6 +1,9 @@
 
 #include "bench/runner.h"
 
+#include "bench/policy.h"
+#include "bench/policy_client.h"
+
 #include "agent/task_join.h"
 
 #include <algorithm>
@@ -316,12 +319,40 @@ BenchReply bench_reply_from(const json& e) {
     return r;
 }
 
+const agent::json& effective_policy(const Scenario& s, const RunOptions& opts) {
+    return opts.policy_override.is_null() ? s.policy : opts.policy_override;
+}
+
+bool validate_scenario_policy(const Scenario& s, const RunOptions& opts, std::string& err) {
+    const agent::json& spec = effective_policy(s, opts);
+    if (spec.empty())
+        return true;
+    std::string detail;
+    if (validate_state_machine(spec, detail)) {
+        return true;
+    }
+    err = "invalid policy: ";
+    err += detail;
+    return false;
+}
+
+std::unique_ptr<agent::LLMClient> build_policy_client(const agent::json& spec) {
+    std::string err;
+    auto policy = make_state_machine_policy(spec, err);
+    if (!policy)
+        return nullptr;
+    return std::make_unique<PolicyClient>(std::move(policy));
+}
+
 // The hermetic fake client, with any scripted sub-agent replies wired into the
 // executor. Returns nullptr in live mode, where the real client is used.
 std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptions& opts,
                                                agent::SubAgentExecutor& subagents) {
     if (opts.live)
         return nullptr;
+    const agent::json& policy_spec = effective_policy(s, opts);
+    if (!policy_spec.empty())
+        return build_policy_client(policy_spec);
     // Shared script: the parent and any workers (delegate tool) each take a copy
     // at construction time, so hermetic runs stay deterministic and never touch
     // the network.
@@ -777,6 +808,10 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
         rep.failures.emplace_back("platform not supported by this scenario");
         return rep;
     }
+    if (!validate_scenario_policy(s, opts, err)) {
+        rep.failures.push_back(err);
+        return rep;
+    }
 
     const fs::path ws = make_scenario_workspace(s);
     WorkspaceGuard ws_guard(ws);
@@ -814,7 +849,7 @@ std::vector<ScenarioReport> run_scenarios(const std::vector<Scenario>& scenarios
     for (const auto& s : scenarios) {
         if (s.hermetic_only && opts.live)
             continue;
-        if (!opts.live && s.fake_replies.empty())
+        if (!opts.live && s.fake_replies.empty() && effective_policy(s, opts).empty())
             continue;
         std::string err;
         std::vector<ScenarioReport> runs;

@@ -243,6 +243,8 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/template.o \
              $(BUILD_DIR)/bench/report.o \
              $(BUILD_DIR)/bench/fake.o \
+             $(BUILD_DIR)/bench/policy.o \
+             $(BUILD_DIR)/bench/policy_client.o \
              $(BUILD_DIR)/bench/runner.o \
              $(BUILD_DIR)/bench/state_reaper.o \
              $(BUILD_DIR)/bench/shape_replay.o \
