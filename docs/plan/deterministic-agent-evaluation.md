@@ -21,7 +21,7 @@ Measured on `main` at the time of writing:
 | Layer | Current state | What it proves | What it misses |
 |---|---|---|---|
 | Unit + probes | 42 harness probes, large `run_tests` suite | parsers, loop, dispatch, budgets, recovery primitives | no real binary, no multi-step task |
-| Hermetic bench | 61 scenarios / 19 suites; 43 hermetic, 18 live-only; 46 matrix cells | the harness executes a **known** plan and scores it | the plan never reacts to a tool result |
+| Hermetic bench | 61 scenarios / 19 suites; 43 hermetic (40 scripted + 3 multi-turn), 18 live-only; 46 matrix cells | the harness executes a **known** plan and scores it | the plan never reacts to a tool result |
 | CLI E2E | `bench-e2e`, 5 scenarios through `amber-cli` + mock HTTP | boot, config, plugins, tools, tool sequence | no final workspace, no answer, no exit-code assertion |
 | TUI E2E | `tui_pty_test`, 75 tests, real pty + fake endpoint | UI state, modals, providers, approvals, some agent turns | fake scripts use `bash`/`process_start`/`watch`/`delegate`/`tdd`; no read/write/verify journey |
 | Live | manual release artifact | model quality | correctly outside CI; unreliable and costly as a gate |
