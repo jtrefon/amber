@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <fstream>
 
+#include "bench/policy.h"
+
 namespace bench {
 
 namespace {
@@ -90,6 +92,17 @@ void take_clamped_double(const agent::json& j, const char* key, double& out, dou
 void take_object(const agent::json& j, const char* key, agent::json& out) {
     if (has_object(j, key))
         out = j[key];
+}
+
+bool take_policy(const agent::json& j, Scenario& s, std::string& err) {
+    if (!j.contains("policy"))
+        return true;
+    if (!j["policy"].is_object()) {
+        err = "'policy' must be an object";
+        return false;
+    }
+    s.policy = j["policy"];
+    return validate_state_machine(s.policy, err);
 }
 void take_array(const agent::json& j, const char* key, agent::json& out) {
     if (has_array(j, key))
@@ -352,6 +365,8 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_object(j, "setup", s.setup);
     take_array(j, "fake_replies", s.fake_replies);
     take_json_array(j, "subagent_replies", s.subagent_replies);
+    if (!take_policy(j, s, err))
+        return std::nullopt;
     take_bool(j, "stream", s.stream);
     std::string approval;
     take_string(j, "approval", approval);

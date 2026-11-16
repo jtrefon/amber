@@ -10,6 +10,8 @@
 #include "bench/data_root.h"
 #include "bench/kpi.h"
 #include "bench/oracle.h"
+#include "bench/policy.h"
+#include "bench/policy_client.h"
 #include "bench/probe.h"
 #include "bench/recorder.h"
 #include "bench/report.h"
@@ -4036,4 +4038,329 @@ TEST(binary_driver_runs_a_multi_turn_scenario) {
         bench::run_binary_scenarios({scenario}, cli, err);
     ASSERT_EQ(err, "");
     ASSERT(results[0].ok);
+}
+
+// ── Closed-loop policy ──
+
+static agent::json policy_json(const char* text) {
+    return agent::json::parse(text, nullptr, false);
+}
+
+TEST(policy_state_machine_emits_a_tool_call_then_final) {
+    const agent::json spec = policy_json(R"({
+        "initial": "read",
+        "max_transitions": 8,
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "done"},
+            "done": {"final": "done"}
+        }
+    })");
+    ASSERT(!spec.is_discarded());
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+
+    std::vector<agent::Message> messages;
+    std::vector<std::shared_ptr<agent::Tool>> tools;
+    bench::PolicyContext context;
+    context.messages = &messages;
+    context.tools = &tools;
+
+    const bench::PolicyReply first = policy->next(context);
+    ASSERT_EQ(first.tool_calls.size(), 1u);
+    ASSERT_EQ(first.tool_calls[0]["function"]["name"].get<std::string>(), std::string("read"));
+
+    context.step = 1;
+    context.last_tool_status = "ok";
+    const bench::PolicyReply second = policy->next(context);
+    ASSERT_EQ(second.tool_calls.size(), 0u);
+    ASSERT_EQ(second.content, std::string("done"));
+}
+
+TEST(policy_client_retries_after_a_tool_error) {
+    const agent::json spec = policy_json(R"({
+        "initial": "read",
+        "max_transitions": 12,
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "check"},
+            "check": {"when": {"last_tool_status": "ok"}, "final": "done"}
+        },
+        "on_error": {"retry": 1, "next": "read"}
+    })");
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+    bench::PolicyClient client(std::move(policy));
+
+    const agent::Message first = client.chat({}, {});
+    ASSERT_EQ(first.tool_calls.size(), 1u);
+
+    agent::Message failed;
+    failed.role = "tool";
+    failed.name = "read";
+    failed.content = "[tool=read status=error meta={}]\nERROR: missing\n[end]";
+    const agent::Message retry = client.chat({failed}, {});
+    ASSERT_EQ(retry.tool_calls.size(), 1u);
+
+    agent::Message ok;
+    ok.role = "tool";
+    ok.name = "read";
+    ok.content = "[tool=read status=ok meta={}]\nhello\n[end]";
+    const agent::Message final_message = client.chat({failed, ok}, {});
+    ASSERT_EQ(final_message.tool_calls.size(), 0u);
+    ASSERT_EQ(final_message.content, std::string("done"));
+}
+
+TEST(policy_rejects_malformed_specs) {
+    const std::pair<const char*, const char*> cases[] = {
+        {R"([])", "policy must be an object"},
+        {R"({"states": {}})", "non-empty 'initial'"},
+        {R"({"initial": "a"})", "non-empty 'states'"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok"}}, "max_transitions": 0})",
+         "max_transitions"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok"}}, "on_error": 7})", "on_error"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok"}},
+             "on_error": {"retry": -1}})",
+         "on_error.retry"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok"}},
+             "on_error": {"next": ""}})",
+         "on_error.next"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok"}},
+             "on_error": {"retry": 1}})",
+         "on_error.next"},
+        {R"({"initial": "a", "states": {"a": 7}})", "each state"},
+        {R"({"initial": "a", "states": {"a": {}}})", "exactly one"},
+        {R"({"initial": "a", "states": {"a": {"call": {}}}})", "call.tool"},
+        {R"({"initial": "a", "states": {"a": {"call": {"tool": "read", "args": 7}}}})",
+         "call.args"},
+        {R"({"initial": "a", "states": {"a": {"final": 7}}})", "final"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok", "next": "b"}},
+             "b": {"final": "ok"}})",
+         "terminal"},
+        {R"({"initial": "a", "states": {"a": {"call": {"tool": "read"}}}})", "call state needs"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok", "when": {"mood": "x"}}}})",
+         "unknown condition"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok", "when": {"step": "x"}}}})",
+         "condition 'step'"},
+        {R"({"initial": "a", "states": {"a": {"final": "ok", "when": {"always": 1}}}})",
+         "condition 'always'"},
+        {R"({"initial": "missing", "states": {"a": {"final": "ok"}}})", "unknown initial"},
+        {R"({"initial": "a", "states": {"a": {"call": {"tool": "read"}, "next": "a"}},
+             "on_error": {"next": "missing"}})",
+         "on_error points"},
+        {R"({"initial": "a", "states": {"a": {"call": {"tool": "read"}, "next": "a"}}})",
+         "no reachable terminal"},
+    };
+    for (const auto& [text, expected] : cases) {
+        const agent::json spec = policy_json(text);
+        ASSERT(!spec.is_discarded());
+        std::string err;
+        const auto policy = bench::make_state_machine_policy(spec, err);
+        ASSERT(!policy);
+        ASSERT(err.find(expected) != std::string::npos);
+    }
+}
+
+TEST(policy_fail_state_is_non_retryable) {
+    const agent::json spec = policy_json(R"({
+        "initial": "stop",
+        "states": {"stop": {"fail": "deliberate stop"}}
+    })");
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+    std::vector<agent::Message> messages;
+    std::vector<std::shared_ptr<agent::Tool>> tools;
+    bench::PolicyContext context;
+    context.messages = &messages;
+    context.tools = &tools;
+    const bench::PolicyReply reply = policy->next(context);
+    ASSERT(reply.tool_calls.empty());
+    ASSERT_EQ(reply.error, std::string("deliberate stop"));
+    ASSERT(!reply.retryable);
+}
+
+TEST(policy_conditions_cover_name_result_and_step) {
+    const agent::json spec = policy_json(R"({
+        "initial": "check",
+        "states": {
+            "check": {
+                "when": {"last_tool_name": "read", "last_result_contains": "hello", "step": 1},
+                "final": "matched"
+            }
+        }
+    })");
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+    std::vector<agent::Message> messages;
+    std::vector<std::shared_ptr<agent::Tool>> tools;
+    bench::PolicyContext context;
+    context.messages = &messages;
+    context.tools = &tools;
+    context.step = 1;
+    context.last_tool_name = "read";
+    context.last_tool_result = "hello world";
+    ASSERT_EQ(policy->next(context).content, std::string("matched"));
+}
+
+TEST(policy_client_throws_a_policy_failure) {
+    const agent::json spec = policy_json(R"({
+        "initial": "stop",
+        "states": {"stop": {"fail": "no plan"}}
+    })");
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+    bench::PolicyClient client(std::move(policy));
+    bool threw = false;
+    try {
+        client.chat({}, {});
+    } catch (const agent::ApiError& error) {
+        threw = true;
+        ASSERT(std::string(error.what()).find("no plan") != std::string::npos);
+    }
+    ASSERT(threw);
+}
+
+TEST(policy_client_stream_dropout_is_reported) {
+    class DroppingPolicy : public bench::Policy {
+    public:
+        bench::PolicyReply next(const bench::PolicyContext&) override {
+            bench::PolicyReply reply;
+            reply.drop_after_chunks = 1;
+            reply.chunk_delta = "x";
+            return reply;
+        }
+    };
+    bench::PolicyClient client(std::make_unique<DroppingPolicy>());
+    bool threw = false;
+    try {
+        client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    } catch (const agent::ApiError& error) {
+        threw = true;
+        ASSERT(std::string(error.what()).find("dropout") != std::string::npos);
+    }
+    ASSERT(threw);
+}
+
+TEST(policy_rejects_an_unknown_next_state) {
+    const agent::json spec = policy_json(R"({
+        "initial": "read",
+        "states": {
+            "read": {"call": {"tool": "read", "args": {}}, "next": "missing"}
+        }
+    })");
+    std::string err;
+    const auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(!policy);
+    ASSERT(err.find("unknown") != std::string::npos);
+}
+
+TEST(policy_rejects_an_unbounded_cycle) {
+    const agent::json spec = policy_json(R"({
+        "initial": "a",
+        "states": {
+            "a": {"call": {"tool": "read", "args": {}}, "next": "b"},
+            "b": {"call": {"tool": "read", "args": {}}, "when": {"always": false}, "next": "a"},
+            "done": {"final": "done"}
+        },
+        "on_error": {"next": "done"}
+    })");
+    std::string err;
+    const auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(!policy);
+    ASSERT(err.find("cycle") != std::string::npos);
+}
+
+TEST(policy_stops_at_the_transition_cap) {
+    const agent::json spec = policy_json(R"({
+        "initial": "a",
+        "max_transitions": 2,
+        "states": {
+            "a": {"call": {"tool": "read", "args": {}}, "when": {"always": true}, "next": "a"},
+            "done": {"final": "done"}
+        },
+        "on_error": {"next": "done"}
+    })");
+    std::string err;
+    auto policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(policy);
+    std::vector<agent::Message> messages;
+    std::vector<std::shared_ptr<agent::Tool>> tools;
+    bench::PolicyContext context;
+    context.messages = &messages;
+    context.tools = &tools;
+    ASSERT_EQ(policy->next(context).tool_calls.size(), 1u);
+    ASSERT_EQ(policy->next(context).tool_calls.size(), 1u);
+    const bench::PolicyReply capped = policy->next(context);
+    ASSERT(capped.tool_calls.empty());
+    ASSERT(capped.error.find("transition") != std::string::npos);
+}
+
+TEST(policy_stream_and_buffered_agree) {
+    const agent::json spec = policy_json(R"({
+        "initial": "done",
+        "states": {"done": {"final": "same"}}
+    })");
+    std::string err;
+    auto buffered_policy = bench::make_state_machine_policy(spec, err);
+    auto streamed_policy = bench::make_state_machine_policy(spec, err);
+    ASSERT(buffered_policy);
+    ASSERT(streamed_policy);
+    bench::PolicyClient buffered(std::move(buffered_policy));
+    bench::PolicyClient streamed(std::move(streamed_policy));
+
+    const agent::Message a = buffered.chat({}, {});
+    std::string seen;
+    const agent::Message b = streamed.chat_stream(
+        {}, {}, [&seen](const agent::StreamChunk& chunk) { seen += chunk.delta; });
+    ASSERT_EQ(a.content, b.content);
+    ASSERT_EQ(seen, b.content);
+}
+
+TEST(policy_scenario_recovers_from_a_missing_file) {
+    Scenario scenario;
+    scenario.name = "policy-recover";
+    scenario.suite = "tools";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello"}}}};
+    scenario.policy = policy_json(R"({
+        "initial": "read_bad",
+        "max_transitions": 12,
+        "states": {
+            "read_bad": {"call": {"tool": "read", "args": {"path": "missing.txt"}},
+                          "next": "check"},
+            "check": {"when": {"last_tool_status": "ok"}, "final": "done"},
+            "read_good": {"call": {"tool": "read", "args": {"path": "a.txt"}},
+                           "next": "check"}
+        },
+        "on_error": {"retry": 1, "next": "read_good"}
+    })");
+    scenario.oracle.push_back({"read", {{"path", "a.txt"}}});
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    const std::vector<bench::ScenarioReport> reports = bench::run_scenarios({scenario}, opts, meta);
+    ASSERT_EQ(reports.size(), 1u);
+    ASSERT(reports[0].kpi.success);
+    ASSERT(reports[0].failures.empty());
+}
+
+TEST(scenario_loader_rejects_an_invalid_policy) {
+    const std::string dir = tmp_dir("invalid_policy");
+    write_file(dir + "/s.json", R"({
+        "name": "bad-policy",
+        "suite": "tools",
+        "prompt": "go",
+        "policy": {
+            "initial": "read",
+            "states": {"read": {"call": {"tool": "read", "args": {}}, "next": "missing"}}
+        }
+    })");
+    std::string err;
+    const auto scenario = bench::load_scenario(dir + "/s.json", err);
+    ASSERT(!scenario);
+    ASSERT(err.find("unknown") != std::string::npos);
 }

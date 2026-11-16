@@ -24,13 +24,14 @@ struct RunOptions {
     // free tiers do) turns a repeat set into "unmeasured" runs otherwise, and a
     // distribution of failures is not a distribution of the model.
     int repeat_gap_ms = 0;
-    std::string model;        // explicit model override (live)
-    bool matrix = false;      // run every declared variant cell
-    std::string variant;      // select one key=value cell
-    double temperature = -1;  // <0 = leave default
-    std::string thinking;     // "" = leave default; "on"/"off"/"auto"
-    int thinking_budget = -1; // <0 = leave default
-    std::string debug_dir;    // per-scenario wire + conversation logs
+    std::string model;           // explicit model override (live)
+    bool matrix = false;         // run every declared variant cell
+    std::string variant;         // select one key=value cell
+    double temperature = -1;     // <0 = leave default
+    std::string thinking;        // "" = leave default; "on"/"off"/"auto"
+    int thinking_budget = -1;    // <0 = leave default
+    std::string debug_dir;       // per-scenario wire + conversation logs
+    agent::json policy_override; // --policy FILE; null = use the scenario's policy
     // Force-join the scenario's background tasks before scoring. A task still
     // running at this cap fails the scenario by name instead of changing the
     // score with timing. AMBER_BENCH_JOIN_MS overrides it.
