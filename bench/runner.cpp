@@ -3,6 +3,7 @@
 
 #include "bench/policy.h"
 #include "bench/policy_client.h"
+#include "bench/policy_zoo.h"
 
 #include "agent/task_join.h"
 
@@ -344,12 +345,22 @@ std::unique_ptr<agent::LLMClient> build_policy_client(const agent::json& spec) {
     return std::make_unique<PolicyClient>(std::move(policy));
 }
 
+std::unique_ptr<agent::LLMClient> build_zoo_client(const std::string& name, const Scenario& s) {
+    std::string err;
+    auto policy = make_policy_zoo_member(name, s, err);
+    if (!policy)
+        return nullptr;
+    return std::make_unique<PolicyClient>(std::move(policy), &s);
+}
+
 // The hermetic fake client, with any scripted sub-agent replies wired into the
 // executor. Returns nullptr in live mode, where the real client is used.
 std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptions& opts,
                                                agent::SubAgentExecutor& subagents) {
     if (opts.live)
         return nullptr;
+    if (!opts.policy_name.empty())
+        return build_zoo_client(opts.policy_name, s);
     const agent::json& policy_spec = effective_policy(s, opts);
     if (!policy_spec.empty())
         return build_policy_client(policy_spec);

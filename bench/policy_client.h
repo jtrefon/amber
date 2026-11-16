@@ -13,9 +13,11 @@
 
 namespace bench {
 
+struct Scenario;
+
 class PolicyClient : public agent::LLMClient {
 public:
-    explicit PolicyClient(std::unique_ptr<Policy> policy);
+    explicit PolicyClient(std::unique_ptr<Policy> policy, const Scenario* scenario = nullptr);
 
     agent::ServerInfo probe_server() const override;
     agent::Message chat(const std::vector<agent::Message>& messages,
@@ -33,6 +35,7 @@ private:
     PolicyReply next(const std::vector<agent::Message>& messages,
                      const std::vector<std::shared_ptr<agent::Tool>>& tools);
     std::unique_ptr<Policy> policy_;
+    const Scenario* scenario_ = nullptr;
 };
 
 } // namespace bench
