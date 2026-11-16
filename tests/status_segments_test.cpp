@@ -221,6 +221,13 @@ TEST(core_segments_model_cell_uses_a_foreground_colour_not_a_filled_pair) {
 
 // With no provider there is no "|" and no stray separator: the cell is just the
 // model, so the bar never renders "[|model]".
+TEST(core_segments_model_cell_omits_an_empty_reasoning_badge) {
+    auto s = base_snapshot();
+    s.reasoning_effort.clear();
+    auto out = core_registry().render(s);
+    ASSERT_EQ(text_of(out, "model"), std::string(" [kilocode|qwen3]"));
+}
+
 TEST(core_segments_model_cell_omits_an_unknown_provider) {
     auto registry = core_registry();
     StatusSnapshot s = base_snapshot();

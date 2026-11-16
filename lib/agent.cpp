@@ -146,14 +146,8 @@ void Agent::set_model(const std::string& model, const ModelCapabilities& caps) {
 
 void Agent::set_model_capabilities(const ModelCapabilities& caps) {
     if (cfg_.model_max_output == caps.max_output &&
-        cfg_.model_supports_reasoning == caps.reasoning &&
         cfg_.model_supported_parameters == caps.supported_parameters &&
-        cfg_.model_line == caps.line && cfg_.model_thinking_adaptive == caps.thinking_adaptive &&
-        cfg_.model_thinking_legacy == caps.thinking_legacy &&
-        cfg_.model_thinking_always_on == caps.thinking_always_on &&
-        cfg_.model_thinking_disabled_ok == caps.thinking_disabled_ok &&
-        cfg_.model_thinking_between_tools_ok == caps.thinking_between_tools_ok &&
-        cfg_.model_efforts == caps.efforts && cfg_.model_default_effort == caps.default_effort)
+        cfg_.model_line == caps.line && cfg_.model_reasoning == caps.reasoning)
         return;
     apply_model_capabilities(cfg_, caps);
     client_ = make_client(cfg_, client_factory_);

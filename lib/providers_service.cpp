@@ -210,8 +210,9 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     // Capabilities are the next listing's to advertise; keeping the previous
     // provider's would be a guess.
     cfg.model_max_output = 0;
-    cfg.model_supports_reasoning = false;
+    cfg.model_reasoning = {};
     cfg.model_supported_parameters.clear();
+    cfg.model_line.clear();
     // The dialect the client resolves travels with the provider, so a provider
     // contributed by a plugin needs nothing from a table in the core. Derived
     // on every selection, never persisted.

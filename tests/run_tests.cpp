@@ -1268,14 +1268,23 @@ TEST(apply_selection_scopes_the_context_window) {
     agent::apply_selection(cfg, sel);
     ASSERT_EQ(cfg.context_size, 524288); // the provider default is adopted
 
-    // Capabilities belong to the listing, not the previous provider.
+    // Capabilities belong to the listing, not the previous provider. Every
+    // derived field is cleared, not just the three the old reset knew about.
     cfg.model_max_output = 8192;
-    cfg.model_supports_reasoning = true;
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.adaptive = true;
+    cfg.model_reasoning.mandatory = true;
+    cfg.model_reasoning.efforts = {"low", "high"};
+    cfg.model_reasoning.default_effort = "high";
+    cfg.model_reasoning.wire = agent::ReasoningWire::Effort;
+    cfg.model_reasoning.echo_field = "reasoning_content";
+    cfg.model_line = "sonnet";
     cfg.model_supported_parameters = {"reasoning"};
     agent::apply_selection(cfg, sel);
     ASSERT_EQ(cfg.model_max_output, 0);
-    ASSERT_FALSE(cfg.model_supports_reasoning);
+    ASSERT(cfg.model_reasoning == agent::ReasoningContract{});
     ASSERT(cfg.model_supported_parameters.empty());
+    ASSERT(cfg.model_line.empty());
 }
 
 TEST(openai_request_respects_output_and_reasoning) {
@@ -1289,20 +1298,23 @@ TEST(openai_request_respects_output_and_reasoning) {
     auto body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["max_tokens"].get<int>(), 4096);
 
-    cfg.model_supports_reasoning = true;
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.effort_levels = true;
     cfg.reasoning_effort = "high";
-    cfg.model_supported_parameters = {"reasoning"};
+    cfg.model_reasoning.wire = agent::ReasoningWire::ReasoningObject;
+    cfg.model_reasoning.off = agent::ReasoningOff::ReasoningDisabled;
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(body.contains("reasoning"));
     ASSERT(!body.contains("reasoning_effort"));
     ASSERT_EQ(body["reasoning"]["effort"].get<std::string>(), "high");
 
-    cfg.model_supported_parameters = {"reasoning_effort"};
+    cfg.model_reasoning.wire = agent::ReasoningWire::Effort;
+    cfg.model_reasoning.off = agent::ReasoningOff::EffortNone;
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT_EQ(body["reasoning_effort"].get<std::string>(), "high");
     ASSERT(!body.contains("reasoning"));
 
-    cfg.model_supported_parameters.clear();
+    cfg.model_reasoning.wire = agent::ReasoningWire::None;
     body = d->build_chat_body(cfg, msgs, {}, false);
     ASSERT(!body.contains("reasoning_effort"));
     ASSERT(!body.contains("reasoning"));
@@ -1335,13 +1347,13 @@ TEST(openai_model_list_carries_capabilities) {
                              R"("supported_parameters":["reasoning","tools"]}]})";
     auto info = d->parse_models_response(body);
     ASSERT_EQ(info.max_output, 4096);
-    ASSERT(info.reasoning);
+    ASSERT(info.reasoning.supported);
     ASSERT_EQ(info.supported_parameters.size(), 2u);
 
     agent::Config cfg;
     agent::merge_server_info(cfg, info);
     ASSERT_EQ(cfg.model_max_output, 4096);
-    ASSERT(cfg.model_supports_reasoning);
+    ASSERT(cfg.model_reasoning.supported);
     ASSERT_EQ(cfg.model_supported_parameters.size(), 2u);
 }
 
@@ -2364,16 +2376,16 @@ TEST(probe_parse_model_list_fills_documented_claude_families) {
 
     ASSERT_EQ(models[0].context, 1000000);
     ASSERT_EQ(models[0].max_output, 128000);
-    ASSERT_TRUE(models[0].reasoning);
-    ASSERT_TRUE(models[0].thinking_adaptive);
-    ASSERT_EQ(models[0].efforts.size(), 5u);
-    ASSERT_EQ(models[0].default_effort, std::string("high"));
+    ASSERT_TRUE(models[0].reasoning.supported);
+    ASSERT_TRUE(models[0].reasoning.adaptive);
+    ASSERT_EQ(models[0].reasoning.efforts.size(), 5u);
+    ASSERT_EQ(models[0].reasoning.default_effort, std::string("high"));
 
     ASSERT_EQ(models[1].context, 200000);
     ASSERT_EQ(models[1].max_output, 64000);
-    ASSERT_TRUE(models[1].thinking_legacy);
-    ASSERT_FALSE(models[1].thinking_adaptive);
-    ASSERT_EQ(models[1].default_effort, std::string("high"));
+    ASSERT_TRUE(models[1].reasoning.legacy);
+    ASSERT_FALSE(models[1].reasoning.adaptive);
+    ASSERT_EQ(models[1].reasoning.default_effort, std::string("high"));
 
     // A reported limit still wins over the family fallback.
     ASSERT_EQ(models[2].context, 200000);
@@ -2382,7 +2394,7 @@ TEST(probe_parse_model_list_fills_documented_claude_families) {
     // The table is bounded to Claude ids: no invented limits elsewhere.
     ASSERT_EQ(models[3].context, 0);
     ASSERT_EQ(models[3].max_output, 0);
-    ASSERT_FALSE(models[3].reasoning);
+    ASSERT_FALSE(models[3].reasoning.supported);
 }
 
 // Claude 5.x/4.6+ reject a non-default sampling temperature with a 400. The
@@ -3888,6 +3900,78 @@ TEST(llm_streaming_reasoning_content_field) {
 
     ASSERT_EQ(m.content, "done");
     ASSERT_EQ(m.reasoning, "step one step two");
+    ASSERT_EQ(m.reasoning_field, std::string("reasoning_content"));
+    close(srv);
+}
+
+TEST(llm_streaming_reasoning_details_are_merged) {
+    std::string dummy;
+    // OpenRouter streams structured reasoning blocks one fragment at a time.
+    // The fragments for one index concatenate; the format/id survive so a tool
+    // turn can replay the block verbatim.
+    std::string sse =
+        "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.text\","
+        "\"text\":\"step one "
+        "\",\"index\":0,\"format\":\"anthropic-claude-v1\",\"id\":\"r1\"}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.text\","
+        "\"text\":\"step two\",\"index\":0}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.summary\","
+        "\"summary\":\"short \",\"index\":1}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[{\"type\":\"reasoning.summary\","
+        "\"summary\":\"story\",\"index\":1},{\"type\":\"reasoning.encrypted\","
+        "\"data\":\"abc\",\"index\":2}]}}]}\n\n"
+        "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\n"
+        "data: [DONE]\n\n";
+    int srv = spawn_mock_sse(8916, dummy, sse);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8916/v1";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+
+    ASSERT_EQ(m.content, "done");
+    ASSERT(m.reasoning_details.is_array());
+    ASSERT_EQ(m.reasoning_details.size(), size_t{3});
+    ASSERT_EQ(m.reasoning_details[0]["text"].get<std::string>(), std::string("step one step two"));
+    ASSERT_EQ(m.reasoning_details[0]["format"].get<std::string>(),
+              std::string("anthropic-claude-v1"));
+    ASSERT_EQ(m.reasoning_details[0]["id"].get<std::string>(), std::string("r1"));
+    ASSERT_EQ(m.reasoning_details[1]["summary"].get<std::string>(), std::string("short story"));
+    ASSERT_EQ(m.reasoning_details[2]["data"].get<std::string>(), std::string("abc"));
+    close(srv);
+}
+
+TEST(llm_streaming_reasoning_details_ignore_malformed_fragments) {
+    std::string dummy;
+    // A non-object entry, a huge index and a missing index are ignored or
+    // appended safely; the valid block still arrives intact.
+    std::string sse = "data: {\"choices\":[{\"delta\":{\"reasoning_details\":[null,5,"
+                      "{\"type\":\"reasoning.text\",\"text\":\"good\",\"index\":0},"
+                      "{\"type\":\"reasoning.text\",\"text\":\"bad\",\"index\":999},"
+                      "{\"type\":\"reasoning.summary\",\"summary\":\"tail\"},"
+                      "{\"type\":\"reasoning.text\",\"text\":\"neg\",\"index\":-1},"
+                      "{\"type\":\"reasoning.unknown\",\"index\":3}]}}]}\n\n"
+                      "data: {\"choices\":[{\"delta\":{\"content\":\"done\"}}]}\n\n"
+                      "data: [DONE]\n\n";
+    int srv = spawn_mock_sse(8917, dummy, sse);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8917/v1";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg);
+
+    agent::Message m = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(m.content, "done");
+    ASSERT_EQ(m.reasoning_details.size(), size_t{4});
+    ASSERT_EQ(m.reasoning_details[0]["text"].get<std::string>(), std::string("good"));
+    ASSERT_EQ(m.reasoning_details[1]["summary"].get<std::string>(), std::string("tail"));
+    ASSERT_EQ(m.reasoning_details[3]["type"].get<std::string>(), std::string("reasoning.unknown"));
     close(srv);
 }
 
@@ -4394,6 +4478,31 @@ TEST(session_json_roundtrip_preserves_protocol_blocks) {
     ASSERT_EQ(back.messages[0].raw_content.size(), 2u);
     ASSERT_EQ(back.messages[0].raw_content[0]["signature"], "sig_1");
     ASSERT_EQ(back.messages[0].raw_content[1]["input"]["path"], "a.txt");
+}
+
+// OpenRouter's reasoning_details are the structured form of the chain of
+// thought. Replaying a tool turn after a restart needs them, so the session
+// file carries them like Anthropic's signed blocks.
+TEST(session_json_roundtrip_preserves_reasoning_details) {
+    agent::Session s;
+    agent::Message a;
+    a.role = "assistant";
+    a.reasoning = "read it";
+    a.reasoning_field = "reasoning_content";
+    a.reasoning_details = agent::json::array(
+        {{{"type", "reasoning.text"}, {"text", "read it"}, {"format", "anthropic-claude-v1"}}});
+    a.tool_calls = agent::json::array(
+        {{{"id", "call_1"},
+          {"type", "function"},
+          {"function", {{"name", "read"}, {"arguments", R"({"path":"a.txt"})"}}}}});
+    s.messages = {a};
+
+    const agent::Session back = agent::Session::from_json(s.to_json());
+    ASSERT_EQ(back.messages.size(), 1u);
+    ASSERT(back.messages[0].reasoning_details.is_array());
+    ASSERT_EQ(back.messages[0].reasoning_details[0]["text"].get<std::string>(),
+              std::string("read it"));
+    ASSERT_EQ(back.messages[0].reasoning_field, std::string("reasoning_content"));
 }
 
 TEST(session_store_save_load_list_delete) {
@@ -5936,7 +6045,11 @@ TEST(dispatch_missing_tool_reports_unknown) {
 
 static agent::Message msg(const std::string& role, const std::string& content,
                           const std::string& name = "") {
-    return {role, content, "", "", name, json::object(), false, ""};
+    agent::Message m;
+    m.role = role;
+    m.content = content;
+    m.name = name;
+    return m;
 }
 
 // An assistant message carrying one tool call, with the id a result must echo.
@@ -10090,7 +10203,13 @@ TEST(llm_reasoning_effort_in_request_body) {
     agent::Config cfg;
     cfg.api_base = "http://127.0.0.1:8915/v1";
     cfg.stream = true;
-    cfg.model = "o3-mini"; // documented OpenAI reasoning family, no listing metadata
+    cfg.model = "o3-mini";
+    // The catalogue (or the documented family fallback) established the shape;
+    // the request builder itself never guesses it from the id.
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.effort_levels = true;
+    cfg.model_reasoning.wire = agent::ReasoningWire::Effort;
+    cfg.model_reasoning.mandatory = true;
     cfg.reasoning_effort = "high";
     agent::HttpLLMClient client(cfg);
     agent::Message reply = client.chat_stream({}, {}, [](const agent::StreamChunk&) {});

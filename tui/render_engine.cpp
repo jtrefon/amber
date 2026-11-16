@@ -306,7 +306,7 @@ agent::StatusSnapshot RenderEngine::build_status_snapshot() const {
     // The provider qualifies the model, and a vendor-prefixed id is not the
     // provider: "kilo-auto/free" is kilo's model, served by kilocode.
     snapshot.provider = acfg ? acfg->provider_name : tui_.cfg_.provider_name;
-    snapshot.reasoning_effort = acfg ? acfg->reasoning_effort : tui_.cfg_.reasoning_effort;
+    snapshot.reasoning_effort = agent::effective_reasoning_effort(acfg ? *acfg : tui_.cfg_);
     snapshot.mode = acfg ? acfg->mode : tui_.cfg_.mode;
     snapshot.scroll_mode = scroll_mode_;
     // How far above the live edge the viewport is: -1 when everything fits, 0

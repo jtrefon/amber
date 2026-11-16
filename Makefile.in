@@ -324,6 +324,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/mock_anthropic.o \
                $(BUILD_DIR)/tests/worktree_test.o \
                $(BUILD_DIR)/tests/dialect_anthropic_test.o \
+               $(BUILD_DIR)/tests/reasoning_contract_test.o \
                $(BUILD_DIR)/tests/dialect_gemini_test.o \
                $(BUILD_DIR)/tests/toolset_audit_test.o \
                $(BUILD_DIR)/tests/clock_plugin_test.o \

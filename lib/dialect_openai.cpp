@@ -302,6 +302,185 @@ void append_strings(const json& j, const char* key, std::vector<std::string>& ou
             out.push_back(v.get<std::string>());
 }
 
+void append_unique_strings(const json& j, const char* key, std::vector<std::string>& out) {
+    if (!j.contains(key) || !j[key].is_array())
+        return;
+    for (const auto& v : j[key]) {
+        if (!v.is_string())
+            continue;
+        const std::string text = v.get<std::string>();
+        if (std::find(out.begin(), out.end(), text) == out.end())
+            out.push_back(text);
+    }
+}
+
+bool has_parameter(const std::vector<std::string>& params, const char* name) {
+    return std::find(params.begin(), params.end(), name) != params.end();
+}
+
+bool bool_field(const json& j, const char* key, bool fallback = false) {
+    if (!j.contains(key) || !j[key].is_boolean())
+        return fallback;
+    return j[key].get<bool>();
+}
+
+std::string string_field(const json& j, const char* key) {
+    if (!j.contains(key) || !j[key].is_string())
+        return {};
+    return j[key].get<std::string>();
+}
+
+// OpenRouter's top-level `reasoning` object: the levels the router accepts and
+// whether the model can be turned off. `supported_efforts: null` means every
+// gateway value is accepted, which is represented by an empty list (no clamp).
+void parse_openrouter_reasoning(const json& r, ReasoningContract& out) {
+    if (!r.is_object())
+        return;
+    out.supported = true;
+    out.wire = ReasoningWire::ReasoningObject;
+    if (r.contains("supported_efforts"))
+        append_strings(r, "supported_efforts", out.efforts);
+    // `supported_efforts: null` means every gateway value is accepted; an
+    // absent or empty list means the model exposes no effort selection.
+    const bool all_efforts = r.contains("supported_efforts") && r["supported_efforts"].is_null();
+    out.effort_levels = all_efforts || !out.efforts.empty() || r.contains("default_effort");
+    out.default_effort = string_field(r, "default_effort");
+    out.default_enabled = bool_field(r, "default_enabled");
+    out.mandatory = bool_field(r, "mandatory");
+    out.off = out.mandatory ? ReasoningOff::Unsupported : ReasoningOff::ReasoningDisabled;
+}
+
+// DeepSeek's top-level `effort` object. Thinking is on unless the request sends
+// `thinking: {"type":"disabled"}`, which is the documented off shape.
+void parse_deepseek_effort(const json& effort, ReasoningContract& out) {
+    if (!effort.is_object())
+        return;
+    out.supported = true;
+    out.effort_levels = true;
+    out.wire = ReasoningWire::Effort;
+    out.default_enabled = true;
+    out.off = ReasoningOff::ThinkingDisabled;
+    append_strings(effort, "supported_levels", out.efforts);
+    out.default_effort = string_field(effort, "default_level");
+}
+
+// OpenCode (models.dev v2) `capabilities.reasoning`: supported, toggle, effort
+// levels and an optional default. `toggle` is the ability to add a `none`
+// variant; a model without it and without `none` in the list cannot be turned
+// off.
+void parse_opencode_reasoning(const json& r, ReasoningContract& out) {
+    if (!r.is_object() || !bool_field(r, "supported"))
+        return;
+    out.supported = true;
+    out.wire = ReasoningWire::Effort;
+    out.default_enabled = true;
+    append_strings(r, "effort", out.efforts);
+    out.effort_levels = !out.efforts.empty() || r.contains("default");
+    const bool toggle = bool_field(r, "toggle");
+    const bool has_none = has_parameter(out.efforts, "none");
+    out.mandatory = !(toggle || has_none);
+    out.off = out.mandatory ? ReasoningOff::Unsupported : ReasoningOff::EffortNone;
+    if (r.contains("default") && r["default"].is_object()) {
+        const json& def = r["default"];
+        if (string_field(def, "type") == "effort")
+            out.default_effort = string_field(def, "value");
+    }
+}
+
+// Where a provider expects its chain of thought back on a tool turn. OpenRouter
+// takes the structured reasoning_details (string fallback); DeepSeek requires
+// reasoning_content; OpenCode names the field in its compatibility block. Any
+// other provider that advertised reasoning gets the string field only when it
+// is present, never an empty one.
+bool parse_api_echo(const json& e, ReasoningContract& out) {
+    if (!e.contains("api") || !e["api"].is_object())
+        return false;
+    for (auto it = e["api"].begin(); it != e["api"].end(); ++it) {
+        if (!it.value().is_object())
+            continue;
+        const json compat = it.value().value("compatibility", json::object());
+        if (!compat.is_object())
+            continue;
+        const std::string field = string_field(compat, "reasoning_field");
+        if (field.empty())
+            continue;
+        out.echo_field = field;
+        out.require_echo = bool_field(compat, "require_reasoning", true);
+        return true;
+    }
+    return false;
+}
+
+void parse_reasoning_echo(const json& e, ReasoningContract& out) {
+    if (!out.supported)
+        return;
+    if (e.contains("reasoning") && e["reasoning"].is_object()) {
+        out.echo_field = "reasoning";
+        out.echo_details = true;
+        return;
+    }
+    if (e.contains("effort") && e["effort"].is_object()) {
+        out.echo_field = "reasoning_content";
+        out.require_echo = true;
+        return;
+    }
+    if (parse_api_echo(e, out))
+        return;
+    // No provider-specific echo field: leave it empty and let the assistant
+    // message replay the field its reasoning actually arrived in.
+}
+
+void parse_reasoning(const json& e, ModelInfo& m) {
+    if (has_parameter(m.supported_parameters, "reasoning_effort")) {
+        m.reasoning.supported = true;
+        m.reasoning.effort_levels = true;
+        m.reasoning.wire = ReasoningWire::Effort;
+        m.reasoning.off = ReasoningOff::EffortNone;
+    } else if (has_parameter(m.supported_parameters, "reasoning") ||
+               has_parameter(m.supported_parameters, "include_reasoning")) {
+        m.reasoning.supported = true;
+        m.reasoning.effort_levels = true;
+        m.reasoning.wire = ReasoningWire::ReasoningObject;
+        m.reasoning.off = ReasoningOff::ReasoningDisabled;
+    }
+    if (e.contains("reasoning"))
+        parse_openrouter_reasoning(e["reasoning"], m.reasoning);
+    if (e.contains("effort"))
+        parse_deepseek_effort(e["effort"], m.reasoning);
+    if (e.contains("capabilities") && e["capabilities"].is_object() &&
+        e["capabilities"].contains("reasoning"))
+        parse_opencode_reasoning(e["capabilities"]["reasoning"], m.reasoning);
+    parse_reasoning_echo(e, m.reasoning);
+}
+
+void parse_limits(const json& e, ModelInfo& m) {
+    if (m.context == 0 && e.contains("limit") && e["limit"].is_object()) {
+        m.context = read_int(e["limit"], "context");
+        m.context_train = m.context;
+        if (m.max_output == 0)
+            m.max_output = read_int(e["limit"], "output");
+    }
+    if (m.context == 0)
+        m.context = read_int(e, "context_window");
+    if (m.context_train == 0)
+        m.context_train = m.context;
+    if (m.max_output == 0)
+        m.max_output = read_int(e, "max_output_tokens");
+}
+
+void parse_modalities(const json& e, ModelInfo& m) {
+    append_unique_strings(e, "input_modalities", m.input_modalities);
+    append_unique_strings(e, "output_modalities", m.output_modalities);
+    if (e.contains("architecture") && e["architecture"].is_object()) {
+        append_unique_strings(e["architecture"], "input_modalities", m.input_modalities);
+        append_unique_strings(e["architecture"], "output_modalities", m.output_modalities);
+    }
+    if (e.contains("modalities") && e["modalities"].is_object()) {
+        append_unique_strings(e["modalities"], "input", m.input_modalities);
+        append_unique_strings(e["modalities"], "output", m.output_modalities);
+    }
+}
+
 void parse_top_provider(const json& e, ModelInfo& m) {
     if (!e.contains("top_provider") || !e["top_provider"].is_object())
         return;
@@ -317,13 +496,9 @@ void parse_capabilities(const json& e, ModelInfo& m) {
     if (m.max_output == 0)
         m.max_output = read_int(e, "max_completion_tokens");
     append_strings(e, "supported_parameters", m.supported_parameters);
-    for (const auto& p : m.supported_parameters)
-        if (p == "reasoning" || p == "include_reasoning")
-            m.reasoning = true;
-    if (e.contains("architecture") && e["architecture"].is_object()) {
-        append_strings(e["architecture"], "input_modalities", m.input_modalities);
-        append_strings(e["architecture"], "output_modalities", m.output_modalities);
-    }
+    parse_reasoning(e, m);
+    parse_limits(e, m);
+    parse_modalities(e, m);
 }
 
 // Parse a single model entry into a ModelInfo. The id may come from any of
@@ -358,6 +533,7 @@ ModelInfo parse_entry(const json& e) {
     // documented family fills the limits and the reasoning contract; anything
     // the listing did report already won above.
     apply_claude_family(m);
+    apply_openai_family(m);
     return m;
 }
 
@@ -410,6 +586,17 @@ protected:
         cache_read_tokens_ = read_cached_tokens(u);
     }
 
+    void decode_reasoning(const json& delta, StreamChunk& chunk) {
+        // Dedicated reasoning field (OpenAI/vLLM/llama.cpp reasoning models).
+        for (const char* key : {"reasoning_content", "reasoning"}) {
+            if (!delta.contains(key) || !delta[key].is_string())
+                continue;
+            chunk.reasoning += delta[key].get<std::string>();
+            if (out_.reasoning_field.empty())
+                out_.reasoning_field = key;
+        }
+    }
+
     void decode_payload(const std::string& data) override {
         json evt = json::parse(data, nullptr, false);
         if (evt.is_discarded())
@@ -420,15 +607,15 @@ protected:
             return;
         const json& delta = evt["choices"][0].value("delta", json::object());
         StreamChunk chunk;
-
-        // Dedicated reasoning field (OpenAI/vLLM/llama.cpp reasoning models).
-        for (const char* key : {"reasoning_content", "reasoning"}) {
-            if (delta.contains(key) && delta[key].is_string())
-                chunk.reasoning += delta[key].get<std::string>();
-        }
+        decode_reasoning(delta, chunk);
         // Normal content, split for inline <think> tags.
         if (delta.contains("content") && delta["content"].is_string())
             segment_think(delta["content"].get<std::string>(), chunk);
+
+        // OpenRouter streams its structured reasoning blocks one fragment at a
+        // time. Merge them into the turn so a tool result can replay them.
+        if (delta.contains("reasoning_details") && delta["reasoning_details"].is_array())
+            merge_reasoning_details(delta["reasoning_details"]);
 
         if (delta.contains("tool_calls") && !delta["tool_calls"].is_null())
             chunk.tool_calls = delta["tool_calls"];
@@ -476,6 +663,30 @@ private:
                     return;
                 in_think_ = false;
             }
+        }
+    }
+
+    void merge_reasoning_details(const json& frags) {
+        if (out_.reasoning_details.is_null())
+            out_.reasoning_details = json::array();
+        for (const auto& frag : frags) {
+            if (!frag.is_object())
+                continue;
+            int idx = frag.value("index", static_cast<int>(out_.reasoning_details.size()));
+            if (idx < 0 || idx >= kMaxToolCallsPerMessage)
+                continue;
+            while (static_cast<int>(out_.reasoning_details.size()) <= idx)
+                out_.reasoning_details.push_back(json::object());
+            json& slot = out_.reasoning_details[idx];
+            copy_string_field(slot, frag, "id");
+            copy_string_field(slot, frag, "type");
+            copy_string_field(slot, frag, "format");
+            if (frag.contains("text") && frag["text"].is_string())
+                slot["text"] = slot.value("text", "") + frag["text"].get<std::string>();
+            else if (frag.contains("summary") && frag["summary"].is_string())
+                slot["summary"] = slot.value("summary", "") + frag["summary"].get<std::string>();
+            else if (frag.contains("data") && frag["data"].is_string())
+                slot["data"] = frag["data"];
         }
     }
 
@@ -633,7 +844,22 @@ private:
     // from an old session file (or assembled by an older parser) can carry
     // name-less placeholder tool_calls, which strict gateways reject with a
     // type-discriminator 400. The in-memory context is untouched.
-    static json message_json(const Message& m) {
+    static void append_reasoning_echo(json& jm, const Message& m, const ReasoningContract& rc) {
+        if (m.role != "assistant")
+            return;
+        if (m.reasoning_details.is_array() && !m.reasoning_details.empty() &&
+            (rc.echo_details || rc.echo_field.empty())) {
+            jm["reasoning_details"] = m.reasoning_details;
+            return;
+        }
+        const std::string field = rc.echo_field.empty() ? m.reasoning_field : rc.echo_field;
+        if (field.empty())
+            return;
+        if (!m.reasoning.empty() || (rc.supported && rc.require_echo))
+            jm[field] = m.reasoning;
+    }
+
+    static json message_json(const Message& m, const ReasoningContract& rc) {
         json jm = {{"role", m.role}};
         if (m.role == "assistant" && !m.tool_calls.is_null()) {
             json calls = sanitize_tool_calls(m.tool_calls);
@@ -643,6 +869,7 @@ private:
             // content field at all; and a message whose every call was a
             // placeholder degrades to plain text rather than an empty array.
             jm["content"] = m.content;
+            append_reasoning_echo(jm, m, rc);
             return jm;
         }
         // Every other role MUST carry a content field; an omitted content yields
@@ -654,10 +881,12 @@ private:
             jm["tool_call_id"] = m.tool_call_id;
             jm["name"] = m.name;
         }
+        append_reasoning_echo(jm, m, rc);
         return jm;
     }
 
-    void append_messages(json& out, const std::vector<Message>& messages) const {
+    void append_messages(json& out, const std::vector<Message>& messages,
+                         const ReasoningContract& rc) const {
         const std::string merged_system = merge_system_content(messages);
         bool system_emitted = false;
         for (const auto& m : messages) {
@@ -670,7 +899,7 @@ private:
                     out.push_back({{"role", "system"}, {"content", merged_system}});
                 system_emitted = true;
             }
-            out.push_back(message_json(m));
+            out.push_back(message_json(m, rc));
         }
         // All-system message list (no turns): emit the system block.
         if (!system_emitted && !merged_system.empty())
@@ -697,25 +926,38 @@ private:
 
 namespace {
 
-void append_reasoning(json& body, const Config& cfg) {
-    const auto advertises = [&cfg](const char* name) {
-        return std::find(cfg.model_supported_parameters.begin(),
-                         cfg.model_supported_parameters.end(),
-                         name) != cfg.model_supported_parameters.end();
-    };
-    const auto known_openai_reasoning = [&cfg]() {
-        const std::string& m = cfg.model;
-        return m.rfind("o1", 0) == 0 || m.rfind("o3", 0) == 0 || m.rfind("o4", 0) == 0 ||
-               m.rfind("gpt-5", 0) == 0;
-    };
-    const bool known = !cfg.model_supports_reasoning && known_openai_reasoning();
-    if ((cfg.model_supports_reasoning || known) && !cfg.reasoning_effort.empty() &&
-        cfg.reasoning_effort != "off") {
-        if (advertises("reasoning_effort") || known)
-            body["reasoning_effort"] = cfg.reasoning_effort;
-        else if (advertises("reasoning"))
-            body["reasoning"] = {{"effort", cfg.reasoning_effort}};
+void append_off_reasoning(json& body, ReasoningOff off) {
+    switch (off) {
+    case ReasoningOff::ThinkingDisabled:
+        body["thinking"] = {{"type", "disabled"}};
+        break;
+    case ReasoningOff::ReasoningDisabled:
+        body["reasoning"] = {{"enabled", false}};
+        break;
+    case ReasoningOff::EffortNone:
+        body["reasoning_effort"] = "none";
+        break;
+    case ReasoningOff::Unsupported:
+    case ReasoningOff::Omit:
+        break;
     }
+}
+
+void append_reasoning(json& body, const Config& cfg) {
+    const ReasoningContract& contract = cfg.model_reasoning;
+    if (!reasoning_control_available(cfg))
+        return;
+    if (cfg.reasoning_effort.empty() || cfg.reasoning_effort == "off") {
+        append_off_reasoning(body, contract.off);
+        return;
+    }
+    const std::string effort = effective_reasoning_effort(contract, cfg.reasoning_effort);
+    if (effort.empty())
+        return;
+    if (contract.wire == ReasoningWire::ReasoningObject)
+        body["reasoning"] = {{"effort", effort}};
+    else if (contract.wire == ReasoningWire::Effort)
+        body["reasoning_effort"] = effort;
 }
 
 } // namespace
@@ -756,11 +998,28 @@ json OpenAIDialect::build_chat_body(const Config& cfg, const std::vector<Message
     // Reasoning follows the listing, not a hardcoded tag.
     append_reasoning(body, cfg);
 
-    append_messages(body["messages"], messages);
+    append_messages(body["messages"], messages, cfg.model_reasoning);
     if (tools_advertised(cfg))
         append_tools(body, tools);
     return body;
 }
+
+namespace {
+
+json parsed_tool_calls(const json& calls) {
+    for (const auto& tc : calls) {
+        const json fn = tc.value("function", json::object());
+        const std::string raw = fn.value("arguments", "");
+        if (!raw.empty() && json::parse(raw, nullptr, false).is_discarded())
+            return json::value_t::null;
+    }
+    json clean = sanitize_tool_calls(calls);
+    if (clean.empty())
+        return json::value_t::null;
+    return clean;
+}
+
+} // namespace
 
 Message OpenAIDialect::parse_completion(const std::string& response) const {
     json resp = json::parse(response, nullptr, false);
@@ -773,34 +1032,17 @@ Message OpenAIDialect::parse_completion(const std::string& response) const {
     }
     const json& msg = resp["choices"][0].value("message", json::object());
     out.content = strip_think(str_or_raw(msg, "content", ""));
-    for (const char* key : {"reasoning_content", "reasoning"})
-        out.reasoning += str_or_raw(msg, key, "");
-    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null()) {
-        out.tool_calls = msg["tool_calls"];
-        // Discard tool calls with non-JSON arguments — they poison
-        // history.
-        bool valid = true;
-        for (const auto& tc : out.tool_calls) {
-            auto fn = tc.value("function", json::object());
-            std::string raw = fn.value("arguments", "");
-            if (!raw.empty()) {
-                auto parsed = json::parse(raw, nullptr, false);
-                if (parsed.is_discarded()) {
-                    valid = false;
-                    break;
-                }
-            }
-        }
-        if (valid) {
-            // Drop name-less placeholders and default `type`, same as the
-            // SSE path, so junk never enters the context stack.
-            out.tool_calls = sanitize_tool_calls(out.tool_calls);
-            if (out.tool_calls.empty())
-                out.tool_calls = json::value_t::null;
-        } else {
-            out.tool_calls = json::value_t::null;
-        }
+    for (const char* key : {"reasoning_content", "reasoning"}) {
+        if (!msg.contains(key) || !msg[key].is_string())
+            continue;
+        out.reasoning += msg[key].get<std::string>();
+        if (out.reasoning_field.empty())
+            out.reasoning_field = key;
     }
+    if (msg.contains("reasoning_details") && msg["reasoning_details"].is_array())
+        out.reasoning_details = msg["reasoning_details"];
+    if (msg.contains("tool_calls") && !msg["tool_calls"].is_null())
+        out.tool_calls = parsed_tool_calls(msg["tool_calls"]);
     return out;
 }
 
@@ -823,6 +1065,7 @@ ServerInfo OpenAIDialect::parse_models_response(const std::string& body,
     info.context_train = m.context_train;
     info.max_output = m.max_output;
     info.reasoning = m.reasoning;
+    info.line = m.line;
     info.supported_parameters = m.supported_parameters;
     info.ok = !info.model.empty() || info.context_size > 0;
     return info;

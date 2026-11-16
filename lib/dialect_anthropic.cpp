@@ -79,12 +79,12 @@ std::string effective_effort(const Config& cfg) {
     if (cfg.reasoning_effort.empty() || cfg.reasoning_effort == "off" ||
         cfg.reasoning_effort == "minimal")
         return {};
-    if (cfg.model_efforts.empty())
+    if (cfg.model_reasoning.efforts.empty())
         return {};
-    if (std::find(cfg.model_efforts.begin(), cfg.model_efforts.end(), cfg.reasoning_effort) !=
-        cfg.model_efforts.end())
+    if (std::find(cfg.model_reasoning.efforts.begin(), cfg.model_reasoning.efforts.end(),
+                  cfg.reasoning_effort) != cfg.model_reasoning.efforts.end())
         return cfg.reasoning_effort;
-    return cfg.model_default_effort;
+    return cfg.model_reasoning.default_effort;
 }
 
 // The thinking block, in the shape the model advertises. Adaptive models take
@@ -99,9 +99,9 @@ bool thinking_off(const Config& cfg) {
 // "Off" is only sent as a type the model advertises. An always-on model is
 // left with its default rather than sent a block the API would reject.
 void append_off_thinking(json& body, const Config& cfg) {
-    if (cfg.model_thinking_disabled_ok)
+    if (cfg.model_reasoning.disabled_ok)
         body["thinking"] = {{"type", "disabled"}};
-    else if (cfg.model_thinking_between_tools_ok)
+    else if (cfg.model_reasoning.between_tools_ok)
         body["thinking"] = {{"type", "between_tools"}};
 }
 
@@ -120,7 +120,7 @@ void append_adaptive_thinking(json& body, const Config& cfg) {
 
 void append_legacy_thinking(json& body, const Config& cfg, size_t max_tokens) {
     if (thinking_off(cfg)) {
-        if (cfg.model_thinking_disabled_ok)
+        if (cfg.model_reasoning.disabled_ok)
             body["thinking"] = {{"type", "disabled"}};
         return;
     }
@@ -139,11 +139,11 @@ void append_legacy_thinking(json& body, const Config& cfg, size_t max_tokens) {
 }
 
 void append_thinking(json& body, const Config& cfg, size_t max_tokens) {
-    if (!cfg.model_supports_reasoning)
+    if (!cfg.model_reasoning.supported)
         return;
-    if (cfg.model_thinking_adaptive)
+    if (cfg.model_reasoning.adaptive)
         append_adaptive_thinking(body, cfg);
-    else if (cfg.model_thinking_legacy)
+    else if (cfg.model_reasoning.legacy)
         append_legacy_thinking(body, cfg, max_tokens);
 }
 
@@ -173,9 +173,19 @@ ModelInfo parse_model_entry(const json& e) {
         caps.is_object() ? caps.value("thinking", json::object()) : json::object();
     if (thinking.is_object() && thinking.contains("types")) {
         if (thinking["types"].contains("disabled"))
-            m.thinking_disabled_ok = listed_type_supported(thinking, "disabled");
+            m.reasoning.disabled_ok = listed_type_supported(thinking, "disabled");
         if (thinking["types"].contains("between_tools"))
-            m.thinking_between_tools_ok = listed_type_supported(thinking, "between_tools");
+            m.reasoning.between_tools_ok = listed_type_supported(thinking, "between_tools");
+    }
+    // The listing is authoritative where it spoke: a family that could disable
+    // thinking is not disabled-ok when the capability says so.
+    if (m.reasoning.supported) {
+        if (m.reasoning.mandatory)
+            m.reasoning.off = ReasoningOff::Unsupported;
+        else if (m.reasoning.disabled_ok || m.reasoning.between_tools_ok)
+            m.reasoning.off = ReasoningOff::ReasoningDisabled;
+        else
+            m.reasoning.off = ReasoningOff::Omit;
     }
     return m;
 }
@@ -810,13 +820,6 @@ public:
             info.max_output = m.max_output;
             info.reasoning = m.reasoning;
             info.line = m.line;
-            info.thinking_adaptive = m.thinking_adaptive;
-            info.thinking_legacy = m.thinking_legacy;
-            info.thinking_always_on = m.thinking_always_on;
-            info.thinking_disabled_ok = m.thinking_disabled_ok;
-            info.thinking_between_tools_ok = m.thinking_between_tools_ok;
-            info.efforts = m.efforts;
-            info.default_effort = m.default_effort;
             info.supported_parameters = m.supported_parameters;
             info.ok = true;
             break;

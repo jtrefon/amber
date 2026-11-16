@@ -62,6 +62,10 @@ std::string message_line(const Message& message) {
         j["name"] = message.name;
     if (!message.tool_calls.is_null())
         j["tool_calls"] = message.tool_calls;
+    if (!message.reasoning_details.is_null())
+        j["reasoning_details"] = message.reasoning_details;
+    if (!message.reasoning_field.empty())
+        j["reasoning_field"] = message.reasoning_field;
     if (message.harness)
         j["harness"] = true;
     return j.dump();

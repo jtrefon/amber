@@ -102,7 +102,9 @@ StatusText render_model(const StatusSnapshot& s) {
     std::string cell;
     if (!s.provider.empty())
         cell += s.provider + "|";
-    cell += s.model + bar::reasoning_badge(s.reasoning_effort);
+    cell += s.model;
+    if (!s.reasoning_effort.empty())
+        cell += bar::reasoning_badge(s.reasoning_effort);
     return StatusText{" [" + cell + "]", StatusTone::Warn};
 }
 
