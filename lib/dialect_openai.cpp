@@ -732,6 +732,11 @@ public:
         std::vector<std::string> headers;
         if (!cfg.api_key.empty())
             headers.push_back("Authorization: Bearer " + cfg.api_key);
+        // A gateway that routes/caches by conversation names the header; the
+        // host supplies a stable id per window/session. Providers that ask for
+        // neither send exactly the header they sent before.
+        if (!cfg.session_header.empty() && !cfg.session_id.empty())
+            headers.push_back(cfg.session_header + ": " + cfg.session_id);
         return headers;
     }
 

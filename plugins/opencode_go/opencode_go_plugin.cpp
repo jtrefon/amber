@@ -54,6 +54,9 @@ std::vector<std::unique_ptr<Capability>> OpencodeGoPlugin::capabilities() {
     preset.api_base = kApiBase;
     preset.default_model = kDefaultModel;
     preset.requires_key = true;
+    // The Go gateway routes and caches by conversation; without a stable id it
+    // rejects the request before it can be routed.
+    preset.session_header = "x-opencode-session";
 
     std::vector<std::unique_ptr<Capability>> caps;
     caps.push_back(

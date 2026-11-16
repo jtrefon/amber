@@ -102,9 +102,13 @@ dialect.
 - **Given**: A dialect and a config with and without an API key
 - **Input**: `auth_headers(cfg)`
 - **Expected**: No credential header when the key is empty; exactly one
-  protocol-shaped credential header when set.
-- **Regression guard**: `apply_auth_emits_bearer_only_with_key` (openai),
-  `anthropic_auth_headers` tests.
+  protocol-shaped credential header when set. A provider that named a
+  conversation header (`cfg.session_header`) gets exactly one such header, with
+  the host's id, and never a header with an empty value.
+- **Regression guard**: `apply_auth_emits_bearer_only_with_key`,
+  `openai_auth_carries_the_provider_session_header`,
+  `openai_session_header_reaches_the_wire` (openai), `anthropic_auth_headers`
+  tests.
 
 #### [DL-06] Error classification per protocol
 

@@ -842,6 +842,15 @@ TEST(apply_selection_copies_flavor_from_the_provider) {
     agent::apply_selection(gemini_cfg, gemini);
     ASSERT_EQ(gemini_cfg.flavor, "gemini"); // served by the plugin's preset
 
+    // A gateway that routes by conversation carries the header name with it;
+    // the host's conversation id supplies the value.
+    auto go = svc->select("opencode_go");
+    ASSERT(go.ok());
+    agent::Config go_cfg;
+    agent::apply_selection(go_cfg, go);
+    ASSERT_EQ(go_cfg.session_header, "x-opencode-session");
+    ASSERT(kilo_cfg.session_header.empty()); // a provider that asks for none
+
     std::filesystem::remove_all("/tmp/amber_xdg_caps");
     unsetenv("XDG_CONFIG_HOME");
 }
@@ -4087,6 +4096,66 @@ TEST(apply_auth_emits_bearer_only_with_key) {
     ASSERT(keyed.list != nullptr);
     ASSERT_EQ(std::string(keyed.list->data), "Authorization: Bearer sk-test-123");
     ASSERT(keyed.list->next == nullptr); // never more than the one auth header
+}
+
+// A gateway that routes/caches by conversation names the header it wants; the
+// host supplies a stable id. A provider that names no header, or a conversation
+// with no id, sends exactly the auth it sent before.
+TEST(openai_auth_carries_the_provider_session_header) {
+    agent::Config cfg;
+    cfg.api_key = "sk-test";
+    cfg.session_header = "x-opencode-session";
+    cfg.session_id = "conv-42";
+
+    agent::HeaderList with_id;
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        with_id.add(h);
+    ASSERT(with_id.list != nullptr);
+    ASSERT_EQ(std::string(with_id.list->data), "Authorization: Bearer sk-test");
+    ASSERT(with_id.list->next != nullptr);
+    ASSERT_EQ(std::string(with_id.list->next->data), "x-opencode-session: conv-42");
+    ASSERT(with_id.list->next->next == nullptr);
+
+    // The header name without a value would be a malformed request.
+    cfg.session_id.clear();
+    agent::HeaderList no_id;
+    for (const auto& h : agent::make_dialect("openai")->auth_headers(cfg))
+        no_id.add(h);
+    ASSERT(no_id.list != nullptr);
+    ASSERT(no_id.list->next == nullptr);
+}
+
+// The header has to reach the socket, not just the dialect's helper: the
+// transport is where a dropped header would be invisible to a unit pin.
+TEST(openai_session_header_reaches_the_wire) {
+    std::string request;
+    const std::string body = R"({"choices":[{"message":{"role":"assistant","content":"ok"}}]})";
+    std::vector<std::string> responses = {
+        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " +
+        std::to_string(body.size()) + "\r\n\r\n" + body};
+    int srv = spawn_mock_http_sequence(8963, request, responses);
+    ASSERT(srv >= 0);
+    usleep(100000); // let the listener bind
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8963/v1";
+    cfg.model = "mock";
+    cfg.stream = false;
+    cfg.api_key = "sk-test";
+    cfg.session_header = "x-opencode-session";
+    cfg.session_id = "conv-wire-1";
+    agent::HttpLLMClient client(cfg);
+
+    std::vector<agent::Message> msgs;
+    agent::Message user;
+    user.role = "user";
+    user.content = "hi";
+    msgs.push_back(user);
+    const agent::Message reply = client.chat(msgs, {}, nullptr);
+
+    ASSERT_EQ(reply.content, "ok");
+    ASSERT(request.find("x-opencode-session: conv-wire-1") != std::string::npos);
+    close(srv);
 }
 
 TEST(config_models_url_derivation) {
