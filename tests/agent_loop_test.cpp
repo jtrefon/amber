@@ -4992,6 +4992,23 @@ private:
 
 } // namespace
 
+TEST(agent_owner_id_sets_the_client_session_id) {
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
+
+    ag.set_owner_id("window-7");
+    ASSERT_EQ(raw->session_id, std::string("window-7"));
+    ASSERT_EQ(ag.config_snapshot()->session_id, std::string("window-7"));
+
+    // A host may keep a routing identity that outlives one conversation.
+    ag.set_session_id("conv-9");
+    ASSERT_EQ(raw->session_id, std::string("conv-9"));
+    ASSERT_EQ(ag.config_snapshot()->session_id, std::string("conv-9"));
+}
+
 TEST(agent_drains_inbox_before_the_first_request) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();

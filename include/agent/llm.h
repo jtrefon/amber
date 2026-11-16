@@ -506,6 +506,12 @@ public:
     // drains these into [harness] notices, so nothing about a request changes
     // behind the model's back. Draining empties the list.
     virtual std::vector<std::string> take_notices() { return {}; }
+
+    // The conversation id a provider may ask for in a request header. The host
+    // calls this when its window/session identity changes; a client that does
+    // not speak HTTP ignores it, and the default keeps injected test clients
+    // untouched.
+    virtual void set_session_id(const std::string& id) { (void)id; }
 };
 
 // Real libcurl implementation. The wire protocol (URLs, auth, request body,
@@ -531,6 +537,9 @@ public:
                         Stats* stats = nullptr) override;
     int learned_context_size() const override { return learned_; }
     std::vector<std::string> take_notices() override;
+    // Carried into every subsequent request, so a host that assigns the
+    // window's identity after construction still sends it.
+    void set_session_id(const std::string& id) override { cfg_.session_id = id; }
 
 private:
     void add_notice(std::string text);

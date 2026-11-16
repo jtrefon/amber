@@ -15,6 +15,7 @@
 #include <agent/bootstrap.h>
 #include <agent/exit_ready.h>
 #include <agent/log_retention.h>
+#include <agent/session.h>
 #include <agent/version.h>
 #include "agent/private_file.h"
 #include "plugins/mcp/mcp_plugin.h"
@@ -812,6 +813,11 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
         agent.set_prompt_registry(host.plugin_runtime.prompts());
         agent.set_inbox(&inbox);
         agent.set_owner_id("cli");
+        // One CLI invocation is one conversation, but two invocations are not
+        // the same one: a provider that routes by conversation must not see
+        // them as one. The task owner stays "cli" so durable records from an
+        // earlier process are still joined.
+        agent.set_session_id(agent::SessionStore::new_id());
         for (const auto& prompt : prompts) {
             const std::string reply = run_turn(agent, host, prompt);
             if (telemetry)

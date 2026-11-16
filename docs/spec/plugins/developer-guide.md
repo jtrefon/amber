@@ -432,6 +432,10 @@ preset.name = "gemini";
 preset.api_base = "https://generativelanguage.googleapis.com";
 preset.default_model = "gemini-3.8-flash";
 preset.requires_key = true;
+// A gateway that routes/caches by conversation names the header it wants the
+// host's stable conversation id in. The plugin names it; the value is the
+// host's, never a constant in the plugin.
+preset.session_header = "x-opencode-session";
 
 // Own protocol: provide the dialect factory.
 caps.push_back(std::make_unique<agent::ProviderCapability>(
@@ -699,7 +703,7 @@ in one sitting and each a template for the next:
 | `plugins/custom/` | Presets only, no endpoint: the user's own endpoint, configured by file |
 | `plugins/openrouter/` | Minimal vendor on a shared protocol (presets only, no dialect) + a per-key wallet |
 | `plugins/kilocode/` | Shared protocol + a provider-specific feature (a wallet: one fetch, no poll loop) |
-| `plugins/opencode_go/` | Shared protocol + an allowance (subscription usage windows) |
+| `plugins/opencode_go/` | Shared protocol + a required conversation header (`x-opencode-session`) + an allowance (subscription usage windows) |
 | `plugins/opencode_zen/` | Shared protocol, presets only (compatible models) |
 | `plugins/commandcode/` | Shared protocol + an allowance (5h/weekly/monthly windows) |
 | `plugins/deepseek/` | Shared protocol + a wallet (prepaid balance) |

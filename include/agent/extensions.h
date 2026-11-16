@@ -754,6 +754,9 @@ public:
         std::string api_base;
         std::string default_model;
         bool requires_key = true;
+        // A gateway that routes/caches by conversation wants the host's stable
+        // id in this header (e.g. "x-opencode-session"). Empty: no header.
+        std::string session_header;
     };
 
     // `make_dialect` empty: presets only, speaking a protocol provided
