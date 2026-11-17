@@ -558,8 +558,7 @@ private:
 
     void open_turn(const std::string& user_prompt);
     void publish_compression_done(bool success, long tokens_after);
-    bool fail_compression_after(CompressionResult& r, const std::string& error, size_t msgs_before,
-                                size_t tokens_before, CompressionReporter& reporter,
+    bool fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
                                 CompressionResult* out);
     void rebuild_context(std::vector<Message>& compressed);
 

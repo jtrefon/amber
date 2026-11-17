@@ -601,22 +601,18 @@ void Agent::publish_compression_done(bool success, long tokens_after) {
 // Spec invariant 7: a failed compression leaves the context untouched. Report
 // the real error — a failure here must not masquerade as "no compressor
 // configured" (the TUI keys off messages_before == 0).
-bool Agent::fail_compression_after(CompressionResult& r, const std::string& error,
-                                   size_t msgs_before, size_t tokens_before,
-                                   CompressionReporter& reporter, CompressionResult* out) {
-    r.messages_before = msgs_before;
-    r.tokens_before = tokens_before;
-    r.error = error;
-    reporter.on_error(error);
+bool Agent::fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
+                                   CompressionResult* out) {
+    reporter.on_error(r.error);
     // The history stands (spec invariant 7), but the model is told the attempt
     // happened: a compression that failed changes how much room is left, and
     // that is the model's business too.
-    inject_harness_note("[harness] context compression failed (" + error +
+    inject_harness_note("[harness] context compression failed (" + r.error +
                         "); the conversation is unchanged and the window is unchanged.");
     if (hooks_.on_compression)
         hooks_.on_compression(r);
-    publish_compression_done(false, static_cast<long>(tokens_before));
-    publish_error("compression", error);
+    publish_compression_done(false, static_cast<long>(r.tokens_before));
+    publish_error("compression", r.error);
     if (out)
         *out = std::move(r);
     return false;
@@ -661,11 +657,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
 
     // The reporter carries the progress stream; the controller computes the
     // authoritative result from the snapshot and the replacement list.
-    CompressionResult status;
-    const size_t msgs_before = context_.size();
-    const size_t tokens_before = context_.token_count();
-    CompressionReporter reporter(hooks_, status, std::move(progress_cb));
-    reporter.set_before(msgs_before, tokens_before);
+    CompressionReporter reporter(hooks_, std::move(progress_cb));
 
     const CompressionController::Request request{context_, *client_,  cfg_,
                                                  *prefix,  &reporter, user_turn_counter_};
@@ -677,13 +669,8 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
             *out = std::move(outcome.result);
         return false;
     }
-    if (!outcome.ok) {
-        // Copy the reason before the result is filled in: the two are the same
-        // object, and a reference into it would be a self-assignment.
-        const std::string error = outcome.result.error;
-        return fail_compression_after(outcome.result, error, msgs_before, tokens_before, reporter,
-                                      out);
-    }
+    if (!outcome.ok)
+        return fail_compression_after(outcome.result, reporter, out);
 
     rebuild_context(outcome.messages);
     // The cached server prompt count describes the PRE-compression context;

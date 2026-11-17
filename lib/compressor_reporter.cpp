@@ -7,15 +7,8 @@
 
 namespace agent {
 
-CompressionReporter::CompressionReporter(const AgentHooks& hooks, CompressionResult& result,
-                                         std::function<void()> progress)
-    : hooks_(hooks), r_(result), progress_(std::move(progress)) {}
-
-void CompressionReporter::set_before(size_t msgs, size_t tokens) {
-    before_msgs_ = msgs;
-    r_.messages_before = msgs;
-    r_.tokens_before = tokens;
-}
+CompressionReporter::CompressionReporter(const AgentHooks& hooks, std::function<void()> progress)
+    : hooks_(hooks), progress_(std::move(progress)) {}
 
 void CompressionReporter::on_compress_start(size_t msgs, size_t) {
     log("compressing " + std::to_string(msgs) + " messages...");
@@ -100,19 +93,17 @@ void CompressionReporter::on_error(const std::string& msg) {
 
 void CompressionReporter::on_compress_done(const CompressionResult& final) {
     auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0_).count();
-    r_.messages_after = final.messages_after;
-    r_.tokens_after = final.tokens_after;
     std::string detail;
-    if (r_.messages_before > r_.messages_after)
-        detail += std::to_string(r_.messages_before - r_.messages_after) + " msgs removed";
-    if (r_.tokens_before > r_.tokens_after) {
+    if (final.messages_before > final.messages_after)
+        detail += std::to_string(final.messages_before - final.messages_after) + " msgs removed";
+    if (final.tokens_before > final.tokens_after) {
         if (!detail.empty())
             detail += ", ";
-        detail +=
-            std::to_string(r_.tokens_before) + " → " + std::to_string(r_.tokens_after) + " tok";
+        detail += std::to_string(final.tokens_before) + " → " + std::to_string(final.tokens_after) +
+                  " tok";
     }
     if (detail.empty())
-        detail = std::to_string(r_.tokens_after) + " tok";
+        detail = std::to_string(final.tokens_after) + " tok";
     log("done in " + std::to_string(elapsed) + "s — " + detail);
 }
 
