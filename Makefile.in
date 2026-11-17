@@ -400,6 +400,8 @@ TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
 PTY_TEST_OBJ = $(BUILD_DIR)/tests/tui_pty_test.o
+PTY_HARNESS_OBJ = $(BUILD_DIR)/tests/pty_harness.o
+TUI_AGENT_E2E_OBJ = $(BUILD_DIR)/tests/tui_agent_e2e_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
@@ -427,7 +429,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-check bench-e2e bench-baseline bench-reap bench-reap-apply \
-        website-bench-data check smoketest test doctor \
+        website-bench-data check smoketest test doctor tui-agent-e2e \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
@@ -1269,8 +1271,8 @@ $(BUILD_DIR)/session_browser_test: $(SB_TEST_OBJ) $(BUILD_DIR)/tui/session_brows
 
 # Drives the real TUI in a pty. The fixture is written with SessionStore, so the
 # test links the core library the same way plugin_test does.
-$(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PTY_TEST_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+$(BUILD_DIR)/tui_pty_test: $(PTY_TEST_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PTY_TEST_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 $(BUILD_DIR)/e2e_test: $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/setting_registry.o
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(E2E_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/setting_registry.o
@@ -1307,6 +1309,14 @@ bench-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario t-03-write-vs-rewrite
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario f-07-tool-denied-grace
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario mt-01-read-edit-verify
+
+# The agent journeys reuse the pty driver and the shared scripted endpoint, so
+# the real TUI, the real tools and the real plugin runtime all run.
+tui-agent-e2e: $(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN)
+	$(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN)
+
+$(BUILD_DIR)/tui_agent_e2e_test: $(TUI_AGENT_E2E_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TUI_AGENT_E2E_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 # Regenerate the committed baseline after a reviewed harness change. Review the
 # diff: a token or call increase is a real change in what the harness sends.
@@ -1438,6 +1448,8 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(CL_TEST_OBJ:.o=.d)
 -include $(SB_TEST_OBJ:.o=.d)
 -include $(PTY_TEST_OBJ:.o=.d)
+-include $(PTY_HARNESS_OBJ:.o=.d)
+-include $(TUI_AGENT_E2E_OBJ:.o=.d)
 -include $(E2E_TEST_OBJ:.o=.d)
 -include $(COMP_TEST_OBJ:.o=.d)
 -include $(TUI_TEST_OBJ:.o=.d)
