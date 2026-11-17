@@ -4376,6 +4376,27 @@ TEST(workspace_check_matches_exact_contains_regex_absent_and_diff) {
                      "workspace: answer.txt does not match exact content") != failures.end());
 }
 
+TEST(workspace_check_reports_missing_absent_and_diff_failures) {
+    const std::string dir = tmp_dir("workspace_failures");
+    write_file(dir + "/a.txt", "no match\n");
+    write_file(dir + "/b.txt", "plain\n");
+    write_file(dir + "/extra.txt", "unexpected\n");
+    write_file(dir + "/c.txt", "old\n");
+    Scenario scenario;
+    scenario.setup = {{"files", {{"c.txt", "old\n"}}}};
+    scenario.expected_workspace = policy_json(R"({
+        "files": {
+            "missing.txt": {"exact": "x"},
+            "a.txt": {"contains": "needle"},
+            "b.txt": {"regex": "z+"}
+        },
+        "absent": ["extra.txt"],
+        "diff_contains": {"c.txt": ["+new"], "d.txt": ["+x"]}
+    })");
+    const std::vector<std::string> failures = bench::check_expected_workspace(scenario, dir);
+    ASSERT(failures.size() >= 6);
+}
+
 TEST(workspace_failure_fails_the_scenario) {
     Scenario scenario;
     scenario.name = "workspace-failure";
@@ -4594,6 +4615,49 @@ TEST(fault_client_streams_then_drops) {
     }
     ASSERT(threw);
     ASSERT_EQ(chunks, 2);
+}
+
+TEST(scenario_loader_rejects_malformed_assertions) {
+    const std::string dir = tmp_dir("malformed_assertions");
+    const char* cases[] = {
+        R"({"expected_workspace": 7})",
+        R"({"expected_workspace": {"files": 7}})",
+        R"({"expected_workspace": {"files": {"../escape.txt": "x"}}})",
+        R"({"expected_workspace": {"files": {"a.txt": 7}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {"exact": 7}}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {"contains": 7}}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {"regex": 7}}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {"regex": "["}}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {}}}})",
+        R"({"expected_workspace": {"files": {"a.txt": {"exact": "x", "contains": "y"}}}})",
+        R"({"expected_workspace": {"absent": 7}})",
+        R"({"expected_workspace": {"absent": [7]}})",
+        R"({"expected_workspace": {"diff_contains": 7}})",
+        R"({"expected_workspace": {"diff_contains": {"a.txt": "x"}}})",
+        R"({"expected_workspace": {"diff_contains": {"a.txt": [7]}}})",
+        R"({"expected_workspace": {"diff_contains": {"../a.txt": ["x"]}}})",
+        R"({"expected_workspace": {"unknown": true}})",
+        R"({"request_contract": 7})",
+        R"({"request_contract": {"system_prefix_stable": "yes"}})",
+        R"({"request_contract": {"tools_include": 7}})",
+        R"({"request_contract": {"tools_include": [7]}})",
+        R"({"request_contract": {"cache_breakpoints": -1}})",
+        R"({"request_contract": {"mood": true}})",
+        R"({"faults": 7})",
+        R"({"faults": [7]})",
+        R"({"faults": [{"at_request": 0, "kind": "http_500"}]})",
+        R"({"faults": [{"at_request": 1, "kind": "meteor"}]})",
+        R"({"faults": [{"at_request": 1, "kind": "stream_drop", "after_chunks": 0}]})",
+        R"({"faults": [{"at_request": 1}]})",
+    };
+    int index = 0;
+    for (const char* body : cases) {
+        const std::string path = dir + "/case-" + std::to_string(index++) + ".json";
+        write_file(path, std::string(R"({"name": "bad", "suite": "tools", "prompt": "go", )") +
+                             std::string(body).substr(1));
+        std::string err;
+        ASSERT(!bench::load_scenario(path, err));
+    }
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {
