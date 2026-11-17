@@ -4,6 +4,7 @@
 #include "agent/todo.h"
 #include "agent/tools.h"
 #include "bench/binary_driver.h"
+#include "bench/client_filters.h"
 #include "bench/fake.h"
 #include "bench/mock_server.h"
 #include "bench/scripted_endpoint.h"
@@ -19,6 +20,7 @@
 #include "bench/runner.h"
 #include "bench/scenario.h"
 #include "bench/shape_replay.h"
+#include "bench/workspace_check.h"
 #include "bench/state_reaper.h"
 #include "bench/template.h"
 
@@ -4346,6 +4348,233 @@ TEST(policy_scenario_recovers_from_a_missing_file) {
     ASSERT_EQ(reports.size(), 1u);
     ASSERT(reports[0].kpi.success);
     ASSERT(reports[0].failures.empty());
+}
+
+TEST(workspace_check_matches_exact_contains_regex_absent_and_diff) {
+    const std::string dir = tmp_dir("workspace_expectations");
+    write_file(dir + "/answer.txt", "amber\n");
+    write_file(dir + "/notes.txt", "hello world\n");
+    write_file(dir + "/regex.txt", "world\n");
+
+    Scenario scenario;
+    scenario.setup = {{"files", {{"answer.txt", "old\n"}}}};
+    scenario.expected_workspace = policy_json(R"({
+        "files": {
+            "answer.txt": {"exact": "amber\n"},
+            "notes.txt": {"contains": "hello"},
+            "regex.txt": {"regex": "wor.*"}
+        },
+        "absent": ["scratch.tmp"],
+        "diff_contains": {"answer.txt": ["-old", "+amber"]}
+    })");
+    ASSERT(bench::check_expected_workspace(scenario, dir).empty());
+
+    write_file(dir + "/answer.txt", "wrong\n");
+    const std::vector<std::string> failures = bench::check_expected_workspace(scenario, dir);
+    ASSERT(!failures.empty());
+    ASSERT(std::find(failures.begin(), failures.end(),
+                     "workspace: answer.txt does not match exact content") != failures.end());
+}
+
+TEST(workspace_failure_fails_the_scenario) {
+    Scenario scenario;
+    scenario.name = "workspace-failure";
+    scenario.suite = "policy";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello\n"}}}};
+    scenario.policy = policy_json(R"({
+        "initial": "read",
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "done"},
+            "done": {"final": "done"}
+        }
+    })");
+    scenario.expected_workspace = policy_json(R"({"files": {"a.txt": {"exact": "wrong\n"}}})");
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    const std::vector<bench::ScenarioReport> reports = bench::run_scenarios({scenario}, opts, meta);
+    ASSERT_EQ(reports.size(), 1u);
+    ASSERT(!reports[0].kpi.success);
+    ASSERT(std::find(reports[0].failures.begin(), reports[0].failures.end(),
+                     "workspace: a.txt does not match exact content") != reports[0].failures.end());
+}
+
+TEST(scenario_fault_is_injected_through_the_agent_run) {
+    Scenario scenario;
+    scenario.name = "fault-run";
+    scenario.suite = "policy";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello\n"}}}};
+    scenario.policy = policy_json(R"({
+        "initial": "read",
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "done"},
+            "done": {"final": "done"}
+        }
+    })");
+    scenario.faults.push_back(policy_json(R"({"at_request": 1, "kind": "http_500"})"));
+    scenario.oracle.push_back({"read", {{"path", "a.txt"}}});
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    const std::vector<bench::ScenarioReport> reports = bench::run_scenarios({scenario}, opts, meta);
+    ASSERT_EQ(reports.size(), 1u);
+    ASSERT(reports[0].kpi.success);
+    ASSERT(reports[0].kpi.retries >= 1);
+}
+
+TEST(scenario_contract_failure_fails_the_run) {
+    Scenario scenario;
+    scenario.name = "contract-run";
+    scenario.suite = "policy";
+    scenario.prompt = "read a.txt";
+    scenario.setup = {{"files", {{"a.txt", "hello\n"}}}};
+    scenario.policy = policy_json(R"({
+        "initial": "read",
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "done"},
+            "done": {"final": "done"}
+        }
+    })");
+    scenario.request_contract = policy_json(R"({"tools_exclude": ["read"]})");
+
+    bench::RunOptions opts;
+    bench::RunMeta meta;
+    const std::vector<bench::ScenarioReport> reports = bench::run_scenarios({scenario}, opts, meta);
+    std::cerr << "contract success=" << reports[0].kpi.success << " failures=";
+    for (const auto& failure : reports[0].failures)
+        std::cerr << "[" << failure << "]";
+    std::cerr << "\n";
+    ASSERT_EQ(reports.size(), 1u);
+    ASSERT(!reports[0].kpi.success);
+    bool found = false;
+    for (const std::string& failure : reports[0].failures)
+        if (failure.find("request contract") != std::string::npos)
+            found = true;
+    ASSERT(found);
+}
+
+TEST(scenario_loader_rejects_invalid_workspace_and_contract_fields) {
+    const std::string dir = tmp_dir("scenario_assertions");
+    write_file(dir + "/bad_workspace.json", R"({
+        "name": "bad-workspace", "suite": "tools", "prompt": "go",
+        "expected_workspace": {"files": {"../escape.txt": {"exact": "x"}}}
+    })");
+    write_file(dir + "/bad_contract.json", R"({
+        "name": "bad-contract", "suite": "tools", "prompt": "go",
+        "request_contract": {"tools_include": 7}
+    })");
+    write_file(dir + "/bad_fault.json", R"({
+        "name": "bad-fault", "suite": "tools", "prompt": "go",
+        "faults": [{"at_request": 1, "kind": "meteor"}]
+    })");
+    for (const char* name : {"bad_workspace.json", "bad_contract.json", "bad_fault.json"}) {
+        std::string err;
+        ASSERT(!bench::load_scenario(dir + "/" + name, err));
+        ASSERT(!err.empty());
+    }
+}
+
+TEST(contract_client_rejects_prefix_drift_and_missing_tools) {
+    auto fake = std::make_unique<bench::FakeClient>();
+    bench::BenchReply first;
+    first.content = "one";
+    bench::BenchReply second;
+    second.content = "two";
+    fake->script.push_back(std::move(first));
+    fake->script.push_back(std::move(second));
+    auto client = std::make_unique<bench::ContractClient>(
+        std::move(fake),
+        policy_json(R"({"system_prefix_stable": true, "tools_include": ["read"]})"));
+
+    agent::Message system;
+    system.role = "system";
+    system.content = "stable";
+    std::vector<std::shared_ptr<agent::Tool>> tools;
+    tools.push_back(agent::make_read_tool());
+    ASSERT_EQ(client->chat({system}, tools).content, std::string("one"));
+
+    system.content = "drifted";
+    bool threw = false;
+    try {
+        client->chat({system}, tools);
+    } catch (const std::runtime_error& error) {
+        threw = true;
+        ASSERT(std::string(error.what()).find("prefix") != std::string::npos);
+    }
+    ASSERT(threw);
+
+    auto missing = std::make_unique<bench::ContractClient>(
+        std::make_unique<bench::FakeClient>(), policy_json(R"({"tools_include": ["read"]})"));
+    threw = false;
+    try {
+        missing->chat({system}, {});
+    } catch (const std::runtime_error& error) {
+        threw = true;
+        ASSERT(std::string(error.what()).find("missing required tool") != std::string::npos);
+    }
+    ASSERT(threw);
+}
+
+TEST(contract_client_rejects_a_system_message_after_the_first_block) {
+    auto client = std::make_unique<bench::ContractClient>(
+        std::make_unique<bench::FakeClient>(), policy_json(R"({"no_system_after_first": true})"));
+    agent::Message system;
+    system.role = "system";
+    system.content = "first";
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    agent::Message late = system;
+    late.content = "late";
+    bool threw = false;
+    try {
+        client->chat({system, user, late}, {});
+    } catch (const std::runtime_error& error) {
+        threw = true;
+        ASSERT(std::string(error.what()).find("after the first") != std::string::npos);
+    }
+    ASSERT(threw);
+}
+
+TEST(fault_client_injects_retryable_and_empty_faults) {
+    auto retry = std::make_unique<bench::FaultClient>(
+        std::make_unique<bench::FakeClient>(),
+        std::vector<agent::json>{policy_json(R"({"at_request": 1, "kind": "http_429"})")});
+    bool threw = false;
+    try {
+        retry->chat({}, {});
+    } catch (const agent::ApiError& error) {
+        threw = true;
+        ASSERT_EQ(error.status, 429);
+        ASSERT(error.retryable);
+    }
+    ASSERT(threw);
+
+    auto empty = std::make_unique<bench::FaultClient>(
+        std::make_unique<bench::FakeClient>(),
+        std::vector<agent::json>{policy_json(R"({"at_request": 1, "kind": "empty_reply"})")});
+    ASSERT_EQ(empty->chat({}, {}).content, std::string());
+}
+
+TEST(fault_client_streams_then_drops) {
+    auto client = std::make_unique<bench::FaultClient>(
+        std::make_unique<bench::FakeClient>(),
+        std::vector<agent::json>{
+            policy_json(R"({"at_request": 1, "kind": "stream_drop", "after_chunks": 2})")});
+    int chunks = 0;
+    bool threw = false;
+    try {
+        client->chat_stream({}, {}, [&chunks](const agent::StreamChunk&) { ++chunks; });
+    } catch (const agent::ApiError& error) {
+        threw = true;
+        ASSERT(error.retryable);
+    }
+    ASSERT(threw);
+    ASSERT_EQ(chunks, 2);
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {
