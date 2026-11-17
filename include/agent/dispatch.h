@@ -17,6 +17,7 @@ class ToolRegistry;
 struct Config;
 struct AgentHooks;
 class ConversationLog;
+class EventBus;
 struct Message;
 
 using json = nlohmann::json;
@@ -37,17 +38,30 @@ ApprovalDecision approve_tool(const Tool& tool, const json& args, const Config& 
                               const AgentHooks& hooks, std::set<std::string>& session_approved,
                               PolicyStore* policy);
 
+// One dispatch: the requested calls plus every collaborator they need. Named
+// fields replace the nine positional arguments the function used to carry, and
+// the three optional sinks default to "not attached" instead of a row of
+// nullptr at each call site.
+struct DispatchRequest {
+    // cppcheck-suppress uninitMemberVarNoCtor -- reference member; aggregate init binds it.
+    const json& calls;
+    const Config& cfg;
+    ToolRegistry& registry;
+    const AgentHooks& hooks;
+    ConversationLog& log;
+    // cppcheck-suppress uninitMemberVarNoCtor -- reference member; aggregate init binds it.
+    std::set<std::string>& session_approved;
+    PolicyStore* policy = nullptr;
+    EventBus* events = nullptr;
+    Context& context;
+};
+
 // Execute every requested tool call, recording results into `history`. Tools
 // run in parallel via std::async; approval is checked synchronously. Returns
 // false if any call failed (error, unknown tool, or denied). The `Call` struct,
 // approval gating, and parallel execution are encapsulated here so Agent::run
 // stays a thin orchestrator.
-class EventBus;
-
-bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& registry,
-                         const AgentHooks& hooks, ConversationLog& log,
-                         std::set<std::string>& session_approved, PolicyStore* policy,
-                         EventBus* events, Context* context);
+bool dispatch_tool_calls(const DispatchRequest& request);
 
 } // namespace agent
 

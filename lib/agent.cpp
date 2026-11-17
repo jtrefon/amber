@@ -31,18 +31,6 @@ namespace agent {
 
 namespace {
 
-// Append a Markdown section to the system prompt. Files carry a trailing
-// newline and the separator is two of them, so the section is trimmed before it
-// is joined - otherwise every boundary gains a blank line and the prompt drifts
-// from what the files say.
-void append_section(std::string& system, const std::string& text) {
-    const std::size_t end = text.find_last_not_of('\n');
-    if (end == std::string::npos)
-        return;
-    system += "\n\n";
-    system.append(text, 0, end + 1);
-}
-
 // Helper: publish context-change event to all subscribers.
 void emit_context_event(ContextEventSource& src, const Context& ctx) {
     src.publish(ctx.token_count(), ctx.size());
@@ -250,37 +238,6 @@ void Agent::set_provider(const Config& resolved, const std::string& model) {
     publish_config();
 }
 
-// Append a section only when it has content; sections are separated by a blank
-// line.
-void append_optional_section(std::string& system, const std::string& text) {
-    if (!text.empty())
-        system += "\n\n" + text;
-}
-
-// The mode paragraph appended to every system prompt.
-std::string mode_prompt(agent::AgentMode mode) {
-    switch (mode) {
-    case agent::AgentMode::Read:
-        return "\n\nYou are in READ mode: you can explore and answer "
-               "questions using read-only tools (search, grep, read). "
-               "Writing files or running shell commands is not available "
-               "here, so prefer read-only investigation and report back.";
-    case agent::AgentMode::Write:
-        return "\n\nYou are in WRITE mode: you work inside the workspace, "
-               "reading, editing, creating files and running commands "
-               "freely. Destructive or system-wide commands (rm, dd, git "
-               "reset, sudo, package installs, ...) pause for the user's "
-               "approval, as does writing outside the workspace (once per "
-               "target folder). A command request the user grants runs "
-               "silently for the rest of the session or permanently.";
-    case agent::AgentMode::Yolo:
-        return "\n\nYou are in YOLO mode: every tool runs immediately with "
-               "no approval gate. The user trusts you completely, so keep "
-               "the same careful, deliberate working style.";
-    }
-    return "";
-}
-
 void Agent::set_project_root(std::string root) {
     project_root_ = std::move(root);
     workspace_note_ = worktree_session_note(workspace_root_.empty() ? Workspace::project_root()
@@ -294,10 +251,6 @@ void Agent::set_workspace_root(std::string root) {
 }
 
 std::string Agent::render_system_prompt() const {
-    std::string system = load_prompt(cfg_.system_prompt_path);
-    if (system.empty())
-        throw std::runtime_error("system prompt file not found or empty: " +
-                                 cfg_.system_prompt_path);
     // Environment card: OS, user, resources, available tools — collected
     // once at session start, so the agent can act in its environment without
     // probing. Session-fixed by construction: re-probing every turn would both
@@ -306,45 +259,25 @@ std::string Agent::render_system_prompt() const {
         environment_card_ = render_environment_card(probe_environment());
         environment_probed_ = true;
     }
-    append_optional_section(system, environment_card_);
+    SystemPromptSources sources;
+    sources.cfg = &cfg_;
+    sources.registry = &registry_;
+    sources.prompts = prompt_registry_;
+    sources.environment_card = &environment_card_;
+    sources.workspace_note = &workspace_note_;
+    sources.subagent = in_subagent();
+    return PromptAssembler::system_prompt(sources);
+}
 
-    if (!cfg_.tools_prompt_path.empty()) {
-        std::string tools = load_prompt(cfg_.tools_prompt_path);
-        if (tools.empty())
-            throw std::runtime_error("tools prompt file not found or empty: " +
-                                     cfg_.tools_prompt_path);
-        append_section(system, tools);
-    } else if (!registry_.empty()) {
-        append_section(system, render_tools_markdown(registry_));
-    }
-    // Tool documentation contributed as System blocks lands here, immediately
-    // after the tools prompt it belongs to. This is what keeps a tool's schema
-    // and its prose in agreement: disabling a tool plugin removes both.
-    if (prompt_registry_) {
-        for (auto& text : prompt_registry_->render_all(PromptPlacement::System))
-            append_section(system, text);
-    }
-    // Plugins: enabled plugin tools (registered as plugin_<id>_<name>) get
-    // their own reference section so the agent knows they exist and how to
-    // use them without touching the static tools.md.
-    append_optional_section(system, plugin_tools_advertisement(registry_));
-    system += mode_prompt(cfg_.mode);
-
-    // The workspace itself is part of the environment: a detached worktree
-    // needs a branch before its first commit, and nothing else in the prompt
-    // knows that.
-    append_optional_section(system, workspace_note_);
-
-    // An explicit git prompt, when the user configured one. The standard git
-    // prose lives in the coding domain plugin, so a session that is not
-    // software work carries none of it.
-    if (!cfg_.git_prompt_path.empty())
-        append_optional_section(system, load_prompt(cfg_.git_prompt_path));
-    // A worker runs this same assembly plus the role boundary: rendered here,
-    // not composed by the delegate tool, so the prompt rebuild cannot lose it.
-    if (in_subagent())
-        append_section(system, worker_directive());
-    return system;
+PromptSources Agent::prompt_sources() const {
+    PromptSources sources;
+    sources.read_skill_available = registry_.has("read_skill");
+    sources.memory = retriever_.get();
+    sources.skills = skills_.get();
+    sources.activated = &activated_skills_;
+    sources.brief = &brief_store_;
+    sources.prompts = prompt_registry_;
+    return sources;
 }
 
 void Agent::ensure_system_prompt() {
@@ -607,7 +540,7 @@ Message Agent::chat_once(const std::vector<std::shared_ptr<Tool>>& tools) {
     // and the one above was silently discarded whenever the rebuild replaced
     // the prompt — which is precisely when a long session needs its retrieved
     // memories. There is now no "before the gate" to inject into by accident.
-    inject_prompt_blocks(prompt_copy);
+    PromptAssembler::inject_blocks(prompt_sources(), prompt_copy);
 
     if (cfg_.stream) {
         reply = client_->chat_stream(
@@ -920,8 +853,9 @@ bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::stri
         return false;
 
     emit_tooling_hooks(hooks_, tool_calls, content);
-    const bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_, hooks_, log_,
-                                        session_approved_, &policy_, event_bus_, &context_);
+    const bool ok =
+        dispatch_tool_calls(DispatchRequest{tool_calls, cfg_, registry_, hooks_, log_,
+                                            session_approved_, &policy_, event_bus_, context_});
 
     if (cfg_.detection_loop) {
         if (stop_on_dispatch_loop(tool_calls, turn))
@@ -1093,118 +1027,6 @@ std::string Agent::finish_turn(Turn& turn) {
     return final_reply;
 }
 
-bool block_before(const Agent::PromptBlock& a, const Agent::PromptBlock& b) {
-    return a.priority != b.priority ? a.priority < b.priority : a.seq < b.seq;
-}
-
-// Head blocks go immediately after the system prompt, so they read as
-// instructions for this request; tail blocks follow the conversation. The tail
-// rides the user channel (with the harness flag) rather than the system one:
-// every dialect hoists system messages into the leading block, and a cacheable
-// prefix cannot contain content that changes between turns. On the wire the
-// tail therefore stays after everything it annotates — a change costs only the
-// block itself.
-void insert_prompt_blocks(std::vector<Message>& prompt_copy, std::vector<Agent::PromptBlock>& head,
-                          std::vector<Agent::PromptBlock>& tail) {
-    std::sort(head.begin(), head.end(), block_before);
-    std::sort(tail.begin(), tail.end(), block_before);
-
-    std::size_t pos = 0;
-    for (std::size_t i = 0; i < prompt_copy.size(); ++i) {
-        if (prompt_copy[i].role == "system") {
-            pos = i + 1;
-            break;
-        }
-    }
-    for (auto& block : head) {
-        Message msg;
-        msg.role = "system";
-        msg.content = std::move(block.text);
-        prompt_copy.insert(prompt_copy.begin() + static_cast<std::ptrdiff_t>(pos), std::move(msg));
-        ++pos;
-    }
-    for (auto& block : tail) {
-        Message msg;
-        msg.role = "user";
-        msg.harness = true;
-        msg.content = std::move(block.text);
-        prompt_copy.push_back(std::move(msg));
-    }
-}
-
-// The learned-memory block is the [system][memory] prefix, so it is a
-// function of the store alone. The retriever caches it until the store
-// version moves; selection never follows the current question.
-std::string Agent::retrieve_memory_block() const {
-    if (!retriever_)
-        return "";
-    return retriever_->build_block();
-}
-
-// Discovery metadata is cheap and constant; skill bodies load only when the
-// model asks for one with read_skill, so they trail the conversation.
-void Agent::collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
-                                 std::size_t& seq) const {
-    if (!skills_)
-        return;
-    // The discovery block exists to be acted on, and the only actor is
-    // read_skill. With that tool switched off (its plugin unwound it), the
-    // block would name a tool the registry cannot serve — the same rule the
-    // tool prose follows. Activated bodies are not gated: they are content the
-    // model has already seen, and dropping them would lose context.
-    if (registry_.find("read_skill")) {
-        const auto discovery = skills_->discovery_block();
-        if (!discovery.empty()) {
-            std::string text = "Available skills (activate with read_skill):\n";
-            for (const auto& line : discovery)
-                text += line + "\n";
-            head.push_back({prompt_priority::kSkillDiscovery, seq++, std::move(text)});
-        }
-    }
-    for (const auto& act : activated_skills_.snapshot())
-        tail.push_back({prompt_priority::kActivatedSkills, seq++,
-                        "[activated skill: " + act.name + "]\n" + act.body});
-}
-
-void Agent::collect_prompt_blocks(std::vector<PromptBlock>& head,
-                                  std::vector<PromptBlock>& tail) const {
-    std::size_t seq = 0;
-
-    std::string memory = retrieve_memory_block();
-    if (!memory.empty())
-        head.push_back({prompt_priority::kMemory, seq++, std::move(memory)});
-
-    collect_skill_blocks(head, tail, seq);
-
-    // The brief lives in its store, not the context, so compression cannot lose
-    // it; it sits at the tail because it changes more often than the rest.
-    if (!brief_store_.empty()) {
-        std::string rendered = brief_store_.render();
-        if (!rendered.empty())
-            tail.push_back({prompt_priority::kSessionBrief, seq++, std::move(rendered)});
-    }
-
-    // Plugin blocks come from the shared registry, which has already ordered
-    // them by (priority, registration), and each declares its own placement:
-    // Head blocks read as instructions for this request, Tail blocks follow the
-    // conversation. System blocks are not here at all - they are part of the
-    // system prompt itself (ensure_system_prompt), because that is the stable
-    // prefix and rewriting it per turn would cost the cache.
-    if (prompt_registry_) {
-        for (auto& text : prompt_registry_->render_all(PromptPlacement::Head))
-            head.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
-        for (auto& text : prompt_registry_->render_all(PromptPlacement::Tail))
-            tail.push_back({prompt_priority::kPluginBlock, seq++, std::move(text)});
-    }
-}
-
-void Agent::inject_prompt_blocks(std::vector<Message>& prompt_copy) const {
-    std::vector<PromptBlock> head;
-    std::vector<PromptBlock> tail;
-    collect_prompt_blocks(head, tail);
-    insert_prompt_blocks(prompt_copy, head, tail);
-}
-
 namespace {
 
 // How a prompt block is carried on the wire. Head blocks are system messages
@@ -1213,7 +1035,7 @@ namespace {
 // compression replay uses the same mapping, or its request would not share the
 // live prefix it exists to reuse. Order is the caller's (sorted before
 // conversion).
-std::vector<Message> block_messages(const std::vector<Agent::PromptBlock>& blocks, bool tail) {
+std::vector<Message> block_messages(const std::vector<PromptBlock>& blocks, bool tail) {
     std::vector<Message> out;
     out.reserve(blocks.size());
     for (const auto& block : blocks) {
@@ -1232,9 +1054,9 @@ CompressionRequestPrefix
 Agent::compression_prefix(const std::vector<std::shared_ptr<Tool>>& tools) const {
     std::vector<PromptBlock> head;
     std::vector<PromptBlock> tail;
-    collect_prompt_blocks(head, tail);
-    std::sort(head.begin(), head.end(), block_before);
-    std::sort(tail.begin(), tail.end(), block_before);
+    PromptAssembler::collect_blocks(prompt_sources(), head, tail);
+    PromptAssembler::order_blocks(head);
+    PromptAssembler::order_blocks(tail);
     CompressionRequestPrefix prefix;
     prefix.head_blocks = block_messages(head, /*tail=*/false);
     prefix.tail_blocks = block_messages(tail, /*tail=*/true);

@@ -21,6 +21,7 @@
 #include "agent/experience.h"
 #include "agent/policy.h"
 #include "agent/prompt_priorities.h"
+#include "agent/prompt_assembler.h"
 #include "agent/session_brief.h"
 #include "agent/skill_catalog.h"
 #include "agent/activation_sink.h"
@@ -277,13 +278,6 @@ public:
 
 class Agent : public IAgent {
 public:
-    // A prompt block waiting to be placed, ordered by (priority, insertion).
-    struct PromptBlock {
-        int priority = 0;
-        std::size_t seq = 0;
-        std::string text;
-    };
-
     Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks = {}, AgentDeps deps = {});
     // `memory_store`/`skills` are shared_ptr because a project scopes them:
     // every agent on one workspace shares ONE catalog and ONE store. The
@@ -538,20 +532,9 @@ private:
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.
     void publish_config();
     std::shared_ptr<const Config> published_cfg_; // atomic access only
-    // Assemble every injected prompt block into `prompt_copy`, in one ordered
-    // pass. Called exactly once per request and only AFTER the compression
-    // gate: a block injected before the rebuild is discarded when the rebuild
-    // replaces the prompt, which is the bug this replaced (retrieved memories
-    // vanished on compressing turns). Head blocks are inserted with the system
-    // prompt, tail blocks follow the conversation; ordering is
-    // `prompt_priority`. The sealed Context is never touched — this is the
-    // prompt copy.
-    void inject_prompt_blocks(std::vector<Message>& prompt_copy) const;
-    // The blocks that injection would add, in request order. Compression
-    // replays them so its classify/extract calls are extensions of the cached
-    // prefix (see CompressionRequestPrefix).
-    void collect_prompt_blocks(std::vector<PromptBlock>& head,
-                               std::vector<PromptBlock>& tail) const;
+    // The per-agent sources prompt assembly reads. A view over state this agent
+    // owns; the assembler itself holds nothing.
+    PromptSources prompt_sources() const;
     CompressionRequestPrefix
     compression_prefix(const std::vector<std::shared_ptr<Tool>>& tools) const;
 
@@ -573,9 +556,6 @@ private:
     // strategies themselves never see an Agent (repair.h).
     class RepairBridge;
     RepairLadder repairs_ = make_default_repair_ladder();
-    std::string retrieve_memory_block() const;
-    void collect_skill_blocks(std::vector<PromptBlock>& head, std::vector<PromptBlock>& tail,
-                              std::size_t& seq) const;
 
     void open_turn(const std::string& user_prompt);
     bool fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before);
