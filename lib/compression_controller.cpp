@@ -80,20 +80,14 @@ void CompressionController::set_min_turns(int turns) {
 
 CompressionController::Outcome CompressionController::run(const Request& request) {
     Outcome outcome;
-    // Every attempt is remembered, including a refusal: /compress reports the
-    // same result it just handed back, and a fork copies it.
-    auto finish = [this](Outcome result) {
-        last_ = result.result;
-        return result;
-    };
     if (!strategy_) {
         outcome.result.error = "no compressor configured";
-        return finish(std::move(outcome));
+        return record(std::move(outcome));
     }
     if (request.context.size() < 2) {
         outcome.result.messages_before = request.context.size();
         outcome.result.error = "conversation too short to compress";
-        return finish(std::move(outcome));
+        return record(std::move(outcome));
     }
     outcome.attempted = true;
 
@@ -114,24 +108,31 @@ CompressionController::Outcome CompressionController::run(const Request& request
     if (gate_)
         gate_->set_last_compress_turn(request.turn);
 
+    fill_result(outcome, msgs_before, tokens_before);
+    return record(std::move(outcome));
+}
+
+CompressionController::Outcome CompressionController::record(Outcome outcome) {
+    last_ = outcome.result;
+    return outcome;
+}
+
+void CompressionController::fill_result(Outcome& outcome, std::size_t msgs_before,
+                                        std::size_t tokens_before) const {
+    outcome.result.messages_before = msgs_before;
+    outcome.result.tokens_before = tokens_before;
     if (!outcome.response.error.empty()) {
-        outcome.result.messages_before = msgs_before;
-        outcome.result.tokens_before = tokens_before;
         outcome.result.error = outcome.response.error;
         outcome.messages.clear();
-        return finish(std::move(outcome));
+        return;
     }
-
     outcome.ok = true;
-    outcome.result.messages_before = msgs_before;
     outcome.result.messages_after = outcome.messages.size();
-    outcome.result.tokens_before = tokens_before;
     outcome.result.tokens_after = estimate_tokens(outcome.messages);
     count_segments(outcome.response, outcome.result);
     outcome.result.archive_tokens = archive_tokens(outcome.messages);
     outcome.result.payload_tokens_after =
         conversation_token_count(outcome.messages) + outcome.result.archive_tokens;
-    return finish(std::move(outcome));
 }
 
 const CompressionResult& CompressionController::last() const noexcept {

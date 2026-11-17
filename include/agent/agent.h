@@ -560,6 +560,8 @@ private:
     void publish_compression_done(bool success, long tokens_after);
     bool fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
                                 CompressionResult* out);
+    void complete_compression(CompressionController::Outcome& outcome,
+                              CompressionReporter& reporter, CompressionResult* out);
     void rebuild_context(std::vector<Message>& compressed);
 
     // Validate and apply plans the model submitted, at this request boundary.

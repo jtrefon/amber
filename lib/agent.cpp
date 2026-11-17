@@ -672,6 +672,14 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     if (!outcome.ok)
         return fail_compression_after(outcome.result, reporter, out);
 
+    complete_compression(outcome, reporter, out);
+    return true;
+}
+
+// A pass that ran: rebuild the stack, apply what it learned, then tell the
+// host. The controller already recorded the result.
+void Agent::complete_compression(CompressionController::Outcome& outcome,
+                                 CompressionReporter& reporter, CompressionResult* out) {
     rebuild_context(outcome.messages);
     // The cached server prompt count describes the PRE-compression context;
     // reset it so the gate evaluates the new context honestly (falls back to the
@@ -688,7 +696,6 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     publish_compression_done(true, static_cast<long>(outcome.result.tokens_after));
     if (out)
         *out = std::move(outcome.result);
-    return true;
 }
 
 void Agent::log_and_push_user_prompt(const std::string& prompt) {

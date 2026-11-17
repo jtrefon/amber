@@ -75,6 +75,13 @@ public:
     void set_last(CompressionResult result);
 
 private:
+    // Remember the run, including a refusal: /compress reports the result it
+    // just handed back, and a fork copies it.
+    Outcome record(Outcome outcome);
+    // Fill the reported statistics. A failed classifier keeps the live context,
+    // so only the pre-pass numbers travel and the replacement list is dropped.
+    void fill_result(Outcome& outcome, std::size_t msgs_before, std::size_t tokens_before) const;
+
     std::unique_ptr<CompressionStrategy> strategy_;
     std::unique_ptr<CompressionGate> gate_;
     CompressionResult last_;
