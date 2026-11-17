@@ -5914,6 +5914,33 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     ASSERT(found);
 }
 
+// The dispatch request keeps the optional sinks optional. A caller that wants
+// only the run and the host hook passes no event bus and no context, and the
+// request still describes the whole call in named fields.
+TEST(dispatch_request_object_defaults_optional_sinks) {
+    agent::Config cfg;
+    cfg.mode = agent::AgentMode::Yolo;
+    agent::ToolRegistry reg;
+    reg.register_tool(agent::make_bash_tool());
+    agent::ConversationLog log;
+    std::set<std::string> approved;
+
+    int tool_results = 0;
+    agent::AgentHooks hooks;
+    hooks.on_tool_result = [&](const std::string&, const agent::ToolResult&, const agent::json&) {
+        ++tool_results;
+    };
+
+    agent::json calls = agent::json::array();
+    calls.push_back({{"id", "c1"},
+                     {"type", "function"},
+                     {"function", {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}}}});
+
+    agent::DispatchRequest request{calls, cfg, reg, hooks, log, approved};
+    ASSERT(agent::dispatch_tool_calls(request));
+    ASSERT_EQ(tool_results, 1);
+}
+
 namespace {
 // Stays running long enough for the dispatcher's first scan to miss it, without
 // a sleep: sleep_for(1ms) measures the runner's timer granularity (about 10 ms
