@@ -110,8 +110,11 @@ TEST(loop_guard_steers_once_when_narration_repeats_then_stops) {
     ASSERT(f.context.get_all().front().harness);
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
+    std::string stop_text;
+    f.hooks.on_assistant = [&](const std::string& text) { stop_text = text; };
     ASSERT_TRUE(f.guard->repeated_narration("same words", turn));
     ASSERT(turn.has_reply());
+    ASSERT(stop_text.find("loop detected") != std::string::npos);
 }
 
 // A failing tool steers the model off it once, then hard-stops. A successful
@@ -228,4 +231,41 @@ TEST(loop_guard_announces_the_dispatch) {
     f.guard->announce_dispatch(json(), "");
     ASSERT(state == RunState::Idle);
     ASSERT(debug.empty());
+    f.guard->announce_dispatch(json::array(), "");
+    ASSERT(state == RunState::Idle);
+    ASSERT(debug.empty());
+}
+
+// The guard never requires the host to wire a hook: every stop and steer works
+// on the turn and the conversation alone.
+TEST(loop_guard_runs_without_host_hooks) {
+    const Config cfg = guard_cfg();
+    const AgentHooks hooks;
+    ConversationLog log;
+    Context context;
+    ContextEventSource events;
+    std::vector<std::string> notes;
+    LoopGuard guard(cfg, hooks, log, context, events,
+                    [&](const std::string& note) { notes.push_back(note); });
+
+    Turn text(now(), cfg.max_wall_ms);
+    ASSERT_FALSE(guard.repeated_narration("same words", text));
+    ASSERT_FALSE(guard.repeated_narration("same words", text));
+    ASSERT_FALSE(guard.repeated_narration("same words", text)); // steer
+    ASSERT_FALSE(guard.repeated_narration("same words", text));
+    ASSERT_FALSE(guard.repeated_narration("same words", text));
+    ASSERT_TRUE(guard.repeated_narration("same words", text)); // stop
+    ASSERT(text.has_reply());
+
+    Turn failing(now(), cfg.max_wall_ms);
+    const json calls = bash_call("false");
+    for (int i = 0; i < 4; ++i)
+        guard.fold_fail_streak(calls, false, failing);
+    ASSERT(failing.has_reply());
+
+    Turn dispatched(now(), cfg.max_wall_ms);
+    for (int i = 0; i < 3; ++i)
+        guard.stop_dispatch_loop(calls, dispatched);
+    ASSERT_TRUE(guard.stop_dispatch_loop(calls, dispatched));
+    ASSERT(dispatched.has_reply());
 }
