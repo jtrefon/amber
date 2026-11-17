@@ -60,8 +60,11 @@ struct Scenario {
     std::vector<Turn> turns;                         // multi-turn script, empty = one shot
     agent::json fake_replies = agent::json::array(); // hermetic script
     agent::json policy = agent::json::object();      // closed-loop state machine; empty = FIFO
-    std::vector<agent::json> subagent_replies;       // hermetic: per-sub-agent scripts
-    bool stream = false;                             // hermetic: use the streaming path
+    agent::json expected_workspace = agent::json::object();
+    agent::json request_contract = agent::json::object();
+    std::vector<agent::json> faults;
+    std::vector<agent::json> subagent_replies; // hermetic: per-sub-agent scripts
+    bool stream = false;                       // hermetic: use the streaming path
     // Hermetic scripts that need a side-effecting tool declare "approval":
     // "allow". The default keeps the benchmark's deny-unless-process policy so
     // the denied-tool scenarios still exercise the refusal path.

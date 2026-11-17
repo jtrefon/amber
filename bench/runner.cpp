@@ -1,9 +1,11 @@
 
 #include "bench/runner.h"
 
+#include "bench/client_filters.h"
 #include "bench/policy.h"
 #include "bench/policy_client.h"
 #include "bench/policy_zoo.h"
+#include "bench/workspace_check.h"
 
 #include "agent/task_join.h"
 
@@ -353,17 +355,31 @@ std::unique_ptr<agent::LLMClient> build_zoo_client(const std::string& name, cons
     return std::make_unique<PolicyClient>(std::move(policy), &s);
 }
 
+std::unique_ptr<agent::LLMClient> apply_client_filters(std::unique_ptr<agent::LLMClient> client,
+                                                       const Scenario& s,
+                                                       std::string* contract_error) {
+    if (!client)
+        return nullptr;
+    if (!s.faults.empty())
+        client = std::make_unique<FaultClient>(std::move(client), s.faults);
+    if (!s.request_contract.empty())
+        client =
+            std::make_unique<ContractClient>(std::move(client), s.request_contract, contract_error);
+    return client;
+}
+
 // The hermetic fake client, with any scripted sub-agent replies wired into the
 // executor. Returns nullptr in live mode, where the real client is used.
 std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptions& opts,
-                                               agent::SubAgentExecutor& subagents) {
+                                               agent::SubAgentExecutor& subagents,
+                                               std::string* contract_error) {
     if (opts.live)
         return nullptr;
     if (!opts.policy_name.empty())
-        return build_zoo_client(opts.policy_name, s);
+        return apply_client_filters(build_zoo_client(opts.policy_name, s), s, contract_error);
     const agent::json& policy_spec = effective_policy(s, opts);
     if (!policy_spec.empty())
-        return build_policy_client(policy_spec);
+        return apply_client_filters(build_policy_client(policy_spec), s, contract_error);
     // Shared script: the parent and any workers (delegate tool) each take a copy
     // at construction time, so hermetic runs stay deterministic and never touch
     // the network.
@@ -397,7 +413,7 @@ std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptio
     }
     auto fake = std::make_unique<FakeClient>();
     fake->script = *script;
-    return fake;
+    return apply_client_filters(std::move(fake), s, contract_error);
 }
 
 // The agent loads its prompt files through absolute paths: the run chdirs into
@@ -532,16 +548,16 @@ long bullseye_offset(const OracleResult& oracle, const EventStream& stream, long
 // Fold the run's raw results into the report's score fields. Returns whether the
 // scenario's checks passed.
 bool fill_scores(ScenarioReport& rep, const Scenario& s, const EventStream& stream, const Kpi& kpi,
-                 const std::string& final_text) {
+                 const std::string& final_text, bool workspace_ok) {
     const bool checks_ok = checks_pass(s.checks, final_text);
-    // The scenario's checks and (when it has one) its artifact both have to pass
-    // before kpi_success applies its budget tests; it short-circuits on
+    // The scenario's checks, its artifact and its final workspace all have to
+    // pass before kpi_success applies its budget tests; it short-circuits on
     // kpi.success, so the preconditions are folded in first.
     const bool artifact_ok =
         s.template_dir.empty() ||
         (kpi.compile_ok && kpi.artifact_score == 1.0 && kpi.behavior_equivalent);
     Kpi gated = kpi;
-    gated.success = kpi.success && checks_ok && artifact_ok;
+    gated.success = kpi.success && checks_ok && artifact_ok && workspace_ok;
     Kpi scored = gated;
     scored.success = kpi_success(gated, s);
     rep.kpi = scored;
@@ -742,6 +758,14 @@ void prepare_subagents(const Scenario& s, const RunOptions& opts, RunHost& host)
 }
 
 // Score the finished run and fill every report field from it.
+bool fill_scores_with_workspace(ScenarioReport& rep, const Scenario& s, const EventStream& stream,
+                                const Kpi& kpi, const std::string& final_text, const fs::path& ws) {
+    const std::vector<std::string> failures = check_expected_workspace(s, ws);
+    const bool checks_ok = fill_scores(rep, s, stream, kpi, final_text, failures.empty());
+    rep.failures.insert(rep.failures.end(), failures.begin(), failures.end());
+    return checks_ok;
+}
+
 void fill_report(ScenarioReport& rep, const Scenario& s, const agent::Config& cfg,
                  RunComponents& comps, const std::string& final_text, long wall_ms, long t0,
                  const fs::path& ws) {
@@ -757,7 +781,7 @@ void fill_report(ScenarioReport& rep, const Scenario& s, const agent::Config& cf
     }
     const Kpi kpi = compute_kpi(stream, oracle, comps.meter, tmpl, s.prompt_checks, final_text,
                                 wall_ms, bullseye_offset(oracle, stream, t0, wall_ms));
-    const bool checks_ok = fill_scores(rep, s, stream, kpi, final_text);
+    const bool checks_ok = fill_scores_with_workspace(rep, s, stream, kpi, final_text, ws);
 
     rep.final_text = final_text;
     rep.templated = !s.template_dir.empty();
@@ -793,6 +817,7 @@ struct ScenarioOutcome {
     long t0 = 0;
     const fs::path* workspace = nullptr;
     const RunOptions* opts = nullptr;
+    const std::string* contract_error = nullptr;
 };
 
 void join_and_score(ScenarioReport& rep, const ScenarioOutcome& out) {
@@ -804,6 +829,11 @@ void join_and_score(ScenarioReport& rep, const ScenarioOutcome& out) {
     if (!joined) {
         rep.failures.push_back(std::move(reason));
         rep.kpi.success = false;
+    }
+    if (out.contract_error && !out.contract_error->empty()) {
+        rep.failures.push_back("request contract: " + *out.contract_error);
+        rep.kpi.success = false;
+        rep.score.total = std::min(rep.score.total, 60.0);
     }
 }
 
@@ -839,7 +869,9 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
 
     RunComponents comps(host.cfg, s.allow_tools);
     comps.meter.start();
-    std::unique_ptr<agent::LLMClient> client = build_client(s, opts, host.subagents);
+    std::string contract_error;
+    std::unique_ptr<agent::LLMClient> client =
+        build_client(s, opts, host.subagents, &contract_error);
 
     RunOutcome out;
     if (!run_agent_in_workspace(s, host, comps, std::move(client), ws, out)) {
@@ -849,7 +881,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
         return rep;
     }
     rep.turns = std::move(out.turns);
-    join_and_score(rep, {&s, &host, &comps, out.final_text, out.wall_ms, out.t0, &ws, &opts});
+    join_and_score(
+        rep, {&s, &host, &comps, out.final_text, out.wall_ms, out.t0, &ws, &opts, &contract_error});
     fs::remove_all(ws);
     return rep;
 }

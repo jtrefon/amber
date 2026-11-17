@@ -2,7 +2,10 @@
 #include "bench/scenario.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <fstream>
+#include <regex>
+#include <set>
 
 #include "bench/policy.h"
 
@@ -104,6 +107,208 @@ bool take_policy(const agent::json& j, Scenario& s, std::string& err) {
     s.policy = j["policy"];
     return validate_state_machine(s.policy, err);
 }
+
+bool relative_path(const std::string& path) {
+    if (path.empty())
+        return false;
+    const std::filesystem::path candidate(path);
+    if (candidate.is_absolute())
+        return false;
+    return std::all_of(candidate.begin(), candidate.end(),
+                       [](const std::filesystem::path& part) { return part != ".."; });
+}
+
+bool workspace_matcher(const agent::json& value, std::string& err) {
+    if (value.is_string())
+        return true;
+    if (!value.is_object()) {
+        err = "workspace expectation must be a string or an object";
+        return false;
+    }
+    int matchers = 0;
+    for (const char* key : {"exact", "contains", "regex"}) {
+        if (!value.contains(key))
+            continue;
+        if (!value[key].is_string()) {
+            err = std::string("workspace '") + key + "' must be a string";
+            return false;
+        }
+        if (std::string(key) == "regex") {
+            try {
+                std::regex unused(value[key].get<std::string>());
+                (void)unused;
+            } catch (const std::regex_error&) {
+                err = "workspace 'regex' is not a valid regular expression";
+                return false;
+            }
+        }
+        ++matchers;
+    }
+    if (matchers != 1) {
+        err = "workspace expectation needs exactly one of exact/contains/regex";
+        return false;
+    }
+    return true;
+}
+
+bool take_workspace_files(const agent::json& value, std::string& err) {
+    if (!value.is_object()) {
+        err = "'expected_workspace.files' must be an object";
+        return false;
+    }
+    for (auto file = value.begin(); file != value.end(); ++file) {
+        if (!relative_path(file.key())) {
+            err = "workspace path is not relative: " + file.key();
+            return false;
+        }
+        if (!workspace_matcher(file.value(), err))
+            return false;
+    }
+    return true;
+}
+
+bool take_workspace_absent(const agent::json& value, std::string& err) {
+    if (!value.is_array()) {
+        err = "'expected_workspace.absent' must be an array";
+        return false;
+    }
+    const bool valid = std::all_of(value.begin(), value.end(), [](const agent::json& path) {
+        return path.is_string() && relative_path(path.get<std::string>());
+    });
+    if (!valid)
+        err = "'expected_workspace.absent' needs relative paths";
+    return valid;
+}
+
+bool take_workspace_diff(const agent::json& value, std::string& err) {
+    if (!value.is_object()) {
+        err = "'expected_workspace.diff_contains' must be an object";
+        return false;
+    }
+    for (auto file = value.begin(); file != value.end(); ++file) {
+        if (!relative_path(file.key()) || !file.value().is_array()) {
+            err = "'expected_workspace.diff_contains' needs a path and string array";
+            return false;
+        }
+        const bool valid =
+            std::all_of(file.value().begin(), file.value().end(),
+                        [](const agent::json& needle) { return needle.is_string(); });
+        if (!valid) {
+            err = "'expected_workspace.diff_contains' values must be strings";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool take_workspace(const agent::json& j, Scenario& s, std::string& err) {
+    if (!j.contains("expected_workspace"))
+        return true;
+    const agent::json& workspace = j["expected_workspace"];
+    if (!workspace.is_object()) {
+        err = "'expected_workspace' must be an object";
+        return false;
+    }
+    for (auto it = workspace.begin(); it != workspace.end(); ++it) {
+        const std::string& key = it.key();
+        bool ok = false;
+        if (key == "files")
+            ok = take_workspace_files(it.value(), err);
+        else if (key == "absent")
+            ok = take_workspace_absent(it.value(), err);
+        else if (key == "diff_contains")
+            ok = take_workspace_diff(it.value(), err);
+        else
+            err = "unknown expected_workspace field: " + key;
+        if (!ok)
+            return false;
+    }
+    s.expected_workspace = workspace;
+    return true;
+}
+
+bool valid_contract_field(const std::string& key, const agent::json& value, std::string& err) {
+    if (key == "system_prefix_stable" || key == "no_system_after_first") {
+        if (!value.is_boolean()) {
+            err = "request_contract '" + key + "' must be a boolean";
+            return false;
+        }
+        return true;
+    }
+    if (key == "tools_include" || key == "tools_exclude") {
+        if (!value.is_array()) {
+            err = "request_contract '" + key + "' must be an array";
+            return false;
+        }
+        const bool valid = std::all_of(value.begin(), value.end(),
+                                       [](const agent::json& name) { return name.is_string(); });
+        if (!valid)
+            err = "request_contract '" + key + "' values must be strings";
+        return valid;
+    }
+    if (key == "cache_breakpoints") {
+        if (!value.is_number_integer() || value.get<int>() < 0) {
+            err = "request_contract 'cache_breakpoints' must be a non-negative integer";
+            return false;
+        }
+        return true;
+    }
+    err = "unknown request_contract field: " + key;
+    return false;
+}
+
+bool take_request_contract(const agent::json& j, Scenario& s, std::string& err) {
+    if (!j.contains("request_contract"))
+        return true;
+    const agent::json& contract = j["request_contract"];
+    if (!contract.is_object()) {
+        err = "'request_contract' must be an object";
+        return false;
+    }
+    for (auto it = contract.begin(); it != contract.end(); ++it)
+        if (!valid_contract_field(it.key(), it.value(), err))
+            return false;
+    s.request_contract = contract;
+    return true;
+}
+
+bool valid_fault(const agent::json& fault, std::string& err) {
+    if (!fault.is_object() || !fault.contains("at_request") ||
+        !fault["at_request"].is_number_integer() || fault["at_request"].get<int>() < 1 ||
+        !fault.contains("kind") || !fault["kind"].is_string()) {
+        err = "each fault needs at_request >= 1 and a string kind";
+        return false;
+    }
+    static const std::set<std::string> kinds = {"http_429",       "http_500",    "disconnect",
+                                                "malformed_json", "empty_reply", "stream_drop"};
+    const std::string kind = fault["kind"].get<std::string>();
+    if (kinds.count(kind) == 0) {
+        err = "unknown fault kind: " + kind;
+        return false;
+    }
+    if (fault.contains("after_chunks") &&
+        (!fault["after_chunks"].is_number_integer() || fault["after_chunks"].get<int>() < 1)) {
+        err = "'after_chunks' must be a positive integer";
+        return false;
+    }
+    return true;
+}
+
+bool take_faults(const agent::json& j, Scenario& s, std::string& err) {
+    if (!j.contains("faults"))
+        return true;
+    if (!j["faults"].is_array()) {
+        err = "'faults' must be an array";
+        return false;
+    }
+    for (const auto& fault : j["faults"]) {
+        if (!valid_fault(fault, err))
+            return false;
+        s.faults.push_back(fault);
+    }
+    return true;
+}
+
 void take_array(const agent::json& j, const char* key, agent::json& out) {
     if (has_array(j, key))
         out = j[key];
@@ -366,6 +571,8 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_array(j, "fake_replies", s.fake_replies);
     take_json_array(j, "subagent_replies", s.subagent_replies);
     if (!take_policy(j, s, err))
+        return std::nullopt;
+    if (!take_workspace(j, s, err) || !take_request_contract(j, s, err) || !take_faults(j, s, err))
         return std::nullopt;
     take_bool(j, "stream", s.stream);
     std::string approval;
