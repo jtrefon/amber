@@ -4560,6 +4560,25 @@ TEST(fault_client_injects_retryable_and_empty_faults) {
     ASSERT_EQ(empty->chat({}, {}).content, std::string());
 }
 
+TEST(fault_client_covers_status_disconnect_and_malformed) {
+    const std::pair<const char*, long> cases[] = {
+        {"http_429", 429}, {"http_500", 500}, {"disconnect", 0}, {"malformed_json", 0}};
+    for (const auto& [kind, status] : cases) {
+        auto client = std::make_unique<bench::FaultClient>(
+            std::make_unique<bench::FakeClient>(),
+            std::vector<agent::json>{agent::json::parse(
+                std::string("{\"at_request\": 1, \"kind\": \"") + kind + "\"}", nullptr, false)});
+        bool threw = false;
+        try {
+            client->chat({}, {});
+        } catch (const agent::ApiError& error) {
+            threw = true;
+            ASSERT_EQ(error.status, status);
+        }
+        ASSERT(threw);
+    }
+}
+
 TEST(fault_client_streams_then_drops) {
     auto client = std::make_unique<bench::FaultClient>(
         std::make_unique<bench::FakeClient>(),
