@@ -256,23 +256,42 @@ A trace is a pinned provider exchange:
   "schema": 1,
   "provider": "anthropic",
   "dialect": "anthropic",
-  "source": "manual capture 2026-11-16; key redacted",
+  "description": "manual capture 2026-11-16; key redacted",
   "exchanges": [
     {
-      "match": {"sequence": 0, "path": "/v1/messages", "last_user_contains": "fix"},
-      "request": {"method": "POST", "path": "/v1/messages", "body": "{...}"},
-      "response": {"status": 200, "content_type": "text/event-stream", "sse": ["..."]}
+      "id": "message-0",
+      "match": {
+        "path": "/v1/messages",
+        "stream": false,
+        "roles": ["system", "user"],
+        "tools": ["read"],
+        "system": "Your name is **Amber**"
+      },
+      "request": {"model": "claude", "messages": []},
+      "response": {"status": 200, "content_type": "application/json", "body": "{...}"}
     }
   ]
 }
 ```
 
-Two modes:
+`bench/trace_store.*` holds the schema and the `TraceResponder`; the committed
+examples and the full field reference live in `bench/traces/README.md`.
+Exchanges are served in file order, one per chat request, and `response.body`
+is replayed verbatim, so a JSON or SSE sample is byte-identical to the capture.
 
-- **strict:** the request fingerprint (system prefix, tools, roles) must match;
-  report the first drifted field.
-- **shape:** path/sequence/predicate match; assert roles and tool names, not
-  prose.
+Two modes, selected with `--trace-mode`:
+
+- **strict:** the request fingerprint (system text, tools, roles, path, stream)
+  must match, and an optional `request` object is compared against the whole
+  body; the first drifted JSON path is reported.
+- **shape:** path, stream, roles and tool names are asserted; the prompt prose
+  is free to change, which is what keeps a trace useful across prompt edits.
+- **fail closed:** an extra request, an unused exchange, a missing exchange, a
+  malformed SSE frame or an unreadable file fails the scenario with the file
+  name and the exchange index. `amber-bench run --trace FILE` runs the in-process
+  tier through `HttpLLMClient`; `--driver binary --trace FILE` points the real
+  `amber-cli` at the same endpoint. `make trace-check` replays the committed
+  corpus.
 
 The corpus covers OpenAI, Anthropic and Gemini; streaming and non-streaming;
 tool calls; cache counters; 429; malformed JSON; empty replies; truncated SSE.
