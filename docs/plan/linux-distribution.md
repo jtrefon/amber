@@ -89,7 +89,7 @@ expectations, and three runtime data files are missing from it.
    | `/usr/share/amber/{prompts,completions.json,keybindings.json,data}` | `amber-agent` |
    | `/usr/lib/amber/plugins` (Debian) / `/usr/libexec/amber/plugins` (Fedora) | `amber-agent` |
    | `/usr/share/doc/amber-agent/{LICENSE,NOTICE,THIRD_PARTY_LICENSES}` | `amber-agent` |
-   | `/usr/lib/<multiarch>/{libagent_core.a,libagent_tools.a,pkgconfig/amber-agent.pc}`, `/usr/include/amber-agent/{agent,nlohmann}` | `amber-agent-dev` / `-devel` |
+   | `/usr/lib/<multiarch>/{libagent_core.a,libagent_tools.a,libagent_plugins.a,pkgconfig/amber-agent.pc,pkgconfig/amber-agent-core.pc}`, `/usr/include/amber-agent/{agent,nlohmann}` | `amber-agent-dev` / `-devel` |
    | `/usr/bin/amber-bench`, `/usr/share/amber-bench/{scenarios,profiles.json}` | `amber-agent-bench` |
    | `/usr/share/man/man1/*.1` | their own binary's package |
 

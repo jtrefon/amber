@@ -1,0 +1,14 @@
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=@LIBDIR@
+includedir=@INCLUDEDIR@
+
+Name: amber-agent-core
+Description: C++17 AI agent harness core and tools, without the bundled plugin set
+URL: https://github.com/jtrefon/amber
+Version: @PC_VERSION@
+# The archive pair closes the core/tools cycle under a single-pass linker. No
+# plugin archive: the embedder registers the tools and plugins it wants.
+Libs: -L${libdir} -lagent_tools -lagent_core -lagent_tools -lagent_core
+Libs.private: @PC_CURL_LIBS@
+Cflags: -I${includedir}

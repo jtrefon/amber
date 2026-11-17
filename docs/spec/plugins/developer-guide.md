@@ -40,7 +40,7 @@ directory to `plugins/<your-id>/` and change the id; it is never registered in
    `<id>_plugin.cpp`.
 2. **Implement `IPlugin`** (§1).
 3. **Declare a capability** in `capabilities()` (§2).
-4. **Register it** in `make_bundled_plugins()` (`lib/plugins_bundled.cpp`) and
+4. **Register it** in `make_bundled_plugins()` (`plugins/bundled.cpp`) and
    add the object to `Makefile.in` (the compile rule is generic).
 5. **Test it hermetically** (§8), no network, ever.
 6. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
@@ -141,7 +141,7 @@ plugin that registers things outside this path is a bug, because it cannot be
 disabled cleanly.
 
 Bundled plugins live in `plugins/<id>/` and are registered in one place
-(`make_bundled_plugins()` in `lib/plugins_bundled.cpp`), so the shipped set is
+(`make_bundled_plugins()` in `plugins/bundled.cpp`), so the shipped set is
 enumerable at a glance.
 
 Neither `description()` nor `category()` is required, a plugin that declares

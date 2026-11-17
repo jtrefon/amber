@@ -10,7 +10,7 @@ backend is a plugin, never an edit to the tool.
 - **Source files**: `tools/search_tool.cpp` (resolution and formatting),
   `lib/extensions.cpp` (`SearchBackendRegistry`, `make_search_backend_provider`,
   `SearchBackendCapability`), `plugins/search_grep/` and
-  `plugins/search_semantic/` (the shipped backends), `lib/tools_default.cpp`
+  `plugins/search_semantic/` (the shipped backends), `plugins/default_tools.cpp`
   (the bare-host path)
 - **Test files**: `tests/search_backends_test.cpp` (registry, capability,
   runtime, and tool-level behavior), `tests/run_tests.cpp`

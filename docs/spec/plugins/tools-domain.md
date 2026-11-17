@@ -29,14 +29,14 @@ guide:
 | Thing | State | Evidence |
 |---|---|---|
 | The core tool set is already a plugin | ✅ 9 tools from 7 capabilities in `plugins/core_tools/` | `plugins/core_tools/core_tools_plugin.cpp:27` |
-| One definition, two install paths | ✅ `register_default_tools` installs the *same* capabilities directly for hosts with no runtime | `lib/tools_default.cpp:17-40` |
+| One definition, two install paths | ✅ `register_default_tools` installs the *same* capabilities directly for hosts with no runtime | `plugins/default_tools.cpp:17-40` |
 | `IPlugin` meta | ✅ `id`, `version`, `name`, `description`, `category` | `include/agent/plugin_v2.h:47-58` |
 | Plugin categories + console grouping | ✅ core vocabulary, open set, unknown categories get their own heading | `plugin_v2.h:22-30`, `lib/plugin_console.cpp:44-70` |
 | Tool self-description | ✅ `name`, `description`, `parameters_schema`, `requires_approval(args)`, `is_read_only`, `summarize(args)` | `include/agent/tool.h:26-62` |
 | Tool display | ❌ **hardcoded name→verb table and a name `if/else` chain** | `tui/tool_display.cpp:26-40`, `:72-100` |
 | Tool prompts | ❌ one static `prompts/tools.md`, loaded wholesale | `lib/agent.cpp:156-167` |
 | Prompt-block contribution | ⚠️ implemented, **no caller** | `include/agent/extensions.h:370`; tracker availability table |
-| Skill tools | ~~registered directly by the agent~~ ✅ one plugin, `plugins/tool_skills/` — the tools resolve the running agent's catalog through the run scope | `lib/plugins_bundled.cpp`; `include/agent/run_scope.h` |
+| Skill tools | ~~registered directly by the agent~~ ✅ one plugin, `plugins/tool_skills/` — the tools resolve the running agent's catalog through the run scope | `plugins/bundled.cpp`; `include/agent/run_scope.h` |
 | MCP tools | ❌ registered directly — **parked by decision, see §6** | `lib/mcp_tools.cpp:101` |
 | Experiment harness | ✅ scenario loader, oracle scorer, KPI aggregation (hermetic + live) | `bench/` |
 

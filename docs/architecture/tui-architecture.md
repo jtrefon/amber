@@ -2,7 +2,7 @@
 
 - **Status:** Design proposal (pending sign-off)
 - **Applies to:** `tui/` (ncurses client)
-- **Depends on:** `libagent_core.a`, `libagent_tools.a`, `ncursesw`
+- **Depends on:** `libagent_core.a`, `libagent_tools.a`, `libagent_plugins.a`, `ncursesw`
 - **Design patterns:** Event Bus, Observer, Facade, Command, Strategy, Mediator
 - **Current tech debt:** `Tui` class — 20 public methods, ~10 responsibilities, 2,438 lines across 5 files. Getsock.
 
