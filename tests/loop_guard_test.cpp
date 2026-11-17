@@ -50,10 +50,9 @@ struct GuardFixture {
 
     GuardFixture() {
         hooks.on_status = [this](const std::string& line) { statuses.push_back(line); };
-        guard = std::make_unique<LoopGuard>(cfg, hooks, log, context, events,
-                                            [this](Message note) {
-                                                notes.push_back(std::move(note.content));
-                                            });
+        guard =
+            std::make_unique<LoopGuard>(cfg, hooks, log, context, events,
+                                        [this](const std::string& note) { notes.push_back(note); });
     }
 };
 
@@ -66,13 +65,14 @@ bool notes_contain(const std::vector<std::string>& notes, const std::string& nee
 
 } // namespace
 
-// The same call three times in a row is a loop: the third attempt ends the
+// The same call three times in a row is a loop: the fourth attempt ends the
 // turn instead of dispatching again. A changed call resets the run.
 TEST(loop_guard_stops_a_dispatch_fingerprint_on_the_third_repeat) {
     GuardFixture f;
     Turn turn(now(), f.cfg.max_wall_ms);
     const json calls = bash_call("echo hi");
 
+    ASSERT_FALSE(f.guard->stop_dispatch_loop(calls, turn));
     ASSERT_FALSE(f.guard->stop_dispatch_loop(calls, turn));
     ASSERT_FALSE(f.guard->stop_dispatch_loop(calls, turn));
     ASSERT_TRUE(f.guard->stop_dispatch_loop(calls, turn));
@@ -90,20 +90,24 @@ TEST(loop_guard_resets_the_dispatch_run_when_the_call_changes) {
     ASSERT_FALSE(f.guard->stop_dispatch_loop(first, turn));
     ASSERT_FALSE(f.guard->stop_dispatch_loop(second, turn));
     ASSERT_FALSE(f.guard->stop_dispatch_loop(second, turn));
+    ASSERT_FALSE(f.guard->stop_dispatch_loop(second, turn));
     ASSERT_TRUE(f.guard->stop_dispatch_loop(second, turn));
 }
 
-// Repeated narration earns one corrective note; the fifth repeat ends the turn
-// instead of paying another request for the same words.
+// Repeated narration earns one corrective note on the third identical reply;
+// the sixth ends the turn instead of paying another request for the same words.
 TEST(loop_guard_steers_once_when_narration_repeats_then_stops) {
     GuardFixture f;
     Turn turn(now(), f.cfg.max_wall_ms);
 
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
-    ASSERT_TRUE(f.notes.empty());
+    ASSERT_TRUE(f.context.get_all().empty());
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
-    ASSERT_EQ(f.notes.size(), 1u);
-    ASSERT(f.notes[0].find("same reply") != std::string::npos);
+    ASSERT_TRUE(f.context.get_all().empty());
+    ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
+    ASSERT_EQ(f.context.size(), 1u);
+    ASSERT(f.context.get_all().front().content.find("same reply") != std::string::npos);
+    ASSERT(f.context.get_all().front().harness);
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
     ASSERT_FALSE(f.guard->repeated_narration("same words", turn));
     ASSERT_TRUE(f.guard->repeated_narration("same words", turn));
@@ -145,7 +149,7 @@ TEST(loop_guard_steers_off_a_failing_tool_then_stops) {
 // moment they become true: iteration budget, wall clock, and a repeated call.
 TEST(loop_guard_notes_the_budgets_once_per_turn) {
     GuardFixture f;
-    Turn turn(now() - std::chrono::seconds(50), f.cfg.max_wall_ms);
+    Turn turn(now(), f.cfg.max_wall_ms);
 
     f.guard->note_state(turn, f.cfg.max_tool_iterations - 1);
     ASSERT_EQ(f.notes.size(), 1u);
@@ -217,4 +221,11 @@ TEST(loop_guard_announces_the_dispatch) {
     narration.clear();
     f.guard->announce_dispatch(bash_call("echo hi"), "");
     ASSERT(narration.empty());
+
+    // A call-less dispatch announces nothing: there is no tooling phase.
+    state = RunState::Idle;
+    debug.clear();
+    f.guard->announce_dispatch(json(), "");
+    ASSERT(state == RunState::Idle);
+    ASSERT(debug.empty());
 }
