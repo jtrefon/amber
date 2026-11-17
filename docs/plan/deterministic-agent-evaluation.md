@@ -324,6 +324,13 @@ Initial journeys:
 `make agent-e2e` runs the combined suite. A wrong file, extra file, missing
 file, wrong tool, wrong exit code or missing telemetry fails the journey.
 
+`bench/scenarios/e2e/` carries the five journeys. The driver compares the CLI
+with the in-process run on the final answer, workspace, exit code, token floors
+and per-call status, and checks `request_contract` against the endpoint log. A
+failed journey keeps its workspace (`telemetry.json`, `requests.json`,
+`out.txt`, `err.txt`) and reports the path; `make agent-e2e-baseline` records
+tokens, calls and wall time in `bench/results/agent-e2e-baseline.json`.
+
 ### 3.7 TUI E2E — [#635](https://github.com/jtrefon/amber/issues/635), [#636](https://github.com/jtrefon/amber/issues/636)
 
 Extract the `Tui` pty driver and fixture from `tests/tui_pty_test.cpp` into

@@ -740,6 +740,11 @@ jobs:
         # -> answer. Distinct from the pty regression suite, which pins the UI.
         run: make tui-agent-e2e
 
+      - name: CLI agent journeys
+        # The final answer, workspace, exit code, usage, tool statuses and the
+        # request contract, through amber-cli rather than an in-process agent.
+        run: make agent-e2e
+
   # ---------------------------------------------------------------------------
   # macOS build-and-test — verifies the portable link lines (no --start-group)
   # and that the core compiles + tests pass on Apple's toolchain.

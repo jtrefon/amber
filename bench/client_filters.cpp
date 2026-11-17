@@ -217,4 +217,104 @@ FaultClient::chat_stream(const std::vector<agent::Message>& messages,
     return inner_->chat_stream(messages, tools, on_chunk, stats);
 }
 
+namespace {
+
+bool log_has_tool(const std::vector<std::string>& names, const std::string& wanted) {
+    return std::find(names.begin(), names.end(), wanted) != names.end();
+}
+
+void log_tool_error(const char* key, const char* why, const std::string& name, int index,
+                    std::string& err) {
+    std::string message = "request " + std::to_string(index) + ": ";
+    message += key;
+    message += " ";
+    message += why;
+    message += " '";
+    message += name;
+    message += "'";
+    err = message;
+}
+
+bool check_log_tools(const agent::json& contract, const EndpointRequest& request, int index,
+                     std::string& err) {
+    const std::vector<std::string> names = endpoint_tool_names(request.json);
+    if (contract.contains("tools_include")) {
+        for (const auto& item : contract["tools_include"]) {
+            const std::string wanted = item.get<std::string>();
+            if (!log_has_tool(names, wanted)) {
+                log_tool_error("tools_include", "is missing", wanted, index, err);
+                return false;
+            }
+        }
+    }
+    if (contract.contains("tools_exclude")) {
+        for (const auto& item : contract["tools_exclude"]) {
+            const std::string unwanted = item.get<std::string>();
+            if (log_has_tool(names, unwanted)) {
+                log_tool_error("tools_exclude", "was offered", unwanted, index, err);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool check_log_system_order(const EndpointRequest& request, int index, std::string& err) {
+    bool seen_non_system = false;
+    for (const agent::Message& message : request.messages) {
+        if (message.role != "system") {
+            seen_non_system = true;
+            continue;
+        }
+        if (seen_non_system) {
+            err = "request " + std::to_string(index) + ": system message after the first block";
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string log_prefix_key(const EndpointRequest& request) {
+    std::string key = endpoint_system_text(request.json);
+    for (const std::string& name : endpoint_tool_names(request.json)) {
+        key += '\n';
+        key += name;
+    }
+    return key;
+}
+
+} // namespace
+
+bool check_request_log(const agent::json& contract, const std::vector<EndpointRequest>& requests,
+                       std::string& err) {
+    err.clear();
+    if (contract.empty())
+        return true;
+    const bool stable = contract.value("system_prefix_stable", false);
+    const bool ordered = contract.value("no_system_after_first", false);
+    std::string prefix;
+    bool have_prefix = false;
+    int index = 0;
+    for (const EndpointRequest& request : requests) {
+        if (!endpoint_is_chat_path(request.path))
+            continue;
+        ++index;
+        if (ordered && !check_log_system_order(request, index, err))
+            return false;
+        if (!check_log_tools(contract, request, index, err))
+            return false;
+        if (!stable)
+            continue;
+        const std::string key = log_prefix_key(request);
+        if (!have_prefix) {
+            have_prefix = true;
+            prefix = key;
+        } else if (key != prefix) {
+            err = "request " + std::to_string(index) + ": system prefix changed";
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace bench

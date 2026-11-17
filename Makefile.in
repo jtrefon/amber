@@ -434,6 +434,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 .PHONY: all lib cli tui bench bench-check bench-e2e bench-baseline bench-reap bench-reap-apply \
         trace-check \
         website-bench-data check smoketest test doctor tui-agent-e2e \
+        agent-e2e agent-e2e-baseline \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
@@ -1323,6 +1324,22 @@ trace-check: $(BUILD_DIR)/bench_test $(BUILD_DIR)/$(BENCH_BIN)
 	RUN_TESTS_ONLY=trace $(BUILD_DIR)/bench_test
 	$(BUILD_DIR)/$(BENCH_BIN) run --scenario trace-openai-read \
 		--trace bench/traces/openai-read.json --trace-mode shape --cat model
+
+# Full CLI journeys through the real binary: the driver compares the final
+# answer, workspace, exit code, usage and tool statuses with the in-process run,
+# and checks the request contract at the wire. A failed journey keeps its
+# workspace and request log.
+AGENT_E2E_REPORT ?= $(BUILD_DIR)/artifacts/agent-e2e.json
+agent-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+	@mkdir -p $(dir $(AGENT_E2E_REPORT))
+	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e --keep-failures \
+		--out $(AGENT_E2E_REPORT)
+
+# Record the committed baseline (tokens, tool calls, wall time). It is data, not
+# a gate: machine-dependent wall time cannot fail a build.
+agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e \
+		--out bench/results/agent-e2e-baseline.json
 
 # The agent journeys reuse the pty driver and the shared scripted endpoint, so
 # the real TUI, the real tools and the real plugin runtime all run.

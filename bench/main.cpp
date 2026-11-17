@@ -65,6 +65,7 @@ void print_option_help() {
               << "  --policy-matrix  run every named policy-zoo member\n"
               << "  --trace FILE     replay recorded provider exchanges through the real client\n"
               << "  --trace-mode M   strict (default) or shape\n"
+              << "  --keep-failures   keep a failed binary journey's workspace + request log\n"
               << "  --temperature T  temperature override (live)\n"
               << "  --repeat N       run each scenario N times\n"
               << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
@@ -212,6 +213,7 @@ struct CliOptions {
     bool policy_matrix = false;
     std::string trace;
     std::string trace_mode = "strict";
+    bool keep_failures = false;
     std::string category;
     std::string disable;
     std::string format = "text";
@@ -331,6 +333,10 @@ int parse_simple_flag(const std::string& a, const NextArg& next, CliOptions& o) 
     }
     if (a == "--trace-mode") {
         o.trace_mode = next("");
+        return 1;
+    }
+    if (a == "--keep-failures") {
+        o.keep_failures = true;
         return 1;
     }
     if (a == "--apply") {
@@ -652,11 +658,33 @@ bool print_binary_results(const std::vector<bench::BinaryE2eResult>& results) {
             std::cout << " actual=";
             for (const auto& tool : result.actual_tools)
                 std::cout << tool << ",";
+            if (!result.workspace.empty())
+                std::cout << "  artifacts=" << result.workspace;
         }
         std::cout << "\n";
         ok = ok && result.ok;
     }
     return ok;
+}
+
+void write_binary_report(const std::string& path,
+                         const std::vector<bench::BinaryE2eResult>& results) {
+    if (path.empty())
+        return;
+    agent::json rows = agent::json::array();
+    for (const bench::BinaryE2eResult& result : results) {
+        rows.push_back({{"name", result.name},
+                        {"ok", result.ok},
+                        {"exit_code", result.exit_code},
+                        {"final_text", result.final_text},
+                        {"prompt_tokens", result.prompt_tokens},
+                        {"completion_tokens", result.completion_tokens},
+                        {"wall_ms", result.wall_ms},
+                        {"tool_calls", result.actual_tools},
+                        {"failures", result.failures}});
+    }
+    std::ofstream out(path);
+    out << agent::json{{"mode", "agent-e2e"}, {"rows", std::move(rows)}}.dump(2) << "\n";
 }
 
 int run_binary_axis(const CliOptions& args) {
@@ -677,12 +705,14 @@ int run_binary_axis(const CliOptions& args) {
     bench::BinaryE2eOptions binary_options;
     binary_options.trace_path = args.trace;
     binary_options.trace_mode = args.trace_mode;
+    binary_options.keep_failures = args.keep_failures;
     const std::vector<bench::BinaryE2eResult> results =
         bench::run_binary_scenarios(scenarios, cli, binary_options, err);
     if (!err.empty()) {
         std::cerr << "error: " << err << "\n";
         return 2;
     }
+    write_binary_report(args.out_file, results);
     return print_binary_results(results) ? 0 : 1;
 }
 

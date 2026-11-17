@@ -1,0 +1,79 @@
+{
+  "mode": "agent-e2e",
+  "rows": [
+    {
+      "completion_tokens": 25,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-approval-denied-fallback",
+      "ok": true,
+      "prompt_tokens": 360,
+      "tool_calls": [
+        "bash",
+        "write"
+      ],
+      "wall_ms": 28
+    },
+    {
+      "completion_tokens": 35,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-read-edit-compile",
+      "ok": true,
+      "prompt_tokens": 520,
+      "tool_calls": [
+        "read",
+        "write",
+        "bash"
+      ],
+      "wall_ms": 485
+    },
+    {
+      "completion_tokens": 55,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-search-two-file-edit",
+      "ok": true,
+      "prompt_tokens": 900,
+      "tool_calls": [
+        "search",
+        "write",
+        "write",
+        "read",
+        "read"
+      ],
+      "wall_ms": 52
+    },
+    {
+      "completion_tokens": 30,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-two-turn-followup",
+      "ok": true,
+      "prompt_tokens": 520,
+      "tool_calls": [
+        "read",
+        "write"
+      ],
+      "wall_ms": 37
+    },
+    {
+      "completion_tokens": 25,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-wrong-path-recovery",
+      "ok": true,
+      "prompt_tokens": 360,
+      "tool_calls": [
+        "read",
+        "read"
+      ],
+      "wall_ms": 34
+    }
+  ]
+}

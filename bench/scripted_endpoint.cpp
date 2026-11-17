@@ -105,12 +105,6 @@ std::map<std::string, std::string> request_headers(const std::string& request) {
     return out;
 }
 
-bool is_chat_path(const std::string& path) {
-    return path == "/v1/chat/completions" || path == "/v1/messages" ||
-           path.find(":generateContent") != std::string::npos ||
-           path.find(":streamGenerateContent") != std::string::npos;
-}
-
 std::string status_text(int status) {
     switch (status) {
     case 200:
@@ -232,6 +226,91 @@ std::string content_from_blocks(const agent::json& content) {
 }
 
 } // namespace
+
+bool endpoint_is_chat_path(const std::string& path) {
+    return path == "/v1/chat/completions" || path == "/v1/messages" ||
+           path.find(":generateContent") != std::string::npos ||
+           path.find(":streamGenerateContent") != std::string::npos;
+}
+
+namespace {
+
+std::string block_text(const agent::json& block) {
+    if (block.is_string())
+        return block.get<std::string>();
+    if (block.is_object() && block.contains("text") && block["text"].is_string())
+        return block["text"].get<std::string>();
+    return {};
+}
+
+std::string content_text(const agent::json& content) {
+    if (content.is_string())
+        return content.get<std::string>();
+    std::string out;
+    if (!content.is_array())
+        return out;
+    for (const auto& block : content)
+        out += block_text(block);
+    return out;
+}
+
+void append_declared_tools(const agent::json& declarations, std::vector<std::string>& out) {
+    if (!declarations.is_array())
+        return;
+    for (const auto& declaration : declarations)
+        if (declaration.is_object() && declaration.contains("name") &&
+            declaration["name"].is_string())
+            out.push_back(declaration["name"].get<std::string>());
+}
+
+} // namespace
+
+std::string endpoint_system_text(const agent::json& body) {
+    std::string out;
+    if (body.contains("system"))
+        out += content_text(body["system"]);
+    if (body.contains("systemInstruction") && body["systemInstruction"].is_object())
+        out += content_text(body["systemInstruction"].value("parts", agent::json::array()));
+    if (!body.contains("messages") || !body["messages"].is_array())
+        return out;
+    for (const auto& message : body["messages"])
+        if (message.is_object() && message.value("role", std::string()) == "system")
+            out += content_text(message.value("content", agent::json::object()));
+    return out;
+}
+
+std::vector<std::string> endpoint_roles(const agent::json& body) {
+    std::vector<std::string> roles;
+    if (body.contains("system") || body.contains("systemInstruction"))
+        roles.emplace_back("system");
+    const char* key = body.contains("contents") ? "contents" : "messages";
+    if (!body.contains(key) || !body[key].is_array())
+        return roles;
+    for (const auto& message : body[key])
+        if (message.is_object())
+            roles.push_back(message.value("role", std::string("user")));
+    return roles;
+}
+
+std::vector<std::string> endpoint_tool_names(const agent::json& body) {
+    std::vector<std::string> out;
+    if (!body.contains("tools") || !body["tools"].is_array())
+        return out;
+    for (const auto& tool : body["tools"]) {
+        if (!tool.is_object())
+            continue;
+        if (tool.contains("function") && tool["function"].is_object()) {
+            const agent::json& fn = tool["function"];
+            if (fn.contains("name") && fn["name"].is_string())
+                out.push_back(fn["name"].get<std::string>());
+        } else if (tool.contains("name") && tool["name"].is_string()) {
+            out.push_back(tool["name"].get<std::string>());
+        }
+        append_declared_tools(tool.value("functionDeclarations", agent::json::array()), out);
+        append_declared_tools(tool.value("function_declarations", agent::json::array()), out);
+    }
+    return out;
+}
 
 std::vector<agent::Message> endpoint_messages(const agent::json& body) {
     std::vector<agent::Message> out;
@@ -365,7 +444,7 @@ EndpointReply ScriptedEndpoint::respond(const EndpointRequest& request) {
         reply.body = default_models();
         return reply;
     }
-    if (!is_chat_path(request.path)) {
+    if (!endpoint_is_chat_path(request.path)) {
         EndpointReply reply;
         reply.status = 404;
         reply.body = error_body("not found");
@@ -399,7 +478,7 @@ void ScriptedEndpoint::handle(int fd) {
     {
         std::scoped_lock lock(log_mtx_);
         paths_.push_back(request.path);
-        if (is_chat_path(request.path))
+        if (endpoint_is_chat_path(request.path))
             request.sequence = chat_calls_++;
     }
 
