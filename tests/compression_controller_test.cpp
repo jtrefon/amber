@@ -6,11 +6,10 @@
 #include <string>
 #include <vector>
 
+#include "agent.h"
 #include "agent/compression_controller.h"
 #include "agent/compressor.h"
-#include "agent/config.h"
 #include "agent/context.h"
-#include "agent/llm.h"
 #include "fake_llm.h"
 #include "tests/test_util.h"
 
@@ -28,9 +27,8 @@ public:
     CompressionObserver* observer_seen = nullptr;
     CompressionRequestPrefix prefix_seen;
 
-    std::vector<Message> compress(const Context& context, const CompressionConfig&,
-                                  LLMClient&, CompressionObserver* observer,
-                                  CompressionResponse* response_out,
+    std::vector<Message> compress(const Context& context, const CompressionConfig&, LLMClient&,
+                                  CompressionObserver* observer, CompressionResponse* response_out,
                                   const CompressionRequestPrefix& prefix) override {
         ++calls;
         seen = &context;

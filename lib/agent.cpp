@@ -71,7 +71,8 @@ std::unique_ptr<LLMClient> make_client(const Config& cfg, const LLMClientFactory
 Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks, AgentDeps deps)
     : cfg_(std::move(cfg)), registry_(registry), client_factory_(std::move(deps.client_factory)),
       client_(std::move(deps.client)), hooks_(std::move(hooks)),
-      compression_(std::move(deps.compressor)), gate_(std::move(deps.gate)),
+      compression_controller_(std::make_unique<CompressionController>(std::move(deps.compressor),
+                                                                      std::move(deps.gate))),
       memory_store_(std::move(deps.memory_store)), retriever_(std::move(deps.retriever)) {
     if (!client_)
         client_ = make_client(cfg_, client_factory_);
@@ -358,7 +359,7 @@ void Agent::fork_from(const IAgent& src_port) {
     user_turn_counter_ = src.user_turn_counter_;
     brief_store_ = src.brief_store_;
     activated_skills_.assign(src.activated_skills_.snapshot());
-    last_compression_ = src.last_compression_;
+    compression_controller_->set_last(src.compression_controller_->last());
     experience_cfg_ = src.experience_cfg_;
     // A fork stays on the parent's project: adopt its shared catalog and
     // store so learned skills/memories stay consistent across both legs.
@@ -378,27 +379,24 @@ void Agent::fork_from(const IAgent& src_port) {
 // prompt from the new context for this call. Returns true when it rebuilt.
 bool Agent::maybe_compress(std::vector<Message>& prompt_copy,
                            const std::vector<std::shared_ptr<Tool>>& tools) {
-    if (!gate_ || !compression_)
+    if (!compression_controller_->auto_enabled())
         return false;
     resolve_window();
-    if (!gate_->should_compress(context_, cfg_))
+    if (!compression_controller_->should_compress(context_, cfg_))
         return false;
 
-    double tokens = 0;
-    double budget = 0;
-    double threshold = 0;
-    gate_->last_decision(tokens, budget, threshold);
+    const auto decision = compression_controller_->last_decision();
     if (hooks_.on_debug) {
-        hooks_.on_debug("gate: tokens=" + std::to_string(static_cast<long>(tokens)) +
-                        " window=" + std::to_string(static_cast<long>(budget)) +
-                        " threshold=" + std::to_string(threshold));
+        hooks_.on_debug("gate: tokens=" + std::to_string(static_cast<long>(decision.tokens)) +
+                        " window=" + std::to_string(static_cast<long>(decision.budget)) +
+                        " threshold=" + std::to_string(decision.threshold));
     }
     // Structured replacement for the on_status prose a UI had to parse:
     // subscribers get the numbers the gate actually decided on.
     CompressionEvent triggered;
-    triggered.tokens = static_cast<long>(tokens);
-    triggered.budget = static_cast<long>(budget);
-    triggered.threshold = threshold;
+    triggered.tokens = static_cast<long>(decision.tokens);
+    triggered.budget = static_cast<long>(decision.budget);
+    triggered.threshold = decision.threshold;
     publish_event(triggered);
     // The live request prefix is captured BEFORE the rebuild: the classify call
     // must replay exactly what the last turn sent (blocks + tool schemas), or the
@@ -588,19 +586,7 @@ bool Agent::extract_embedded_tool_calls(Message& reply) const {
 CompressionResult Agent::compress_now(std::function<void()> progress_cb) {
     CompressionResult r;
     run_compression(std::move(progress_cb), &r);
-    last_compression_ = r;
     return r;
-}
-
-// Report a compression that never started. Always returns false, for the
-// caller's early return.
-bool Agent::fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before) {
-    CompressionResult r;
-    r.messages_before = msgs_before;
-    r.error = error;
-    if (out)
-        *out = std::move(r);
-    return false;
 }
 
 // Tell the host a compression finished. The failure path reports the
@@ -636,26 +622,6 @@ bool Agent::fail_compression_after(CompressionResult& r, const std::string& erro
     return false;
 }
 
-// Run the pipeline on a snapshot. The pipeline is pure: it reads the context,
-// works on a copy, and returns the compressed message list. KV reuse between the
-// classify and extract LLM calls comes from content-identical prefixes (the
-// extract request replays the classify request), not from mutating the live
-// context. Returns false when the classifier reported an error.
-bool Agent::run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
-                                     std::vector<Message>& compressed,
-                                     const CompressionRequestPrefix& prefix) {
-    const auto cc = load_compression_config(cfg_);
-    compressed = compression_->compress(context_, cc, *client_, &reporter, &cr, prefix);
-    // Cooldown applies to the attempt, not just the success: a failing
-    // classifier must not re-fire the pipeline on every following turn and burn
-    // two LLM calls each time — the gate stays silent for the cooldown window and
-    // retries later. (Gate may be null when the host built the agent with a
-    // compressor but no gate — direct pipeline use.)
-    if (gate_)
-        gate_->set_last_compress_turn(user_turn_counter_);
-    return cr.error.empty();
-}
-
 // Rebuild the live context from the compressed list, using only the stack
 // primitives (clear + push). The pipeline itself never touched it.
 void Agent::rebuild_context(std::vector<Message>& compressed) {
@@ -663,59 +629,6 @@ void Agent::rebuild_context(std::vector<Message>& compressed) {
     for (auto& m : compressed)
         context_.push(std::move(m));
     emit_context_event(context_events_, context_);
-}
-
-// Populate the per-tag segment counts from the classification response.
-void Agent::count_segments(const CompressionResponse& cr, CompressionResult& r) {
-    for (const auto& seg : cr.segments) {
-        switch (seg.tag) {
-        case Classification::core:
-            ++r.core_count;
-            break;
-        case Classification::context:
-            ++r.context_count;
-            break;
-        case Classification::prune:
-            ++r.prune_count;
-            break;
-        }
-    }
-}
-
-namespace {
-
-// Tokens outside the immutable system prompt: the part compaction can change.
-size_t conversation_token_count(const std::deque<Message>& msgs) {
-    size_t n = 0;
-    for (const auto& m : msgs)
-        if (m.role != "system")
-            n += message_tokens(m);
-    return n;
-}
-
-} // namespace
-
-// Record the outcome, tell the host, and hand the result back.
-void Agent::finish_compression(CompressionResult& r, const CompressionResponse& cr,
-                               size_t msgs_before, size_t tokens_before,
-                               CompressionReporter& reporter, CompressionResult* out) {
-    // Stats — captured BEFORE the snapshot was taken.
-    r.messages_before = msgs_before;
-    r.messages_after = context_.size();
-    r.tokens_before = tokens_before;
-    r.tokens_after = context_.token_count();
-    count_segments(cr, r);
-    // The bookkeeping the pass wrote: what the archive actually costs.
-    for (const auto& m : context_.get_all())
-        if (m.content.rfind(kCompressedContextPrefix, 0) == 0)
-            r.archive_tokens = message_tokens(m);
-    r.payload_tokens_after = conversation_token_count(context_.get_all()) + r.archive_tokens;
-    reporter.on_compress_done(r);
-    if (hooks_.on_compression)
-        hooks_.on_compression(r);
-    publish_compression_done(true, r.tokens_after);
-    if (out)
-        *out = std::move(r);
 }
 
 bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out,
@@ -737,16 +650,6 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
     ScopedRunScope scope_guard(scope);
 
-    // Snapshot BEFORE compression — immutable, never mutate live stack.
-    if (!compression_)
-        return fail_compression(out, "no compressor configured", 0);
-    if (context_.size() < 2)
-        return fail_compression(out, "conversation too short to compress", context_.size());
-
-    auto before = context_.get_all();
-    const size_t msgs_before = before.size();
-    const size_t tokens_before = context_.token_count();
-
     // A host that did not hand us the live prefix (manual /compress) can still
     // reproduce it: the injected blocks are derived from this context and the
     // tool set from the registry's snapshot.
@@ -756,27 +659,48 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
         prefix = &live_prefix;
     }
 
-    CompressionResult r;
-    r.payload_tokens_before = conversation_token_count(before);
-    CompressionReporter reporter(hooks_, r, std::move(progress_cb));
+    // The reporter carries the progress stream; the controller computes the
+    // authoritative result from the snapshot and the replacement list.
+    CompressionResult status;
+    const size_t msgs_before = context_.size();
+    const size_t tokens_before = context_.token_count();
+    CompressionReporter reporter(hooks_, status, std::move(progress_cb));
     reporter.set_before(msgs_before, tokens_before);
 
-    CompressionResponse cr;
-    std::vector<Message> compressed;
-    if (!run_compression_pipeline(reporter, cr, compressed, *prefix))
-        return fail_compression_after(r, cr.error, msgs_before, tokens_before, reporter, out);
+    const CompressionController::Request request{context_, *client_,  cfg_,
+                                                 *prefix,  &reporter, user_turn_counter_};
+    auto outcome = compression_controller_->run(request);
+    // A refusal before the pipeline (no strategy, too short) is not an attempt:
+    // the window did not move, so nothing is announced.
+    if (!outcome.attempted) {
+        if (out)
+            *out = std::move(outcome.result);
+        return false;
+    }
+    if (!outcome.ok) {
+        // Copy the reason before the result is filled in: the two are the same
+        // object, and a reference into it would be a self-assignment.
+        const std::string error = outcome.result.error;
+        return fail_compression_after(outcome.result, error, msgs_before, tokens_before, reporter,
+                                      out);
+    }
 
-    rebuild_context(compressed);
+    rebuild_context(outcome.messages);
     // The cached server prompt count describes the PRE-compression context;
     // reset it so the gate evaluates the new context honestly (falls back to the
     // estimate until the next chat refreshes it).
     cfg_.prompt_tokens_used = -1;
     // Apply memory/skill ops from the LLM classification response, then the
     // session brief the extract step produced (non-fatal).
-    apply_compression_result(cr);
-    apply_brief(cr);
+    apply_compression_result(outcome.response);
+    apply_brief(outcome.response);
 
-    finish_compression(r, cr, msgs_before, tokens_before, reporter, out);
+    reporter.on_compress_done(outcome.result);
+    if (hooks_.on_compression)
+        hooks_.on_compression(outcome.result);
+    publish_compression_done(true, static_cast<long>(outcome.result.tokens_after));
+    if (out)
+        *out = std::move(outcome.result);
     return true;
 }
 
