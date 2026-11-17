@@ -18,6 +18,7 @@
 #include "agent/workspace.h"
 #include "bench/binary_driver.h"
 #include "bench/policy.h"
+#include "bench/policy_zoo.h"
 #include "bench/probe.h"
 #include "bench/data_root.h"
 #include "bench/report.h"
@@ -57,7 +58,8 @@ void print_usage(const char* prog) {
         << "  --profile NAME   model profile from bench/profiles.json\n"
         << "  --model NAME     model override (live)\n"
         << "  --driver KIND    inproc (default) or binary (amber-cli e2e)\n"
-        << "  --policy FILE    closed-loop state-machine policy (hermetic)\n"
+        << "  --policy VALUE   policy FILE or named zoo member (hermetic)\n"
+        << "  --policy-matrix  run every named policy-zoo member\n"
         << "  --temperature T  temperature override (live)\n"
         << "  --repeat N       run each scenario N times\n"
         << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
@@ -195,6 +197,8 @@ struct CliOptions {
     std::string out_file;
     std::string debug_dir;
     agent::json policy;
+    std::string policy_name;
+    bool policy_matrix = false;
     std::string category;
     std::string disable;
     std::string format = "text";
@@ -287,6 +291,15 @@ bool apply_policy_file(const std::string& path, agent::json& policy) {
     return true;
 }
 
+bool apply_policy_value(const std::string& value, CliOptions& o) {
+    if (bench::is_policy_zoo_name(value)) {
+        o.policy_name = value;
+        o.policy = agent::json();
+        return true;
+    }
+    return apply_policy_file(value, o.policy);
+}
+
 // Parse the command line after the subcommand. Returns 0 when a flag asked to
 // stop (-h/--help), otherwise nullopt.
 std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
@@ -303,8 +316,10 @@ std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
             print_usage(argv[0]);
             return 0;
         } else if (a == "--policy") {
-            if (!apply_policy_file(next(""), o.policy))
+            if (!apply_policy_value(next(""), o))
                 return 2;
+        } else if (a == "--policy-matrix") {
+            o.policy_matrix = true;
         } else if (a == "--apply") {
             o.reap_apply = true;
         } else if (a == "--older-than-days") {
@@ -342,6 +357,8 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.temperature = args.temperature;
     opts.debug_dir = args.debug_dir;
     opts.policy_override = args.policy;
+    opts.policy_name = args.policy_name;
+    opts.policy_matrix = args.policy_matrix;
     if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
         const int ms = std::atoi(join);
         if (ms >= 0)
@@ -487,6 +504,90 @@ int run_both_axes(const CliOptions& args) {
     return sc.passed == sc.total ? 0 : 1;
 }
 
+bench::PolicyMatrixRow matrix_row(const std::string& policy, const bench::ScenarioReport& report) {
+    bench::PolicyMatrixRow row;
+    row.scenario = report.name;
+    row.policy = policy;
+    row.success = report.kpi.success;
+    row.score = report.score.total;
+    row.recoveries = report.kpi.recoveries;
+    row.tool_failures = report.kpi.tool_failures;
+    row.failures = report.failures;
+    return row;
+}
+
+void print_matrix_row(const bench::PolicyMatrixRow& row) {
+    std::cout << "policy=" << row.policy << " scenario=" << row.scenario
+              << " success=" << (row.success ? 1 : 0) << " score=" << row.score;
+    if (!row.failures.empty())
+        std::cout << " failures=" << row.failures.front();
+    std::cout << "\n";
+}
+
+std::vector<bench::PolicyMatrixRow> run_policy_matrix(const std::vector<bench::Scenario>& scenarios,
+                                                      const bench::RunOptions& base,
+                                                      bench::RunMeta& meta) {
+    std::vector<bench::PolicyMatrixRow> matrix;
+    for (const std::string& name : bench::policy_zoo_names()) {
+        bench::RunOptions opts = base;
+        opts.policy_name = name;
+        opts.policy_matrix = false;
+        for (const bench::ScenarioReport& report : bench::run_scenarios(scenarios, opts, meta)) {
+            bench::PolicyMatrixRow row = matrix_row(name, report);
+            print_matrix_row(row);
+            matrix.push_back(std::move(row));
+        }
+    }
+    return matrix;
+}
+
+void write_policy_matrix(const std::string& path,
+                         const std::vector<bench::PolicyMatrixRow>& matrix) {
+    if (path.empty())
+        return;
+    agent::json rows = agent::json::array();
+    for (const bench::PolicyMatrixRow& row : matrix) {
+        rows.push_back({{"scenario", row.scenario},
+                        {"policy", row.policy},
+                        {"success", row.success},
+                        {"score", row.score},
+                        {"recoveries", row.recoveries},
+                        {"tool_failures", row.tool_failures},
+                        {"failures", row.failures}});
+    }
+    std::ofstream out(path);
+    out << agent::json{{"mode", "policy-matrix"}, {"rows", std::move(rows)}}.dump(2) << "\n";
+}
+
+bool check_policy_matrix(const std::vector<bench::PolicyMatrixRow>& matrix) {
+    const std::string expectations = (bench_root() / "policies" / "expectations.json").string();
+    if (!fs::exists(expectations))
+        return true;
+    std::string err;
+    if (bench::check_policy_expectations(expectations, matrix, err))
+        return true;
+    std::cerr << "policy matrix: " << err << "\n";
+    return false;
+}
+
+int run_policy_matrix_axis(const CliOptions& args) {
+    const bench::RunOptions base = build_run_options(args);
+    std::string err;
+    auto scenarios = discover_expanded(args, base, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
+    if (scenarios.empty()) {
+        std::cerr << "error: no scenarios match\n";
+        return 1;
+    }
+    bench::RunMeta meta = build_run_meta(args, base);
+    const std::vector<bench::PolicyMatrixRow> matrix = run_policy_matrix(scenarios, base, meta);
+    write_policy_matrix(args.out_file, matrix);
+    return check_policy_matrix(matrix) ? 0 : 1;
+}
+
 // The CLI is the sibling the build produced, never a path from the
 // environment (see resolve_cli_path).
 bool find_cli(std::string& cli) {
@@ -544,6 +645,13 @@ int cmd_run(const CliOptions& args) {
     if (args.driver != "inproc" && args.driver != "binary") {
         std::cerr << "error: unknown driver \"" << args.driver << "\" (expected inproc | binary)\n";
         return 1;
+    }
+    if (args.policy_matrix) {
+        if (args.driver == "binary") {
+            std::cerr << "error: --policy-matrix is in-process only\n";
+            return 1;
+        }
+        return run_policy_matrix_axis(args);
     }
     if (args.driver == "binary") {
         if (args.category == "harness") {

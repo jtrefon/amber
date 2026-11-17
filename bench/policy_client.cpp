@@ -3,6 +3,8 @@
 #include <thread>
 #include <utility>
 
+#include "bench/scenario.h"
+
 namespace bench {
 
 namespace {
@@ -41,7 +43,8 @@ void fill_stats(const PolicyReply& reply, agent::Stats* stats) {
 
 } // namespace
 
-PolicyClient::PolicyClient(std::unique_ptr<Policy> policy) : policy_(std::move(policy)) {}
+PolicyClient::PolicyClient(std::unique_ptr<Policy> policy, const Scenario* scenario)
+    : policy_(std::move(policy)), scenario_(scenario) {}
 
 agent::ServerInfo PolicyClient::probe_server() const {
     agent::ServerInfo info;
@@ -54,9 +57,10 @@ agent::ServerInfo PolicyClient::probe_server() const {
 PolicyReply PolicyClient::next(const std::vector<agent::Message>& messages,
                                const std::vector<std::shared_ptr<agent::Tool>>& tools) {
     PolicyContext context;
-    context.step = chat_calls;
+    context.step = chat_calls > 0 ? chat_calls - 1 : 0;
     context.messages = &messages;
     context.tools = &tools;
+    context.scenario = scenario_;
     for (auto it = messages.rbegin(); it != messages.rend(); ++it) {
         if (it->role != "tool")
             continue;
