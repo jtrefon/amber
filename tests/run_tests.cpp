@@ -1202,6 +1202,8 @@ TEST(registry_register_and_find) {
     ASSERT(r.find("process_start") != nullptr);
     ASSERT(r.find("tasks") != nullptr);
     ASSERT(r.find("nonexistent") == nullptr);
+    ASSERT(r.has("read"));
+    ASSERT_FALSE(r.has("nonexistent"));
 }
 
 // ---------------------------------------------------------------------------

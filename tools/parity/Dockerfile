@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libcurl4-openssl-dev \
       libncursesw5-dev \
       libpcre3-dev \
+      locales \
       make \
       ninja-build \
       pkg-config \
@@ -32,6 +33,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip \
       xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# The TUI tests set en_US.UTF-8 so wcwidth() counts a CJK character as two
+# columns, as it does on the GitHub runner. A bare Ubuntu image ships no
+# generated locale, so those tests would fail here for a reason CI never sees.
+RUN locale-gen en_US.UTF-8
+ENV LANG=C.UTF-8
 
 # The Python gates are pinned in the workflow; pip is the only source for all
 # three. --break-system-packages is required by Ubuntu 24.04's PEP 668 setup.

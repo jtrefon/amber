@@ -15,15 +15,17 @@ when a long session needs them.
 
 ### Ownership
 
-- **Source files**: `lib/agent.cpp` (`Agent::inject_prompt_blocks`, called from
-  `chat_once`), `include/agent/prompt_priorities.h` (`prompt_priority` and
-  `tool_doc_priority`, one table of bands),
+- **Source files**: `lib/prompt_assembler.cpp` (`PromptAssembler::system_prompt`,
+  `collect_blocks`, `inject_blocks`, called from `chat_once` and
+  `compression_prefix`), `include/agent/prompt_priorities.h`
+  (`prompt_priority` and `tool_doc_priority`, one table of bands),
   `lib/extensions.cpp` + `include/agent/extensions.h` (`PromptRegistry`, for
   plugin-contributed blocks).
-- **Consumers**: `chat_once` (the only caller), plugins via
-  `PromptBlockCapability`.
-- **Test files**: `tests/agent_loop_test.cpp` (assembly, ordering, both turn
-  types), `tests/agent_events_test.cpp` (plugin blocks).
+- **Consumers**: `chat_once` (injection), `compression_prefix` (replay), plugins
+  via `PromptBlockCapability`.
+- **Test files**: `tests/prompt_assembler_test.cpp` (collection, ordering,
+  placement, stable prefix), `tests/agent_loop_test.cpp` (assembly through the
+  loop, both turn types), `tests/agent_events_test.cpp` (plugin blocks).
 
 ---
 

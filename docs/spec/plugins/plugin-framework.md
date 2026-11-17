@@ -292,7 +292,7 @@ one the design assumed.** Reading the history showed the pre-compression memory
 block was a **regression**, not a layout preference: before the immutable-Context
 rewrite, compression ran on a list that already contained the injection, and the
 rewrite's `prompt_copy.assign(...)` started discarding it. The fix is one
-assembly point *after* the gate (`Agent::inject_prompt_blocks`), with the
+assembly point *after* the gate (`PromptAssembler::inject_blocks`), with the
 head/tail placement preserved so ordinary turns are byte-identical.
 
 The core blocks were **deliberately not moved into `PromptRegistry`**: the
