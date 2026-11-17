@@ -853,8 +853,9 @@ bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::stri
         return false;
 
     emit_tooling_hooks(hooks_, tool_calls, content);
-    const bool ok = dispatch_tool_calls(tool_calls, cfg_, registry_, hooks_, log_,
-                                        session_approved_, &policy_, event_bus_, &context_);
+    const bool ok =
+        dispatch_tool_calls(DispatchRequest{tool_calls, cfg_, registry_, hooks_, log_,
+                                            session_approved_, &policy_, event_bus_, context_});
 
     if (cfg_.detection_loop) {
         if (stop_on_dispatch_loop(tool_calls, turn))

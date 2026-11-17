@@ -717,6 +717,7 @@ analyze:
 	fi
 	@mkdir -p $(ANALYZE_BUILD_DIR)
 	@$(CPPCHECK) --enable=warning,style,performance,portability,unusedFunction --std=c++17 \
+	    --inline-suppr \
 	    --cppcheck-build-dir=$(ANALYZE_BUILD_DIR) \
 	    --max-ctu-depth=0 -j$(ANALYZE_JOBS) \
 	    --suppressions-list=$(SRC_DIR)/cppcheck_suppressions.txt \
