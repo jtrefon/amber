@@ -63,6 +63,7 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include "agent/plugins_bundled.h"
 
 static inline void run_cmd(const std::string& cmd) {
     int rc = std::system(cmd.c_str());
@@ -640,7 +641,7 @@ public:
         : dir("/tmp/amber_plugin_test_" + name) {
         std::filesystem::remove_all(dir);
         setenv("XDG_CONFIG_HOME", dir.c_str(), 1);
-        runtime.add_bundled();
+        agent::add_bundled_plugins(runtime);
         runtime.start();
     }
     ~PluginTestEnv() {
@@ -825,7 +826,7 @@ TEST(apply_selection_copies_flavor_from_the_provider) {
     agent::ToolRegistry tools;
     agent::Workspace ws;
     agent::PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     auto svc = agent::make_default_provider_service(agent::Config{});
@@ -891,7 +892,7 @@ TEST(provider_builtin_key_save_clears_warning) {
     agent::ToolRegistry tools;
     agent::Workspace ws;
     agent::PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
     {
         auto svc = agent::make_default_provider_service(cfg);
@@ -10462,7 +10463,7 @@ TEST(provider_custom_unconfigured_is_error) {
     agent::ToolRegistry tools;
     agent::Workspace ws;
     agent::PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
     auto svc = agent::make_default_provider_service(cfg);
     auto sel = svc->select("custom");

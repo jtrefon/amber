@@ -1,5 +1,7 @@
 #include "agent/plugins_bundled.h"
 
+#include "agent/plugin_runtime.h"
+
 #include "plugins/amber_self/amber_self_plugin.h"
 #include "plugins/git_timeline/git_timeline_plugin.h"
 #include "plugins/project_instructions/project_instructions_plugin.h"
@@ -36,6 +38,11 @@
 #include "plugins/web/web_plugin.h"
 
 namespace agent {
+
+void add_bundled_plugins(PluginRuntime& runtime) {
+    for (auto& plugin : make_bundled_plugins())
+        runtime.add(std::move(plugin), /*bundled=*/true);
+}
 
 std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     std::vector<std::shared_ptr<IPlugin>> plugins;

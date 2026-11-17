@@ -38,6 +38,7 @@ run_command_line_test
 run_completions_test
 run_e2e_test
 smoketest
+core_only_test
 plugin_test
 sysinfo-plugin
 cdp-plugin

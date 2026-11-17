@@ -103,10 +103,6 @@ public:
     // Returns false when the id is already taken (first registration wins).
     bool add(std::shared_ptr<IPlugin> plugin, bool bundled = true);
 
-    // Register every plugin that ships with amber. Bundled plugins are defined
-    // in one place so the shipped set is enumerable at a glance.
-    void add_bundled();
-
     // Register the discovered external (v1) plugins under the same surface, so
     // one command tree controls both tiers. A discovered plugin whose id
     // collides with a bundled one is skipped, never silently overwritten.

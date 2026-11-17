@@ -104,15 +104,14 @@ class Layering(unittest.TestCase):
             self.assertEqual(len(hg.layering_findings("lib/a.cpp", include + "\n")), 1,
                              include)
 
-    def test_only_the_composition_roots_may_name_a_bundled_plugin(self):
-        self.assertEqual(
-            hg.layering_findings("lib/plugins_bundled.cpp",
-                                 '#include "plugins/tool_read/tool_read_plugin.h"\n'),
-            [])
-        self.assertEqual(
-            hg.layering_findings("lib/tools_default.cpp",
-                                 '#include "plugins/tool_read/tool_read_plugin.h"\n'),
-            [])
+    def test_no_core_file_may_name_a_bundled_plugin(self):
+        # The two old composition roots are gone from lib/. A file under lib/
+        # naming a bundled plugin is a layering finding like any adapter.
+        for rel in ("lib/plugins_bundled.cpp", "lib/tools_default.cpp", "lib/a.cpp"):
+            self.assertEqual(
+                len(hg.layering_findings(
+                    rel, '#include "plugins/tool_read/tool_read_plugin.h"\n')),
+                1, rel)
 
     def test_core_may_include_its_own_ports(self):
         self.assertEqual(hg.layering_findings("lib/a.cpp", '#include "agent/tool.h"\n'), [])

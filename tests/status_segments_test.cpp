@@ -13,6 +13,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "agent/plugins_bundled.h"
 
 using namespace agent;
 
@@ -484,7 +485,7 @@ TEST(console_panel_lists_plugins_and_their_contributions) {
     Config cfg;
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     // The console is registered by the runtime itself, before any plugin, so

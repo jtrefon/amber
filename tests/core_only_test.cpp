@@ -124,7 +124,8 @@ int main() {
     scripted.content = "core is alive";
     fake->script.push_back(scripted);
 
-    agent::Agent agent(cfg, registry, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
+    agent::Agent agent(cfg, registry, {},
+                       agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
     const std::string answer = agent.run("hello");
     check(answer == "core is alive", "a plugin-free agent completes a turn");
     check(registry.empty(), "the core registered no tools on its own");
