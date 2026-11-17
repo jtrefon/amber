@@ -34,6 +34,10 @@ struct RunOptions {
     agent::json policy_override; // --policy FILE; null = use the scenario's policy
     std::string policy_name;     // --policy NAME; a named policy-zoo member
     bool policy_matrix = false;  // --policy-matrix; run every named member
+    // Recorded provider exchanges replayed through the real HttpLLMClient
+    // against a loopback endpoint. Empty = no trace.
+    std::string trace_path;            // --trace FILE
+    std::string trace_mode = "strict"; // --trace-mode strict|shape
     // Force-join the scenario's background tasks before scoring. A task still
     // running at this cap fails the scenario by name instead of changing the
     // score with timing. AMBER_BENCH_JOIN_MS overrides it.

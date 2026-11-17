@@ -8,9 +8,12 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <optional>
 #include <system_error>
 
 #include "bench/mock_server.h"
+#include "bench/trace_store.h"
 #include "bench/report.h"
 #include "bench/runner.h"
 
@@ -140,10 +143,11 @@ bool prepare_workspace(const Scenario& scenario, const fs::path& ws, std::string
     return true;
 }
 
-std::vector<std::string> cli_args(const Scenario& scenario, const MockServer& server,
-                                  const fs::path& ws, const fs::path& telemetry, std::string& err) {
-    std::vector<std::string> args = {"--api-base",  server.base_url(), "--model",         "fake",
-                                     "--no-stream", "--json-out",      telemetry.string()};
+std::vector<std::string> cli_args(const Scenario& scenario, const std::string& api_base,
+                                  const std::string& model, const fs::path& ws,
+                                  const fs::path& telemetry, std::string& err) {
+    std::vector<std::string> args = {"--api-base",  api_base,     "--model",         model,
+                                     "--no-stream", "--json-out", telemetry.string()};
     if (scenario.allow_tools)
         args.emplace_back("--yes");
     if (scenario.turns.empty()) {
@@ -191,7 +195,81 @@ void finish_result(BinaryE2eResult& result) {
         result.error = "exit " + std::to_string(result.exit_code) + ", tool sequence differs";
 }
 
-BinaryE2eResult run_one_binary(const Scenario& scenario, const std::string& cli_path) {
+// The endpoint the binary talks to: scripted replies or a recorded trace.
+struct DriverEndpoint {
+    std::unique_ptr<MockServer> mock;
+    std::unique_ptr<TraceResponder> trace_responder;
+    std::unique_ptr<ScriptedEndpoint> trace;
+    std::string api_base;
+    std::string model = "fake";
+};
+
+bool start_endpoint(const Scenario& scenario, const BinaryE2eOptions& options, DriverEndpoint& out,
+                    std::string& err) {
+    if (options.trace_path.empty()) {
+        out.mock = std::make_unique<MockServer>(replies_for(scenario));
+        if (!out.mock->start()) {
+            err = "mock server did not start";
+            return false;
+        }
+        out.api_base = out.mock->base_url();
+        return true;
+    }
+    TraceMode mode = TraceMode::Strict;
+    if (!parse_trace_mode(options.trace_mode, mode)) {
+        err = "unknown trace mode '" + options.trace_mode + "' (expected strict | shape)";
+        return false;
+    }
+    std::optional<Trace> trace = load_trace(options.trace_path, err);
+    if (!trace)
+        return false;
+    out.trace_responder =
+        std::make_unique<TraceResponder>(std::move(*trace), mode, options.trace_path);
+    out.trace = std::make_unique<ScriptedEndpoint>(
+        [responder = out.trace_responder.get()](const EndpointRequest& request) {
+            return responder->respond(request);
+        });
+    if (!out.trace->start()) {
+        err = "the trace endpoint did not start";
+        return false;
+    }
+    out.api_base = out.trace->base_url();
+    out.model = "trace";
+    return true;
+}
+
+void finish_binary_run(BinaryE2eResult& result, DriverEndpoint& endpoint,
+                       const fs::path& telemetry) {
+    read_telemetry(telemetry, result);
+    if (endpoint.trace_responder) {
+        std::string trace_err;
+        if (!endpoint.trace_responder->finish(trace_err) && result.error.empty())
+            result.error = trace_err;
+    }
+    finish_result(result);
+}
+
+// Point the binary at the endpoint, run it, and read what it reported.
+bool run_binary_agent(const Scenario& scenario, const std::string& cli_path,
+                      const BinaryE2eOptions& options, const fs::path& ws, BinaryE2eResult& result,
+                      std::string& err) {
+    DriverEndpoint endpoint;
+    if (!start_endpoint(scenario, options, endpoint, err))
+        return false;
+    const fs::path telemetry = ws / "telemetry.json";
+    const std::vector<std::string> args =
+        cli_args(scenario, endpoint.api_base, endpoint.model, ws, telemetry, err);
+    if (!err.empty())
+        return false;
+    result.exit_code = run_cli(cli_path, args, ws, err);
+    if (!err.empty())
+        return false;
+    finish_binary_run(result, endpoint, telemetry);
+    return true;
+}
+
+BinaryE2eResult run_one_binary(const Scenario& scenario, const std::string& cli_path,
+                               const BinaryE2eOptions& options) {
     BinaryE2eResult result;
     result.name = scenario.name;
     std::string err;
@@ -213,24 +291,8 @@ BinaryE2eResult run_one_binary(const Scenario& scenario, const std::string& cli_
         return result;
     }
 
-    MockServer server(replies_for(scenario));
-    if (!server.start()) {
-        result.error = "mock server did not start";
-        return result;
-    }
-    const fs::path telemetry = ws / "telemetry.json";
-    const std::vector<std::string> args = cli_args(scenario, server, ws, telemetry, err);
-    if (!err.empty()) {
+    if (!run_binary_agent(scenario, cli_path, options, ws, result, err))
         result.error = err;
-        return result;
-    }
-    result.exit_code = run_cli(cli_path, args, ws, err);
-    if (!err.empty()) {
-        result.error = err;
-        return result;
-    }
-    read_telemetry(telemetry, result);
-    finish_result(result);
     return result;
 }
 
@@ -249,6 +311,13 @@ std::string resolve_cli_path(const std::string& exe_path, const std::string& cwd
 
 std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
                                                   const std::string& cli_path, std::string& err) {
+    return run_binary_scenarios(scenarios, cli_path, BinaryE2eOptions{}, err);
+}
+
+std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
+                                                  const std::string& cli_path,
+                                                  const BinaryE2eOptions& options,
+                                                  std::string& err) {
     std::vector<BinaryE2eResult> results;
     if (cli_path.empty()) {
         err = "no amber-cli to run (build it beside amber-bench or in the working directory)";
@@ -259,7 +328,7 @@ std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& s
         return results;
     }
     for (const auto& scenario : scenarios)
-        results.emplace_back(run_one_binary(scenario, cli_path));
+        results.emplace_back(run_one_binary(scenario, cli_path, options));
     return results;
 }
 

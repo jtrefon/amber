@@ -244,6 +244,7 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/report.o \
              $(BUILD_DIR)/bench/workspace_check.o \
              $(BUILD_DIR)/bench/client_filters.o \
+             $(BUILD_DIR)/bench/trace_store.o \
              $(BUILD_DIR)/bench/fake.o \
              $(BUILD_DIR)/bench/policy.o \
              $(BUILD_DIR)/bench/policy_client.o \
@@ -427,6 +428,7 @@ NCURSES_LIBS = @NCURSES_LIBS@
 NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-check bench-e2e bench-baseline bench-reap bench-reap-apply \
+        trace-check \
         website-bench-data check smoketest test doctor \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
@@ -1307,6 +1309,16 @@ bench-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario t-03-write-vs-rewrite
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario f-07-tool-denied-grace
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario mt-01-read-edit-verify
+	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --scenario trace-openai-read \
+		--trace bench/traces/openai-read.json --trace-mode shape
+
+# Replay every committed provider trace: the unit tier matches the request
+# fingerprints through the real client, the binary tier runs amber-cli against
+# the recorded OpenAI exchange. No network and no live model.
+trace-check: $(BUILD_DIR)/bench_test $(BUILD_DIR)/$(BENCH_BIN)
+	RUN_TESTS_ONLY=trace $(BUILD_DIR)/bench_test
+	$(BUILD_DIR)/$(BENCH_BIN) run --scenario trace-openai-read \
+		--trace bench/traces/openai-read.json --trace-mode shape --cat model
 
 # Regenerate the committed baseline after a reviewed harness change. Review the
 # diff: a token or call increase is a real change in what the harness sends.

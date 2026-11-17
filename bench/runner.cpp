@@ -5,8 +5,12 @@
 #include "bench/policy.h"
 #include "bench/policy_client.h"
 #include "bench/policy_zoo.h"
+#include "bench/trace_store.h"
 #include "bench/workspace_check.h"
 
+#include "agent/dialect_anthropic.h"
+#include "agent/dialect_gemini.h"
+#include "agent/dialect_openai.h"
 #include "agent/task_join.h"
 
 #include <algorithm>
@@ -355,6 +359,51 @@ std::unique_ptr<agent::LLMClient> build_zoo_client(const std::string& name, cons
     return std::make_unique<PolicyClient>(std::move(policy), &s);
 }
 
+// A trace run is a real client against a loopback endpoint, not a simulated
+// one: the recorded bytes go through HttpLLMClient and the transport.
+struct TraceRuntime {
+    Trace trace;
+    std::unique_ptr<TraceResponder> responder;
+    std::unique_ptr<ScriptedEndpoint> endpoint;
+};
+
+std::unique_ptr<agent::Dialect> make_trace_dialect(const std::string& name) {
+    if (name == "anthropic")
+        return agent::make_anthropic_dialect();
+    if (name == "gemini")
+        return agent::make_gemini_dialect();
+    return agent::make_openai_dialect();
+}
+
+// Load the trace, start its endpoint and point `cfg` at it. A failure here is a
+// run-level error: a trace that cannot be read measured nothing.
+bool start_trace(const RunOptions& opts, agent::Config& cfg, TraceRuntime& out, std::string& err) {
+    if (opts.trace_path.empty())
+        return true;
+    TraceMode mode = TraceMode::Strict;
+    if (!parse_trace_mode(opts.trace_mode, mode)) {
+        err = "unknown trace mode '" + opts.trace_mode + "' (expected strict | shape)";
+        return false;
+    }
+    std::optional<Trace> trace = load_trace(opts.trace_path, err);
+    if (!trace)
+        return false;
+    out.trace = std::move(*trace);
+    out.responder = std::make_unique<TraceResponder>(out.trace, mode, opts.trace_path);
+    out.endpoint = std::make_unique<ScriptedEndpoint>(
+        [responder = out.responder.get()](const EndpointRequest& request) {
+            return responder->respond(request);
+        });
+    if (!out.endpoint->start()) {
+        err = "the trace endpoint did not start";
+        return false;
+    }
+    cfg.api_base = out.endpoint->base_url();
+    cfg.api_key = "trace";
+    cfg.model = "trace";
+    return true;
+}
+
 std::unique_ptr<agent::LLMClient> apply_client_filters(std::unique_ptr<agent::LLMClient> client,
                                                        const Scenario& s,
                                                        std::string* contract_error) {
@@ -368,11 +417,52 @@ std::unique_ptr<agent::LLMClient> apply_client_filters(std::unique_ptr<agent::LL
     return client;
 }
 
+std::unique_ptr<agent::LLMClient> build_trace_client(const agent::Config& cfg,
+                                                     const TraceRuntime& trace,
+                                                     std::string* contract_error,
+                                                     const Scenario& s) {
+    auto client =
+        std::make_unique<agent::HttpLLMClient>(cfg, make_trace_dialect(trace.trace.dialect));
+    return apply_client_filters(std::move(client), s, contract_error);
+}
+
+// A scenario that scripts sub-agent replies is a scenario that delegates; that
+// is the only signal, since the tool's presence is plugin state rather than a
+// per-scenario switch.
+void configure_subagent_scripts(const Scenario& s, agent::SubAgentExecutor& subagents) {
+    if (s.subagent_replies.empty())
+        return;
+    auto sub_scripts = std::make_shared<std::vector<std::deque<BenchReply>>>();
+    for (const auto& ss : s.subagent_replies) {
+        std::deque<BenchReply> dq;
+        for (const auto& e : ss)
+            if (e.is_object()) {
+                BenchReply r = bench_reply_from(e);
+                r.error.clear(); // sub-agent scripts carry only content/tool_calls
+                dq.push_back(std::move(r));
+            }
+        sub_scripts->push_back(std::move(dq));
+    }
+    auto counter = std::make_shared<std::atomic<size_t>>(0);
+    subagents.set_factory([sub_scripts, counter](const agent::Config&) {
+        auto f = std::make_unique<FakeClient>();
+        const size_t i = (*counter)++;
+        if (i < sub_scripts->size())
+            f->script = (*sub_scripts)[i];
+        return std::unique_ptr<agent::LLMClient>(std::move(f));
+    });
+}
+
 // The hermetic fake client, with any scripted sub-agent replies wired into the
-// executor. Returns nullptr in live mode, where the real client is used.
+// executor. Returns nullptr in live mode, where the real client is used. A
+// trace run builds the real HttpLLMClient against its loopback endpoint.
 std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptions& opts,
+                                               const agent::Config& cfg,
                                                agent::SubAgentExecutor& subagents,
-                                               std::string* contract_error) {
+                                               std::string* contract_error,
+                                               const TraceRuntime* trace) {
+    if (trace && trace->endpoint)
+        return build_trace_client(cfg, *trace, contract_error, s);
     if (opts.live)
         return nullptr;
     if (!opts.policy_name.empty())
@@ -387,30 +477,7 @@ std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptio
     for (const auto& e : s.fake_replies)
         if (e.is_object())
             script->push_back(bench_reply_from(e));
-    // A scenario that scripts sub-agent replies is a scenario that delegates;
-    // that is now the only signal, since the tool's presence is plugin state
-    // rather than a per-scenario switch.
-    if (!s.subagent_replies.empty()) {
-        auto sub_scripts = std::make_shared<std::vector<std::deque<BenchReply>>>();
-        for (const auto& ss : s.subagent_replies) {
-            std::deque<BenchReply> dq;
-            for (const auto& e : ss)
-                if (e.is_object()) {
-                    BenchReply r = bench_reply_from(e);
-                    r.error.clear(); // sub-agent scripts carry only content/tool_calls
-                    dq.push_back(std::move(r));
-                }
-            sub_scripts->push_back(std::move(dq));
-        }
-        auto counter = std::make_shared<std::atomic<size_t>>(0);
-        subagents.set_factory([sub_scripts, counter](const agent::Config&) {
-            auto f = std::make_unique<FakeClient>();
-            const size_t i = (*counter)++;
-            if (i < sub_scripts->size())
-                f->script = (*sub_scripts)[i];
-            return std::unique_ptr<agent::LLMClient>(std::move(f));
-        });
-    }
+    configure_subagent_scripts(s, subagents);
     auto fake = std::make_unique<FakeClient>();
     fake->script = *script;
     return apply_client_filters(std::move(fake), s, contract_error);
@@ -818,6 +885,7 @@ struct ScenarioOutcome {
     const fs::path* workspace = nullptr;
     const RunOptions* opts = nullptr;
     const std::string* contract_error = nullptr;
+    const std::string* trace_error = nullptr;
 };
 
 void join_and_score(ScenarioReport& rep, const ScenarioOutcome& out) {
@@ -835,6 +903,37 @@ void join_and_score(ScenarioReport& rep, const ScenarioOutcome& out) {
         rep.kpi.success = false;
         rep.score.total = std::min(rep.score.total, 60.0);
     }
+    if (out.trace_error && !out.trace_error->empty()) {
+        rep.failures.push_back("trace: " + *out.trace_error);
+        rep.kpi.success = false;
+        rep.score.total = std::min(rep.score.total, 60.0);
+    }
+}
+
+struct PreparedRun {
+    std::unique_ptr<RunHost> host;
+    std::unique_ptr<RunComponents> comps;
+    TraceRuntime trace;
+};
+
+bool prepare_run(const Scenario& s, const RunOptions& opts, RunMeta& meta, const fs::path& ws,
+                 PreparedRun& out, std::string& err) {
+    agent::Config cfg = build_run_config(s, opts);
+    if (!start_trace(opts, cfg, out.trace, err))
+        return false;
+    out.host = std::make_unique<RunHost>(std::move(cfg));
+    if (!start_scenario_host(s, opts, *out.host, meta, err))
+        return false;
+    out.host->subagents.set_artifact_root((ws / "tasks").string());
+    out.comps = std::make_unique<RunComponents>(out.host->cfg, s.allow_tools);
+    out.comps->meter.start();
+    return true;
+}
+
+ScenarioReport abort_run(ScenarioReport rep, const std::string& reason, const fs::path& ws) {
+    rep.failures.push_back(reason);
+    fs::remove_all(ws);
+    return rep;
 }
 
 } // namespace
@@ -862,27 +961,24 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     // host: the harness measures what a user runs, not a parallel installation
     // path. Plugin state comes with it, which is what makes "run the suite with
     // tool_search off" a real experiment rather than a cosmetic flag.
-    RunHost host(build_run_config(s, opts));
-    if (!start_scenario_host(s, opts, host, meta, err))
+    PreparedRun run;
+    if (!prepare_run(s, opts, meta, ws, run, err))
         return {};
-    host.subagents.set_artifact_root((ws / "tasks").string());
-
-    RunComponents comps(host.cfg, s.allow_tools);
-    comps.meter.start();
     std::string contract_error;
     std::unique_ptr<agent::LLMClient> client =
-        build_client(s, opts, host.subagents, &contract_error);
+        build_client(s, opts, run.host->cfg, run.host->subagents, &contract_error, &run.trace);
 
     RunOutcome out;
-    if (!run_agent_in_workspace(s, host, comps, std::move(client), ws, out)) {
-        comps.meter.stop();
-        rep.failures.emplace_back(out.error);
-        fs::remove_all(ws);
-        return rep;
+    if (!run_agent_in_workspace(s, *run.host, *run.comps, std::move(client), ws, out)) {
+        run.comps->meter.stop();
+        return abort_run(std::move(rep), out.error, ws);
     }
     rep.turns = std::move(out.turns);
-    join_and_score(
-        rep, {&s, &host, &comps, out.final_text, out.wall_ms, out.t0, &ws, &opts, &contract_error});
+    std::string trace_error;
+    if (run.trace.responder)
+        run.trace.responder->finish(trace_error);
+    join_and_score(rep, {&s, run.host.get(), run.comps.get(), out.final_text, out.wall_ms, out.t0,
+                         &ws, &opts, &contract_error, &trace_error});
     fs::remove_all(ws);
     return rep;
 }
@@ -893,7 +989,8 @@ std::vector<ScenarioReport> run_scenarios(const std::vector<Scenario>& scenarios
     for (const auto& s : scenarios) {
         if (s.hermetic_only && opts.live)
             continue;
-        if (!opts.live && s.fake_replies.empty() && effective_policy(s, opts).empty())
+        if (!opts.live && opts.trace_path.empty() && s.fake_replies.empty() &&
+            effective_policy(s, opts).empty())
             continue;
         std::string err;
         std::vector<ScenarioReport> runs;
