@@ -19,6 +19,7 @@
 #include "agent/compressor.h"
 #include "agent/compression_controller.h"
 #include "agent/context.h"
+#include "agent/loop_guard.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
 #include "agent/prompt_priorities.h"
@@ -27,7 +28,6 @@
 #include "agent/skill_catalog.h"
 #include "agent/activation_sink.h"
 #include "agent/repair.h"
-#include "agent/tool_recovery.h"
 #include "agent/turn.h"
 
 namespace agent {
@@ -318,15 +318,8 @@ public:
     // summary of what was saved.
     CompressionResult compress_now(std::function<void()> progress_cb = {}) override;
 
-    // Run the compression pipeline (gate already decided). Rebuilds the
-    // context only on success — a failed pipeline leaves the context
-    // untouched (spec invariant 7). Optionally fills `out` with stats.
-    bool run_compression(std::function<void()> progress_cb, CompressionResult* out,
-                         const CompressionRequestPrefix* prefix = nullptr);
-
-    // Internal metadata — never sent to the LLM.  Persisted alongside
-    // history_ in the session file for future internal use.
-    json meta_ = json::object();
+    // Internal metadata — never sent to the LLM. Persisted alongside the
+    // conversation for future internal use.
     json& meta() override { return meta_; }
 
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
@@ -558,6 +551,11 @@ private:
 
     void open_turn(const std::string& user_prompt);
     void publish_compression_done(bool success, long tokens_after);
+    // Run the compression pipeline (gate already decided). Rebuilds the
+    // context only on success — a failed pipeline leaves the context untouched
+    // (spec invariant 7). Optionally fills `out` with stats.
+    bool run_compression(std::function<void()> progress_cb, CompressionResult* out,
+                         const CompressionRequestPrefix* prefix = nullptr);
     bool fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
                                 CompressionResult* out);
     void complete_compression(CompressionController::Outcome& outcome,
@@ -590,10 +588,6 @@ private:
     // after it is in the context. Never called from a worker thread.
     void drain_inbox();
 
-    // The loop's own state, said once at the moment it changes: how much of the
-    // iteration and wall-clock budget is spent, and whether the same call keeps
-    // coming back. Nothing here intervenes — the model is told and decides.
-    void note_loop_state(Turn& turn, int iter);
     // The top-of-iteration safe point: budget notices, then any completion that
     // arrived since the last request.
     void prepare_iteration(Turn& turn, int iter);
@@ -610,22 +604,6 @@ private:
 
     // Log the user event and push the user message to history.
     void log_and_push_user_prompt(const std::string& prompt);
-
-    // Dispatch tool calls with loop detection. Returns true if the loop
-    // should continue (tool calls were present and handled). Sets the turn's
-    // stop reason on a hard stop.
-    bool dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
-                                      Turn& turn);
-
-    // The dispatch guards: the same call fingerprint repeated past the guard
-    // ends the turn, and a failing tool earns one recovery steer before it
-    // stops.
-    bool stop_on_dispatch_loop(const json& tool_calls, Turn& turn);
-    void fold_fail_streak(const json& tool_calls, bool dispatch_ok, Turn& turn);
-
-    // Detect repeated text replies. Returns true if a hard text loop was
-    // detected and the turn's stop reason was set.
-    bool detect_text_loop(Turn& turn, const std::string& content);
 
     // Build the tools vector and the chat lambda for the run loop.
     std::vector<std::shared_ptr<Tool>> resolve_tools();
@@ -693,6 +671,8 @@ private:
     ShapeQueue* shape_queue_ = nullptr;
     std::size_t last_shape_turn_ = 0;
     std::unique_ptr<CompressionController> compression_controller_;
+    std::unique_ptr<LoopGuard> loop_guard_;
+    json meta_ = json::object();
     std::shared_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
     std::shared_ptr<SkillCatalog> skills_;

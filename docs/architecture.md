@@ -45,6 +45,11 @@ The loop lives in `Agent::run()` (`lib/agent.cpp`). Each iteration:
 4. **Loop** — go back to step 1 for up to `cfg_.max_tool_iterations` turns.
 5. **Return** — the final text reply is returned to the caller.
 
+The loop's bounds live in `Turn` (`include/agent/turn.h`) and its repeat policy
+in `LoopGuard` (`include/agent/loop_guard.h`): repeated narration, a repeated
+dispatch fingerprint, a failing tool's streak and the once-per-turn budget
+notices. `Agent` still owns the request, the dispatcher and the conversation.
+
 ### Host ports and role hooks
 
 `Agent` implements `IAgent`, the port hosts hold and run: `run`, `context`,

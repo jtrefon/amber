@@ -11443,12 +11443,12 @@ TEST(agent_fork_copies_runtime_state) {
     agent::ToolRegistry reg;
     agent::Agent src(cfg, reg);
     src.set_context(sample_history());
-    src.meta_["origin"] = "test";
+    src.meta()["origin"] = "test";
     agent::Agent dst(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, {}, {}, {}});
     dst.fork_from(src);
     // Same wire prefix requires the same model/mode/thinking — cfg follows.
     ASSERT_EQ(dst.config_snapshot()->model, "parent-model");
-    ASSERT_EQ(dst.meta_["origin"], "test");
+    ASSERT_EQ(dst.meta()["origin"], "test");
 }
 
 TEST(agent_fork_keeps_own_cancel_token) {
