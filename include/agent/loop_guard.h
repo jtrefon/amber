@@ -8,7 +8,7 @@
 
 namespace agent {
 
-class Config;
+struct Config;
 class Context;
 class ContextEventSource;
 class ConversationLog;
