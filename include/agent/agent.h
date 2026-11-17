@@ -318,15 +318,8 @@ public:
     // summary of what was saved.
     CompressionResult compress_now(std::function<void()> progress_cb = {}) override;
 
-    // Run the compression pipeline (gate already decided). Rebuilds the
-    // context only on success — a failed pipeline leaves the context
-    // untouched (spec invariant 7). Optionally fills `out` with stats.
-    bool run_compression(std::function<void()> progress_cb, CompressionResult* out,
-                         const CompressionRequestPrefix* prefix = nullptr);
-
-    // Internal metadata — never sent to the LLM.  Persisted alongside
-    // history_ in the session file for future internal use.
-    json meta_ = json::object();
+    // Internal metadata — never sent to the LLM. Persisted alongside the
+    // conversation for future internal use.
     json& meta() override { return meta_; }
 
     // Replace the UI callbacks. Lets a long-lived agent receive fresh closures
@@ -558,6 +551,11 @@ private:
 
     void open_turn(const std::string& user_prompt);
     void publish_compression_done(bool success, long tokens_after);
+    // Run the compression pipeline (gate already decided). Rebuilds the
+    // context only on success — a failed pipeline leaves the context untouched
+    // (spec invariant 7). Optionally fills `out` with stats.
+    bool run_compression(std::function<void()> progress_cb, CompressionResult* out,
+                         const CompressionRequestPrefix* prefix = nullptr);
     bool fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
                                 CompressionResult* out);
     void complete_compression(CompressionController::Outcome& outcome,
@@ -674,6 +672,7 @@ private:
     std::size_t last_shape_turn_ = 0;
     std::unique_ptr<CompressionController> compression_controller_;
     std::unique_ptr<LoopGuard> loop_guard_;
+    json meta_ = json::object();
     std::shared_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
     std::shared_ptr<SkillCatalog> skills_;
