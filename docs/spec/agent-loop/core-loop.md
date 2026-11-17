@@ -13,8 +13,8 @@ invents a turn of its own; what it has to report (a retry, a repair, a budget, a
 stop reason) it says as a `[harness]` notice, and the model keeps the next word.
 
 ### Ownership
-- **Source files**: `lib/agent.cpp` (`Agent::run()`, `chat_once()`, `advance_turn()`, `inject_harness_note()`, `compress_now()`), `lib/turn.cpp` (`Turn`, the per-turn counters, budgets and stop reason), `lib/agent_helpers.cpp` (`chat_with_retry`, `empty_turn_reply`, `fingerprint_tool_calls`), `lib/dispatch.cpp` (`dispatch_tool_calls`), `lib/tool_recovery.cpp` (`FailStreak`), `include/agent/agent.h`, `include/agent/turn.h`
-- **Test files**: `tests/agent_loop_test.cpp` (hermetic FakeLLMClient scenarios [AL-xx]), `tests/agent_events_test.cpp`, `tests/run_tests.cpp` (`turn_*`, the transition rules themselves)
+- **Source files**: `lib/agent.cpp` (`Agent::run()`, `chat_once()`, `advance_turn()`, `inject_harness_note()`, `compress_now()`), `lib/turn.cpp` (`Turn`, the per-turn counters, budgets and stop reason), `lib/loop_guard.cpp` + `include/agent/loop_guard.h` (`LoopGuard`: repeated narration, the dispatch fingerprint, the fail-streak ladder and the budget notices), `lib/agent_helpers.cpp` (`chat_with_retry`, `empty_turn_reply`, `fingerprint_tool_calls`), `lib/dispatch.cpp` (`dispatch_tool_calls`), `lib/tool_recovery.cpp` (`FailStreak`), `include/agent/agent.h`, `include/agent/turn.h`
+- **Test files**: `tests/agent_loop_test.cpp` (hermetic FakeLLMClient scenarios [AL-xx]), `tests/loop_guard_test.cpp` (the repeat policy without a loop), `tests/agent_events_test.cpp`, `tests/run_tests.cpp` (`turn_*`, the transition rules themselves)
 
 ---
 
