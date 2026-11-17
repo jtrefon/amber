@@ -99,6 +99,10 @@ std::shared_ptr<Tool> ToolRegistry::find(const std::string& name) const {
     return nullptr;
 }
 
+bool ToolRegistry::has(const std::string& name) const {
+    return find(name) != nullptr;
+}
+
 bool ToolRegistry::empty() const {
     std::scoped_lock lk(mtx_);
     return tools_.empty();

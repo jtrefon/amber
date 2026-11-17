@@ -73,6 +73,11 @@ public:
     // unregister/replacement (dispatch holds the lease through execute()).
     std::shared_ptr<Tool> find(const std::string& name) const;
 
+    // Existence without a lease. A check that only decides whether to mention
+    // a tool needs no shared ownership, and the temporary lease a find() call
+    // would create is noise in a prompt-assembly condition.
+    bool has(const std::string& name) const;
+
     // The metadata recorded for `name`; default-constructed when the tool is
     // unknown or declared none. The UI calls this instead of keeping its own
     // name→verb table, which is how a plugin-contributed tool used to render

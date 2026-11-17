@@ -1084,8 +1084,8 @@ bool dispatch_probe_roundtrip(ProbeResult& r) {
 
     agent::AgentHooks hooks;
     hooks.on_tool_result = [](const std::string&, const agent::ToolResult&, const agent::json&) {};
-    const bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    const bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1127,8 +1127,8 @@ bool dispatch_one(const agent::json& call, agent::Config& cfg, agent::ToolRegist
     agent::Context dctx;
     agent::json calls = agent::json::array();
     calls.push_back(call);
-    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                      &dctx);
+    return agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
 }
 
 // P-dispatch-parallel: multiple calls in one message must all execute and
@@ -1162,8 +1162,8 @@ bool dispatch_probe_parallel(ProbeResult& r) {
         if (res.output.find("BBB") != std::string::npos)
             paired["echo BBB"] = res.output;
     };
-    const bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    const bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1206,8 +1206,8 @@ bool dispatch_probe_out_of_order(ProbeResult& r) {
         if (res.output.find("FAST") != std::string::npos)
             paired["echo FAST"] = res.output;
     };
-    const bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    const bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1441,8 +1441,8 @@ bool fidelity_probe_params_value(ProbeResult& r) {
     hooks.on_tool_call = [&got_args](const std::string&, const agent::json& args) {
         got_args = args.dump();
     };
-    const bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    const bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
@@ -1617,8 +1617,8 @@ bool output_probe_truncation(ProbeResult& r) {
     agent::ToolResult captured;
     hooks.on_tool_result = [&captured](const std::string&, const agent::ToolResult& res,
                                        const agent::json&) { captured = res; };
-    const bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    const bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     if (!ok) {
         r.detail = "dispatch returned false";
         return false;
