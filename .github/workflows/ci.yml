@@ -796,7 +796,7 @@ jobs:
       - name: TUI agent journeys, repeated
         # Fresh processes: the journeys own their roots, but a plugin runtime or
         # model-cache static surviving in-process would hide a state leak.
-        run: ./tui_agent_e2e_test ./amber --repeat 2
+        run: make tui-agent-e2e REPEAT=2
 
   # ---------------------------------------------------------------------------
   # CD — build release artifacts on every push to main (not just tags), so the
