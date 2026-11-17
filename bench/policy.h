@@ -14,10 +14,13 @@
 
 namespace bench {
 
+struct Scenario;
+
 struct PolicyContext {
     int step = 0;
     const std::vector<agent::Message>* messages = nullptr;
     const std::vector<std::shared_ptr<agent::Tool>>* tools = nullptr;
+    const Scenario* scenario = nullptr;
     std::string last_tool_name;
     std::string last_tool_status; // ok | error | denied | timeout | empty
     std::string last_tool_result;

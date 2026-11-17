@@ -4,6 +4,7 @@
 #include "bench/client_filters.h"
 #include "bench/policy.h"
 #include "bench/policy_client.h"
+#include "bench/policy_zoo.h"
 #include "bench/workspace_check.h"
 
 #include "agent/task_join.h"
@@ -346,6 +347,14 @@ std::unique_ptr<agent::LLMClient> build_policy_client(const agent::json& spec) {
     return std::make_unique<PolicyClient>(std::move(policy));
 }
 
+std::unique_ptr<agent::LLMClient> build_zoo_client(const std::string& name, const Scenario& s) {
+    std::string err;
+    auto policy = make_policy_zoo_member(name, s, err);
+    if (!policy)
+        return nullptr;
+    return std::make_unique<PolicyClient>(std::move(policy), &s);
+}
+
 std::unique_ptr<agent::LLMClient> apply_client_filters(std::unique_ptr<agent::LLMClient> client,
                                                        const Scenario& s,
                                                        std::string* contract_error) {
@@ -366,6 +375,8 @@ std::unique_ptr<agent::LLMClient> build_client(const Scenario& s, const RunOptio
                                                std::string* contract_error) {
     if (opts.live)
         return nullptr;
+    if (!opts.policy_name.empty())
+        return apply_client_filters(build_zoo_client(opts.policy_name, s), s, contract_error);
     const agent::json& policy_spec = effective_policy(s, opts);
     if (!policy_spec.empty())
         return apply_client_filters(build_policy_client(policy_spec), s, contract_error);

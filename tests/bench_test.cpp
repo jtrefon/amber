@@ -13,6 +13,7 @@
 #include "bench/oracle.h"
 #include "bench/policy.h"
 #include "bench/policy_client.h"
+#include "bench/policy_zoo.h"
 #include "bench/probe.h"
 #include "bench/recorder.h"
 #include "bench/report.h"
@@ -4658,6 +4659,100 @@ TEST(scenario_loader_rejects_malformed_assertions) {
         std::string err;
         ASSERT(!bench::load_scenario(path, err));
     }
+}
+TEST(policy_zoo_discriminates_and_matches_expectations) {
+    std::string err;
+    const auto scenario = bench::load_scenario("bench/scenarios/policy/zoo.json", err);
+    ASSERT(scenario);
+
+    std::vector<bench::PolicyMatrixRow> rows;
+    for (const std::string& name : bench::policy_zoo_names()) {
+        bench::RunOptions opts;
+        opts.policy_name = name;
+        bench::RunMeta meta;
+        const std::vector<bench::ScenarioReport> reports =
+            bench::run_scenarios({*scenario}, opts, meta);
+        ASSERT_EQ(reports.size(), 1u);
+        bench::PolicyMatrixRow row;
+        row.scenario = reports[0].name;
+        row.policy = name;
+        row.success = reports[0].kpi.success;
+        row.score = reports[0].score.total;
+        row.recoveries = reports[0].kpi.recoveries;
+        row.tool_failures = reports[0].kpi.tool_failures;
+        row.failures = reports[0].failures;
+        rows.push_back(std::move(row));
+    }
+
+    std::map<std::string, bench::PolicyMatrixRow> by_policy;
+    for (const bench::PolicyMatrixRow& row : rows)
+        by_policy[row.policy] = row;
+    ASSERT(by_policy["planner"].success);
+    ASSERT(by_policy["retrier"].success);
+    ASSERT(by_policy["wrong_tool"].success);
+    ASSERT(!by_policy["lazy"].success);
+    ASSERT(!by_policy["hallucinator"].success);
+    ASSERT(!by_policy["quitter"].success);
+    ASSERT(!by_policy["over_eager"].success);
+    ASSERT(by_policy["retrier"].tool_failures >= 1);
+    ASSERT(by_policy["planner"].score > by_policy["lazy"].score);
+    ASSERT(by_policy["wrong_tool"].score < by_policy["planner"].score);
+
+    std::string check_err;
+    ASSERT(bench::check_policy_expectations("bench/policies/expectations.json", rows, check_err));
+    ASSERT(check_err.empty());
+}
+
+TEST(policy_zoo_rejects_unknown_members_and_bad_expectations) {
+    const std::string dir = tmp_dir("policy_expectations");
+    std::string err;
+    Scenario scenario;
+    ASSERT(!bench::make_policy_zoo_member("unknown", scenario, err));
+    ASSERT(err.find("unknown") != std::string::npos);
+
+    bench::PolicyMatrixRow row;
+    row.scenario = "zoo";
+    row.policy = "planner";
+    row.success = true;
+    row.score = 100.0;
+    row.failures = {"oracle not matched"};
+    const std::vector<bench::PolicyMatrixRow> rows = {row};
+
+    const std::pair<const char*, const char*> cases[] = {
+        {"missing.json", ""},
+        {"bad.json", "not json"},
+        {"no_scenario.json", R"({"scenarios": {}})"},
+        {"no_policy.json", R"({"scenarios": {"zoo": {"policies": {}}}})"},
+        {"success.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"success": false}}}}})"},
+        {"min_score.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"min_score": 101}}}}})"},
+        {"max_score.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"max_score": 99}}}}})"},
+        {"recoveries.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"min_recoveries": 1}}}}})"},
+        {"tool_failures.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"min_tool_failures": 1}}}}})"},
+        {"reason.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"reason_contains": "checks"}}}}})"},
+        {"reason_array.json",
+         R"({"scenarios": {"zoo": {"policies": {"planner": {"reason_contains": ["checks"]}}}}})"},
+    };
+    for (const auto& [name, text] : cases) {
+        const std::string path = dir + "/" + name;
+        if (*text)
+            write_file(path, text);
+        std::string check_err;
+        ASSERT(!bench::check_policy_expectations(path, rows, check_err));
+        ASSERT(!check_err.empty());
+    }
+
+    write_file(dir + "/ok.json",
+               R"({"scenarios": {"zoo": {"policies": {"planner": {"success": true,
+               "min_score": 90, "max_score": 100, "reason_contains": "oracle"}}}}})");
+    std::string check_err;
+    ASSERT(bench::check_policy_expectations(dir + "/ok.json", rows, check_err));
+    ASSERT(check_err.empty());
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {
