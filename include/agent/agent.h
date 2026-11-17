@@ -17,6 +17,7 @@
 #include "agent/extensions.h"
 #include "agent/conversation_log.h"
 #include "agent/compressor.h"
+#include "agent/compression_controller.h"
 #include "agent/context.h"
 #include "agent/experience.h"
 #include "agent/policy.h"
@@ -400,14 +401,12 @@ public:
     void set_compression_threshold(double t) override {
         cfg_.compression_threshold = t;
         cfg_.compression_threshold_explicit = true;
-        if (gate_)
-            gate_->set_threshold(t);
+        compression_controller_->set_threshold(t);
     }
     void set_compression_min_turns(int n) override {
         cfg_.compression_min_turns = n;
         cfg_.compression_min_turns_explicit = true;
-        if (gate_)
-            gate_->set_min_turns(n);
+        compression_controller_->set_min_turns(n);
     }
     void set_compression_target_pct(int pct) override {
         cfg_.compression_target_pct = pct;
@@ -558,24 +557,17 @@ private:
     RepairLadder repairs_ = make_default_repair_ladder();
 
     void open_turn(const std::string& user_prompt);
-    bool fail_compression(CompressionResult* out, const std::string& error, size_t msgs_before);
     void publish_compression_done(bool success, long tokens_after);
-    bool fail_compression_after(CompressionResult& r, const std::string& error, size_t msgs_before,
-                                size_t tokens_before, CompressionReporter& reporter,
+    bool fail_compression_after(CompressionResult& r, CompressionReporter& reporter,
                                 CompressionResult* out);
-    bool run_compression_pipeline(CompressionReporter& reporter, CompressionResponse& cr,
-                                  std::vector<Message>& compressed,
-                                  const CompressionRequestPrefix& prefix);
+    void complete_compression(CompressionController::Outcome& outcome,
+                              CompressionReporter& reporter, CompressionResult* out);
     void rebuild_context(std::vector<Message>& compressed);
 
     // Validate and apply plans the model submitted, at this request boundary.
     // Once per user turn, and only when the freed content is worth the rebuild a
     // changed prefix forces. Returns true when the context was rebuilt.
     bool apply_pending_shapes(std::vector<Message>& prompt_copy);
-    void count_segments(const CompressionResponse& cr, CompressionResult& r);
-    void finish_compression(CompressionResult& r, const CompressionResponse& cr, size_t msgs_before,
-                            size_t tokens_before, CompressionReporter& reporter,
-                            CompressionResult* out);
     bool turn_budget_exceeded(Turn& turn);
     bool advance_turn(Turn& turn, const std::vector<std::shared_ptr<Tool>>& tools, Message& reply);
 
@@ -700,8 +692,7 @@ private:
     std::set<std::string> session_approved_; // tools granted for the session
     ShapeQueue* shape_queue_ = nullptr;
     std::size_t last_shape_turn_ = 0;
-    std::unique_ptr<CompressionStrategy> compression_;
-    std::unique_ptr<CompressionGate> gate_;
+    std::unique_ptr<CompressionController> compression_controller_;
     std::shared_ptr<MemoryStore> memory_store_;
     std::unique_ptr<MemoryRetriever> retriever_;
     std::shared_ptr<SkillCatalog> skills_;
@@ -724,7 +715,6 @@ private:
     // Real user prompts this session: the compression cooldown's unit, because
     // one tool-using turn is many LLM calls.
     size_t user_turn_counter_ = 0;
-    CompressionResult last_compression_;
 };
 
 } // namespace agent

@@ -361,9 +361,7 @@ CompressionConfig load_compression_config(const Config& cfg);
 // The log() method writes timestamped status lines via hooks_.on_status.
 class CompressionReporter : public CompressionObserver {
 public:
-    CompressionReporter(const AgentHooks& hooks, CompressionResult& result,
-                        std::function<void()> progress = {});
-    void set_before(size_t msgs, size_t tokens);
+    CompressionReporter(const AgentHooks& hooks, std::function<void()> progress = {});
     void on_compress_start(size_t msgs, size_t) override;
     void on_loop_collapse(size_t removed) override;
     void on_llm_request_sent() override;
@@ -377,10 +375,8 @@ public:
 
 private:
     const AgentHooks& hooks_;
-    CompressionResult& r_;
     std::function<void()> progress_;
     std::chrono::steady_clock::time_point t0_;
-    size_t before_msgs_ = 0;
     void log(const std::string& msg);
     void pump();
 };

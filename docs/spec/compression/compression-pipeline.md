@@ -3,8 +3,9 @@
 - **Status:** current (reconciled with the code in CC-12, 2026-10-26)
 - **Source:** `lib/compressor.cpp`, `lib/compressor_apply.cpp`,
   `lib/compressor_parser.cpp`, `lib/compressor_request.cpp`,
-  `lib/compressor_scanner.cpp`, `include/agent/compressor.h`, the gate and
-  rebuild in `lib/agent.cpp`
+  `lib/compressor_scanner.cpp`, `include/agent/compressor.h`,
+  `lib/compression_controller.cpp` + `include/agent/compression_controller.h`
+  (gate, pass statistics, cooldown), and the rebuild in `lib/agent.cpp`
 - **Review:** `docs/deep-audit/context-compaction-review.md` (measurements and
   the remediation history)
 
@@ -36,8 +37,8 @@ full enough to be worth it.
 
 ```
 chat_once
-  └─ gate (should_compress)
-       └─ compress(context, cfg, client, prefix)
+  └─ CompressionController::should_compress (the gate)
+       └─ CompressionController::run → compress(context, cfg, client, prefix)
             1. classify  [system][head][history][tail][instruction] + tools
             2. extract   [same prefix][classify reply][extract instruction]
             3. assemble  apply_classification (pure, C++ only)
@@ -63,6 +64,13 @@ chat_once
 
 The gate is checked before `PromptAssembler::inject_blocks`, so a rebuild can
 never lose the blocks injected for the current request.
+
+`CompressionController` owns the lifecycle — the gate decision, the pipeline
+call, the statistics and the cooldown recorded for the attempt. `Agent` owns
+what a pass cannot: the run scope, the rebuild of the live stack, the
+memory/brief application and the host notifications. A refusal before the
+pipeline (no strategy, a conversation too short) is reported as *not
+attempted*, so it never reads as a pass that moved the window.
 
 ### The classifier
 
