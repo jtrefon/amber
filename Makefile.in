@@ -87,6 +87,7 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
+            $(BUILD_DIR)/lib/loop_guard.o \
             $(BUILD_DIR)/lib/repair.o \
             $(BUILD_DIR)/lib/agent_helpers.o \
             $(BUILD_DIR)/lib/turn.o \
@@ -356,6 +357,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/agent_loop_test.o \
                $(BUILD_DIR)/tests/prompt_assembler_test.o \
                $(BUILD_DIR)/tests/compression_controller_test.o \
+               $(BUILD_DIR)/tests/loop_guard_test.o \
                $(BUILD_DIR)/tests/agent_ports_test.o \
                $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
