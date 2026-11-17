@@ -1,0 +1,111 @@
+{
+  "name": "e2e-two-turn-followup",
+  "suite": "e2e",
+  "description": "the second turn edits the file the first turn read",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Two turns: inspect, then edit.",
+  "turns": [
+    {
+      "prompt": "Read a.txt and tell me what it contains.",
+      "fake_replies": [
+        {
+          "prompt_tokens": 100,
+          "completion_tokens": 10,
+          "tool_calls": [
+            {
+              "id": "c1",
+              "type": "function",
+              "function": {
+                "name": "read",
+                "arguments": "{\"path\": \"a.txt\"}"
+              }
+            }
+          ]
+        },
+        {
+          "prompt_tokens": 120,
+          "completion_tokens": 5,
+          "content": "hello"
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "read",
+          "args": {
+            "path": "*a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "hello"
+        ]
+      }
+    },
+    {
+      "prompt": "Change hello to goodbye in a.txt and reply done.",
+      "fake_replies": [
+        {
+          "prompt_tokens": 140,
+          "completion_tokens": 10,
+          "tool_calls": [
+            {
+              "id": "c2",
+              "type": "function",
+              "function": {
+                "name": "write",
+                "arguments": "{\"path\": \"a.txt\", \"edits\": [{\"old\": \"hello\", \"new\": \"goodbye\"}]}"
+              }
+            }
+          ]
+        },
+        {
+          "prompt_tokens": 160,
+          "completion_tokens": 5,
+          "content": "done"
+        }
+      ],
+      "oracle": [
+        {
+          "tool": "write",
+          "args": {
+            "path": "*a.txt"
+          }
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "done"
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "expected_steps": 4,
+  "min_prompt_tokens": 400,
+  "min_completion_tokens": 10,
+  "expected_workspace": {
+    "files": {
+      "a.txt": {
+        "exact": "goodbye\n"
+      }
+    }
+  }
+}

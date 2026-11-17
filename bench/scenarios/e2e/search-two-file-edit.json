@@ -1,0 +1,149 @@
+{
+  "name": "e2e-search-two-file-edit",
+  "suite": "e2e",
+  "description": "search for a marker, edit both hits, verify both",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "name: alpha\n",
+      "b.txt": "name: beta\n"
+    }
+  },
+  "prompt": "Find the files containing name: and set both values to amber, then verify them and reply done.",
+  "oracle": [
+    {
+      "tool": "search",
+      "args": {
+        "pattern": "*name:*"
+      }
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*a.txt"
+      }
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "*b.txt"
+      }
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      }
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*b.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 14,
+    "max_wall_ms": 120000
+  },
+  "difficulty": 3,
+  "expected_steps": 6,
+  "approval": "allow",
+  "min_prompt_tokens": 500,
+  "min_completion_tokens": 20,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "search",
+            "arguments": "{\"pattern\": \"name:\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\": \"a.txt\", \"edits\": [{\"old\": \"alpha\", \"new\": \"amber\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c3",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\": \"b.txt\", \"edits\": [{\"old\": \"beta\", \"new\": \"amber\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 160,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c4",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\": \"a.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 180,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c5",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\": \"b.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 200,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "expected_workspace": {
+    "files": {
+      "a.txt": {
+        "exact": "name: amber\n"
+      },
+      "b.txt": {
+        "exact": "name: amber\n"
+      }
+    }
+  }
+}

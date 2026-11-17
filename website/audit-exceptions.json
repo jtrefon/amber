@@ -14,6 +14,13 @@
       "severity": "high",
       "reason": "TRANSITIVE build-time dependency of astro@7.2.8, reached four ways: magicast (rewrites astro.config.mjs), svgo -> css-tree and csso (SVG/CSS minification), and vite -> postcss (CSS pipeline). Nothing in website/ declares it directly. NO patched version exists for CVE-2026-93749: source-map-js 1.2.1 is the latest release. The flaw is an event-loop denial of service when PARSING AN INDEXED SOURCE MAP SUPPLIED BY AN ATTACKER. Measured unreachable here: 0 references to source-map in website/src, website/scripts or astro.config.mjs; the built dist/ contains 126 files, 0 sourcemaps, and 0 references to source-map-js -- so the library is not shipped to visitors either. It is present on the runner only because 'npm ci' installs it from the tracked package-lock.json, which is why an audit of the installed tree (not the tracked one) is what catches this. Re-check when astro drops the dependency.",
       "expires": "2027-01-15"
+    },
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "severity": "high",
+      "reason": "Glob matcher pulled in twice by the Astro build graph (tinyglobby/fdir and anymatch, 2.3.2 and 4.0.7). NO patched release exists: 4.0.7 is the latest and the advisory covers <=4.0.7; npm audit's only offered 'fix' is a semver-major DOWNGRADE of astro to 5.3.0, which is not a fix. The flaw is a ReDoS from a crafted extglob pattern. Measured unreachable here: 0 references to picomatch in website/src, website/scripts or astro.config.mjs; every pattern comes from the build tooling, not from a visitor, and the output is a static site with no server-side glob over user input. Re-check when astro or a glob dependency ships a patched version.",
+      "expires": "2027-01-15"
     }
   ]
 }

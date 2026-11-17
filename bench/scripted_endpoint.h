@@ -95,6 +95,17 @@ private:
 // Parse an OpenAI/Anthropic/Gemini JSON body into the agent's message shape.
 std::vector<agent::Message> endpoint_messages(const agent::json& body);
 
+// Whether a request path is a chat completion, as opposed to a catalogue or an
+// unknown path the endpoint answers itself.
+bool endpoint_is_chat_path(const std::string& path);
+
+// Request-shape views shared by the trace matcher and the binary request-log
+// contract: the system text (OpenAI messages, Anthropic `system`, Gemini
+// `systemInstruction`), the role sequence and the offered tool names.
+std::string endpoint_system_text(const agent::json& body);
+std::vector<std::string> endpoint_roles(const agent::json& body);
+std::vector<std::string> endpoint_tool_names(const agent::json& body);
+
 } // namespace bench
 
 #endif // BENCH_SCRIPTED_ENDPOINT_H

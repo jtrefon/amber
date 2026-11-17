@@ -12,6 +12,7 @@
 
 #include "agent/llm.h"
 #include "agent/tool.h"
+#include "bench/scripted_endpoint.h"
 
 namespace bench {
 
@@ -79,6 +80,14 @@ private:
     std::vector<Fault> faults_;
     int calls_ = 0;
 };
+
+// Check the endpoint's request log against a scenario's `request_contract`.
+// This is the binary tier's equivalent of ContractClient: the CLI's requests
+// are observed at the wire, not wrapped on the client, so the same fields are
+// checked against the log. `cache_breakpoints` is transport-observed and is not
+// enforced here.
+bool check_request_log(const agent::json& contract, const std::vector<EndpointRequest>& requests,
+                       std::string& err);
 
 } // namespace bench
 

@@ -16,10 +16,18 @@ namespace bench {
 struct BinaryE2eResult {
     std::string name;
     bool ok = false;
-    std::string error;
+    std::string error; // every failure, joined with "; "
     int exit_code = -1;
+    std::string final_text;
+    long prompt_tokens = 0;
+    long completion_tokens = 0;
+    long wall_ms = 0;
     std::vector<std::string> expected_tools;
     std::vector<std::string> actual_tools;
+    std::vector<std::string> failures;
+    // The kept workspace when a failed run asked to retain its artefacts;
+    // empty when the run passed or retention was off.
+    std::string workspace;
 };
 
 // Where the amber-cli the driver executes lives: beside amber-bench for an
@@ -37,6 +45,9 @@ std::string resolve_cli_path(const std::string& exe_path, const std::string& cwd
 struct BinaryE2eOptions {
     std::string trace_path;
     std::string trace_mode = "strict";
+    // Keep the temp workspace (telemetry, stdout/stderr, request log) when a
+    // journey fails, and report its path.
+    bool keep_failures = false;
 };
 
 // `cli_path` is the amber-cli executable resolved by resolve_cli_path. A

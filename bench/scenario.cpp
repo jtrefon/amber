@@ -553,15 +553,9 @@ bool take_extensions(const agent::json& j, Scenario& s, std::string& err) {
 
 } // namespace
 
-std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
-    agent::json j;
-    if (!read_scenario_json(path, j, err))
-        return std::nullopt;
+bool take_e2e_expectations(const agent::json& j, Scenario& s, std::string& err);
 
-    Scenario s;
-    if (!require_string(j, "name", s.name, err) || !require_string(j, "suite", s.suite, err))
-        return std::nullopt;
-
+bool take_scenario_body(const agent::json& j, Scenario& s, std::string& err) {
     take_string(j, "prompt", s.prompt);
     take_string(j, "description", s.description);
     take_string_array(j, "platforms", s.platforms);
@@ -571,29 +565,72 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     take_array(j, "fake_replies", s.fake_replies);
     take_json_array(j, "subagent_replies", s.subagent_replies);
     if (!take_policy(j, s, err))
-        return std::nullopt;
+        return false;
     if (!take_workspace(j, s, err) || !take_request_contract(j, s, err) || !take_faults(j, s, err))
-        return std::nullopt;
+        return false;
     take_bool(j, "stream", s.stream);
     std::string approval;
     take_string(j, "approval", approval);
     s.allow_tools = approval == "allow";
     take_bool(j, "detection_loop", s.detection_loop);
     take_bool(j, "detection_duplicate", s.detection_duplicate);
+    return true;
+}
+
+bool take_scoring(const agent::json& j, Scenario& s, std::string& err) {
     if (!take_oracle(j, s.oracle, err))
-        return std::nullopt;
+        return false;
     take_clamped_double(j, "checks_weight", s.checks_weight, 0.0, 1.0);
     take_string_array(j, "forbidden_tools", s.forbidden_tools);
-    if (!take_checks(j, s, err))
-        return std::nullopt;
-    if (!take_extensions(j, s, err))
-        return std::nullopt;
+    if (!take_checks(j, s, err) || !take_extensions(j, s, err))
+        return false;
     take_string(j, "template", s.template_dir);
     take_object(j, "optimal_plan", s.optimal_plan);
     take_clamped_int(j, "difficulty", s.difficulty, 1, 6);
     take_int(j, "expected_steps", s.expected_steps);
+    if (!take_e2e_expectations(j, s, err))
+        return false;
     take_budget(j, s);
+    return true;
+}
+
+std::optional<Scenario> load_scenario(const std::string& path, std::string& err) {
+    agent::json j;
+    if (!read_scenario_json(path, j, err))
+        return std::nullopt;
+    Scenario s;
+    if (!require_string(j, "name", s.name, err) || !require_string(j, "suite", s.suite, err))
+        return std::nullopt;
+    if (!take_scenario_body(j, s, err) || !take_scoring(j, s, err))
+        return std::nullopt;
     return s;
+}
+
+bool take_e2e_expectations(const agent::json& j, Scenario& s, std::string& err) {
+    if (j.contains("expected_exit_code")) {
+        if (!j["expected_exit_code"].is_number_integer() ||
+            j["expected_exit_code"].get<int>() < 0 || j["expected_exit_code"].get<int>() > 255) {
+            err = "'expected_exit_code' must be an integer in [0, 255]";
+            return false;
+        }
+        s.expected_exit_code = j["expected_exit_code"].get<int>();
+    }
+    if (j.contains("min_prompt_tokens")) {
+        if (!j["min_prompt_tokens"].is_number_integer() || j["min_prompt_tokens"].get<long>() < 0) {
+            err = "'min_prompt_tokens' must be a non-negative integer";
+            return false;
+        }
+        s.min_prompt_tokens = j["min_prompt_tokens"].get<long>();
+    }
+    if (j.contains("min_completion_tokens")) {
+        if (!j["min_completion_tokens"].is_number_integer() ||
+            j["min_completion_tokens"].get<long>() < 0) {
+            err = "'min_completion_tokens' must be a non-negative integer";
+            return false;
+        }
+        s.min_completion_tokens = j["min_completion_tokens"].get<long>();
+    }
+    return true;
 }
 
 bool platform_supported(const Scenario& s) {

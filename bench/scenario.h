@@ -95,6 +95,12 @@ struct Scenario {
     double max_compaction_ratio = 0.0;
     bool detection_loop = false;      // enable tool/text-loop detection
     bool detection_duplicate = false; // enable duplicate-call detection
+    // Binary tier expectations. `expected_exit_code` is the process exit the
+    // CLI must return; the token floors catch a run that answered without
+    // talking to the provider (or a usage mapping that silently dropped to 0).
+    int expected_exit_code = 0;
+    long min_prompt_tokens = 0;     // 0 = unchecked
+    long min_completion_tokens = 0; // 0 = unchecked
 };
 
 // Parse and validate a scenario file. Returns nullopt with a message on error.
