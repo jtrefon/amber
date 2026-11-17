@@ -1,0 +1,53 @@
+{
+  "name": "trace-openai-read",
+  "suite": "policy",
+  "description": "the real HttpLLMClient replays a recorded OpenAI tool call and final answer",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "a.txt": "hello\n"
+    }
+  },
+  "prompt": "Read a.txt and reply with the word done.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*a.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "policy": {
+    "initial": "read",
+    "max_transitions": 8,
+    "states": {
+      "read": {
+        "call": {
+          "tool": "read",
+          "args": {
+            "path": "a.txt"
+          }
+        },
+        "next": "done"
+      },
+      "done": {
+        "final": "done"
+      }
+    }
+  },
+  "approval": "allow",
+  "difficulty": 3,
+  "expected_steps": 2,
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 30000
+  }
+}

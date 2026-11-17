@@ -31,11 +31,23 @@ struct BinaryE2eResult {
 // the harness execute an arbitrary program under the benchmark's name.
 std::string resolve_cli_path(const std::string& exe_path, const std::string& cwd);
 
+// A trace replaces the scenario's scripted replies with recorded provider
+// bytes served by a loopback endpoint; the binary is pointed at it instead of
+// the MockServer.
+struct BinaryE2eOptions {
+    std::string trace_path;
+    std::string trace_mode = "strict";
+};
+
 // `cli_path` is the amber-cli executable resolved by resolve_cli_path. A
 // scenario runs once in-process for the expected tool sequence, then once
-// through the binary against MockServer.
+// through the binary against MockServer (or the trace endpoint).
 std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
                                                   const std::string& cli_path, std::string& err);
+std::vector<BinaryE2eResult> run_binary_scenarios(const std::vector<Scenario>& scenarios,
+                                                  const std::string& cli_path,
+                                                  const BinaryE2eOptions& options,
+                                                  std::string& err);
 
 } // namespace bench
 

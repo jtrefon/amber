@@ -19,6 +19,7 @@
 #include "bench/binary_driver.h"
 #include "bench/policy.h"
 #include "bench/policy_zoo.h"
+#include "bench/trace_store.h"
 #include "bench/probe.h"
 #include "bench/data_root.h"
 #include "bench/report.h"
@@ -31,9 +32,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-void print_usage(const char* prog) {
+void print_command_help() {
     std::cerr
-        << "Usage: " << prog << " <command> [options]\n\n"
         << "Commands:\n"
         << "  list                        list available scenarios\n"
         << "  run                         run scenarios (hermetic fake LLM by default)\n"
@@ -48,27 +48,38 @@ void print_usage(const char* prog) {
         << "  reap-state                   remove old bench scenario state; dry run by default\n"
         << "  shape-replay <log.jsonl>...  replay recorded sessions through a context shaper;\n"
         << "                               reports tokens saved and how often a dropped span\n"
-        << "                               is referenced later\n\n"
-        << "Options:\n"
-        << "  --suite NAME     filter by suite\n"
-        << "  --scenario NAME  run a single scenario\n"
-        << "  --matrix         run every declared variant cell\n"
-        << "  --variant K=V    run one variant cell\n"
-        << "  --live           use the real model (amber.conf / env / flags)\n"
-        << "  --profile NAME   model profile from bench/profiles.json\n"
-        << "  --model NAME     model override (live)\n"
-        << "  --driver KIND    inproc (default) or binary (amber-cli e2e)\n"
-        << "  --policy VALUE   policy FILE or named zoo member (hermetic)\n"
-        << "  --policy-matrix  run every named policy-zoo member\n"
-        << "  --temperature T  temperature override (live)\n"
-        << "  --repeat N       run each scenario N times\n"
-        << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
-        << "  --cat NAME       category: model | harness | both (default)\n"
-        << "  --out FILE       write JSON report to FILE\n"
-        << "  --format FMT     report output: text (default), markdown, json\n"
-        << "  --older-than-days N  reap-state age floor (default 7, minimum 1)\n"
-        << "  --apply          reap-state: actually remove (default: dry run)\n"
-        << "  -h, --help       show this help\n";
+        << "                               is referenced later\n\n";
+}
+
+void print_option_help() {
+    std::cerr << "Options:\n"
+              << "  --suite NAME     filter by suite\n"
+              << "  --scenario NAME  run a single scenario\n"
+              << "  --matrix         run every declared variant cell\n"
+              << "  --variant K=V    run one variant cell\n"
+              << "  --live           use the real model (amber.conf / env / flags)\n"
+              << "  --profile NAME   model profile from bench/profiles.json\n"
+              << "  --model NAME     model override (live)\n"
+              << "  --driver KIND    inproc (default) or binary (amber-cli e2e)\n"
+              << "  --policy VALUE   policy FILE or named zoo member (hermetic)\n"
+              << "  --policy-matrix  run every named policy-zoo member\n"
+              << "  --trace FILE     replay recorded provider exchanges through the real client\n"
+              << "  --trace-mode M   strict (default) or shape\n"
+              << "  --temperature T  temperature override (live)\n"
+              << "  --repeat N       run each scenario N times\n"
+              << "  --repeat-gap-ms N  pause between repeats (live endpoints that throttle)\n"
+              << "  --cat NAME       category: model | harness | both (default)\n"
+              << "  --out FILE       write JSON report to FILE\n"
+              << "  --format FMT     report output: text (default), markdown, json\n"
+              << "  --older-than-days N  reap-state age floor (default 7, minimum 1)\n"
+              << "  --apply          reap-state: actually remove (default: dry run)\n"
+              << "  -h, --help       show this help\n";
+}
+
+void print_usage(const char* prog) {
+    std::cerr << "Usage: " << prog << " <command> [options]\n\n";
+    print_command_help();
+    print_option_help();
 }
 
 // Where the scenario corpus and the profiles live. An installed package puts
@@ -199,6 +210,8 @@ struct CliOptions {
     agent::json policy;
     std::string policy_name;
     bool policy_matrix = false;
+    std::string trace;
+    std::string trace_mode = "strict";
     std::string category;
     std::string disable;
     std::string format = "text";
@@ -300,6 +313,40 @@ bool apply_policy_value(const std::string& value, CliOptions& o) {
     return apply_policy_file(value, o.policy);
 }
 
+// 0 = not handled, 1 = handled, 2 = bad value.
+int parse_simple_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+    if (a == "--live") {
+        o.live = true;
+        return 1;
+    }
+    if (a == "--policy")
+        return apply_policy_value(next(""), o) ? 1 : 2;
+    if (a == "--policy-matrix") {
+        o.policy_matrix = true;
+        return 1;
+    }
+    if (a == "--trace") {
+        o.trace = next("");
+        return 1;
+    }
+    if (a == "--trace-mode") {
+        o.trace_mode = next("");
+        return 1;
+    }
+    if (a == "--apply") {
+        o.reap_apply = true;
+        return 1;
+    }
+    if (a == "--older-than-days") {
+        if (!parse_positive_int(next(""), o.older_than_days)) {
+            std::cerr << "error: --older-than-days needs an integer >= 1\n";
+            return 2;
+        }
+        return 1;
+    }
+    return 0;
+}
+
 // Parse the command line after the subcommand. Returns 0 when a flag asked to
 // stop (-h/--help), otherwise nullopt.
 std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
@@ -310,26 +357,15 @@ std::optional<int> parse_cli(int argc, char** argv, CliOptions& o) {
                 return argv[++i];
             return def;
         };
-        if (a == "--live") {
-            o.live = true;
-        } else if (a == "-h" || a == "--help") {
+        if (a == "-h" || a == "--help") {
             print_usage(argv[0]);
             return 0;
-        } else if (a == "--policy") {
-            if (!apply_policy_value(next(""), o))
-                return 2;
-        } else if (a == "--policy-matrix") {
-            o.policy_matrix = true;
-        } else if (a == "--apply") {
-            o.reap_apply = true;
-        } else if (a == "--older-than-days") {
-            if (!parse_positive_int(next(""), o.older_than_days)) {
-                std::cerr << "error: --older-than-days needs an integer >= 1\n";
-                return 2;
-            }
-        } else if (!apply_value_flag(a, next, o)) {
-            o.rest.push_back(a);
         }
+        const int handled = parse_simple_flag(a, next, o);
+        if (handled == 2)
+            return 2;
+        if (handled == 0 && !apply_value_flag(a, next, o))
+            o.rest.push_back(a);
     }
     return std::nullopt;
 }
@@ -359,6 +395,8 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.policy_override = args.policy;
     opts.policy_name = args.policy_name;
     opts.policy_matrix = args.policy_matrix;
+    opts.trace_path = args.trace;
+    opts.trace_mode = args.trace_mode;
     if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
         const int ms = std::atoi(join);
         if (ms >= 0)
@@ -601,27 +639,7 @@ bool find_cli(std::string& cli) {
 
 // The installed-tree tier: run each scenario through amber-cli against a
 // scripted endpoint and compare the tool sequence with the in-process run.
-int run_binary_axis(const CliOptions& args) {
-    const bench::RunOptions opts = build_run_options(args);
-    std::string err;
-    auto scenarios = discover_expanded(args, opts, err);
-    if (!err.empty()) {
-        std::cerr << "error: " << err << "\n";
-        return 1;
-    }
-    if (scenarios.empty()) {
-        std::cerr << "error: no scenarios match\n";
-        return 1;
-    }
-    std::string cli;
-    if (!find_cli(cli))
-        return 2;
-    const std::vector<bench::BinaryE2eResult> results =
-        bench::run_binary_scenarios(scenarios, cli, err);
-    if (!err.empty()) {
-        std::cerr << "error: " << err << "\n";
-        return 2;
-    }
+bool print_binary_results(const std::vector<bench::BinaryE2eResult>& results) {
     bool ok = true;
     for (const auto& result : results) {
         std::cout << (result.ok ? "PASS " : "FAIL ") << result.name;
@@ -638,39 +656,91 @@ int run_binary_axis(const CliOptions& args) {
         std::cout << "\n";
         ok = ok && result.ok;
     }
-    return ok ? 0 : 1;
+    return ok;
 }
 
-int cmd_run(const CliOptions& args) {
+int run_binary_axis(const CliOptions& args) {
+    const bench::RunOptions opts = build_run_options(args);
+    std::string err;
+    auto scenarios = discover_expanded(args, opts, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 1;
+    }
+    if (scenarios.empty()) {
+        std::cerr << "error: no scenarios match\n";
+        return 1;
+    }
+    std::string cli;
+    if (!find_cli(cli))
+        return 2;
+    bench::BinaryE2eOptions binary_options;
+    binary_options.trace_path = args.trace;
+    binary_options.trace_mode = args.trace_mode;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios(scenarios, cli, binary_options, err);
+    if (!err.empty()) {
+        std::cerr << "error: " << err << "\n";
+        return 2;
+    }
+    return print_binary_results(results) ? 0 : 1;
+}
+
+bool valid_category(const std::string& category) {
+    return category.empty() || category == "model" || category == "harness" || category == "both";
+}
+
+bool validate_run_options(const CliOptions& args) {
+    bench::TraceMode trace_mode = bench::TraceMode::Strict;
     if (args.driver != "inproc" && args.driver != "binary") {
         std::cerr << "error: unknown driver \"" << args.driver << "\" (expected inproc | binary)\n";
-        return 1;
+        return false;
     }
-    if (args.policy_matrix) {
-        if (args.driver == "binary") {
-            std::cerr << "error: --policy-matrix is in-process only\n";
-            return 1;
-        }
-        return run_policy_matrix_axis(args);
+    if (!args.trace.empty() && !bench::parse_trace_mode(args.trace_mode, trace_mode)) {
+        std::cerr << "error: unknown trace mode \"" << args.trace_mode
+                  << "\" (expected strict | shape)\n";
+        return false;
     }
-    if (args.driver == "binary") {
-        if (args.category == "harness") {
-            std::cerr << "error: --driver binary does not run the harness axis\n";
-            return 1;
-        }
-        return run_binary_axis(args);
+    if (!args.trace.empty() && args.live) {
+        std::cerr << "error: --trace replays a recording and cannot run live\n";
+        return false;
     }
-    if (!args.category.empty() && args.category != "model" && args.category != "harness" &&
-        args.category != "both") {
+    if (!args.trace.empty() && args.policy_matrix) {
+        std::cerr << "error: --trace and --policy-matrix are separate axes\n";
+        return false;
+    }
+    if (!valid_category(args.category)) {
         std::cerr << "error: unknown category \"" << args.category
                   << "\" (expected model | harness | both)\n";
-        return 1;
+        return false;
     }
+    if (args.driver == "binary" && args.category == "harness") {
+        std::cerr << "error: --driver binary does not run the harness axis\n";
+        return false;
+    }
+    if (args.driver == "binary" && args.policy_matrix) {
+        std::cerr << "error: --policy-matrix is in-process only\n";
+        return false;
+    }
+    return true;
+}
+
+int dispatch_run_axis(const CliOptions& args) {
+    if (args.policy_matrix)
+        return run_policy_matrix_axis(args);
+    if (args.driver == "binary")
+        return run_binary_axis(args);
     if (args.category == "harness")
         return run_harness_axis(args.out_file);
     if (args.category == "both")
         return run_both_axes(args);
     return run_model_axis(args); // "" or "model"
+}
+
+int cmd_run(const CliOptions& args) {
+    if (!validate_run_options(args))
+        return 1;
+    return dispatch_run_axis(args);
 }
 
 int cmd_list(const std::string& suite) {

@@ -1,5 +1,7 @@
 
 #include "agent.h"
+#include "agent/dialect_anthropic.h"
+#include "agent/dialect_openai.h"
 #include "agent/llm.h"
 #include "agent/todo.h"
 #include "agent/tools.h"
@@ -21,6 +23,7 @@
 #include "bench/runner.h"
 #include "bench/scenario.h"
 #include "bench/shape_replay.h"
+#include "bench/trace_store.h"
 #include "bench/workspace_check.h"
 #include "bench/state_reaper.h"
 #include "bench/template.h"
@@ -4753,6 +4756,378 @@ TEST(policy_zoo_rejects_unknown_members_and_bad_expectations) {
     std::string check_err;
     ASSERT(bench::check_policy_expectations(dir + "/ok.json", rows, check_err));
     ASSERT(check_err.empty());
+}
+
+// ── Provider trace replay ──
+
+TEST(trace_loader_accepts_the_committed_traces) {
+    for (const char* path : {"bench/traces/openai-read.json", "bench/traces/openai-stream.json",
+                             "bench/traces/anthropic-cache.json"}) {
+        std::string err;
+        const auto trace = bench::load_trace(path, err);
+        ASSERT(trace);
+        ASSERT(err.empty());
+        ASSERT_EQ(trace->schema, 1);
+        ASSERT(!trace->exchanges.empty());
+        ASSERT_EQ(trace->exchanges[0].match.path, trace->dialect == "anthropic"
+                                                      ? std::string("/v1/messages")
+                                                      : std::string("/v1/chat/completions"));
+    }
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/openai-read.json", err);
+    ASSERT(trace);
+    ASSERT_EQ(trace->provider, std::string("openai"));
+    ASSERT_EQ(trace->exchanges.size(), 2u);
+    ASSERT(trace->exchanges[0].response.body.find("\"tool_calls\"") != std::string::npos);
+    ASSERT(trace->exchanges[1].response.body.find("done") != std::string::npos);
+}
+
+TEST(trace_loader_rejects_malformed_traces) {
+    const std::string dir = tmp_dir("trace_loader");
+    const std::pair<const char*, const char*> cases[] = {
+        {"empty.json", R"({})"},
+        {"schema_string.json", R"({"schema": "1"})"},
+        {"schema_version.json", R"({"schema": 2, "dialect": "openai"})"},
+        {"unknown_dialect.json", R"({"schema": 1, "dialect": "carrier-pigeon", "exchanges": []})"},
+        {"no_exchanges.json", R"({"schema": 1, "dialect": "openai", "exchanges": []})"},
+        {"exchanges_object.json", R"({"schema": 1, "dialect": "openai", "exchanges": {}})"},
+        {"missing_response.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {}}]})"},
+        {"missing_body.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {}}]})"},
+        {"body_not_string.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": 7}}]})"},
+        {"empty_body.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": ""}}]})"},
+        {"bad_status.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{}", "status": 42}}]})"},
+        {"unknown_match.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"mood": "happy"}, "response": {"body": "{}"}}]})"},
+        {"bad_roles.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"roles": [7]}, "response": {"body": "{}"}}]})"},
+        {"bad_tools.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"tools": 7}, "response": {"body": "{}"}}]})"},
+        {"bad_stream.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"stream": "yes"}, "response": {"body": "{}"}}]})"},
+        {"bad_request.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"request": 7, "response": {"body": "{}"}}]})"},
+        {"duplicate_id.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [
+              {"id": "same", "response": {"body": "{}"}},
+              {"id": "same", "response": {"body": "{}"}}]})"},
+        {"invalid_json_body.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{bad"}}]})"},
+        {"unknown_response.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{}", "mood": 1}}]})"},
+        {"sse_no_data.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+              {"content_type": "text/event-stream", "body": "event: ping\n\n"}}]})"},
+        {"sse_unterminated.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+              {"content_type": "text/event-stream", "body": "data: {}\n"}}]})"},
+        {"sse_bad_field.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+              {"content_type": "text/event-stream", "body": "nonsense\n\ndata: {}\n\n"}}]})"},
+        {"sse_bad_json.json",
+         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+              {"content_type": "text/event-stream", "body": "data: {bad\n\n"}}]})"},
+    };
+    for (const auto& [name, body] : cases) {
+        const std::string path = dir + "/" + name;
+        write_file(path, body);
+        std::string err;
+        ASSERT(!bench::load_trace(path, err));
+        ASSERT(!err.empty());
+        ASSERT(err.find(name) != std::string::npos);
+    }
+}
+
+TEST(trace_strict_reports_the_first_drifted_field) {
+    bench::Trace trace;
+    trace.schema = 1;
+    trace.provider = "openai";
+    trace.dialect = "openai";
+    bench::TraceExchange exchange;
+    exchange.id = "strict";
+    exchange.match.path = "/v1/chat/completions";
+    exchange.match.roles = {"system", "user"};
+    exchange.match.tools = {"read"};
+    exchange.match.system = "You are amber.";
+    exchange.request = agent::json::parse(R"({
+        "model": "fake",
+        "messages": [
+            {"role": "system", "content": "You are amber."},
+            {"role": "user", "content": "Read a.txt."}
+        ],
+        "tools": [{"type": "function", "function": {"name": "read"}}]
+    })");
+    exchange.response.body = R"({"ok":true})";
+    trace.exchanges.push_back(exchange);
+    exchange.id = "strict-2";
+    trace.exchanges.push_back(exchange);
+
+    bench::TraceResponder responder(trace, bench::TraceMode::Strict, "strict.json");
+    bench::EndpointRequest request;
+    request.path = "/v1/chat/completions";
+    request.json = exchange.request;
+    request.messages = bench::endpoint_messages(request.json);
+    request.tools = request.json["tools"];
+    ASSERT_EQ(responder.respond(request).body, std::string(R"({"ok":true})"));
+    ASSERT(!responder.failed());
+
+    request.json["messages"][1]["content"] = "Read b.txt.";
+    request.messages = bench::endpoint_messages(request.json);
+    responder.respond(request);
+    ASSERT(responder.failed());
+    ASSERT(responder.error().find("messages[1].content") != std::string::npos);
+    ASSERT(responder.error().find("strict.json") != std::string::npos);
+    ASSERT(responder.error().find("exchange 1") != std::string::npos);
+}
+
+TEST(trace_strict_rejects_a_tampered_system_prompt) {
+    bench::Trace trace;
+    trace.schema = 1;
+    trace.dialect = "openai";
+    bench::TraceExchange exchange;
+    exchange.match.path = "/v1/chat/completions";
+    exchange.match.system = "You are amber.";
+    exchange.response.body = R"({"ok":true})";
+    trace.exchanges.push_back(exchange);
+
+    bench::TraceResponder responder(trace, bench::TraceMode::Strict, "system.json");
+    bench::EndpointRequest request;
+    request.path = "/v1/chat/completions";
+    request.json = agent::json::parse(R"({
+        "messages": [
+            {"role": "system", "content": "You are a different assistant."},
+            {"role": "user", "content": "go"}
+        ]
+    })");
+    request.messages = bench::endpoint_messages(request.json);
+    responder.respond(request);
+    ASSERT(responder.failed());
+    ASSERT(responder.error().find("system") != std::string::npos);
+    ASSERT(responder.error().find("system.json") != std::string::npos);
+}
+
+TEST(trace_shape_tolerates_a_prompt_edit_but_asserts_roles_and_tools) {
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/openai-read.json", err);
+    ASSERT(trace);
+    bench::TraceResponder responder(*trace, bench::TraceMode::Shape,
+                                    "bench/traces/openai-read.json");
+    bench::EndpointRequest request;
+    request.path = "/v1/chat/completions";
+    request.json = agent::json::parse(R"({
+        "messages": [
+            {"role": "system", "content": "Your name is **Amber** — rewritten tail."},
+            {"role": "user", "content": "a completely rewritten prompt"}
+        ],
+        "tools": [{"type": "function", "function": {"name": "read"}}]
+    })");
+    request.messages = bench::endpoint_messages(request.json);
+    request.tools = request.json["tools"];
+    ASSERT_EQ(responder.respond(request).status, 200);
+    ASSERT(!responder.failed());
+
+    bench::EndpointRequest no_tools = request;
+    no_tools.tools = agent::json::array();
+    responder.respond(no_tools);
+    ASSERT(responder.failed());
+    ASSERT(responder.error().find("tool") != std::string::npos);
+}
+
+TEST(trace_shape_rejects_a_changed_role_sequence) {
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/openai-read.json", err);
+    ASSERT(trace);
+    bench::TraceResponder responder(*trace, bench::TraceMode::Shape,
+                                    "bench/traces/openai-read.json");
+    bench::EndpointRequest request;
+    request.path = "/v1/chat/completions";
+    request.json = agent::json::parse(R"({
+        "messages": [{"role": "user", "content": "no system block"}],
+        "tools": [{"type": "function", "function": {"name": "read"}}]
+    })");
+    request.messages = bench::endpoint_messages(request.json);
+    request.tools = request.json["tools"];
+    responder.respond(request);
+    ASSERT(responder.failed());
+    ASSERT(responder.error().find("roles") != std::string::npos);
+}
+
+TEST(trace_fails_closed_on_an_extra_request) {
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/openai-stream.json", err);
+    ASSERT(trace);
+    bench::TraceResponder responder(*trace, bench::TraceMode::Shape,
+                                    "bench/traces/openai-stream.json");
+    bench::EndpointRequest request;
+    request.path = "/v1/chat/completions";
+    request.json = agent::json::parse(R"({
+        "stream": true,
+        "messages": [
+            {"role": "system", "content": "Your name is **Amber**"},
+            {"role": "user", "content": "go"}
+        ]
+    })");
+    request.messages = bench::endpoint_messages(request.json);
+    request.stream = true;
+    ASSERT_EQ(responder.respond(request).status, 200);
+    const bench::EndpointReply extra = responder.respond(request);
+    ASSERT_EQ(extra.status, 500);
+    ASSERT(responder.failed());
+    ASSERT(responder.error().find("request 2") != std::string::npos);
+    ASSERT(responder.error().find("openai-stream.json") != std::string::npos);
+}
+
+TEST(trace_finish_reports_an_unused_exchange) {
+    bench::Trace trace;
+    trace.schema = 1;
+    trace.dialect = "openai";
+    bench::TraceExchange exchange;
+    exchange.response.body = "{}";
+    trace.exchanges.push_back(exchange);
+    bench::TraceResponder responder(trace, bench::TraceMode::Shape, "unused.json");
+    std::string err;
+    ASSERT(!responder.finish(err));
+    ASSERT(err.find("unused") != std::string::npos);
+    ASSERT(err.find("unused.json") != std::string::npos);
+}
+
+TEST(trace_replays_anthropic_json_through_the_real_client) {
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/anthropic-cache.json", err);
+    ASSERT(trace);
+    bench::TraceResponder responder(*trace, bench::TraceMode::Strict,
+                                    "bench/traces/anthropic-cache.json");
+    bench::ScriptedEndpoint endpoint(
+        [&responder](const bench::EndpointRequest& request) { return responder.respond(request); });
+    ASSERT(endpoint.start());
+
+    agent::Config cfg;
+    cfg.api_base = endpoint.base_url();
+    cfg.api_key = "trace";
+    cfg.model = "claude-trace";
+    cfg.stream = false;
+    agent::HttpLLMClient client(cfg, agent::make_anthropic_dialect());
+
+    agent::Message system;
+    system.role = "system";
+    system.content = "You are amber.";
+    agent::Message user;
+    user.role = "user";
+    user.content = "Read a.txt and reply done.";
+    agent::Stats stats;
+    const agent::Message reply = client.chat({system, user}, {}, &stats);
+    ASSERT_EQ(reply.content, std::string("done"));
+    ASSERT_EQ(stats.prompt_tokens, 1200);
+    ASSERT_EQ(stats.cache_read_tokens, 800);
+    ASSERT_EQ(stats.cache_write_tokens, 200);
+
+    std::string finish_err;
+    ASSERT(responder.finish(finish_err));
+    ASSERT(finish_err.empty());
+    endpoint.stop();
+}
+
+TEST(trace_replays_sse_through_the_real_client) {
+    std::string err;
+    const auto trace = bench::load_trace("bench/traces/openai-stream.json", err);
+    ASSERT(trace);
+    bench::TraceResponder responder(*trace, bench::TraceMode::Shape,
+                                    "bench/traces/openai-stream.json");
+    bench::ScriptedEndpoint endpoint(
+        [&responder](const bench::EndpointRequest& request) { return responder.respond(request); });
+    ASSERT(endpoint.start());
+
+    agent::Config cfg;
+    cfg.api_base = endpoint.base_url();
+    cfg.model = "fake";
+    cfg.stream = true;
+    agent::HttpLLMClient client(cfg, agent::make_openai_dialect());
+
+    agent::Message system;
+    system.role = "system";
+    system.content = "Your name is **Amber**";
+    agent::Message user;
+    user.role = "user";
+    user.content = "go";
+    std::string streamed;
+    agent::Stats stats;
+    const agent::Message reply = client.chat_stream(
+        {system, user}, {},
+        [&streamed](const agent::StreamChunk& chunk) { streamed += chunk.delta; }, &stats);
+    ASSERT_EQ(reply.content, std::string("streamed answer"));
+    ASSERT_EQ(streamed, std::string("streamed answer"));
+    ASSERT_EQ(stats.prompt_tokens, 42);
+    ASSERT_EQ(stats.completion_tokens, 3);
+
+    std::string finish_err;
+    ASSERT(responder.finish(finish_err));
+    ASSERT(finish_err.empty());
+    endpoint.stop();
+}
+
+TEST(trace_scenario_runs_through_the_real_client) {
+    Scenario scenario;
+    scenario.name = "trace-run";
+    scenario.suite = "policy";
+    scenario.prompt = "Read a.txt and reply done.";
+    scenario.setup = {{"files", {{"a.txt", "hello\n"}}}};
+    scenario.policy = policy_json(R"({
+        "initial": "read",
+        "states": {
+            "read": {"call": {"tool": "read", "args": {"path": "a.txt"}}, "next": "done"},
+            "done": {"final": "done"}
+        }
+    })");
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    opts.trace_path = "bench/traces/openai-read.json";
+    opts.trace_mode = "shape";
+    bench::RunMeta meta;
+    std::string err;
+    const bench::ScenarioReport report = bench::run_one_scenario(scenario, opts, meta, err);
+    ASSERT(err.empty());
+    ASSERT(report.kpi.success);
+    ASSERT_EQ(report.final_text, std::string("done"));
+}
+
+TEST(trace_scenario_fails_when_an_exchange_never_replays) {
+    const std::string dir = tmp_dir("trace_unused");
+    write_file(dir + "/unused.json", R"({
+        "schema": 1,
+        "dialect": "openai",
+        "exchanges": [
+            {"match": {"path": "/v1/chat/completions"},
+             "response": {"body": "{\"id\":\"1\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"fake\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":1,\"total_tokens\":11}}"}},
+            {"match": {"path": "/v1/chat/completions"},
+             "response": {"body": "{\"choices\":[]}"}}
+        ]
+    })");
+
+    Scenario scenario;
+    scenario.name = "trace-unused";
+    scenario.suite = "policy";
+    scenario.prompt = "Reply done.";
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    opts.trace_path = dir + "/unused.json";
+    opts.trace_mode = "shape";
+    bench::RunMeta meta;
+    std::string err;
+    const bench::ScenarioReport report = bench::run_one_scenario(scenario, opts, meta, err);
+    ASSERT(err.empty());
+    ASSERT(!report.kpi.success);
+    bool found = false;
+    for (const std::string& failure : report.failures)
+        if (failure.find("unused") != std::string::npos &&
+            failure.find("unused.json") != std::string::npos)
+            found = true;
+    ASSERT(found);
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {
