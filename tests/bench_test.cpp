@@ -4046,6 +4046,142 @@ TEST(binary_driver_runs_a_multi_turn_scenario) {
     ASSERT(results[0].ok);
 }
 
+TEST(binary_driver_checks_the_final_answer) {
+    Scenario scenario = read_scenario("e2e-final-answer");
+    scenario.checks.must_contain = {"done"};
+    const std::string cli =
+        fake_cli(tmp_dir("final_answer"),
+                 write_telemetry_script(
+                     R"({"final_text":"wrong","tool_calls":[{"name":"read","status":"ok"}]})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("final answer") != std::string::npos);
+}
+
+TEST(binary_driver_checks_the_workspace) {
+    Scenario scenario = read_scenario("e2e-workspace");
+    scenario.expected_workspace = {{"files", {{"answer.txt", "done"}}}};
+    const std::string cli =
+        fake_cli(tmp_dir("workspace_check"),
+                 write_telemetry_script(
+                     R"({"final_text":"done","tool_calls":[{"name":"read","status":"ok"}]})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("workspace: missing file answer.txt") != std::string::npos);
+}
+
+TEST(binary_driver_checks_the_exit_code) {
+    Scenario scenario = read_scenario("e2e-exit-code");
+    const std::string cli =
+        fake_cli(tmp_dir("exit_code"),
+                 write_telemetry_script(
+                     R"({"final_text":"done","tool_calls":[{"name":"read","status":"ok"}]})") +
+                     "exit 3\n");
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("exit code") != std::string::npos);
+    ASSERT(results[0].error.find('3') != std::string::npos);
+}
+
+TEST(binary_driver_checks_the_usage_floor) {
+    Scenario scenario = read_scenario("e2e-usage");
+    scenario.min_prompt_tokens = 10;
+    const std::string cli =
+        fake_cli(tmp_dir("usage_floor"),
+                 write_telemetry_script(
+                     R"({"final_text":"done","tool_calls":[{"name":"read","status":"ok"}],)"
+                     R"("usage":{"prompt_tokens":1,"completion_tokens":1}})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("prompt tokens") != std::string::npos);
+}
+
+TEST(binary_driver_checks_tool_statuses) {
+    Scenario scenario = read_scenario("e2e-tool-status");
+    const std::string cli =
+        fake_cli(tmp_dir("tool_status"),
+                 write_telemetry_script(
+                     R"({"final_text":"done","tool_calls":[{"name":"read","status":"error"}]})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("tool status") != std::string::npos);
+}
+
+TEST(binary_driver_keeps_failure_artifacts) {
+    Scenario scenario = read_scenario("e2e-artifacts");
+    scenario.checks.must_contain = {"done"};
+    const std::string cli =
+        fake_cli(tmp_dir("artifacts"),
+                 write_telemetry_script(
+                     R"({"final_text":"wrong","tool_calls":[{"name":"read","status":"ok"}]})"));
+    bench::BinaryE2eOptions options;
+    options.keep_failures = true;
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, options, err);
+    ASSERT(!results[0].ok);
+    ASSERT(!results[0].workspace.empty());
+    ASSERT(fs::exists(results[0].workspace + "/telemetry.json"));
+    ASSERT(fs::exists(results[0].workspace + "/requests.json"));
+    ASSERT(fs::exists(results[0].workspace + "/out.txt"));
+    std::error_code ec;
+    fs::remove_all(results[0].workspace, ec);
+}
+
+TEST(request_log_contract_checks) {
+    auto request = [](const char* system, const char* tool) {
+        bench::EndpointRequest request;
+        request.path = "/v1/chat/completions";
+        request.json = agent::json::parse(
+            std::string(R"({"messages":[{"role":"system","content":")") + system +
+            R"("},{"role":"user","content":"go"}],"tools":[{"type":"function","function":{"name":")" +
+            tool + R"("}}]})");
+        request.messages = bench::endpoint_messages(request.json);
+        request.tools = request.json["tools"];
+        return request;
+    };
+
+    const std::vector<bench::EndpointRequest> stable = {request("stable", "read"),
+                                                        request("stable", "read")};
+    std::string err;
+    ASSERT(bench::check_request_log(
+        agent::json::parse(R"({"system_prefix_stable": true})", nullptr, false), stable, err));
+    ASSERT(err.empty());
+
+    const std::vector<bench::EndpointRequest> drift = {request("one", "read"),
+                                                       request("two", "read")};
+    ASSERT(!bench::check_request_log(
+        agent::json::parse(R"({"system_prefix_stable": true})", nullptr, false), drift, err));
+    ASSERT(err.find("system prefix") != std::string::npos);
+    ASSERT(err.find("request 2") != std::string::npos);
+
+    const std::vector<bench::EndpointRequest> forbidden = {request("stable", "read")};
+    ASSERT(!bench::check_request_log(
+        agent::json::parse(R"({"tools_exclude": ["read"]})", nullptr, false), forbidden, err));
+    ASSERT(err.find("request 1") != std::string::npos);
+    ASSERT(err.find("read") != std::string::npos);
+
+    bench::EndpointRequest late = request("stable", "read");
+    late.json["messages"].push_back({{"role", "system"}, {"content", "late"}});
+    late.messages = bench::endpoint_messages(late.json);
+    const std::vector<bench::EndpointRequest> late_system = {late};
+    ASSERT(!bench::check_request_log(
+        agent::json::parse(R"({"no_system_after_first": true})", nullptr, false), late_system,
+        err));
+    ASSERT(err.find("system message") != std::string::npos);
+}
+
 // ── Closed-loop policy ──
 
 static agent::json policy_json(const char* text) {
@@ -5128,6 +5264,34 @@ TEST(trace_scenario_fails_when_an_exchange_never_replays) {
             failure.find("unused.json") != std::string::npos)
             found = true;
     ASSERT(found);
+}
+
+TEST(scenario_loader_rejects_bad_e2e_expectations) {
+    const std::string dir = tmp_dir("e2e_expectations");
+    const std::pair<const char*, const char*> cases[] = {
+        {"exit_string.json", R"("expected_exit_code": "zero")"},
+        {"exit_negative.json", R"("expected_exit_code": -1)"},
+        {"exit_high.json", R"("expected_exit_code": 256)"},
+        {"prompt_negative.json", R"("min_prompt_tokens": -1)"},
+        {"completion_negative.json", R"("min_completion_tokens": -1)"},
+    };
+    for (const auto& [name, field] : cases) {
+        const std::string path = dir + "/" + name;
+        write_file(path, std::string(R"({"name": "e2e", "suite": "e2e", "prompt": "go", )") +
+                             field + "}");
+        std::string err;
+        ASSERT(!bench::load_scenario(path, err));
+        ASSERT(!err.empty());
+    }
+    write_file(dir + "/ok.json",
+               R"({"name": "e2e-ok", "suite": "e2e", "prompt": "go",
+                   "expected_exit_code": 0, "min_prompt_tokens": 10,
+                   "min_completion_tokens": 1})");
+    std::string err;
+    const auto scenario = bench::load_scenario(dir + "/ok.json", err);
+    ASSERT(scenario);
+    ASSERT_EQ(scenario->min_prompt_tokens, 10);
+    ASSERT_EQ(scenario->min_completion_tokens, 1);
 }
 
 TEST(scenario_loader_rejects_an_invalid_policy) {

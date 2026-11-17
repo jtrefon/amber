@@ -1,0 +1,84 @@
+{
+  "name": "e2e-wrong-path-recovery",
+  "suite": "e2e",
+  "description": "a missing path errors, the next read succeeds, the run finishes",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      "notes.txt": "keep me\n"
+    }
+  },
+  "prompt": "Read missing.txt, then read notes.txt and reply done.",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*missing.txt"
+      }
+    },
+    {
+      "tool": "read",
+      "args": {
+        "path": "*notes.txt"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 2,
+  "expected_steps": 3,
+  "min_prompt_tokens": 300,
+  "min_completion_tokens": 10,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\": \"missing.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\": \"notes.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "expected_workspace": {
+    "files": {
+      "notes.txt": {
+        "exact": "keep me\n"
+      }
+    }
+  }
+}
