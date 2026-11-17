@@ -145,7 +145,8 @@ TEST(compression_controller_runs_the_pipeline_on_an_immutable_snapshot) {
                    plain_message("user", "COMPRESSED TAIL")};
     raw->response.segments = {{0, 1, Classification::core, ""},
                               {1, 2, Classification::prune, ""},
-                              {2, 3, Classification::context, ""}};
+                              {2, 3, Classification::context, ""},
+                              {3, 4, static_cast<Classification>(99), ""}};
     CompressionController controller(std::move(strategy), nullptr);
 
     Config cfg;
@@ -247,6 +248,12 @@ TEST(compression_controller_needs_both_halves_to_auto_compress) {
     CompressionController gate_only(nullptr, std::make_unique<ScriptedGate>());
     ASSERT_FALSE(gate_only.auto_enabled());
     ASSERT_FALSE(gate_only.should_compress(ctx, cfg));
+
+    // Without a gate the gate-facing accessors are silent, not crashes.
+    const auto decision = manual_only.last_decision();
+    ASSERT_EQ(decision.tokens, 0.0);
+    manual_only.set_threshold(0.5);
+    manual_only.set_min_turns(3);
 }
 
 // The compressed-context message is the archive the pass wrote; it is reported

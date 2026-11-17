@@ -24,11 +24,6 @@ class CompressionController {
 public:
     CompressionController(std::unique_ptr<CompressionStrategy> strategy,
                           std::unique_ptr<CompressionGate> gate);
-    ~CompressionController();
-    CompressionController(CompressionController&&) noexcept;
-    CompressionController& operator=(CompressionController&&) noexcept;
-    CompressionController(const CompressionController&) = delete;
-    CompressionController& operator=(const CompressionController&) = delete;
 
     // The numbers the gate decided on, for the host's debug log and the typed
     // CompressionEvent. Zero when no gate is attached.

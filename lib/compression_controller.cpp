@@ -53,10 +53,6 @@ CompressionController::CompressionController(std::unique_ptr<CompressionStrategy
                                              std::unique_ptr<CompressionGate> gate)
     : strategy_(std::move(strategy)), gate_(std::move(gate)) {}
 
-CompressionController::~CompressionController() = default;
-CompressionController::CompressionController(CompressionController&&) noexcept = default;
-CompressionController& CompressionController::operator=(CompressionController&&) noexcept = default;
-
 bool CompressionController::auto_enabled() const noexcept {
     return strategy_ != nullptr && gate_ != nullptr;
 }
