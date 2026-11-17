@@ -241,6 +241,8 @@ BENCH_OBJS = $(BUILD_DIR)/bench/scenario.o \
              $(BUILD_DIR)/bench/resources.o \
              $(BUILD_DIR)/bench/template.o \
              $(BUILD_DIR)/bench/report.o \
+             $(BUILD_DIR)/bench/workspace_check.o \
+             $(BUILD_DIR)/bench/client_filters.o \
              $(BUILD_DIR)/bench/fake.o \
              $(BUILD_DIR)/bench/policy.o \
              $(BUILD_DIR)/bench/policy_client.o \
