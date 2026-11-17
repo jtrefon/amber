@@ -383,34 +383,32 @@ void apply_approval(const Config& cfg, Call& c, const AgentHooks& hooks,
 // Parse one requested call, announce it, let interceptors see it, resolve the
 // tool, then run the approval gate. The result carries either `approved` or a
 // `denied_reason`.
-Call prepare_call(const json& raw, const Config& cfg, ToolRegistry& registry,
-                  const AgentHooks& hooks, ConversationLog& log,
-                  std::set<std::string>& session_approved, PolicyStore* policy, EventBus* events,
-                  Context* context) {
+Call prepare_call(const json& raw, const DispatchRequest& request) {
     Call c;
     parse_tool_call(raw, c.id, c.fn, c.args, c.args_ok);
-    if (hooks.on_tool_call)
-        hooks.on_tool_call(c.fn, c.args);
-    if (hooks.on_debug)
-        hooks.on_debug("tool_call: " + c.fn);
-    log.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
+    if (request.hooks.on_tool_call)
+        request.hooks.on_tool_call(c.fn, c.args);
+    if (request.hooks.on_debug)
+        request.hooks.on_debug("tool_call: " + c.fn);
+    request.log.event("tool_call", {{"name", c.fn}, {"id", c.id}, {"args", c.args}});
 
-    run_interceptors(events, log, c);
+    run_interceptors(request.events, request.log, c);
 
-    c.tool = registry.find(c.fn); // shared lease: survives unregister mid-dispatch
+    c.tool = request.registry.find(c.fn); // shared lease: survives unregister mid-dispatch
     if (c.intercepted) {
         // Denial already recorded; the call still produces a result below.
     } else if (!c.tool) {
         c.denied_reason = "unknown tool: " + c.fn;
-    } else if (cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
+    } else if (request.cfg.mode == agent::AgentMode::Read && !c.tool->is_read_only()) {
         c.denied_reason = "tool \"" + c.fn + "\" is not available in read mode";
-        log_denied(log, c, "read_mode");
+        log_denied(request.log, c, "read_mode");
     } else if (c.args_ok) {
-        std::string dup = duplicate_reason(cfg, c, context);
+        std::string dup = duplicate_reason(request.cfg, c, &request.context);
         if (!dup.empty()) {
             c.denied_reason = dup;
         } else {
-            apply_approval(cfg, c, hooks, session_approved, policy, log);
+            apply_approval(request.cfg, c, request.hooks, request.session_approved, request.policy,
+                           request.log);
         }
     }
     return c;
@@ -592,15 +590,11 @@ bool record_completions(const std::vector<Call>& todo,
 // Prepare every call (parse, interceptors, approval), run the approved ones
 // concurrently, and record the results. Non-approved calls produce a result
 // immediately — there is nothing to execute.
-bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& registry,
-                         const AgentHooks& hooks, ConversationLog& log,
-                         std::set<std::string>& session_approved, PolicyStore* policy,
-                         EventBus* events, Context* context) {
+bool dispatch_tool_calls(const DispatchRequest& request) {
     std::vector<Call> todo;
-    todo.reserve(calls.size());
-    for (const auto& call : calls)
-        todo.push_back(prepare_call(call, cfg, registry, hooks, log, session_approved, policy,
-                                    events, context));
+    todo.reserve(request.calls.size());
+    for (const auto& call : request.calls)
+        todo.push_back(prepare_call(call, request));
 
     const bool caller_in_subagent = in_subagent();
     const RunScopeChain active_scope = capture_run_scope();
@@ -609,7 +603,8 @@ bool dispatch_tool_calls(const json& calls, const Config& cfg, ToolRegistry& reg
         launch_approved(todo, caller_in_subagent, active_scope, completed);
 
     // Non-approved calls: report the denial (or the malformed-arguments failure).
-    const RecordDeps deps{hooks, log, events, context, tool_result_budget(cfg)};
+    const RecordDeps deps{request.hooks, request.log, request.events, &request.context,
+                          tool_result_budget(request.cfg)};
     bool all_ok = record_denials(todo, deps);
     if (!record_completions(todo, futures, completed, deps))
         all_ok = false;

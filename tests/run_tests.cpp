@@ -5029,7 +5029,8 @@ agent::ToolResult denied_write_skill_result(const agent::Config& cfg, agent::Too
         {"arguments", {{"name", "demo"}, {"description", "a demo"}, {"body", "steps"}}}};
     calls.push_back(tc);
     agent::Context ctx;
-    agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, policy, nullptr, &ctx);
+    agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, policy, nullptr, ctx});
     return captured;
 }
 
@@ -5897,8 +5898,8 @@ TEST(dispatch_approves_and_runs_valid_tool_call) {
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     ASSERT(ok);
     ASSERT(tool_results == 1);
     ASSERT(captured.ok);
@@ -5936,9 +5937,12 @@ TEST(dispatch_request_object_defaults_optional_sinks) {
                      {"type", "function"},
                      {"function", {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}}}});
 
-    agent::DispatchRequest request{calls, cfg, reg, hooks, log, approved};
+    agent::Context dctx;
+    agent::DispatchRequest request{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx};
     ASSERT(agent::dispatch_tool_calls(request));
     ASSERT_EQ(tool_results, 1);
+    ASSERT_EQ(dctx.get_all().size(), 1u);
+    ASSERT_EQ(dctx.get_all().front().name, std::string("bash"));
 }
 
 namespace {
@@ -5981,8 +5985,8 @@ TEST(dispatch_fast_calls_do_not_pay_a_poll_quantum) {
                          {"function", {{"name", "fast"}, {"arguments", agent::json::object()}}}});
         agent::Context ctx;
         const auto started = std::chrono::steady_clock::now();
-        ASSERT(agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                          &ctx));
+        ASSERT(agent::dispatch_tool_calls(
+            agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, ctx}));
         const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - started);
         if (elapsed.count() < fastest)
@@ -6007,8 +6011,8 @@ TEST(dispatch_projects_bulky_bash_output_at_the_source) {
                      {"type", "function"},
                      {"function", {{"name", "bash"}, {"arguments", {{"command", "seq 1 4000"}}}}}});
     agent::Context dctx;
-    ASSERT(
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx));
+    ASSERT(agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx}));
     const auto msgs = dctx.get_all();
     const agent::Message& tool = msgs.back();
     ASSERT_EQ(tool.role, "tool");
@@ -6061,8 +6065,8 @@ TEST(dispatch_rejects_duplicate_tool_call) {
     tc2["function"] = {{"name", "bash"}, {"arguments", {{"command", "echo hello"}}}};
     calls.push_back(tc2);
 
-    bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     // Should be rejected as duplicate
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
@@ -6123,7 +6127,8 @@ TEST(dispatch_duplicate_detection_rules) {
                                    const agent::json&) {
             duplicate = !r.ok && r.error.find("already ran") != std::string::npos;
         };
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+        agent::dispatch_tool_calls(
+            agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
         return duplicate;
     };
 
@@ -6165,8 +6170,8 @@ TEST(dispatch_auto_approves_in_write_mode) {
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     ASSERT(ok);
     // Write mode consults the approval callback for gated tools
     ASSERT(approval_called);
@@ -6197,8 +6202,8 @@ TEST(dispatch_missing_tool_reports_unknown) {
     calls.push_back(tc);
 
     agent::Context dctx;
-    bool ok =
-        agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr, &dctx);
+    bool ok = agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, dctx});
     ASSERT_FALSE(ok);
     ASSERT(tool_results == 1);
     ASSERT_FALSE(captured.ok);
@@ -11198,8 +11203,8 @@ bool run_probe_dispatch(agent::ToolRegistry& reg, agent::Config& cfg,
     tc["type"] = "function";
     tc["function"] = {{"name", "probe"}, {"arguments", {{"skill", skill}}}};
     agent::json calls = agent::json::array({tc});
-    return agent::dispatch_tool_calls(calls, cfg, reg, hooks, log, approved, nullptr, nullptr,
-                                      &ctx);
+    return agent::dispatch_tool_calls(
+        agent::DispatchRequest{calls, cfg, reg, hooks, log, approved, nullptr, nullptr, ctx});
 }
 
 } // namespace
