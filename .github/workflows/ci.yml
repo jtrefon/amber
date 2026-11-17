@@ -735,6 +735,11 @@ jobs:
       - name: Test
         run: make test
 
+      - name: TUI agent journeys
+        # The real binary, a pty and a loopback provider: prompt -> tool -> edit
+        # -> answer. Distinct from the pty regression suite, which pins the UI.
+        run: make tui-agent-e2e
+
   # ---------------------------------------------------------------------------
   # macOS build-and-test — verifies the portable link lines (no --start-group)
   # and that the core compiles + tests pass on Apple's toolchain.
@@ -787,6 +792,11 @@ jobs:
         # coverage at 0% instead of turning the run red. Reproduce a suspected
         # flake locally with `./tui_pty_test ./amber --repeat 10`.
         run: ./tui_pty_test ./amber --repeat 2
+
+      - name: TUI agent journeys, repeated
+        # Fresh processes: the journeys own their roots, but a plugin runtime or
+        # model-cache static surviving in-process would hide a state leak.
+        run: make tui-agent-e2e REPEAT=2
 
   # ---------------------------------------------------------------------------
   # CD — build release artifacts on every push to main (not just tags), so the
