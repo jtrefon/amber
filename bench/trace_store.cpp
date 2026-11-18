@@ -11,7 +11,8 @@ namespace bench {
 namespace {
 
 constexpr const char* kDialects[] = {"openai", "anthropic", "gemini"};
-constexpr const char* kRootKeys[] = {"schema", "provider", "dialect", "description", "exchanges"};
+constexpr const char* kRootKeys[] = {"schema", "provider", "dialect",   "description",
+                                     "model",  "source",   "redaction", "exchanges"};
 constexpr const char* kExchangeKeys[] = {"id", "match", "request", "response"};
 constexpr const char* kMatchKeys[] = {"path", "stream", "roles", "tools", "system"};
 constexpr const char* kResponseKeys[] = {"status", "content_type", "body"};
@@ -357,13 +358,8 @@ bool parse_trace_mode(const std::string& text, TraceMode& mode) noexcept {
     return false;
 }
 
-bool parse_trace_header(const agent::json& document, const std::string& source, Trace& trace,
-                        std::string& err) {
-    std::string detail;
-    if (!has_only_keys(document, kRootKeys, detail)) {
-        err = source + ": " + detail;
-        return false;
-    }
+bool parse_trace_identity(const agent::json& document, const std::string& source, Trace& trace,
+                          std::string& err) {
     if (!document.contains("schema") || !document["schema"].is_number_integer() ||
         document["schema"].get<int>() != 1) {
         err = source + ": 'schema' must be the integer 1";
@@ -384,7 +380,43 @@ bool parse_trace_header(const agent::json& document, const std::string& source, 
         err = source + ": 'description' must be a string";
         return false;
     }
+    if (document.contains("model") && !document["model"].is_string()) {
+        err = source + ": 'model' must be a string";
+        return false;
+    }
+    trace.model = document.value("model", std::string());
     return true;
+}
+
+bool parse_trace_provenance(const agent::json& document, const std::string& source, Trace& trace,
+                            std::string& err) {
+    if (!document.contains("source") || !document["source"].is_string() ||
+        document["source"].get<std::string>().empty()) {
+        err = source + ": 'source' must be a non-empty string";
+        return false;
+    }
+    trace.source = document["source"].get<std::string>();
+    if (!document.contains("redaction") || !document["redaction"].is_string()) {
+        err = source + ": 'redaction' must be 'clean' or 'redacted'";
+        return false;
+    }
+    trace.redaction = document["redaction"].get<std::string>();
+    if (trace.redaction != "clean" && trace.redaction != "redacted") {
+        err = source + ": 'redaction' must be 'clean' or 'redacted'";
+        return false;
+    }
+    return true;
+}
+
+bool parse_trace_header(const agent::json& document, const std::string& source, Trace& trace,
+                        std::string& err) {
+    std::string detail;
+    if (!has_only_keys(document, kRootKeys, detail)) {
+        err = source + ": " + detail;
+        return false;
+    }
+    return parse_trace_identity(document, source, trace, err) &&
+           parse_trace_provenance(document, source, trace, err);
 }
 
 bool parse_exchanges(const agent::json& document, const std::string& source, Trace& trace,

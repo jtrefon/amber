@@ -1,5 +1,7 @@
 #include "bench/scripted_endpoint.h"
 
+#include "bench/http_wire.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/select.h>
@@ -17,110 +19,7 @@ namespace bench {
 
 namespace {
 
-std::string lower(std::string value) {
-    for (char& ch : value)
-        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
-    return value;
-}
-
-std::string trim(const std::string& value) {
-    const std::size_t first = value.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos)
-        return {};
-    const std::size_t last = value.find_last_not_of(" \t\r\n");
-    return value.substr(first, last - first + 1);
-}
-
-std::string read_request(int fd) {
-    std::string request;
-    char buffer[4096];
-    while (request.find("\r\n\r\n") == std::string::npos) {
-        const ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
-        if (n <= 0)
-            return {};
-        request.append(buffer, static_cast<std::size_t>(n));
-    }
-    const std::size_t header_end = request.find("\r\n\r\n");
-    std::size_t content_length = 0;
-    const std::string headers = lower(request.substr(0, header_end));
-    const std::size_t cl = headers.find("content-length:");
-    if (cl != std::string::npos) {
-        const std::size_t start = cl + std::strlen("content-length:");
-        content_length =
-            static_cast<std::size_t>(std::strtoul(headers.c_str() + start, nullptr, 10));
-    }
-    while (request.size() < header_end + 4 + content_length) {
-        const ssize_t n = recv(fd, buffer, sizeof(buffer), 0);
-        if (n <= 0)
-            break;
-        request.append(buffer, static_cast<std::size_t>(n));
-    }
-    return request;
-}
-
-std::string request_method(const std::string& request) {
-    const std::size_t end = request.find(' ');
-    return end == std::string::npos ? std::string() : request.substr(0, end);
-}
-
-std::string request_target(const std::string& request) {
-    const std::size_t first = request.find(' ');
-    if (first == std::string::npos)
-        return "/";
-    const std::size_t second = request.find(' ', first + 1);
-    if (second == std::string::npos)
-        return "/";
-    return request.substr(first + 1, second - first - 1);
-}
-
-std::string request_path(const std::string& target) {
-    const std::size_t query = target.find('?');
-    return query == std::string::npos ? target : target.substr(0, query);
-}
-
-std::string request_body(const std::string& request) {
-    const std::size_t header_end = request.find("\r\n\r\n");
-    return header_end == std::string::npos ? std::string() : request.substr(header_end + 4);
-}
-
-std::map<std::string, std::string> request_headers(const std::string& request) {
-    std::map<std::string, std::string> out;
-    const std::size_t header_end = request.find("\r\n\r\n");
-    const std::string block = request.substr(0, header_end);
-    std::size_t start = block.find("\r\n");
-    if (start == std::string::npos)
-        return out;
-    start += 2;
-    while (start < block.size()) {
-        const std::size_t end = block.find("\r\n", start);
-        const std::string line =
-            block.substr(start, end == std::string::npos ? std::string::npos : end - start);
-        const std::size_t colon = line.find(':');
-        if (colon != std::string::npos)
-            out[lower(trim(line.substr(0, colon)))] = trim(line.substr(colon + 1));
-        if (end == std::string::npos)
-            break;
-        start = end + 2;
-    }
-    return out;
-}
-
-std::string status_text(int status) {
-    switch (status) {
-    case 200:
-        return "200 OK";
-    case 400:
-        return "400 Bad Request";
-    case 404:
-        return "404 Not Found";
-    case 429:
-        return "429 Too Many Requests";
-    case 500:
-        return "500 Internal Server Error";
-    default:
-        return std::to_string(status) + " Error";
-    }
-}
+using namespace http_wire;
 
 std::string error_body(const std::string& message) {
     return agent::json{{"error", {{"message", message}}}}.dump();

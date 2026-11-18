@@ -24,6 +24,7 @@
 #include "bench/scenario.h"
 #include "bench/shape_replay.h"
 #include "bench/trace_store.h"
+#include "bench/trace_capture.h"
 #include "bench/workspace_check.h"
 #include "bench/state_reaper.h"
 #include "bench/template.h"
@@ -35,10 +36,12 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <netinet/in.h>
+#include <optional>
 #include <sstream>
 #include <sys/socket.h>
 #include <system_error>
@@ -5058,25 +5061,112 @@ TEST(policy_zoo_rejects_unknown_members_and_bad_expectations) {
 // ── Provider trace replay ──
 
 TEST(trace_loader_accepts_the_committed_traces) {
-    for (const char* path : {"bench/traces/openai-read.json", "bench/traces/openai-stream.json",
-                             "bench/traces/anthropic-cache.json"}) {
+    std::size_t count = 0;
+    for (const auto& entry : fs::directory_iterator("bench/traces")) {
+        if (entry.path().extension() != ".json")
+            continue;
+        const std::string path = entry.path().string();
         std::string err;
         const auto trace = bench::load_trace(path, err);
         ASSERT(trace);
         ASSERT(err.empty());
         ASSERT_EQ(trace->schema, 1);
         ASSERT(!trace->exchanges.empty());
-        ASSERT_EQ(trace->exchanges[0].match.path, trace->dialect == "anthropic"
-                                                      ? std::string("/v1/messages")
-                                                      : std::string("/v1/chat/completions"));
+        ASSERT(!trace->source.empty());
+        ASSERT(trace->redaction == "clean" || trace->redaction == "redacted");
+        ++count;
     }
-    std::string err;
-    const auto trace = bench::load_trace("bench/traces/openai-read.json", err);
-    ASSERT(trace);
-    ASSERT_EQ(trace->provider, std::string("openai"));
-    ASSERT_EQ(trace->exchanges.size(), 2u);
-    ASSERT(trace->exchanges[0].response.body.find("\"tool_calls\"") != std::string::npos);
-    ASSERT(trace->exchanges[1].response.body.find("done") != std::string::npos);
+    ASSERT(count >= 20u);
+}
+
+// Every committed fixture is replayed through the responder, not just loaded:
+// a body the loader accepts but the wire layer cannot serve is still a broken
+// fixture. Requests are synthesized per dialect from the match spec, so the
+// corpus does not need twenty hand-written scenarios.
+agent::json synthesize_trace_request(const bench::Trace& trace,
+                                     const bench::TraceExchange& exchange) {
+    const bool anthropic = trace.dialect == "anthropic";
+    const bool gemini = trace.dialect == "gemini";
+    std::vector<std::string> roles = exchange.match.roles;
+    agent::json body = agent::json::object();
+    if (!roles.empty() && roles.front() == "system" && (anthropic || gemini)) {
+        if (anthropic) {
+            body["system"] = exchange.match.system;
+        } else {
+            agent::json part = agent::json::object();
+            part["text"] = exchange.match.system;
+            agent::json parts = agent::json::array();
+            parts.push_back(std::move(part));
+            body["systemInstruction"] = agent::json{{"parts", std::move(parts)}};
+        }
+        roles.erase(roles.begin());
+    }
+    agent::json turns = agent::json::array();
+    for (const std::string& role : roles) {
+        agent::json turn = agent::json::object();
+        if (gemini) {
+            agent::json part = agent::json::object();
+            part["text"] = "go";
+            agent::json parts = agent::json::array();
+            parts.push_back(std::move(part));
+            turn["role"] = role;
+            turn["parts"] = std::move(parts);
+        } else {
+            turn["role"] = role;
+            turn["content"] = role == "system" ? exchange.match.system : "go";
+        }
+        turns.push_back(std::move(turn));
+    }
+    body[gemini ? "contents" : "messages"] = std::move(turns);
+    if (!exchange.match.tools.empty()) {
+        agent::json tools = agent::json::array();
+        for (const std::string& name : exchange.match.tools) {
+            agent::json tool = agent::json::object();
+            if (anthropic) {
+                tool["name"] = name;
+            } else if (gemini) {
+                agent::json declaration = agent::json{{"name", name}};
+                agent::json declarations = agent::json::array();
+                declarations.push_back(std::move(declaration));
+                tool["functionDeclarations"] = std::move(declarations);
+            } else {
+                tool["type"] = "function";
+                tool["function"] = agent::json{{"name", name}};
+            }
+            tools.push_back(std::move(tool));
+        }
+        body["tools"] = std::move(tools);
+    }
+    return body;
+}
+
+TEST(trace_corpus_replays_every_fixture) {
+    std::size_t exchanges = 0;
+    for (const auto& entry : fs::directory_iterator("bench/traces")) {
+        if (entry.path().extension() != ".json")
+            continue;
+        const std::string path = entry.path().string();
+        std::string err;
+        const auto trace = bench::load_trace(path, err);
+        ASSERT(trace);
+        bench::TraceResponder responder(*trace, bench::TraceMode::Shape, path);
+        for (const bench::TraceExchange& exchange : trace->exchanges) {
+            bench::EndpointRequest request;
+            request.path = exchange.match.path;
+            request.stream = exchange.match.stream;
+            request.json = synthesize_trace_request(*trace, exchange);
+            request.messages = bench::endpoint_messages(request.json);
+            const bench::EndpointReply reply = responder.respond(request);
+            ASSERT_EQ(reply.status, exchange.response.status);
+            ASSERT_EQ(reply.content_type, exchange.response.content_type);
+            ASSERT_EQ(reply.body, exchange.response.body);
+            ASSERT(!responder.failed());
+            ++exchanges;
+        }
+        ASSERT(responder.finish(err));
+        ASSERT(err.empty());
+    }
+    ASSERT(exchanges >= 20u);
 }
 
 TEST(trace_loader_rejects_malformed_traces) {
@@ -5085,49 +5175,70 @@ TEST(trace_loader_rejects_malformed_traces) {
         {"empty.json", R"({})"},
         {"schema_string.json", R"({"schema": "1"})"},
         {"schema_version.json", R"({"schema": 2, "dialect": "openai"})"},
-        {"unknown_dialect.json", R"({"schema": 1, "dialect": "carrier-pigeon", "exchanges": []})"},
-        {"no_exchanges.json", R"({"schema": 1, "dialect": "openai", "exchanges": []})"},
-        {"exchanges_object.json", R"({"schema": 1, "dialect": "openai", "exchanges": {}})"},
+        {"unknown_dialect.json",
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "carrier-pigeon", "exchanges": []})"},
+        {"no_exchanges.json",
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": []})"},
+        {"exchanges_object.json",
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": {}})"},
         {"missing_response.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"match": {}}]})"},
         {"missing_body.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {}}]})"},
         {"body_not_string.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": 7}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {"body": 7}}]})"},
         {"empty_body.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": ""}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {"body": ""}}]})"},
         {"bad_status.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{}", "status": 42}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {"body": "{}", "status": 42}}]})"},
         {"unknown_match.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"mood": "happy"}, "response": {"body": "{}"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"match": {"mood": "happy"}, "response": {"body": "{}"}}]})"},
         {"bad_roles.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"roles": [7]}, "response": {"body": "{}"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"match": {"roles": [7]}, "response": {"body": "{}"}}]})"},
         {"bad_tools.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"tools": 7}, "response": {"body": "{}"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"match": {"tools": 7}, "response": {"body": "{}"}}]})"},
         {"bad_stream.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"match": {"stream": "yes"}, "response": {"body": "{}"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"match": {"stream": "yes"}, "response": {"body": "{}"}}]})"},
         {"bad_request.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"request": 7, "response": {"body": "{}"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"request": 7, "response": {"body": "{}"}}]})"},
         {"duplicate_id.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [
               {"id": "same", "response": {"body": "{}"}},
               {"id": "same", "response": {"body": "{}"}}]})"},
         {"invalid_json_body.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{bad"}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {"body": "{bad"}}]})"},
         {"unknown_response.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response": {"body": "{}", "mood": 1}}]})"},
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response": {"body": "{}", "mood": 1}}]})"},
         {"sse_no_data.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response":
               {"content_type": "text/event-stream", "body": "event: ping\n\n"}}]})"},
         {"sse_unterminated.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response":
               {"content_type": "text/event-stream", "body": "data: {}\n"}}]})"},
         {"sse_bad_field.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response":
               {"content_type": "text/event-stream", "body": "nonsense\n\ndata: {}\n\n"}}]})"},
         {"sse_bad_json.json",
-         R"({"schema": 1, "dialect": "openai", "exchanges": [{"response":
+         R"({"schema": 1, "source": "test", "redaction": "clean", "dialect": "openai", "exchanges": [{"response":
               {"content_type": "text/event-stream", "body": "data: {bad\n\n"}}]})"},
+        {"missing_source.json",
+         R"({"schema": 1, "dialect": "openai", "redaction": "clean",
+              "exchanges": [{"response": {"body": "{}"}}]})"},
+        {"empty_source.json",
+         R"({"schema": 1, "dialect": "openai", "source": "", "redaction": "clean",
+              "exchanges": [{"response": {"body": "{}"}}]})"},
+        {"source_not_string.json",
+         R"({"schema": 1, "dialect": "openai", "source": 7, "redaction": "clean",
+              "exchanges": [{"response": {"body": "{}"}}]})"},
+        {"missing_redaction.json",
+         R"({"schema": 1, "dialect": "openai", "source": "test",
+              "exchanges": [{"response": {"body": "{}"}}]})"},
+        {"bad_redaction.json",
+         R"({"schema": 1, "dialect": "openai", "source": "test", "redaction": "maybe",
+              "exchanges": [{"response": {"body": "{}"}}]})"},
+        {"redaction_not_string.json",
+         R"({"schema": 1, "dialect": "openai", "source": "test", "redaction": true,
+              "exchanges": [{"response": {"body": "{}"}}]})"},
     };
     for (const auto& [name, body] : cases) {
         const std::string path = dir + "/" + name;
@@ -5396,6 +5507,8 @@ TEST(trace_scenario_fails_when_an_exchange_never_replays) {
     const std::string dir = tmp_dir("trace_unused");
     write_file(dir + "/unused.json", R"({
         "schema": 1,
+        "source": "test",
+        "redaction": "clean",
         "dialect": "openai",
         "exchanges": [
             {"match": {"path": "/v1/chat/completions"},
@@ -5425,6 +5538,288 @@ TEST(trace_scenario_fails_when_an_exchange_never_replays) {
             failure.find("unused.json") != std::string::npos)
             found = true;
     ASSERT(found);
+}
+
+// ── Provider trace capture ──
+
+TEST(trace_replays_a_gemini_fixture_through_the_real_client) {
+    Scenario scenario;
+    scenario.name = "trace-gemini";
+    scenario.suite = "policy";
+    scenario.prompt = "Reply done.";
+    scenario.checks.must_contain = {"done"};
+
+    bench::RunOptions opts;
+    opts.trace_path = "bench/traces/gemini-usage-metadata.json";
+    opts.trace_mode = "shape";
+    bench::RunMeta meta;
+    std::string err;
+    const bench::ScenarioReport report = bench::run_one_scenario(scenario, opts, meta, err);
+    ASSERT(err.empty());
+    ASSERT(report.kpi.success);
+    ASSERT_EQ(report.final_text, std::string("done"));
+}
+
+// Restore the process environment when a test leaves scope, including on an
+// ASSERT return: a live-run test must not leak its fake endpoint into the rest
+// of the suite.
+struct ScopedEnvironment {
+    std::vector<std::pair<std::string, std::optional<std::string>>> saved;
+
+    explicit ScopedEnvironment(std::initializer_list<const char*> names) {
+        for (const char* name : names) {
+            const char* value = std::getenv(name);
+            saved.emplace_back(name, value ? std::optional<std::string>(value) : std::nullopt);
+        }
+    }
+    ~ScopedEnvironment() {
+        for (const auto& [name, value] : saved) {
+            if (value)
+                setenv(name.c_str(), value->c_str(), 1);
+            else
+                unsetenv(name.c_str());
+        }
+    }
+    ScopedEnvironment(const ScopedEnvironment&) = delete;
+    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
+};
+
+TEST(trace_capture_records_through_the_runner) {
+    bench::ScriptedEndpoint upstream([](const bench::EndpointRequest&) {
+        bench::EndpointReply reply;
+        reply.content = "done";
+        return reply;
+    });
+    ASSERT(upstream.start());
+    const std::string config_home = tmp_dir("trace_runner_home");
+    ScopedEnvironment environment({"AMBER_API_BASE", "AMBER_API_KEY", "AMBER_MODEL",
+                                   "AMBER_CONTEXT", "AMBER_STREAM", "HOME", "XDG_CONFIG_HOME",
+                                   "XDG_STATE_HOME", "XDG_CACHE_HOME"});
+    setenv("AMBER_API_BASE", upstream.base_url().c_str(), 1);
+    setenv("AMBER_API_KEY", "test-key", 1);
+    setenv("AMBER_MODEL", "fake", 1);
+    setenv("AMBER_CONTEXT", "8192", 1);
+    setenv("AMBER_STREAM", "0", 1);
+    setenv("HOME", config_home.c_str(), 1);
+    setenv("XDG_CONFIG_HOME", (config_home + "/config").c_str(), 1);
+    setenv("XDG_STATE_HOME", (config_home + "/state").c_str(), 1);
+    setenv("XDG_CACHE_HOME", (config_home + "/cache").c_str(), 1);
+
+    const std::string path = tmp_dir("trace_runner") + "/recorded.json";
+    Scenario scenario;
+    scenario.name = "trace-record";
+    scenario.suite = "policy";
+    scenario.prompt = "say done";
+    scenario.checks.must_contain = {"done"};
+    bench::RunOptions opts;
+    opts.live = true;
+    opts.trace_out = path;
+    opts.trace_source = "runner record test";
+    opts.trace_dialect = "openai";
+    bench::RunMeta meta;
+    std::string err;
+    const bench::ScenarioReport report = bench::run_one_scenario(scenario, opts, meta, err);
+    ASSERT(err.empty());
+    ASSERT(report.kpi.success);
+    const auto trace = bench::load_trace(path, err);
+    ASSERT(trace);
+    ASSERT_EQ(trace->source, std::string("runner record test"));
+    ASSERT_EQ(trace->redaction, std::string("clean"));
+    ASSERT_EQ(trace->exchanges.size(), 1u);
+    ASSERT(trace->exchanges[0].response.body.find("\"done\"") != std::string::npos);
+
+    // The recording is replayable: shape mode checks the wire shape and the
+    // stable system marker, not the environment card of the recording session.
+    bench::RunOptions replay;
+    replay.trace_path = path;
+    replay.trace_mode = "shape";
+    bench::RunMeta replay_meta;
+    std::string replay_err;
+    const bench::ScenarioReport replayed =
+        bench::run_one_scenario(scenario, replay, replay_meta, replay_err);
+    ASSERT(replay_err.empty());
+    ASSERT(replayed.kpi.success);
+}
+
+TEST(trace_capture_scans_and_redacts_credentials) {
+    ASSERT_EQ(bench::find_secret("sk-abcdefghijklmnopqrstuvwxyz"), std::string("openai-key"));
+    ASSERT_EQ(bench::find_secret("AKIAIOSFODNN7EXAMPLE"), std::string("aws-access-key"));
+    ASSERT_EQ(bench::find_secret("AIza" + std::string(35, 'a')), std::string("google-api-key"));
+    ASSERT_EQ(bench::find_secret("ghp_abcdefghijklmnopqrstuvwxyz0123456789"),
+              std::string("github-token"));
+    ASSERT_EQ(bench::find_secret("xoxb-1234567890-abcdef"), std::string("slack-token"));
+    ASSERT_EQ(bench::find_secret("-----BEGIN RSA PRIVATE KEY-----"), std::string("private-key"));
+    ASSERT_EQ(bench::find_secret("Authorization: Bearer abcdefghijklmnopqrstuvwxyz"),
+              std::string("bearer-token"));
+    ASSERT(bench::find_secret("the agent read a.txt and answered done").empty());
+
+    std::string text = "key=sk-abcdefghijklmnopqrstuvwxyz end";
+    ASSERT(bench::redact_text_secrets(text));
+    ASSERT_EQ(text, std::string("key=[redacted] end"));
+    ASSERT(bench::find_secret(text).empty());
+
+    agent::json body = agent::json::parse(
+        R"({"api_key":"anything","nested":{"authorization":"Bearer x"},"keep":"ok"})");
+    ASSERT(bench::redact_json_secrets(body));
+    ASSERT_EQ(body["api_key"], std::string("[redacted]"));
+    ASSERT_EQ(body["nested"]["authorization"], std::string("[redacted]"));
+    ASSERT_EQ(body["keep"], std::string("ok"));
+}
+
+TEST(trace_capture_records_a_live_exchange_without_credentials) {
+    bench::ScriptedEndpoint upstream([](const bench::EndpointRequest&) {
+        bench::EndpointReply reply;
+        reply.content = "done";
+        return reply;
+    });
+    ASSERT(upstream.start());
+
+    bench::TraceCaptureOptions options;
+    options.upstream_base = upstream.base_url();
+    options.dialect = "openai";
+    options.source = "unit test recording";
+    bench::TraceCapture capture(std::move(options));
+    ASSERT(capture.start());
+
+    agent::Config cfg;
+    cfg.api_base = capture.base_url();
+    cfg.api_key = "test-key";
+    cfg.model = "fake";
+    agent::HttpLLMClient client(cfg, agent::make_openai_dialect());
+    const agent::ServerInfo probe = client.probe_server();
+    (void)probe;
+    agent::Message ask;
+    ask.role = "user";
+    ask.content = "say done";
+    const agent::Message reply = client.chat({ask}, {});
+    ASSERT_EQ(reply.content, std::string("done"));
+    capture.stop();
+
+    const std::string path = tmp_dir("trace_capture") + "/recorded.json";
+    std::string err;
+    ASSERT(capture.write(path, err));
+    ASSERT(err.empty());
+    const auto trace = bench::load_trace(path, err);
+    ASSERT(trace);
+    ASSERT_EQ(trace->provider, std::string("openai"));
+    ASSERT_EQ(trace->source, std::string("unit test recording"));
+    ASSERT_EQ(trace->redaction, std::string("clean"));
+    ASSERT_EQ(trace->exchanges.size(), 1u);
+    ASSERT_EQ(trace->exchanges[0].match.path, std::string("/v1/chat/completions"));
+    ASSERT(trace->exchanges[0].response.body.find("\"done\"") != std::string::npos);
+    ASSERT_EQ(trace->exchanges[0].request["model"], std::string("fake"));
+
+    // The provider saw the real credential; the committed bytes never do.
+    const auto forwarded = upstream.requests();
+    ASSERT(!forwarded.empty());
+    bool saw_models = false;
+    for (const auto& request : forwarded)
+        if (request.path == "/v1/models")
+            saw_models = request.method == "GET";
+    ASSERT(saw_models);
+    ASSERT_EQ(forwarded.back().headers.at("authorization"), std::string("Bearer test-key"));
+    ASSERT(bench::find_secret(read_file_text(path)).empty());
+}
+
+TEST(trace_capture_records_a_streamed_exchange) {
+    bench::ScriptedEndpoint upstream([](const bench::EndpointRequest&) {
+        bench::EndpointReply reply;
+        reply.content = "streamed";
+        return reply;
+    });
+    ASSERT(upstream.start());
+    bench::TraceCaptureOptions options;
+    options.upstream_base = upstream.base_url();
+    options.dialect = "openai";
+    bench::TraceCapture capture(std::move(options));
+    ASSERT(capture.start());
+
+    agent::Config cfg;
+    cfg.api_base = capture.base_url();
+    cfg.api_key = "test-key";
+    cfg.model = "fake";
+    agent::HttpLLMClient client(cfg, agent::make_openai_dialect());
+    agent::Message ask;
+    ask.role = "user";
+    ask.content = "say it";
+    const agent::Message reply = client.chat_stream({ask}, {}, [](const agent::StreamChunk&) {});
+    ASSERT_EQ(reply.content, std::string("streamed"));
+    capture.stop();
+
+    const std::string path = tmp_dir("trace_capture_stream") + "/recorded.json";
+    std::string err;
+    ASSERT(capture.write(path, err));
+    const auto trace = bench::load_trace(path, err);
+    ASSERT(trace);
+    ASSERT_EQ(trace->exchanges.size(), 1u);
+    ASSERT_EQ(trace->exchanges[0].response.content_type, std::string("text/event-stream"));
+    ASSERT(trace->exchanges[0].match.stream);
+}
+
+TEST(trace_capture_redacts_a_secret_in_the_response) {
+    bench::ScriptedEndpoint upstream([](const bench::EndpointRequest&) {
+        bench::EndpointReply reply;
+        reply.content = "the key is sk-abcdefghijklmnopqrstuvwxyz";
+        return reply;
+    });
+    ASSERT(upstream.start());
+    bench::TraceCaptureOptions options;
+    options.upstream_base = upstream.base_url();
+    options.dialect = "openai";
+    bench::TraceCapture capture(std::move(options));
+    ASSERT(capture.start());
+
+    agent::Config cfg;
+    cfg.api_base = capture.base_url();
+    cfg.model = "fake";
+    agent::HttpLLMClient client(cfg, agent::make_openai_dialect());
+    agent::Message ask;
+    ask.role = "user";
+    ask.content = "leak it";
+    client.chat({ask}, {});
+    capture.stop();
+
+    const std::string path = tmp_dir("trace_capture_secret") + "/recorded.json";
+    std::string err;
+    ASSERT(capture.write(path, err));
+    const auto trace = bench::load_trace(path, err);
+    ASSERT(trace);
+    ASSERT_EQ(trace->redaction, std::string("redacted"));
+    ASSERT(bench::find_secret(read_file_text(path)).empty());
+    ASSERT(trace->exchanges[0].response.body.find("sk-abcdefghijklmnopqrstuvwxyz") ==
+           std::string::npos);
+}
+
+TEST(trace_capture_refuses_a_credential_it_cannot_redact) {
+    bench::ScriptedEndpoint upstream([](const bench::EndpointRequest&) {
+        bench::EndpointReply reply;
+        reply.content = "done";
+        return reply;
+    });
+    ASSERT(upstream.start());
+    bench::TraceCaptureOptions options;
+    options.upstream_base = upstream.base_url();
+    options.dialect = "openai";
+    options.source = "captured with sk-abcdefghijklmnopqrstuvwxyz";
+    bench::TraceCapture capture(std::move(options));
+    ASSERT(capture.start());
+
+    agent::Config cfg;
+    cfg.api_base = capture.base_url();
+    cfg.model = "fake";
+    agent::HttpLLMClient client(cfg, agent::make_openai_dialect());
+    agent::Message ask;
+    ask.role = "user";
+    ask.content = "done";
+    client.chat({ask}, {});
+    capture.stop();
+
+    const std::string path = tmp_dir("trace_capture_refuse") + "/recorded.json";
+    std::string err;
+    ASSERT(!capture.write(path, err));
+    ASSERT(err.find("refusing to write") != std::string::npos);
+    ASSERT(err.find("openai-key") != std::string::npos);
+    ASSERT(!fs::exists(path));
 }
 
 TEST(scenario_loader_rejects_bad_e2e_expectations) {

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "provider": "gemini",
+  "dialect": "gemini",
+  "model": "gemini-test",
+  "description": "gemini resource exhausted",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "gemini-resource-exhausted",
+      "match": {
+        "path": "/v1beta/models/gemini-test:generateContent",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\": {\"code\": 429, \"message\": \"Resource has been exhausted\", \"status\": \"RESOURCE_EXHAUSTED\"}}"
+      }
+    }
+  ]
+}

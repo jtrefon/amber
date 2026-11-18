@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "provider": "gemini",
+  "dialect": "gemini",
+  "model": "gemini-test",
+  "description": "gemini function call",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "gemini-function-call",
+      "match": {
+        "path": "/v1beta/models/gemini-test:generateContent",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"functionCall\": {\"name\": \"read\", \"args\": {\"path\": \"a.txt\"}}}]}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 70, \"candidatesTokenCount\": 10, \"totalTokenCount\": 80}}"
+      }
+    }
+  ]
+}

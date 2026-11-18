@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "provider": "anthropic",
+  "dialect": "anthropic",
+  "description": "anthropic empty content",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "anthropic-empty-content",
+      "match": {
+        "path": "/v1/messages",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"id\": \"msg_empty\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"claude-test\", \"content\": [], \"stop_reason\": \"end_turn\", \"stop_sequence\": null, \"usage\": {\"input_tokens\": 12, \"output_tokens\": 0}}"
+      }
+    }
+  ]
+}

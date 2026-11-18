@@ -5,6 +5,7 @@
 #include "bench/policy.h"
 #include "bench/policy_client.h"
 #include "bench/policy_zoo.h"
+#include "bench/trace_capture.h"
 #include "bench/trace_store.h"
 #include "bench/workspace_check.h"
 
@@ -419,8 +420,12 @@ bool start_trace(const RunOptions& opts, agent::Config& cfg, TraceRuntime& out, 
         return false;
     }
     cfg.api_base = out.endpoint->base_url();
+    // The OpenAI base already ends in /v1; the versioned dialects add their own
+    // segment, so they need the root or the client would ask for /v1/v1beta.
+    if (out.trace.dialect != "openai")
+        cfg.api_base = out.endpoint->root_url();
     cfg.api_key = "trace";
-    cfg.model = "trace";
+    cfg.model = out.trace.model.empty() ? "trace" : out.trace.model;
     return true;
 }
 
@@ -956,6 +961,57 @@ ScenarioReport abort_run(ScenarioReport rep, const std::string& reason, const fs
     return rep;
 }
 
+// Point the live run at the loopback recorder. Returns nullptr with `err` set
+// when the proxy cannot bind; the caller must not run the scenario then.
+std::unique_ptr<TraceCapture> start_capture(const RunOptions& opts, RunHost& host,
+                                            std::string& err) {
+    TraceCaptureOptions capture_options;
+    capture_options.upstream_base = host.cfg.api_base;
+    capture_options.provider =
+        opts.trace_provider.empty() ? host.cfg.provider_name : opts.trace_provider;
+    capture_options.dialect = opts.trace_dialect.empty() ? host.cfg.flavor : opts.trace_dialect;
+    capture_options.source = opts.trace_source;
+    auto capture = std::make_unique<TraceCapture>(std::move(capture_options));
+    if (!capture->start()) {
+        err = "the trace recorder could not start";
+        return nullptr;
+    }
+    host.cfg.api_base = capture->base_url();
+    return capture;
+}
+
+void stop_capture(std::unique_ptr<TraceCapture>& capture, const RunOptions& opts,
+                  ScenarioReport& rep) {
+    if (!capture)
+        return;
+    capture->stop();
+    std::string capture_error;
+    if (!capture->write(opts.trace_out, capture_error))
+        rep.failures.push_back("trace capture: " + capture_error);
+}
+
+std::string finish_trace(TraceRuntime& trace) {
+    std::string error;
+    if (trace.responder)
+        trace.responder->finish(error);
+    return error;
+}
+
+// The checks that can refuse a scenario before a workspace exists. They name
+// the scenario so a skipped cell cannot read as a measured zero.
+bool scenario_is_runnable(const Scenario& s, const RunOptions& opts, ScenarioReport& rep,
+                          std::string& err) {
+    if (!platform_supported(s)) {
+        rep.failures.emplace_back("platform not supported by this scenario");
+        return false;
+    }
+    if (!validate_scenario_policy(s, opts, err)) {
+        rep.failures.push_back(err);
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMeta& meta,
@@ -964,14 +1020,8 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     rep.name = s.name;
     rep.suite = s.suite;
     err.clear();
-    if (!platform_supported(s)) {
-        rep.failures.emplace_back("platform not supported by this scenario");
+    if (!scenario_is_runnable(s, opts, rep, err))
         return rep;
-    }
-    if (!validate_scenario_policy(s, opts, err)) {
-        rep.failures.push_back(err);
-        return rep;
-    }
 
     const fs::path ws = make_scenario_workspace(s);
     WorkspaceGuard ws_guard(ws);
@@ -984,19 +1034,27 @@ ScenarioReport run_one_scenario(const Scenario& s, const RunOptions& opts, RunMe
     PreparedRun run;
     if (!prepare_run(s, opts, meta, ws, run, err))
         return {};
+    std::unique_ptr<TraceCapture> capture;
+    if (!opts.trace_out.empty()) {
+        capture = start_capture(opts, *run.host, err);
+        if (!capture) {
+            run.comps->meter.stop();
+            return {};
+        }
+    }
     std::string contract_error;
     std::unique_ptr<agent::LLMClient> client =
         build_client(s, opts, run.host->cfg, run.host->subagents, &contract_error, &run.trace);
 
     RunOutcome out;
     if (!run_agent_in_workspace(s, *run.host, *run.comps, std::move(client), ws, out)) {
+        stop_capture(capture, opts, rep);
         run.comps->meter.stop();
         return abort_run(std::move(rep), out.error, ws);
     }
+    stop_capture(capture, opts, rep);
     rep.turns = std::move(out.turns);
-    std::string trace_error;
-    if (run.trace.responder)
-        run.trace.responder->finish(trace_error);
+    const std::string trace_error = finish_trace(run.trace);
     join_and_score(rep, {&s, run.host.get(), run.comps.get(), out.final_text, out.wall_ms, out.t0,
                          &ws, &opts, &contract_error, &trace_error});
     fs::remove_all(ws);
