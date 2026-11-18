@@ -138,6 +138,24 @@ the newer run, not the cancelled one.
 | Fuzzing | libFuzzer with a clang that ships it; Apple's does not | `make fuzz` on Linux; the seeds are checked in |
 | Website audit | npm advisory database moves between runs | `cd website && npm run audit` |
 | Wall-time pathology | shared-runner scheduling | the floored ceiling plus the reported ms on the run page |
+| CodeQL | GitHub's C++ query pack runs only there; `cpp/path-injection` re-reports a moved sink as a new alert | keep the path read where it was, or dismiss with the measured reason (below) |
+| Mutation (advisory) | Mull 0.38 has no flag to ignore test stderr, and the suite prints diagnostics on purpose | read the mutation report, not the check colour; it is outside `ci-gate` |
+
+Two of these are easy to misread as code failures:
+
+- **CodeQL re-reports a moved path read as new.** PR #663 moved
+  `agent.policy().init(agent::Workspace::policy_path())` into a helper; the
+  behaviour was identical, but the workspace-derived path on its new line was a
+  new `cpp/path-injection` alert and the check went red. An inline
+  `// codeql[...]` suppression does not apply to that rule. Restoring the
+  original statement shape turned it green. When a refactor moves a path
+  expression, either leave the statement in place or dismiss the alert on the
+  run page with the measurement that shows the path is confined.
+- **The mutation workflow is red on ordinary test stderr.** Mull treats
+  diagnostics from the test program as fatal ("Error messages are treated as
+  fatal errors"), and `run_tests` prints them by design. The job is advisory and
+  not in `ci-gate`: read the mutation report and the score, not the check.
+
 
 ## Before the PR
 
@@ -162,4 +180,6 @@ the newer run, not the cancelled one.
 | `build-and-test (clang++)` / `(g++)` | did `make check-compilers` pass locally? |
 | `build-and-test-macos` | is the failing test pty/UI timing? Re-run with `--repeat`. |
 | `ci-gate` | were any gating jobs *skipped* or *cancelled*? Read the run, not the summary. |
+| `CodeQL` | did the diff move a path read? A moved sink is a new alert; restore the shape or dismiss it with the confinement measured. |
+| `Mutation (advisory)` | is the report complete, and what is the score? A stderr message reddens the runner; the check is not a gate. |
 | `website-build` | `npm run audit` before blaming the docs build. |
