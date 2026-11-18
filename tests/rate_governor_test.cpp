@@ -6,7 +6,10 @@
 #include "agent/rate_governor.h"
 #include "tests/test_util.h"
 
+#include <atomic>
 #include <chrono>
+#include <functional>
+#include <thread>
 
 using namespace std::chrono_literals;
 
@@ -159,4 +162,283 @@ TEST(provider_governor_blocks_for_retry_after_and_cancels) {
     agent::CancellationToken cancelled;
     cancelled.request();
     ASSERT(!g.acquire(1, cancelled));
+}
+
+namespace {
+
+using agent::ProviderGovernor;
+using agent::RequestClass;
+
+// Poll a condition with a short quantum: the governor's own wait loop wakes on
+// a 200 ms safety timer, so a test that waits on it must not assume an instant
+// wake. The limit is generous; a correct implementation returns in a few ms.
+bool wait_until(const std::function<bool()>& predicate,
+                std::chrono::milliseconds limit = std::chrono::milliseconds(2000)) {
+    const auto deadline = std::chrono::steady_clock::now() + limit;
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (predicate())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return predicate();
+}
+
+int waiting_for(const agent::RateStatus& status, RequestClass cls) {
+    switch (cls) {
+    case RequestClass::Interactive:
+        return status.waiting_interactive;
+    case RequestClass::Foreground:
+        return status.waiting_foreground;
+    case RequestClass::Background:
+        return status.waiting_background;
+    }
+    return 0;
+}
+
+} // namespace
+
+// The thread-local class is what the transport reads. It defaults to
+// Interactive, nests, and restores the outer class on scope exit.
+TEST(request_class_scope_defaults_to_interactive_and_nests) {
+    ASSERT(agent::current_request_class() == RequestClass::Interactive);
+    {
+        agent::ScopedRequestClass background(RequestClass::Background);
+        ASSERT(agent::current_request_class() == RequestClass::Background);
+        {
+            agent::ScopedRequestClass foreground(RequestClass::Foreground);
+            ASSERT(agent::current_request_class() == RequestClass::Foreground);
+        }
+        ASSERT(agent::current_request_class() == RequestClass::Background);
+    }
+    ASSERT(agent::current_request_class() == RequestClass::Interactive);
+}
+
+// A cold start admits every class; class is a policy about contention, not a
+// second budget.
+TEST(governor_background_runs_when_idle) {
+    ProviderGovernor g;
+    agent::CancellationToken token;
+    ASSERT(g.acquire(1, token, RequestClass::Background));
+    ASSERT_EQ(g.status().in_flight_background, 1);
+    ASSERT_EQ(g.status().in_flight_interactive, 0);
+    g.on_response(200, 0, {}, 1);
+    ASSERT_EQ(g.status().in_flight_background, 0);
+}
+
+// The default call site is still the user's turn: a caller that never mentions
+// a class is admitted as Interactive and shows up in that column.
+TEST(governor_default_class_is_interactive) {
+    ProviderGovernor g;
+    agent::CancellationToken token;
+    ASSERT(g.acquire(1, token));
+    ASSERT_EQ(g.status().in_flight_interactive, 1);
+    ASSERT_EQ(g.status().in_flight_foreground, 0);
+    ASSERT_EQ(g.status().in_flight_background, 0);
+    g.on_response(200, 0, {}, 1);
+}
+
+// One slot: an interactive waiter goes before a background waiter when the
+// slot frees.
+TEST(governor_interactive_precedes_background) {
+    ProviderGovernor g;
+    g.set_manual(0ms, 1, 0, 60s);
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Interactive));
+
+    std::atomic<int> order{0};
+    std::atomic<int> interactive_order{0};
+    std::atomic<int> background_order{0};
+    std::atomic<bool> interactive_done{false};
+    std::atomic<bool> background_done{false};
+
+    std::thread background([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Background);
+        background_order = ++order;
+        background_done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
+
+    std::thread interactive([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Interactive);
+        interactive_order = ++order;
+        interactive_done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ASSERT(wait_until([&] { return g.status().waiting_interactive == 1; }));
+
+    g.on_response(200, 0, {}, 1); // release the held request
+    ASSERT(wait_until([&] { return interactive_done.load(); }));
+    ASSERT_EQ(interactive_order.load(), 1);
+    ASSERT_FALSE(background_done.load()); // the interactive waiter holds the slot
+
+    ASSERT(wait_until([&] { return background_done.load(); }));
+    ASSERT_EQ(background_order.load(), 2);
+    background.join();
+    interactive.join();
+}
+
+// An in-flight request is never preempted; a background caller waits for the
+// next admission even when the base concurrency would have a free slot.
+TEST(governor_background_does_not_preempt_inflight) {
+    ProviderGovernor g;
+    g.set_manual(0ms, 2, 0, 60s); // the class rule, not the slot, is the blocker
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Interactive));
+
+    std::atomic<bool> done{false};
+    std::thread background([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Background);
+        done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
+    ASSERT_FALSE(wait_until([&] { return done.load(); }, 25ms));
+
+    g.on_response(200, 0, {}, 1);
+    ASSERT(wait_until([&] { return done.load(); }));
+    background.join();
+}
+
+// A background waiter that has waited past the aging bound is promoted to
+// Foreground for admission: it runs while a Foreground request is in flight,
+// because only an Interactive request can block a Foreground admission.
+TEST(governor_background_ages_into_foreground) {
+    ProviderGovernor g;
+    g.set_background_aging(30ms);
+    g.set_manual(0ms, 2, 0, 60s);
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Foreground));
+
+    std::atomic<bool> done{false};
+    std::thread background([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Background);
+        done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
+    ASSERT_FALSE(wait_until([&] { return done.load(); }, 15ms)); // not promoted yet
+    ASSERT(wait_until([&] { return done.load(); }));             // the aging bound admits it
+
+    g.on_response(200, 0, {}, 1);
+    background.join();
+}
+
+// A 429 is provider-wide: the pause a background request learned blocks the
+// user's next interactive request too.
+TEST(governor_429_pauses_all_classes) {
+    ProviderGovernor g;
+    agent::CancellationToken token;
+    g.on_response(429, 40, {}, 100);
+    const auto begin = RateClock::now();
+    ASSERT(g.acquire(1, token, RequestClass::Interactive));
+    const auto interactive_wait =
+        std::chrono::duration_cast<std::chrono::milliseconds>(RateClock::now() - begin);
+    ASSERT(interactive_wait.count() >= 30);
+    g.on_response(200, 0, {}, 1);
+
+    g.on_response(429, 40, {}, 100);
+    const auto begin_background = RateClock::now();
+    ASSERT(g.acquire(1, token, RequestClass::Background));
+    const auto background_wait =
+        std::chrono::duration_cast<std::chrono::milliseconds>(RateClock::now() - begin_background);
+    ASSERT(background_wait.count() >= 30);
+    g.on_response(200, 0, {}, 1);
+}
+
+// One governor, one bucket: a success in one class advances the same AIMD
+// state the next class reads.
+TEST(governor_one_bucket_across_classes) {
+    ProviderGovernor g;
+    agent::CancellationToken token;
+    ASSERT(g.acquire(1, token, RequestClass::Interactive));
+    g.on_response(200, 0, {}, 1);
+    const int after_interactive = g.status().concurrency;
+    ASSERT(after_interactive > 4);
+
+    ASSERT(g.acquire(1, token, RequestClass::Background));
+    g.on_response(200, 0, {}, 1);
+    const auto status = g.status();
+    ASSERT(status.concurrency > after_interactive);
+    ASSERT_EQ(status.successes, 2);
+    ASSERT_EQ(status.interval_ms, 0L);
+}
+
+// Cancellation wakes and removes a waiter in every class, including one that
+// was blocked only by the class above it.
+TEST(governor_cancel_wakes_every_class) {
+    for (const RequestClass cls :
+         {RequestClass::Interactive, RequestClass::Foreground, RequestClass::Background}) {
+        ProviderGovernor g;
+        g.set_manual(0ms, 1, 0, 60s);
+        agent::CancellationToken held;
+        ASSERT(g.acquire(1, held, RequestClass::Interactive));
+
+        agent::CancellationToken cancel;
+        std::atomic<bool> done{false};
+        std::atomic<bool> admitted{true};
+        std::thread waiter([&] {
+            admitted = g.acquire(1, cancel, cls);
+            done = true;
+        });
+        ASSERT(wait_until([&] { return waiting_for(g.status(), cls) == 1; }));
+        cancel.request();
+        ASSERT(wait_until([&] { return done.load(); }));
+        ASSERT_FALSE(admitted.load());
+        waiter.join();
+        g.on_response(200, 0, {}, 1);
+    }
+}
+
+// /throttle can say who is queued: waiting and in-flight counts are reported
+// per class, from the one governor every caller shares.
+TEST(governor_status_reports_waiters_by_class) {
+    ProviderGovernor g;
+    g.set_manual(0ms, 1, 0, 60s);
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Interactive));
+
+    std::atomic<bool> interactive_done{false};
+    std::atomic<bool> foreground_done{false};
+    std::atomic<bool> background_done{false};
+    std::thread interactive([&] {
+        agent::CancellationToken token;
+        if (g.acquire(1, token, RequestClass::Interactive))
+            g.on_response(200, 0, {}, 1);
+        interactive_done = true;
+    });
+    std::thread foreground([&] {
+        agent::CancellationToken token;
+        if (g.acquire(1, token, RequestClass::Foreground))
+            g.on_response(200, 0, {}, 1);
+        foreground_done = true;
+    });
+    std::thread background([&] {
+        agent::CancellationToken token;
+        if (g.acquire(1, token, RequestClass::Background))
+            g.on_response(200, 0, {}, 1);
+        background_done = true;
+    });
+
+    ASSERT(wait_until([&] {
+        const auto status = g.status();
+        return status.waiting_interactive == 1 && status.waiting_foreground == 1 &&
+               status.waiting_background == 1 && status.in_flight_interactive == 1;
+    }));
+
+    g.on_response(200, 0, {}, 1);
+    ASSERT(wait_until([&] {
+        return interactive_done.load() && foreground_done.load() && background_done.load();
+    }));
+    interactive.join();
+    foreground.join();
+    background.join();
 }
