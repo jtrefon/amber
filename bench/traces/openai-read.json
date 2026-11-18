@@ -46,5 +46,7 @@
         "body": "{\"id\":\"chatcmpl-trace-2\",\"object\":\"chat.completion\",\"created\":2,\"model\":\"fake\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":160,\"completion_tokens\":2,\"total_tokens\":162}}"
       }
     }
-  ]
+  ],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
 }

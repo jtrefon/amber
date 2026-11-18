@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "provider": "gemini",
+  "dialect": "gemini",
+  "model": "gemini-test",
+  "description": "gemini usage metadata",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "gemini-usage-metadata",
+      "match": {
+        "path": "/v1beta/models/gemini-test:generateContent",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"done\"}]}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 40, \"candidatesTokenCount\": 3, \"totalTokenCount\": 43, \"cachedContentTokenCount\": 16}}"
+      }
+    }
+  ]
+}

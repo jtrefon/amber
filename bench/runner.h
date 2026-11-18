@@ -38,6 +38,12 @@ struct RunOptions {
     // against a loopback endpoint. Empty = no trace.
     std::string trace_path;            // --trace FILE
     std::string trace_mode = "strict"; // --trace-mode strict|shape
+    // Record a live run through the loopback recorder. Manual only: CI never
+    // sets this, and a hermetic run is refused.
+    std::string trace_out;      // --trace-out FILE
+    std::string trace_source;   // --trace-source NOTE
+    std::string trace_provider; // --trace-provider NAME
+    std::string trace_dialect;  // --trace-dialect openai|anthropic|gemini
     // Force-join the scenario's background tasks before scoring. A task still
     // running at this cap fails the scenario by name instead of changing the
     // score with timing. AMBER_BENCH_JOIN_MS overrides it.
