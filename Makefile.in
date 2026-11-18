@@ -1356,7 +1356,7 @@ $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DI
 $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
-bench: $(BUILD_DIR)/$(BENCH_BIN)
+bench: $(BUILD_DIR)/$(BENCH_BIN) $(MCP_FIXTURES)
 
 # The hermetic efficiency gate: tokens, tool calls, success and a wall-time
 # ceiling against the committed baseline. The fake LLM makes tokens and calls
@@ -1364,7 +1364,7 @@ bench: $(BUILD_DIR)/$(BENCH_BIN)
 BENCH_REPORT ?= bench-efficiency.json
 BENCH_ALLOW ?=
 BENCH_MARKDOWN ?=
-bench-check: $(BUILD_DIR)/$(BENCH_BIN)
+bench-check: $(BUILD_DIR)/$(BENCH_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/$(BENCH_BIN) run --cat both --matrix --format json --out $(BENCH_REPORT)
 	@BENCH_ALLOW="$${BENCH_ALLOW:-}" BENCH_MARKDOWN="$${BENCH_MARKDOWN:-}" \
 	    python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" \
