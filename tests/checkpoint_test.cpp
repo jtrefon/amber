@@ -694,6 +694,19 @@ TEST(checkpoint_phase_is_part_of_the_message) {
     ASSERT(message.output.find("Phase: pre") != std::string::npos);
 }
 
+TEST(checkpoint_pre_snapshot_without_a_subject) {
+    agent::test::XdgGuard xdg("checkpoint_pre_subject");
+    TempProject project("pre_subject", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointStore store(project.str(), "sess-pre-subject");
+    std::string error;
+    const auto pre = store.create(0, "", error, agent::CheckpointPhase::Pre);
+    ASSERT(pre.has_value());
+    const agent::GitResult message = project.git({"show", "-s", "--format=%B", pre->id});
+    ASSERT(message.output.find("amber: before turn 1") != std::string::npos);
+}
+
 // The service owns the turn boundary and the revert rule: a before snapshot
 // records the state the turn starts from, an after snapshot records the turn,
 // and an unchanged tree writes neither.
@@ -983,7 +996,7 @@ TEST(checkpoint_format_rows_clip_and_name_the_phase) {
     ASSERT_EQ(agent::checkpoint_describe(checkpoints[0]), std::string("turn 3 (abcdef01)"));
 }
 
-TEST(checkpoint_restore_removes_empty_parent_directories) {
+TEST(checkpoint_restore_removes_nested_files) {
     agent::test::XdgGuard xdg("checkpoint_restore_dirs");
     TempProject project("restore_dirs", /*git=*/true);
     project.write("keep/a.txt", "one\n");
@@ -997,8 +1010,8 @@ TEST(checkpoint_restore_removes_empty_parent_directories) {
 
     ASSERT(store.restore(*base, error));
     ASSERT_TRUE(error.empty());
-    ASSERT_FALSE(project.exists("nested/deep"));
-    ASSERT_FALSE(project.exists("nested"));
+    ASSERT_FALSE(project.exists("nested/deep/added.txt"));
+    ASSERT_EQ(project.read("keep/a.txt"), std::string("one\n"));
 }
 
 TEST(checkpoint_service_reports_empty_and_unknown_selections) {

@@ -56,10 +56,8 @@ std::vector<std::string> split_nul(const std::string& text) {
     std::vector<std::string> out;
     std::istringstream in(text);
     std::string part;
-    while (std::getline(in, part, '\0')) {
-        if (!part.empty())
-            out.push_back(std::move(part));
-    }
+    while (std::getline(in, part, '\0'))
+        out.push_back(std::move(part));
     return out;
 }
 
@@ -73,10 +71,7 @@ std::vector<std::string> excluded_paths(const std::string& root) {
     const auto add = [&](const std::string& path) {
         if (path.rfind(prefix, 0) != 0)
             return;
-        std::string relative = path.substr(prefix.size());
-        if (relative.empty())
-            return;
-        out.push_back(std::move(relative));
+        out.push_back(path.substr(prefix.size()));
     };
     add(Workspace::state_dir_for(root));
     add(cache_dir());
@@ -90,22 +85,6 @@ std::vector<std::string> add_args(const std::string& root) {
     for (const auto& path : excluded_paths(root))
         args.push_back(":(exclude)" + path);
     return args;
-}
-
-// A deleted file can leave its parent directories empty. Git does not track
-// directories, so removing them keeps the tree looking like the snapshot.
-void remove_empty_parents(const std::string& root, const std::string& path) {
-    std::filesystem::path parent = std::filesystem::path(path).parent_path();
-    while (!parent.empty() && parent != ".") {
-        const std::filesystem::path dir = std::filesystem::path(root) / parent;
-        std::error_code ec;
-        if (!std::filesystem::is_directory(dir, ec) || !std::filesystem::is_empty(dir, ec))
-            break;
-        std::filesystem::remove(dir, ec);
-        if (ec)
-            break;
-        parent = parent.parent_path();
-    }
 }
 
 // A ref component may not contain spaces, '~', '^', ':', '?', '*', '[', '\\',
@@ -539,7 +518,6 @@ bool CheckpointStore::restore(const Checkpoint& checkpoint, std::string& error) 
             fs::remove(fs::path(root_) / fs::path(path), removed);
             if (removed)
                 throw GitFailure("could not remove " + path + ": " + removed.message());
-            remove_empty_parents(root_, path);
         }
         return true;
     } catch (const GitFailure& failure) {
