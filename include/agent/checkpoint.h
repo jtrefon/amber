@@ -57,8 +57,16 @@ public:
 
 private:
     std::vector<std::pair<std::string, std::string>> environment() const;
-    bool ensure_shadow(std::string& error) const;
-    bool read_ref(std::string& id) const;
+    void ensure_shadow() const;
+    std::optional<std::string> read_ref() const;
+    std::string stage_tree() const;
+    bool same_as_parent(const std::string& parent, const std::string& tree) const;
+    std::size_t changed_files(const std::string& parent, const std::string& tree) const;
+    std::string commit_message(std::size_t turn, const std::string& prompt,
+                               std::size_t files) const;
+    std::string write_commit(const std::string& tree, const std::string& parent,
+                             const std::string& message) const;
+    void move_ref(const std::string& id, const std::string& parent) const;
 
     std::string root_; // the work tree: repo top-level when there is one
     std::string ref_;

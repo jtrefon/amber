@@ -12,7 +12,9 @@
 
 #include <filesystem>
 #include <fstream>
+#include <cstdlib>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -301,4 +303,249 @@ TEST(checkpoint_escapes_a_multiline_prompt) {
 
     const agent::GitResult message = project.git({"show", "-s", "--format=%B", checkpoint->id});
     ASSERT(message.output.find("Prompt: \"line one\\nline \\\"two\\\"\"") != std::string::npos);
+}
+
+namespace {
+
+// A PATH shim that delegates to the real git unless an argument contains the
+// injected failure word. It is how the store's error branches are exercised
+// without a corrupt repository.
+class FakeGit {
+public:
+    explicit FakeGit(const std::string& fail_arg)
+        : dir_(fs::temp_directory_path() / "amber_fake_git") {
+        fs::remove_all(dir_);
+        fs::create_directories(dir_);
+        const std::string real = resolve_git();
+        const fs::path script = dir_ / "git";
+        std::ofstream out(script);
+        out << "#!/bin/sh\n";
+        out << "if [ \"$1\" != \"-C\" ]; then exec \"" << real << "\" \"$@\"; fi\n";
+        out << "repo=\"$2\"; shift 2\n";
+        out << "for arg in \"$@\"; do\n";
+        out << "  case \"$arg\" in *\"" << fail_arg
+            << "\"*) echo \"injected failure\" >&2; exit 1;; esac\n";
+        out << "done\n";
+        out << "exec \"" << real << "\" -C \"$repo\" \"$@\"\n";
+        out.close();
+        fs::permissions(script, fs::perms::owner_all | fs::perms::group_read |
+                                    fs::perms::group_exec | fs::perms::others_read |
+                                    fs::perms::others_exec);
+        const char* path = std::getenv("PATH");
+        old_path_ = path ? path : "";
+        setenv("PATH", (dir_.string() + ":" + old_path_).c_str(), 1);
+    }
+
+    ~FakeGit() {
+        setenv("PATH", old_path_.c_str(), 1);
+        fs::remove_all(dir_);
+    }
+
+    FakeGit(const FakeGit&) = delete;
+    FakeGit& operator=(const FakeGit&) = delete;
+
+private:
+    static std::string resolve_git() {
+        const char* path = std::getenv("PATH");
+        std::istringstream in(path ? path : "");
+        std::string part;
+        while (std::getline(in, part, ':')) {
+            if (part.empty())
+                continue;
+            const fs::path candidate = fs::path(part) / "git";
+            std::error_code ec;
+            if (fs::exists(candidate, ec))
+                return candidate.string();
+        }
+        return "/usr/bin/git";
+    }
+
+    fs::path dir_;
+    std::string old_path_;
+};
+
+class PathGuard {
+public:
+    explicit PathGuard(const std::string& path) {
+        const char* old = std::getenv("PATH");
+        old_ = old ? old : "";
+        setenv("PATH", path.c_str(), 1);
+    }
+    ~PathGuard() { setenv("PATH", old_.c_str(), 1); }
+
+private:
+    std::string old_;
+};
+
+} // namespace
+
+// A project with no files has nothing to checkpoint; the first snapshot is not
+// a commit of the empty tree.
+TEST(checkpoint_empty_project_creates_nothing) {
+    agent::test::XdgGuard xdg("checkpoint_empty");
+    TempProject project("empty", /*git=*/true);
+
+    agent::CheckpointStore store(project.str(), "sess-empty");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "nothing", error).has_value());
+    ASSERT_TRUE(error.empty());
+}
+
+TEST(checkpoint_find_rejects_an_empty_selector) {
+    agent::test::XdgGuard xdg("checkpoint_empty_selector");
+    TempProject project("empty_selector", /*git=*/true);
+    project.write("a.txt", "one\n");
+    agent::CheckpointStore store(project.str(), "sess-find");
+    std::string error;
+    ASSERT(store.create(1, "one", error).has_value());
+    ASSERT_FALSE(store.find("", error).has_value());
+    ASSERT_TRUE(error.empty());
+}
+
+// The session id is user-facing and may contain anything; the ref component it
+// becomes is safe, and two ids that sanitize the same still address one ref.
+TEST(checkpoint_session_id_is_made_ref_safe) {
+    agent::test::XdgGuard xdg("checkpoint_session_safe");
+    TempProject project("session_safe", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointStore store(project.str(), "my session/with .. dots");
+    ASSERT(store.ref().find(' ') == std::string::npos);
+    ASSERT(store.ref().find("..") == std::string::npos);
+    std::string error;
+    ASSERT(store.create(1, "one", error).has_value());
+    ASSERT_EQ(store.list(error).size(), 1u);
+}
+
+// The prompt survives the message exactly, including quotes, backslashes,
+// control characters and non-ASCII text; only the subject is flattened.
+TEST(checkpoint_prompt_round_trips_through_the_message) {
+    agent::test::XdgGuard xdg("checkpoint_prompt");
+    TempProject project("prompt", /*git=*/true);
+    project.write("a.txt", "one\n");
+    const std::string prompt = "quote \" backslash \\ newline\nreturn\rtab\tcaf\u00e9";
+
+    agent::CheckpointStore store(project.str(), "sess-prompt");
+    std::string error;
+    ASSERT(store.create(1, prompt, error).has_value());
+    const auto list = store.list(error);
+    ASSERT_EQ(list.size(), 1u);
+    ASSERT_EQ(list.front().prompt, prompt);
+}
+
+// A fresh shadow history is empty, not an error: no repository has to exist
+// until the first checkpoint.
+TEST(checkpoint_fresh_shadow_lists_empty) {
+    agent::test::XdgGuard xdg("checkpoint_fresh_shadow");
+    TempProject project("fresh_shadow", /*git=*/false);
+    agent::CheckpointStore store(project.str(), "sess-fresh");
+    ASSERT(store.shadow());
+    std::string error;
+    ASSERT(store.list(error).empty());
+    ASSERT_TRUE(error.empty());
+}
+
+// A diff for an id this repository never wrote fails cleanly.
+TEST(checkpoint_diff_rejects_an_unknown_id) {
+    agent::test::XdgGuard xdg("checkpoint_diff_unknown");
+    TempProject project("diff_unknown", /*git=*/true);
+    project.write("a.txt", "one\n");
+    agent::CheckpointStore store(project.str(), "sess-diff-unknown");
+    agent::Checkpoint bogus;
+    bogus.id = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    std::string error;
+    ASSERT(store.diff(bogus, error).empty());
+    ASSERT_FALSE(error.empty());
+}
+
+TEST(checkpoint_reports_a_failed_stage) {
+    agent::test::XdgGuard xdg("checkpoint_fail_stage");
+    TempProject project("fail_stage", /*git=*/true);
+    project.write("a.txt", "one\n");
+    FakeGit fake("add");
+    agent::CheckpointStore store(project.str(), "sess-fail-stage");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not stage") != std::string::npos);
+}
+
+TEST(checkpoint_reports_a_failed_tree_write) {
+    agent::test::XdgGuard xdg("checkpoint_fail_tree");
+    TempProject project("fail_tree", /*git=*/true);
+    project.write("a.txt", "one\n");
+    FakeGit fake("write-tree");
+    agent::CheckpointStore store(project.str(), "sess-fail-tree");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not write the checkpoint tree") != std::string::npos);
+}
+
+TEST(checkpoint_reports_a_failed_listing) {
+    agent::test::XdgGuard xdg("checkpoint_fail_listing");
+    TempProject project("fail_listing", /*git=*/true);
+    project.write("a.txt", "one\n");
+    FakeGit fake("ls-tree");
+    agent::CheckpointStore store(project.str(), "sess-fail-listing");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not list") != std::string::npos);
+}
+
+TEST(checkpoint_reports_a_failed_commit) {
+    agent::test::XdgGuard xdg("checkpoint_fail_commit");
+    TempProject project("fail_commit", /*git=*/true);
+    project.write("a.txt", "one\n");
+    FakeGit fake("commit-tree");
+    agent::CheckpointStore store(project.str(), "sess-fail-commit");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not write the checkpoint commit") != std::string::npos);
+}
+
+TEST(checkpoint_reports_a_failed_ref_update) {
+    agent::test::XdgGuard xdg("checkpoint_fail_ref");
+    TempProject project("fail_ref", /*git=*/true);
+    project.write("a.txt", "one\n");
+    FakeGit fake("update-ref");
+    agent::CheckpointStore store(project.str(), "sess-fail-ref");
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not update") != std::string::npos);
+}
+
+TEST(checkpoint_reports_a_failed_diff) {
+    agent::test::XdgGuard xdg("checkpoint_fail_diff");
+    TempProject project("fail_diff", /*git=*/true);
+    project.write("a.txt", "one\n");
+    agent::CheckpointStore store(project.str(), "sess-fail-diff");
+    std::string error;
+    const auto checkpoint = store.create(1, "one", error);
+    ASSERT(checkpoint.has_value());
+
+    FakeGit fake("diff");
+    ASSERT(store.diff(*checkpoint, error).empty());
+    ASSERT(error.find("could not diff") != std::string::npos);
+}
+
+// Without git at all, the store degrades to a shadow store that reports the
+// failure where a snapshot was asked for and an empty history otherwise.
+TEST(checkpoint_reports_missing_git) {
+    agent::test::XdgGuard xdg("checkpoint_no_git");
+    TempProject project("no_git", /*git=*/false);
+    project.write("a.txt", "one\n");
+    PathGuard no_git("/nonexistent");
+
+    agent::CheckpointStore store(project.str(), "sess-no-git");
+    ASSERT(store.shadow());
+    std::string error;
+    ASSERT_FALSE(store.create(1, "one", error).has_value());
+    ASSERT(error.find("could not create the checkpoint repository") != std::string::npos);
+
+    ASSERT(store.list(error).empty());
+    ASSERT_TRUE(error.empty());
+
+    agent::Checkpoint bogus;
+    bogus.id = "deadbeef";
+    ASSERT(store.diff(bogus, error).empty());
+    ASSERT_FALSE(error.empty());
 }

@@ -8,12 +8,21 @@
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
+#include <stdexcept>
 
 namespace agent {
 
 namespace {
 
 namespace fs = std::filesystem;
+
+// An internal git failure. The public API turns it into its `error` out-param;
+// an exception keeps the happy path straight-line and gives every call site the
+// same message shape.
+class GitFailure : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
 
 std::string trimmed(const std::string& text) {
     const auto begin = text.find_first_not_of(" \t\r\n");
@@ -40,19 +49,16 @@ std::size_t count_lines(const std::string& text) {
 }
 
 // A ref component may not contain spaces, '~', '^', ':', '?', '*', '[', '\\',
-// or '..'. Keep only what is unambiguous and cap the length.
+// or '..'. Allow only alphanumerics, '_' and '-', so no dot can form a
+// forbidden sequence, and cap the length.
 std::string sanitize_session(const std::string& id) {
     std::string out;
     for (unsigned char c : id) {
-        if (std::isalnum(c) != 0 || c == '.' || c == '_' || c == '-')
+        if (std::isalnum(c) != 0 || c == '_' || c == '-')
             out.push_back(static_cast<char>(c));
         else
             out.push_back('-');
     }
-    while (!out.empty() && out.front() == '.')
-        out.erase(out.begin());
-    while (!out.empty() && out.back() == '.')
-        out.pop_back();
     if (out.size() > 64)
         out.resize(64);
     return out.empty() ? "default" : out;
@@ -163,6 +169,30 @@ std::string failure(const GitResult& result) {
     return text.empty() ? "git exited with status " + std::to_string(result.status) : text;
 }
 
+// One git call whose failure is exceptional for the operation being performed.
+std::string git_checked(const std::string& root, const std::vector<std::string>& args,
+                        const std::vector<std::pair<std::string, std::string>>& env,
+                        const std::string& what) {
+    const GitResult result = run_git(root, args, env);
+    if (result.status != 0)
+        throw GitFailure(what + ": " + failure(result));
+    return result.output;
+}
+
+bool is_absent_ref(const std::string& message) {
+    return message.find("unknown revision") != std::string::npos ||
+           message.find("bad revision") != std::string::npos ||
+           message.find("Needed a single revision") != std::string::npos;
+}
+
+struct IndexCleanup {
+    const std::string& path;
+    ~IndexCleanup() {
+        std::error_code ec;
+        fs::remove(path, ec);
+    }
+};
+
 } // namespace
 
 CheckpointStore::CheckpointStore(std::string project_root, std::string session_id)
@@ -202,87 +232,58 @@ std::vector<std::pair<std::string, std::string>> CheckpointStore::environment() 
     return env;
 }
 
-bool CheckpointStore::ensure_shadow(std::string& error) const {
+void CheckpointStore::ensure_shadow() const {
     if (!shadow_)
-        return true;
+        return;
     std::error_code ec;
     fs::create_directories(fs::path(shadow_git_dir_).parent_path(), ec);
     if (fs::exists(fs::path(shadow_git_dir_) / "HEAD"))
-        return true;
-    const GitResult init = run_git(root_, {"init", "--bare", "--quiet", shadow_git_dir_});
-    if (init.status != 0) {
-        error = "could not create the checkpoint repository: " + failure(init);
-        return false;
-    }
-    return true;
+        return;
+    git_checked(root_, {"init", "--bare", "--quiet", shadow_git_dir_}, {},
+                "could not create the checkpoint repository");
 }
 
-bool CheckpointStore::read_ref(std::string& id) const {
-    id.clear();
+std::optional<std::string> CheckpointStore::read_ref() const {
     const GitResult r = run_git(root_, {"rev-parse", "--verify", "--quiet", ref_}, environment());
     if (r.status != 0)
-        return false;
-    id = trimmed(r.output);
-    return !id.empty();
+        return std::nullopt;
+    const std::string id = trimmed(r.output);
+    if (id.empty())
+        return std::nullopt;
+    return id;
 }
 
-std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::string& prompt,
-                                                  std::string& error) {
-    error.clear();
-    if (!ensure_shadow(error))
-        return std::nullopt;
-
+std::string CheckpointStore::stage_tree() const {
     std::error_code ec;
     fs::create_directories(fs::path(index_path_).parent_path(), ec);
     // A fresh index from an empty state: the worktree is the snapshot, and no
     // real index entry or staged blob is consulted.
     fs::remove(index_path_, ec);
     const auto env = environment();
-    const auto clean_index = [&] { fs::remove(index_path_, ec); };
+    git_checked(root_, {"add", "-A"}, env, "could not stage the working tree");
+    return trimmed(git_checked(root_, {"write-tree"}, env, "could not write the checkpoint tree"));
+}
 
-    const GitResult add = run_git(root_, {"add", "-A"}, env);
-    if (add.status != 0) {
-        clean_index();
-        error = "could not stage the working tree: " + failure(add);
-        return std::nullopt;
-    }
-    const GitResult tree_result = run_git(root_, {"write-tree"}, env);
-    if (tree_result.status != 0) {
-        clean_index();
-        error = "could not write the checkpoint tree: " + failure(tree_result);
-        return std::nullopt;
-    }
-    const std::string tree = trimmed(tree_result.output);
+bool CheckpointStore::same_as_parent(const std::string& parent, const std::string& tree) const {
+    const std::string parent_tree =
+        git_checked(root_, {"rev-parse", parent + "^{tree}"}, environment(),
+                    "could not read the previous checkpoint");
+    return trimmed(parent_tree) == tree;
+}
 
-    std::string parent;
-    read_ref(parent);
-    if (!parent.empty()) {
-        const GitResult parent_tree = run_git(root_, {"rev-parse", parent + "^{tree}"}, env);
-        if (parent_tree.status != 0) {
-            clean_index();
-            error = "could not read the previous checkpoint: " + failure(parent_tree);
-            return std::nullopt;
-        }
-        if (trimmed(parent_tree.output) == tree) {
-            clean_index();
-            return std::nullopt; // a read-only turn
-        }
-    }
+std::size_t CheckpointStore::changed_files(const std::string& parent,
+                                           const std::string& tree) const {
+    const auto env = environment();
+    const std::string listing = parent.empty()
+                                    ? git_checked(root_, {"ls-tree", "-r", "--name-only", tree},
+                                                  env, "could not list the changed files")
+                                    : git_checked(root_, {"diff", "--name-only", parent, tree}, env,
+                                                  "could not list the changed files");
+    return count_lines(listing);
+}
 
-    const GitResult listing = parent.empty()
-                                  ? run_git(root_, {"ls-tree", "-r", "--name-only", tree}, env)
-                                  : run_git(root_, {"diff", "--name-only", parent, tree}, env);
-    if (listing.status != 0) {
-        clean_index();
-        error = "could not list the changed files: " + failure(listing);
-        return std::nullopt;
-    }
-    const std::size_t files = count_lines(listing.output);
-    if (parent.empty() && files == 0) {
-        clean_index();
-        return std::nullopt; // an empty project changed nothing
-    }
-
+std::string CheckpointStore::commit_message(std::size_t turn, const std::string& prompt,
+                                            std::size_t files) const {
     const std::string subject = one_line(prompt, 72);
     std::string message = "amber: turn " + std::to_string(turn);
     if (!subject.empty())
@@ -290,42 +291,61 @@ std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::s
     message += "\nTurn: " + std::to_string(turn) + " | Session: " + sanitize_session(session_) +
                " | Files: " + std::to_string(files) + " changed";
     message += "\nPrompt: \"" + escape_prompt(prompt) + "\"";
+    return message;
+}
 
-    std::vector<std::string> commit_args{"commit-tree", tree};
+std::string CheckpointStore::write_commit(const std::string& tree, const std::string& parent,
+                                          const std::string& message) const {
+    std::vector<std::string> args{"commit-tree", tree};
     if (!parent.empty()) {
-        commit_args.push_back("-p");
-        commit_args.push_back(parent);
+        args.push_back("-p");
+        args.push_back(parent);
     }
-    commit_args.push_back("-m");
-    commit_args.push_back(message);
-    const GitResult commit = run_git(root_, commit_args, env);
-    if (commit.status != 0) {
-        clean_index();
-        error = "could not write the checkpoint commit: " + failure(commit);
-        return std::nullopt;
-    }
-    const std::string id = trimmed(commit.output);
+    args.push_back("-m");
+    args.push_back(message);
+    return trimmed(
+        git_checked(root_, args, environment(), "could not write the checkpoint commit"));
+}
 
+void CheckpointStore::move_ref(const std::string& id, const std::string& parent) const {
     const std::string zero(40, '0');
-    const GitResult update =
-        run_git(root_, {"update-ref", ref_, id, parent.empty() ? zero : parent}, env);
-    if (update.status != 0) {
-        clean_index();
-        error = "could not update " + ref_ + ": " + failure(update);
+    git_checked(root_, {"update-ref", ref_, id, parent.empty() ? zero : parent}, environment(),
+                "could not update " + ref_);
+}
+
+std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::string& prompt,
+                                                  std::string& error) {
+    error.clear();
+    try {
+        ensure_shadow();
+        const IndexCleanup cleanup{index_path_};
+        const std::string tree = stage_tree();
+        const auto parent = read_ref();
+        if (parent && same_as_parent(*parent, tree))
+            return std::nullopt; // a read-only turn
+        const std::string base = parent.value_or("");
+        const std::size_t files = changed_files(base, tree);
+        if (base.empty() && files == 0)
+            return std::nullopt; // an empty project changed nothing
+
+        const std::string id = write_commit(tree, base, commit_message(turn, prompt, files));
+        move_ref(id, base);
+
+        Checkpoint checkpoint;
+        checkpoint.id = id;
+        checkpoint.ref = ref_;
+        checkpoint.turn = turn;
+        checkpoint.prompt = prompt;
+        checkpoint.files = files;
+        const GitResult timestamp =
+            run_git(root_, {"show", "-s", "--format=%ct", id}, environment());
+        if (timestamp.status == 0)
+            checkpoint.timestamp_s = std::atoll(trimmed(timestamp.output).c_str());
+        return checkpoint;
+    } catch (const GitFailure& failure) {
+        error = failure.what();
         return std::nullopt;
     }
-    clean_index();
-
-    Checkpoint checkpoint;
-    checkpoint.id = id;
-    checkpoint.ref = ref_;
-    checkpoint.turn = turn;
-    checkpoint.prompt = prompt;
-    checkpoint.files = files;
-    const GitResult timestamp = run_git(root_, {"show", "-s", "--format=%ct", id}, env);
-    if (timestamp.status == 0)
-        checkpoint.timestamp_s = std::atoll(trimmed(timestamp.output).c_str());
-    return checkpoint;
 }
 
 std::vector<Checkpoint> CheckpointStore::list(std::string& error) const {
@@ -333,32 +353,28 @@ std::vector<Checkpoint> CheckpointStore::list(std::string& error) const {
     std::vector<Checkpoint> out;
     if (shadow_ && !fs::exists(fs::path(shadow_git_dir_) / "HEAD"))
         return out;
-    const auto env = environment();
-    const GitResult revisions = run_git(root_, {"rev-list", ref_}, env);
-    if (revisions.status != 0) {
-        const std::string text = trimmed(revisions.output);
-        // An absent ref is an empty history, not a broken repository.
-        if (text.find("unknown revision") == std::string::npos &&
-            text.find("bad revision") == std::string::npos &&
-            text.find("Needed a single revision") == std::string::npos && !text.empty())
-            error = text;
-        return out;
-    }
-    for (const std::string& id : split_lines(revisions.output)) {
-        const GitResult shown = run_git(root_, {"show", "-s", "--format=%ct%x1f%B", id}, env);
-        if (shown.status != 0) {
-            error = failure(shown);
-            return {};
+    try {
+        const auto env = environment();
+        const std::string revisions =
+            git_checked(root_, {"rev-list", ref_}, env, "could not list the checkpoints");
+        for (const std::string& id : split_lines(revisions)) {
+            const std::string shown = git_checked(root_, {"show", "-s", "--format=%ct%x1f%B", id},
+                                                  env, "could not read checkpoint " + id);
+            Checkpoint checkpoint;
+            checkpoint.id = id;
+            checkpoint.ref = ref_;
+            const std::size_t separator = shown.find('\x1f');
+            checkpoint.timestamp_s = std::atoll(shown.substr(0, separator).c_str());
+            const std::string body =
+                separator == std::string::npos ? std::string() : shown.substr(separator + 1);
+            parse_message(body, checkpoint);
+            out.push_back(std::move(checkpoint));
         }
-        Checkpoint checkpoint;
-        checkpoint.id = id;
-        checkpoint.ref = ref_;
-        const std::size_t separator = shown.output.find('\x1f');
-        checkpoint.timestamp_s = std::atoll(shown.output.substr(0, separator).c_str());
-        const std::string body =
-            separator == std::string::npos ? std::string() : shown.output.substr(separator + 1);
-        parse_message(body, checkpoint);
-        out.push_back(std::move(checkpoint));
+    } catch (const GitFailure& failure) {
+        if (is_absent_ref(failure.what()))
+            return out;
+        error = failure.what();
+        return {};
     }
     return out;
 }
@@ -390,13 +406,13 @@ std::string CheckpointStore::diff(const Checkpoint& checkpoint, std::string& err
         run_git(root_, {"rev-parse", "--verify", "--quiet", checkpoint.id + "^"}, env);
     if (parent.status == 0 && !trimmed(parent.output).empty())
         base = trimmed(parent.output);
-    const GitResult result =
-        run_git(root_, {"diff", "--no-color", "--no-ext-diff", base, checkpoint.id}, env);
-    if (result.status != 0) {
-        error = failure(result);
+    try {
+        return git_checked(root_, {"diff", "--no-color", "--no-ext-diff", base, checkpoint.id}, env,
+                           "could not diff the checkpoint");
+    } catch (const GitFailure& failure) {
+        error = failure.what();
         return {};
     }
-    return result.output;
 }
 
 } // namespace agent
