@@ -1,9 +1,11 @@
 #ifndef AGENT_RATE_GOVERNOR_H
 #define AGENT_RATE_GOVERNOR_H
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <map>
 #include <memory>
@@ -16,6 +18,35 @@
 namespace agent {
 
 using RateClock = std::chrono::steady_clock;
+
+// What a request is for. The class does not create a second budget: one
+// provider/account still has one token bucket and one concurrency limit. It
+// only orders the waiters when that budget is contended, so a background
+// worker cannot push the user's turn behind it.
+enum class RequestClass : std::uint8_t {
+    Interactive, // a user turn
+    Foreground,  // compression, a model catalogue, a turn's own retries
+    Background   // a worker, a watch summariser, a monitor observer
+};
+
+// The class the next governed request on this thread asks for. The transport
+// reads it; the default is Interactive, so a host that never mentions a class
+// keeps the old behaviour.
+RequestClass current_request_class() noexcept;
+
+// Set the class for the enclosing request path and restore the outer one on
+// scope exit. One scope belongs to one request (or one compression pass);
+// nesting is how a Foreground compression runs inside a Background worker.
+class ScopedRequestClass {
+public:
+    explicit ScopedRequestClass(RequestClass cls) noexcept;
+    ~ScopedRequestClass();
+    ScopedRequestClass(const ScopedRequestClass&) = delete;
+    ScopedRequestClass& operator=(const ScopedRequestClass&) = delete;
+
+private:
+    RequestClass previous_;
+};
 
 // Provider rate-limit headers, when the endpoint publishes them. Absent fields
 // are 0/-1 ("unknown"), never a guess.
@@ -43,6 +74,15 @@ struct RateStatus {
     long learned_rpm = 0;
     bool manual = false;
     long manual_remaining_ms = 0;
+    // Who is queued and who holds a slot, by class. `in_flight` above is the
+    // base total; an aged background request is counted under the class it was
+    // admitted as (Foreground), which is what /throttle should show.
+    int waiting_interactive = 0;
+    int waiting_foreground = 0;
+    int waiting_background = 0;
+    int in_flight_interactive = 0;
+    int in_flight_foreground = 0;
+    int in_flight_background = 0;
 };
 
 // Retry-After seconds -> ms. A date or garbage is 0 (the fallback is used).
@@ -147,7 +187,16 @@ private:
 // the same provider shares it.
 class ProviderGovernor {
 public:
-    bool acquire(long tokens, const CancellationToken& token);
+    // Admission policy:
+    //   Interactive — whenever the budget allows;
+    //   Foreground  — when no Interactive request is waiting or in flight;
+    //   Background  — when no Interactive or Foreground request is waiting or
+    //                 in flight.
+    // In-flight requests are never preempted. A Background waiter older than
+    // the aging bound is promoted to Foreground for admission, so a worker
+    // eventually runs without a user having to do anything.
+    bool acquire(long tokens, const CancellationToken& token,
+                 RequestClass cls = RequestClass::Interactive);
     void on_response(long status, long retry_after_ms, const RateHeaders& headers, long tokens);
     std::chrono::milliseconds retry_wait() const;
     RateStatus status() const;
@@ -155,10 +204,25 @@ public:
                     std::chrono::milliseconds ttl);
     void clear_manual();
 
+    // How long a Background waiter may wait before it is promoted to Foreground
+    // for admission. 60 s shipped; a host may tune it, and tests shorten it.
+    void set_background_aging(std::chrono::milliseconds bound);
+
 private:
+    static constexpr std::size_t kClassCount = 3;
+    static constexpr std::chrono::milliseconds kDefaultBackgroundAging{60000};
+
+    static std::size_t class_index(RequestClass cls) noexcept {
+        return static_cast<std::size_t>(cls);
+    }
+    bool class_admissible(RequestClass cls) const noexcept;
+
     mutable std::mutex mutex_;
     std::condition_variable cv_;
     RateGovernor governor_;
+    std::array<int, kClassCount> waiting_{};
+    std::array<int, kClassCount> in_flight_{};
+    std::chrono::milliseconds background_aging_{kDefaultBackgroundAging};
 };
 
 // One governor per provider/account key. A 429 at Anthropic cannot slow an

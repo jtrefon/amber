@@ -3,6 +3,7 @@
 #include "agent/compressor.h"
 #include "agent/context.h"
 #include "agent/llm.h"
+#include "agent/rate_governor.h"
 
 #include <utility>
 
@@ -98,6 +99,9 @@ CompressionController::Outcome CompressionController::run(const Request& request
     outcome.result.payload_tokens_before = conversation_token_count(before);
 
     const CompressionConfig cfg = load_compression_config(request.cfg);
+    // Compression yields to a user turn: its classify/extract requests are
+    // Foreground, even when the pass runs inside a Background worker.
+    ScopedRequestClass request_class(RequestClass::Foreground);
     outcome.messages = strategy_->compress(request.context, cfg, request.client, request.observer,
                                            &outcome.response, request.prefix);
 

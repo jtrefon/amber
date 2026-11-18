@@ -13,8 +13,9 @@ flood by killing the work; this one avoids it by pacing.
 ### Ownership
 
 - **Source**: `include/agent/rate_governor.h`, `lib/rate_governor.cpp`.
-- **Wire point**: `lib/http_transport.cpp::curl_exec` acquires before the
-  request and reports the status/headers/usage after it.
+- **Wire points**: `lib/http_transport.cpp::curl_exec` acquires before the
+  request and reports the status/headers/usage after it; the model catalogue
+  GET in `lib/model_probe.cpp` acquires and reports through the same governor.
 - **Retry policy**: `lib/agent_helpers.cpp` (`chat_with_retry`) retries a 429;
   the governor, not a sleep in the retry loop, owns the wait.
 - **Tools**: `plugins/tool_rate/` (`wait`, `throttle`).
@@ -65,6 +66,30 @@ One governor per `provider_name + api_base + hash(api_key)`. A 429 at one
 provider never slows another. Within one account the quota is genuinely shared,
 so the pause is shared — but it is one-off and decays.
 
+### Priority classes
+
+One governor per provider/account still has **one token bucket and one
+concurrency limit**. `RequestClass` only orders the waiters:
+
+| Caller | Class | Admitted when |
+|---|---|---|
+| A user turn | `Interactive` | the budget allows |
+| Compression, a model catalogue, a turn's own retries | `Foreground` | no Interactive request is waiting or in flight |
+| A worker, a watch summariser, a monitor observer | `Background` | no Interactive or Foreground request is waiting or in flight |
+
+- The transport reads a thread-local class set by `ScopedRequestClass`; the
+  default is `Interactive`, so a caller that never opts in keeps the old
+  behaviour. A compression pass raises to `Foreground` even inside a
+  `Background` worker, and restores the outer class when it ends.
+- In-flight is never preempted. The class controls the **next** admission.
+- A 429 pauses every class: the pause belongs to the provider, not to the class
+  that learned it. The model catalogue GET is governed too, as `Foreground`.
+- A `Background` waiter older than the aging bound (60 s shipped) is promoted to
+  `Foreground` for admission, so a long-lived worker eventually runs while the
+  user is idle. It still cannot preempt.
+- `RateStatus` reports waiting and in-flight counts per class; `/throttle`
+  shows them.
+
 ### Tools
 
 - `wait(seconds, reason?)` — one-off, bounded 0–300 s, cancellable.
@@ -109,3 +134,4 @@ so the pause is shared — but it is one-off and decays.
 | Date | Reason |
 |------|--------|
 | 2026-10-21 | Initial governor: cold start, pause vs interval, AIMD, token/request headers, fast recovery, provider isolation, wait/throttle tools. |
+| 2026-11-18 | Priority classes: Interactive/Foreground/Background admission, aging, per-class status; the model catalogue GET joins the same governor. |
