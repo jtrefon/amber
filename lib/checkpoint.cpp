@@ -119,12 +119,15 @@ std::string escape_prompt(const std::string& text) {
 
 std::string unescape_prompt(const std::string& text) {
     std::string out;
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        if (text[i] != '\\' || i + 1 >= text.size()) {
-            out.push_back(text[i]);
+    std::size_t i = 0;
+    while (i < text.size()) {
+        const char c = text[i++];
+        if (c != '\\' || i >= text.size()) {
+            out.push_back(c);
             continue;
         }
-        switch (text[++i]) {
+        const char escaped = text[i++];
+        switch (escaped) {
         case 'n':
             out.push_back('\n');
             break;
@@ -139,7 +142,7 @@ std::string unescape_prompt(const std::string& text) {
             break;
         default:
             out.push_back('\\');
-            out.push_back(text[i]);
+            out.push_back(escaped);
             break;
         }
     }
