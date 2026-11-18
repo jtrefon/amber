@@ -27,6 +27,20 @@ Two conclusions:
    compilers with `-Werror`, enforces per-file branch coverage, and runs the
    macOS pty suite. Only the last is genuinely CI-only.
 
+The local mirror also had two holes that only macOS exposed, and both made
+`make check` red on the development host:
+
+- five `install-deps` gate tests failed because the script expanded empty arrays
+  under `set -u`; bash 3.2 (macOS) treats `"${empty[@]}"` as unbound where bash 5
+  does not. The script now uses the `${arr[@]+"${arr[@]}"}` idiom, so the gate
+  tests pass on both shells.
+- seven prompt-library blocks were Linux-only (`readelf`, ELF `.so` naming,
+  GCC `-fopt-info-vec`/`-fanalyzer`, GNU `sed`) or tripped `pipefail` through
+  `grep -q`'s SIGPIPE. The checker now honours `# platform: linux` and
+  `# requires: <tool>` (reported as `skip`, never as `pass`), the portable
+  entries use POSIX-safe `sed`/`grep`, and `make check` passes on macOS with 5
+  explicit skips instead of 7 failures.
+
 ## The one command
 
 ```sh
@@ -37,7 +51,7 @@ It runs, in order:
 
 | Step | What it proves | CI job it mirrors |
 |---|---|---|
-| `make verify` | static gates, `make test`, `bench-check`, full `lint`, `analyze` | `static-gates`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
+| `make verify` | static gates (including the gate tests and `library-check`), `make test`, `bench-check`, full `lint`, `analyze`, `smoketest` | `static-gates`, `content-gates`, `build-hygiene`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
 | `make check-compilers` | the whole tree builds under `g++` and `clang++` with `WERROR=1` | `build-and-test (g++)`, `build-and-test (clang++)` |
 | `make agent-e2e` | five CLI journeys through the real binary | `build-and-test` (Linux) |
 | `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `build-and-test` (Linux) |

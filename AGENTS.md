@@ -156,9 +156,12 @@ driven by an OpenAI-compatible LLM API.
   be judged by the merge gate.
 - `make library-check` executes the `run` blocks in the prompt library
   (`prompts/domains/coding/library/**/*.md`). A block marked `# manual:` is
-  skipped on purpose; anything else that no longer runs is stale knowledge and
-  fails the check. It is part of `make check` and `make verify-quick`, so a
-  library content edit is gated even when no C++ changed.
+  skipped on purpose; `# platform: linux` (or `darwin`) and
+  `# requires: <tool>` skip a block on a host it cannot run on, and the summary
+  reports the skip rather than counting it as a pass. Anything else that no
+  longer runs is stale knowledge and fails the check. It is part of `make check`
+  and `make verify-quick`, so a library content edit is gated even when no C++
+  changed.
 - `make ncurses` is a **ratchet** (`tools/ncurses_ratchet.py`): only files listed
   in `tests/ncurses_baseline.json` may include a curses header, and the list can
   only shrink (`make ncurses-update` records a removal). The terminal adapter

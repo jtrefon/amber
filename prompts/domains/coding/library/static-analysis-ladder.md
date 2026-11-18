@@ -47,6 +47,7 @@ produce findings you must not fix, and they bury the ones you must.
 ## Run it
 
 ```run
+# platform: linux
 printf '#include <stdlib.h>\nint main(void){int *p=malloc(sizeof *p);if(!p)return 1;int leftover=0;return *p;}\n' > warn.c
 gcc -Wall -Wextra -c warn.c -o /dev/null 2> warnings.txt
 grep -q "unused variable" warnings.txt

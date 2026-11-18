@@ -46,6 +46,7 @@ ever buys back what the code lets it buy.
 ## Run it
 
 ```run
+# platform: linux
 # The -O level reaches the preprocessor; both binaries agree; -g survives -O2.
 printf 'int f(int n){int s=0;for(int i=0;i<n;i++)s+=i;return s;}\nint main(void){return f(4)==6?0:1;}\n' > prog.c
 test "$(gcc -O0 -dM -E prog.c | grep -c __OPTIMIZE__)" = 0

@@ -45,5 +45,5 @@ int main() {
 }
 SRC
 g++ -std=c++17 -O0 move_demo.cpp -o move_demo
-./move_demo | sed -n '/move a const/{n;p}' | grep -q copy
+./move_demo | sed -n '/move a const/{n;p;}' | grep copy >/dev/null
 ```
