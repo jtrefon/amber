@@ -1,0 +1,58 @@
+{
+  "name": "e2e-approval-allowed",
+  "suite": "e2e",
+  "description": "the gated shell command is approved and writes its artifact",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Run the marker command, then reply with the word done.",
+  "approval": "allow",
+  "oracle": [
+    {
+      "tool": "bash",
+      "args": {}
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 2,
+  "expected_steps": 3,
+  "min_prompt_tokens": 200,
+  "min_completion_tokens": 10,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\": \"echo approved > approval.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "expected_workspace": {
+    "files": {
+      "approval.txt": {
+        "exact": "approved\n"
+      }
+    }
+  }
+}

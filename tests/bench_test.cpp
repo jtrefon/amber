@@ -4182,6 +4182,167 @@ TEST(request_log_contract_checks) {
     ASSERT(err.find("system message") != std::string::npos);
 }
 
+static std::string read_file_text(const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+static int count_substr(const std::string& haystack, const std::string& needle) {
+    int count = 0;
+    for (std::size_t pos = 0; (pos = haystack.find(needle, pos)) != std::string::npos;
+         pos += needle.size())
+        ++count;
+    return count;
+}
+
+TEST(binary_driver_resumes_a_session_across_processes) {
+    const std::string dir = tmp_dir("resume_driver");
+    const std::string argv_log = dir + "/argv.log";
+    const std::string cli = fake_cli(
+        dir, "printf '%s\\n' \"$*\" >> " + argv_log + "\n" +
+                 write_telemetry_script(R"({"final_text":"PINEAPPLE","tool_calls":[],)"
+                                        R"("usage":{"prompt_tokens":10,"completion_tokens":1}})"));
+    Scenario scenario = read_scenario("e2e-resume-driver");
+    scenario.session = "driver-session";
+    scenario.resume = true;
+    scenario.checks.must_contain = {"PINEAPPLE"};
+    for (const char* prompt : {"first turn", "second turn"}) {
+        bench::Turn turn;
+        turn.prompt = prompt;
+        turn.fake_replies.push_back({{"content", "PINEAPPLE"}});
+        scenario.turns.push_back(std::move(turn));
+    }
+    scenario.fake_replies =
+        agent::json::array({{{"content", "PINEAPPLE"}}, {{"content", "PINEAPPLE"}}});
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(results[0].ok);
+    const std::string argv = read_file_text(argv_log);
+    ASSERT_EQ(count_substr(argv, "--session driver-session"), 2);
+    ASSERT_EQ(count_substr(argv, "--prompt first turn"), 1);
+    ASSERT_EQ(count_substr(argv, "--prompt second turn"), 1);
+}
+
+TEST(binary_driver_sends_sigint_on_the_cancel_marker) {
+    const std::string dir = tmp_dir("cancel_driver");
+    write_file(
+        dir + "/payload.json",
+        R"({"exit_code":130,"final_text":"","tool_calls":[{"name":"bash","status":"error"}]})");
+    const std::string cli =
+        fake_cli(dir, "out=\n"
+                      "while [ $# -gt 0 ]; do\n"
+                      "  if [ \"$1\" = \"--json-out\" ]; then shift; out=\"$1\"; fi\n"
+                      "  shift\n"
+                      "done\n"
+                      "trap 'cp " +
+                          dir +
+                          "/payload.json \"$out\"; exit 130' INT\n"
+                          "printf '[tool] bash\\n' >&2\n"
+                          "sleep 10\n");
+    Scenario scenario = read_scenario("e2e-cancel-driver");
+    scenario.cancel_marker = "[tool] bash";
+    scenario.expected_exit_code = 130;
+    scenario.allow_tools = true;
+    agent::json bash = {{"id", "c1"},
+                        {"type", "function"},
+                        {"function", {{"name", "bash"}, {"arguments", "{\"command\":\"true\"}"}}}};
+    scenario.fake_replies =
+        agent::json::array({{{"tool_calls", agent::json::array({bash})}}, {{"content", "done"}}});
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT_EQ(err, "");
+    ASSERT(results[0].ok);
+    ASSERT_EQ(results[0].exit_code, 130);
+}
+
+TEST(binary_driver_fails_when_the_request_log_lacks_a_marker) {
+    Scenario scenario = read_scenario("e2e-log-missing");
+    scenario.request_log_contains = {"never-sent"};
+    const std::string cli =
+        fake_cli(tmp_dir("log_missing"),
+                 write_telemetry_script(R"({"final_text":"done","tool_calls":[],)"
+                                        R"("usage":{"prompt_tokens":10,"completion_tokens":1}})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("request log does not contain") != std::string::npos);
+}
+
+TEST(binary_driver_fails_below_the_compaction_floor) {
+    Scenario scenario = read_scenario("e2e-compactions");
+    scenario.min_compactions = 1;
+    const std::string cli =
+        fake_cli(tmp_dir("compaction_floor"),
+                 write_telemetry_script(R"({"final_text":"done","tool_calls":[],)"
+                                        R"("compactions":0,"usage":{"prompt_tokens":10,)"
+                                        R"("completion_tokens":1}})"));
+    std::string err;
+    const std::vector<bench::BinaryE2eResult> results =
+        bench::run_binary_scenarios({scenario}, cli, err);
+    ASSERT(!results[0].ok);
+    ASSERT(results[0].error.find("compactions") != std::string::npos);
+}
+
+TEST(scenario_loader_accepts_the_expanded_e2e_journeys) {
+    for (const char* path :
+         {"bench/scenarios/e2e/approval-allowed.json", "bench/scenarios/e2e/cancel-slow-tool.json",
+          "bench/scenarios/e2e/session-resume.json",
+          "bench/scenarios/e2e/subagent-worker-report.json",
+          "bench/scenarios/e2e/compression-mid-task.json"}) {
+        std::string err;
+        const auto scenario = bench::load_scenario(path, err);
+        ASSERT(scenario);
+        ASSERT(err.empty());
+    }
+    std::string err;
+    const auto resume = bench::load_scenario("bench/scenarios/e2e/session-resume.json", err);
+    ASSERT(resume);
+    ASSERT_EQ(resume->session, std::string("e2e-resume"));
+    ASSERT(resume->resume);
+    ASSERT_EQ(resume->turns.size(), 2u);
+    const auto cancel = bench::load_scenario("bench/scenarios/e2e/cancel-slow-tool.json", err);
+    ASSERT(cancel);
+    ASSERT_EQ(cancel->cancel_marker, std::string("[tool] bash"));
+    ASSERT_EQ(cancel->expected_exit_code, 130);
+    ASSERT(cancel->cli_expected_workspace.is_object());
+    ASSERT(cancel->cli_expected_workspace.contains("absent"));
+    const auto compression =
+        bench::load_scenario("bench/scenarios/e2e/compression-mid-task.json", err);
+    ASSERT(compression);
+    ASSERT_EQ(compression->context_size, 4096);
+    ASSERT_EQ(compression->min_compactions, 1);
+}
+
+TEST(scenario_loader_rejects_bad_journey_fields) {
+    const std::string dir = tmp_dir("journey_fields");
+    const std::pair<const char*, const char*> cases[] = {
+        {"resume_without_turns.json", R"("session": "s", "resume": true)"},
+        {"resume_without_session.json", R"("resume": true, "turns": [{"prompt": "go"}] )"},
+        {"session_empty.json", R"("session": "")"},
+        {"resume_not_bool.json",
+         R"("session": "s", "resume": "yes", "turns": [{"prompt": "go"}] )"},
+        {"cancel_not_string.json", R"("cancel_marker": 7)"},
+        {"log_contains_not_array.json", R"("request_log_contains": "x")"},
+        {"log_contains_bad_item.json", R"("request_log_contains": [7])"},
+        {"expected_tools_bad_item.json", R"("expected_tools": [7])"},
+        {"cli_workspace_not_object.json", R"("cli_expected_workspace": 7)"},
+        {"cli_workspace_bad_file.json",
+         R"("cli_expected_workspace": {"files": {"a.txt": {"exact": 7}}})"},
+    };
+    for (const auto& [name, field] : cases) {
+        const std::string path = dir + "/" + name;
+        write_file(path, std::string(R"({"name": "bad", "suite": "e2e", "prompt": "go", )") +
+                             field + "}");
+        std::string err;
+        ASSERT(!bench::load_scenario(path, err));
+        ASSERT(!err.empty());
+    }
+}
+
 // ── Closed-loop policy ──
 
 static agent::json policy_json(const char* text) {
