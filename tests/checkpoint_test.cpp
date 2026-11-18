@@ -20,6 +20,15 @@
 #include <string>
 #include <vector>
 
+namespace agent {
+
+// ASSERT_EQ prints both operands; the enum has no production stream operator.
+inline std::ostream& operator<<(std::ostream& os, CheckpointChangeKind kind) {
+    return os << static_cast<int>(kind);
+}
+
+} // namespace agent
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -663,16 +672,16 @@ TEST(checkpoint_phase_is_part_of_the_message) {
     project.write("a.txt", "two\n");
     const auto pre = store.create(1, "before turn 2", error, agent::CheckpointPhase::Pre);
     ASSERT(pre.has_value());
-    ASSERT_TRUE(pre->pre);
+    ASSERT_TRUE(pre->pre());
 
     const auto list = store.list(error);
     ASSERT_EQ(list.size(), 2u);
-    ASSERT_TRUE(list[0].pre);
-    ASSERT_FALSE(list[1].pre);
+    ASSERT_TRUE(list[0].pre());
+    ASSERT_FALSE(list[1].pre());
 
     const auto found = store.find("1", error);
     ASSERT(found.has_value());
-    ASSERT_FALSE(found->pre);
+    ASSERT_FALSE(found->pre());
 
     const agent::GitResult message = project.git({"show", "-s", "--format=%B", pre->id});
     ASSERT(message.output.find("Phase: pre") != std::string::npos);
@@ -684,18 +693,19 @@ TEST(checkpoint_phase_is_part_of_the_message) {
 TEST(checkpoint_service_snapshots_before_and_after_a_turn) {
     agent::test::XdgGuard xdg("checkpoint_service_turns");
     TempProject project("service_turns", /*git=*/true);
-    project.write("a.txt", "one\n");
+    project.write("a.txt", "zero\n");
 
     agent::CheckpointService service(project.str(), "sess-service");
     const auto before = service.before_turn();
     ASSERT_EQ(before.kind, agent::CheckpointChangeKind::Created);
     ASSERT_EQ(before.checkpoint.turn, 0u);
-    ASSERT_TRUE(before.checkpoint.pre);
+    ASSERT_TRUE(before.checkpoint.pre());
 
+    project.write("a.txt", "one\n");
     const auto after = service.after_turn("first turn");
     ASSERT_EQ(after.kind, agent::CheckpointChangeKind::Created);
     ASSERT_EQ(after.checkpoint.turn, 1u);
-    ASSERT_FALSE(after.checkpoint.pre);
+    ASSERT_FALSE(after.checkpoint.pre());
 
     const auto unchanged = service.before_turn();
     ASSERT_EQ(unchanged.kind, agent::CheckpointChangeKind::None);
@@ -704,12 +714,13 @@ TEST(checkpoint_service_snapshots_before_and_after_a_turn) {
     const auto manual = service.before_turn();
     ASSERT_EQ(manual.kind, agent::CheckpointChangeKind::Created);
     ASSERT_EQ(manual.checkpoint.turn, 1u);
-    ASSERT_TRUE(manual.checkpoint.pre);
+    ASSERT_TRUE(manual.checkpoint.pre());
 
+    project.write("a.txt", "three\n");
     const auto second = service.after_turn("second turn");
     ASSERT_EQ(second.kind, agent::CheckpointChangeKind::Created);
     ASSERT_EQ(second.checkpoint.turn, 2u);
-    ASSERT_FALSE(second.checkpoint.pre);
+    ASSERT_FALSE(second.checkpoint.pre());
 }
 
 // Undo restores the previous checkpoint and records the revert, so the undo is
@@ -717,10 +728,11 @@ TEST(checkpoint_service_snapshots_before_and_after_a_turn) {
 TEST(checkpoint_service_undo_restores_and_records_the_revert) {
     agent::test::XdgGuard xdg("checkpoint_service_undo");
     TempProject project("service_undo", /*git=*/true);
-    project.write("a.txt", "one\n");
+    project.write("a.txt", "zero\n");
 
     agent::CheckpointService service(project.str(), "sess-undo");
     ASSERT_EQ(service.before_turn().kind, agent::CheckpointChangeKind::Created);
+    project.write("a.txt", "one\n");
     const auto first = service.after_turn("first");
     ASSERT_EQ(first.kind, agent::CheckpointChangeKind::Created);
     project.write("a.txt", "two\n");
@@ -745,8 +757,9 @@ TEST(checkpoint_service_rollback_reaches_an_older_turn) {
 
     agent::CheckpointService service(project.str(), "sess-rollback");
     ASSERT_EQ(service.before_turn().kind, agent::CheckpointChangeKind::Created);
-    ASSERT_EQ(service.after_turn("first").kind, agent::CheckpointChangeKind::Created);
     project.write("a.txt", "two\n");
+    ASSERT_EQ(service.after_turn("first").kind, agent::CheckpointChangeKind::Created);
+    project.write("a.txt", "three\n");
     ASSERT_EQ(service.after_turn("second").kind, agent::CheckpointChangeKind::Created);
 
     const auto rolled = service.rollback("0");
@@ -771,7 +784,7 @@ TEST(checkpoint_service_without_an_earlier_checkpoint_refuses_undo) {
 TEST(checkpoint_turn_reports_created_snapshots_only) {
     agent::test::XdgGuard xdg("checkpoint_turn_reports");
     TempProject project("turn_reports", /*git=*/true);
-    project.write("a.txt", "one\n");
+    project.write("a.txt", "zero\n");
 
     std::vector<std::string> lines;
     agent::CheckpointTurn turn(project.str(), "sess-turn",
@@ -780,6 +793,7 @@ TEST(checkpoint_turn_reports_created_snapshots_only) {
     ASSERT_EQ(lines.size(), 1u);
     ASSERT(lines[0].find("checkpoint:") == 0);
 
+    project.write("a.txt", "one\n");
     turn.after("first");
     ASSERT_EQ(lines.size(), 2u);
     ASSERT(lines[1].find("turn 1") != std::string::npos);

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace agent {
 
@@ -46,6 +47,40 @@ std::vector<std::string> split_lines(const std::string& text) {
 
 std::size_t count_lines(const std::string& text) {
     return split_lines(text).size();
+}
+
+// `git ls-files -z` / `ls-tree -z` output: NUL-separated, no quoting, so a
+// filename with a newline or a quote is one path.
+std::vector<std::string> split_nul(const std::string& text) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        const std::size_t end = text.find('\0', start);
+        if (end == std::string::npos) {
+            out.push_back(text.substr(start));
+            break;
+        }
+        if (end > start)
+            out.push_back(text.substr(start, end - start));
+        start = end + 1;
+    }
+    return out;
+}
+
+// A deleted file can leave its parent directories empty. Git does not track
+// directories, so removing them keeps the tree looking like the snapshot.
+void remove_empty_parents(const std::string& root, const std::string& path) {
+    std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    while (!parent.empty() && parent != ".") {
+        const std::filesystem::path dir = std::filesystem::path(root) / parent;
+        std::error_code ec;
+        if (!std::filesystem::is_directory(dir, ec) || !std::filesystem::is_empty(dir, ec))
+            break;
+        std::filesystem::remove(dir, ec);
+        if (ec)
+            break;
+        parent = parent.parent_path();
+    }
 }
 
 // A ref component may not contain spaces, '~', '^', ':', '?', '*', '[', '\\',
@@ -158,6 +193,8 @@ void parse_message(const std::string& body, Checkpoint& checkpoint) {
             const auto files = line.find("Files: ");
             if (files != std::string::npos)
                 checkpoint.files = std::strtoul(line.c_str() + files + 7, nullptr, 10);
+        } else if (line == "Phase: pre") {
+            checkpoint.phase = CheckpointPhase::Pre;
         } else if (line.rfind("Prompt: ", 0) == 0) {
             std::string value = line.substr(8);
             if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
@@ -286,13 +323,23 @@ std::size_t CheckpointStore::changed_files(const std::string& parent,
 }
 
 std::string CheckpointStore::commit_message(std::size_t turn, const std::string& prompt,
-                                            std::size_t files) const {
+                                            std::size_t files, CheckpointPhase phase) const {
     const std::string subject = one_line(prompt, 72);
-    std::string message = "amber: turn " + std::to_string(turn);
-    if (!subject.empty())
-        message += " — " + subject;
+    std::string message;
+    if (phase == CheckpointPhase::Pre) {
+        // The prompt already names the upcoming turn ("before turn 2"), so the
+        // subject is the prompt rather than a second turn label.
+        message =
+            "amber: " + (subject.empty() ? "before turn " + std::to_string(turn + 1) : subject);
+    } else {
+        message = "amber: turn " + std::to_string(turn);
+        if (!subject.empty())
+            message += " — " + subject;
+    }
     message += "\nTurn: " + std::to_string(turn) + " | Session: " + sanitize_session(session_) +
                " | Files: " + std::to_string(files) + " changed";
+    message += "\nPhase: ";
+    message += phase == CheckpointPhase::Pre ? "pre" : "post";
     message += "\nPrompt: \"" + escape_prompt(prompt) + "\"";
     return message;
 }
@@ -317,7 +364,7 @@ void CheckpointStore::move_ref(const std::string& id, const std::string& parent)
 }
 
 std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::string& prompt,
-                                                  std::string& error) {
+                                                  std::string& error, CheckpointPhase phase) {
     error.clear();
     try {
         ensure_shadow();
@@ -331,7 +378,7 @@ std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::s
         if (base.empty() && files == 0)
             return std::nullopt; // an empty project changed nothing
 
-        const std::string id = write_commit(tree, base, commit_message(turn, prompt, files));
+        const std::string id = write_commit(tree, base, commit_message(turn, prompt, files, phase));
         move_ref(id, base);
 
         Checkpoint checkpoint;
@@ -340,6 +387,7 @@ std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::s
         checkpoint.turn = turn;
         checkpoint.prompt = prompt;
         checkpoint.files = files;
+        checkpoint.phase = phase;
         const GitResult timestamp =
             run_git(root_, {"show", "-s", "--format=%ct", id}, environment());
         if (timestamp.status == 0)
@@ -395,6 +443,12 @@ std::optional<Checkpoint> CheckpointStore::find(const std::string& turn_or_sha,
     // match rather than deciding the selector's kind by its characters alone.
     if (numeric) {
         const std::size_t turn = std::strtoul(turn_or_sha.c_str(), nullptr, 10);
+        // The post snapshot is the turn's result; a pre snapshot that shares
+        // the number is the state the next turn started from. The turn selector
+        // means the result, so the pre entry is the fallback.
+        for (const auto& checkpoint : checkpoints)
+            if (checkpoint.turn == turn && !checkpoint.pre())
+                return checkpoint;
         for (const auto& checkpoint : checkpoints)
             if (checkpoint.turn == turn)
                 return checkpoint;
@@ -421,6 +475,51 @@ std::string CheckpointStore::diff(const Checkpoint& checkpoint, std::string& err
     } catch (const GitFailure& failure) {
         error = failure.what();
         return {};
+    }
+}
+
+bool CheckpointStore::restore(const Checkpoint& checkpoint, std::string& error) const {
+    error.clear();
+    try {
+        const auto env = environment();
+        const IndexCleanup cleanup{index_path_};
+        std::error_code ec;
+        fs::create_directories(fs::path(index_path_).parent_path(), ec);
+        fs::remove(index_path_, ec);
+
+        // Stage the current worktree into the private index so the current
+        // paths come from git's own ignore rules, and the user's real index is
+        // never read. The same index is then replaced by the target tree.
+        git_checked(root_, {"add", "-A"}, env, "could not stage the working tree");
+        const auto current = split_nul(
+            git_checked(root_, {"ls-files", "-z"}, env, "could not list the working tree"));
+
+        fs::remove(index_path_, ec);
+        git_checked(root_, {"read-tree", checkpoint.id + "^{tree}"}, env,
+                    "could not read the checkpoint tree");
+        git_checked(root_, {"checkout-index", "-a", "-f"}, env,
+                    "could not restore the checkpoint files");
+
+        const auto target =
+            split_nul(git_checked(root_, {"ls-tree", "-r", "--name-only", "-z", checkpoint.id}, env,
+                                  "could not list the checkpoint files"));
+        const std::unordered_set<std::string> keep(target.begin(), target.end());
+
+        // Remove only what the snapshot did not contain. Ignored files were
+        // never in the snapshot and never appear in `current`, so they stay.
+        for (const auto& path : current) {
+            if (keep.find(path) != keep.end())
+                continue;
+            std::error_code removed;
+            fs::remove(fs::path(root_) / fs::path(path), removed);
+            if (removed)
+                throw GitFailure("could not remove " + path + ": " + removed.message());
+            remove_empty_parents(root_, path);
+        }
+        return true;
+    } catch (const GitFailure& failure) {
+        error = failure.what();
+        return false;
     }
 }
 

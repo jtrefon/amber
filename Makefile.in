@@ -89,6 +89,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/git_exec.o \
             $(BUILD_DIR)/lib/checkpoint.o \
+            $(BUILD_DIR)/lib/checkpoint_service.o \
+            $(BUILD_DIR)/lib/checkpoint_turn.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
             $(BUILD_DIR)/lib/loop_guard.o \
