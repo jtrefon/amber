@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include "agent/plugins_bundled.h"
 
 namespace {
 
@@ -197,7 +198,7 @@ struct TuiHost {
         // The v2 runtime: bundled plugins register here, their state comes from
         // ~/.config/amber/plugins/<id>/plugin.conf, and activation installs what
         // each declares into the shared registries.
-        plugin_runtime.add_bundled();
+        agent::add_bundled_plugins(plugin_runtime);
         plugin_runtime.add_external(plugins);
         plugin_runtime.attach_host_services(host_services);
     }

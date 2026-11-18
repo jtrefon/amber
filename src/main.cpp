@@ -37,6 +37,7 @@
 #include <thread>
 #include <vector>
 #include <unistd.h>
+#include "agent/plugins_bundled.h"
 
 namespace {
 
@@ -588,7 +589,7 @@ struct CliHost {
 // gets the same bundled plugins, persisted state and registries.
 void start_plugin_runtime(CliHost& host, agent::Config& cfg, bool no_plugins) {
     host.plugins.discover();
-    host.plugin_runtime.add_bundled();
+    agent::add_bundled_plugins(host.plugin_runtime);
     host.plugin_runtime.add_external(host.plugins);
     // Attach before activating: the tool plugins construct their tools from
     // these services, and every plugin reads the live config, which is the one

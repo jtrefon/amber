@@ -14,6 +14,7 @@
 #include <string>
 
 #include "tests/test_util.h"
+#include "agent/plugins_bundled.h"
 
 namespace {
 
@@ -199,7 +200,7 @@ TEST(web_plugin_registers_settings_and_tools) {
     agent::Config config;
     agent::Workspace workspace;
     agent::PluginRuntime runtime(tools, config, workspace);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     auto fetch = tools.find("web_fetch");
     auto search = tools.find("web_search");

@@ -1,4 +1,6 @@
 usr/include/amber-agent
 usr/lib/*/libagent_core.a
 usr/lib/*/libagent_tools.a
+usr/lib/*/libagent_plugins.a
 usr/lib/*/pkgconfig/amber-agent.pc
+usr/lib/*/pkgconfig/amber-agent-core.pc

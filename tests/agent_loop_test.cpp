@@ -3973,7 +3973,7 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     agent::Workspace ws;
     agent::PluginRuntime runtime(reg, cfg, ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
@@ -4055,7 +4055,7 @@ TEST(agent_runs_a_turn_with_the_skill_plugin_disabled) {
     agent::Workspace ws;
     agent::PluginRuntime runtime(reg, cfg, ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     // apply_state, not set_state: a test must not write the developer's

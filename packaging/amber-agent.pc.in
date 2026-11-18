@@ -4,12 +4,11 @@ libdir=@LIBDIR@
 includedir=@INCLUDEDIR@
 
 Name: amber-agent
-Description: C++17 AI agent harness core: LLM client, agent loop, tool registry
+Description: C++17 AI agent harness: LLM client, agent loop, tool registry and bundled plugins
 URL: https://github.com/jtrefon/amber
 Version: @PC_VERSION@
-# The core archive references the tool factories and the tools archive
-# references core, so the pair is listed twice to close the cycle under a
-# single-pass linker.
-Libs: -L${libdir} -lagent_core -lagent_tools -lagent_core -lagent_tools
+# The bundled set comes first, then the archive pair it depends on. The pair is
+# listed twice to close the core/tools cycle under a single-pass linker.
+Libs: -L${libdir} -lagent_plugins -lagent_tools -lagent_core -lagent_tools -lagent_core
 Libs.private: @PC_CURL_LIBS@
 Cflags: -I${includedir}
