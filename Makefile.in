@@ -1183,6 +1183,13 @@ check-compilers:
 	@$(MAKE) --no-print-directory -j4 WERROR=1 CXX=g++
 	@$(MAKE) --no-print-directory clean
 	@$(MAKE) --no-print-directory -j4 WERROR=1 CXX=clang++
+	@gxx_id="$$(g++ --version 2>/dev/null | head -n 1)"; \
+	 clang_id="$$(clang++ --version 2>/dev/null | head -n 1)"; \
+	 if [ -n "$$gxx_id" ] && [ "$$gxx_id" = "$$clang_id" ]; then \
+	   echo "check-compilers: note: g++ and clang++ both report $$gxx_id;"; \
+	   echo "                  this host cannot reproduce CI's two-compiler split."; \
+	   echo "                  Run make verify-container for the Linux matrix."; \
+	 fi
 	@echo "check-compilers: g++ and clang++ build clean with WERROR=1"
 
 # The local pre-push run: every deterministic CI gate this host can reproduce,
