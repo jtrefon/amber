@@ -158,7 +158,7 @@ void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& pay
                const char* debug_tag) {
     auto& governor = RateGovernorRegistry::global().for_config(cfg);
     const long token_cost = governed_token_cost(cfg, payload);
-    if (!governor.acquire(token_cost, cfg.cancel_token))
+    if (!governor.acquire(token_cost, cfg.cancel_token, current_request_class()))
         throw CancelledError("cancelled while waiting for the provider rate limit");
 
     auto c = make_curl();

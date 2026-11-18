@@ -12,6 +12,12 @@ namespace agent {
 
 namespace {
 
+// The class a caller asked for, and the class it was admitted under (aging can
+// promote a Background waiter). Both are thread-local because one request per
+// thread is the model: acquire() and on_response() run on the same thread.
+thread_local RequestClass t_request_class = RequestClass::Interactive;
+thread_local RequestClass t_admitted_class = RequestClass::Interactive;
+
 std::string trimmed(const std::string& value) {
     const auto begin = value.find_first_not_of(" \t\r\n");
     if (begin == std::string::npos)
@@ -39,6 +45,18 @@ long to_long(const std::string& value) {
 }
 
 } // namespace
+
+RequestClass current_request_class() noexcept {
+    return t_request_class;
+}
+
+ScopedRequestClass::ScopedRequestClass(RequestClass cls) noexcept : previous_(t_request_class) {
+    t_request_class = cls;
+}
+
+ScopedRequestClass::~ScopedRequestClass() {
+    t_request_class = previous_;
+}
 
 long parse_retry_after_ms(const std::string& value) {
     const std::string text = trimmed(value);
@@ -369,18 +387,60 @@ RateStatus RateGovernor::status(RateClock::time_point now) const {
     return out;
 }
 
-bool ProviderGovernor::acquire(long tokens, const CancellationToken& token) {
+bool ProviderGovernor::class_admissible(RequestClass cls) const noexcept {
+    switch (cls) {
+    case RequestClass::Interactive:
+        return true;
+    case RequestClass::Foreground:
+        return waiting_[class_index(RequestClass::Interactive)] == 0 &&
+               in_flight_[class_index(RequestClass::Interactive)] == 0;
+    case RequestClass::Background:
+        return waiting_[class_index(RequestClass::Interactive)] == 0 &&
+               in_flight_[class_index(RequestClass::Interactive)] == 0 &&
+               waiting_[class_index(RequestClass::Foreground)] == 0 &&
+               in_flight_[class_index(RequestClass::Foreground)] == 0;
+    }
+    return true;
+}
+
+bool ProviderGovernor::acquire(long tokens, const CancellationToken& token, RequestClass cls) {
     std::unique_lock lock(mutex_);
+    const auto entered = RateClock::now();
+    ++waiting_[class_index(cls)];
     for (;;) {
-        if (token.is_requested())
+        if (token.is_requested()) {
+            --waiting_[class_index(cls)];
+            // A cancelled higher-class waiter may have been the only thing
+            // blocking a lower one.
+            cv_.notify_all();
             return false;
+        }
         const auto now = RateClock::now();
+        const bool aged = cls == RequestClass::Background && now - entered >= background_aging_;
+        const RequestClass admission = aged ? RequestClass::Foreground : cls;
         const auto wait = governor_.wait_before(now, tokens);
-        if (wait.count() == 0) {
+        if (wait.count() == 0 && class_admissible(admission)) {
+            --waiting_[class_index(cls)];
             governor_.on_start(now);
+            ++in_flight_[class_index(admission)];
+            t_admitted_class = admission;
             return true;
         }
-        cv_.wait_for(lock, std::min(wait, std::chrono::milliseconds(200)));
+        auto sleep = wait;
+        if (cls == RequestClass::Background && !aged) {
+            // Wake at the aging bound even when nothing else moves, so a quiet
+            // provider promotes the waiter without a notification to trigger it.
+            const auto until_aged = std::chrono::duration_cast<std::chrono::milliseconds>(
+                entered + background_aging_ - now);
+            if (sleep.count() == 0 || until_aged < sleep)
+                sleep = until_aged;
+        }
+        if (sleep.count() <= 0)
+            sleep = std::chrono::milliseconds(1);
+        // The 200 ms cap is the existing safety wake for a token with no
+        // condition variable; a class-blocked waiter is woken by notify_all.
+        cv_.wait_for(lock, std::min(sleep, std::chrono::milliseconds(200)),
+                     [&] { return token.is_requested(); });
     }
 }
 
@@ -388,6 +448,10 @@ void ProviderGovernor::on_response(long status, long retry_after_ms, const RateH
                                    long tokens) {
     std::scoped_lock lock(mutex_);
     const auto now = RateClock::now();
+    const std::size_t admitted = class_index(t_admitted_class);
+    if (in_flight_[admitted] > 0)
+        --in_flight_[admitted];
+    t_admitted_class = RequestClass::Interactive;
     if (status == 429 || status == 529) {
         auto jitter = std::chrono::milliseconds(0);
         if (retry_after_ms <= 0) {
@@ -412,7 +476,14 @@ std::chrono::milliseconds ProviderGovernor::retry_wait() const {
 
 RateStatus ProviderGovernor::status() const {
     std::scoped_lock lock(mutex_);
-    return governor_.status(RateClock::now());
+    RateStatus out = governor_.status(RateClock::now());
+    out.waiting_interactive = waiting_[class_index(RequestClass::Interactive)];
+    out.waiting_foreground = waiting_[class_index(RequestClass::Foreground)];
+    out.waiting_background = waiting_[class_index(RequestClass::Background)];
+    out.in_flight_interactive = in_flight_[class_index(RequestClass::Interactive)];
+    out.in_flight_foreground = in_flight_[class_index(RequestClass::Foreground)];
+    out.in_flight_background = in_flight_[class_index(RequestClass::Background)];
+    return out;
 }
 
 void ProviderGovernor::set_manual(std::chrono::milliseconds interval, int concurrency,
@@ -425,6 +496,12 @@ void ProviderGovernor::set_manual(std::chrono::milliseconds interval, int concur
 void ProviderGovernor::clear_manual() {
     std::scoped_lock lock(mutex_);
     governor_.clear_manual();
+    cv_.notify_all();
+}
+
+void ProviderGovernor::set_background_aging(std::chrono::milliseconds bound) {
+    std::scoped_lock lock(mutex_);
+    background_aging_ = bound > std::chrono::milliseconds(0) ? bound : std::chrono::milliseconds(1);
     cv_.notify_all();
 }
 

@@ -3,6 +3,7 @@
 // until rejected, a one-off Retry-After pause, AIMD only for sustained
 // rejection, fast recovery, provider isolation and published-limit budgets.
 
+#include "agent/model_probe.h"
 #include "agent/rate_governor.h"
 #include "tests/test_util.h"
 
@@ -183,6 +184,23 @@ bool wait_until(const std::function<bool()>& predicate,
     return predicate();
 }
 
+// A failed assertion throws out of the test body; a joinable std::thread would
+// then call std::terminate before the harness can report the failure. Joining
+// in a destructor keeps the failure visible.
+class ThreadJoiner {
+public:
+    explicit ThreadJoiner(std::thread& thread) : thread_(thread) {}
+    ~ThreadJoiner() {
+        if (thread_.joinable())
+            thread_.join();
+    }
+    ThreadJoiner(const ThreadJoiner&) = delete;
+    ThreadJoiner& operator=(const ThreadJoiner&) = delete;
+
+private:
+    std::thread& thread_;
+};
+
 int waiting_for(const agent::RateStatus& status, RequestClass cls) {
     switch (cls) {
     case RequestClass::Interactive:
@@ -259,6 +277,7 @@ TEST(governor_interactive_precedes_background) {
         if (ok)
             g.on_response(200, 0, {}, 1);
     });
+    ThreadJoiner join_background(background);
     ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
 
     std::thread interactive([&] {
@@ -269,17 +288,14 @@ TEST(governor_interactive_precedes_background) {
         if (ok)
             g.on_response(200, 0, {}, 1);
     });
+    ThreadJoiner join_interactive(interactive);
     ASSERT(wait_until([&] { return g.status().waiting_interactive == 1; }));
 
     g.on_response(200, 0, {}, 1); // release the held request
     ASSERT(wait_until([&] { return interactive_done.load(); }));
-    ASSERT_EQ(interactive_order.load(), 1);
-    ASSERT_FALSE(background_done.load()); // the interactive waiter holds the slot
-
     ASSERT(wait_until([&] { return background_done.load(); }));
+    ASSERT_EQ(interactive_order.load(), 1);
     ASSERT_EQ(background_order.load(), 2);
-    background.join();
-    interactive.join();
 }
 
 // An in-flight request is never preempted; a background caller waits for the
@@ -298,12 +314,12 @@ TEST(governor_background_does_not_preempt_inflight) {
         if (ok)
             g.on_response(200, 0, {}, 1);
     });
+    ThreadJoiner join_background(background);
     ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
     ASSERT_FALSE(wait_until([&] { return done.load(); }, 25ms));
 
     g.on_response(200, 0, {}, 1);
     ASSERT(wait_until([&] { return done.load(); }));
-    background.join();
 }
 
 // A background waiter that has waited past the aging bound is promoted to
@@ -324,12 +340,12 @@ TEST(governor_background_ages_into_foreground) {
         if (ok)
             g.on_response(200, 0, {}, 1);
     });
+    ThreadJoiner join_background(background);
     ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
     ASSERT_FALSE(wait_until([&] { return done.load(); }, 15ms)); // not promoted yet
     ASSERT(wait_until([&] { return done.load(); }));             // the aging bound admits it
 
     g.on_response(200, 0, {}, 1);
-    background.join();
 }
 
 // A 429 is provider-wide: the pause a background request learned blocks the
@@ -389,11 +405,11 @@ TEST(governor_cancel_wakes_every_class) {
             admitted = g.acquire(1, cancel, cls);
             done = true;
         });
+        ThreadJoiner join_waiter(waiter);
         ASSERT(wait_until([&] { return waiting_for(g.status(), cls) == 1; }));
         cancel.request();
         ASSERT(wait_until([&] { return done.load(); }));
         ASSERT_FALSE(admitted.load());
-        waiter.join();
         g.on_response(200, 0, {}, 1);
     }
 }
@@ -415,18 +431,21 @@ TEST(governor_status_reports_waiters_by_class) {
             g.on_response(200, 0, {}, 1);
         interactive_done = true;
     });
+    ThreadJoiner join_interactive(interactive);
     std::thread foreground([&] {
         agent::CancellationToken token;
         if (g.acquire(1, token, RequestClass::Foreground))
             g.on_response(200, 0, {}, 1);
         foreground_done = true;
     });
+    ThreadJoiner join_foreground(foreground);
     std::thread background([&] {
         agent::CancellationToken token;
         if (g.acquire(1, token, RequestClass::Background))
             g.on_response(200, 0, {}, 1);
         background_done = true;
     });
+    ThreadJoiner join_background(background);
 
     ASSERT(wait_until([&] {
         const auto status = g.status();
@@ -438,7 +457,93 @@ TEST(governor_status_reports_waiters_by_class) {
     ASSERT(wait_until([&] {
         return interactive_done.load() && foreground_done.load() && background_done.load();
     }));
-    interactive.join();
-    foreground.join();
-    background.join();
+}
+
+// The model catalogue is a governed Foreground request: a pause the provider
+// taught a chat also holds the listing back. Port 1 refuses immediately, so
+// the elapsed time is the governor's wait, not a network timeout.
+TEST(model_catalog_request_shares_the_provider_pause) {
+    agent::Config cfg;
+    cfg.provider_name = "catalog-pause-test";
+    cfg.api_base = "http://127.0.0.1:1/v1";
+    cfg.flavor = "openai";
+    auto& governor = agent::RateGovernorRegistry::global().for_config(cfg);
+    governor.on_response(429, 40, {}, 0);
+
+    const auto begin = RateClock::now();
+    const auto result = agent::models_get(cfg, /*want_body=*/true);
+    const auto waited =
+        std::chrono::duration_cast<std::chrono::milliseconds>(RateClock::now() - begin);
+    ASSERT(waited.count() >= 30);
+    ASSERT_FALSE(result.transport_ok);
+}
+
+// A cancelled catalogue request returns before the GET; the governor did not
+// admit it, so there is nothing to report back.
+TEST(model_catalog_request_cancels_before_the_get) {
+    agent::Config cfg;
+    cfg.provider_name = "catalog-cancel-test";
+    cfg.api_base = "http://127.0.0.1:1/v1";
+    cfg.flavor = "openai";
+    cfg.cancel_token.request();
+    const auto result = agent::models_get(cfg, /*want_body=*/false);
+    ASSERT_FALSE(result.transport_ok);
+    ASSERT(result.body.empty());
+}
+
+// A Foreground request blocks on an interactive request that is already in
+// flight, even though the class has no interactive *waiter*.
+TEST(governor_foreground_waits_for_an_inflight_interactive) {
+    ProviderGovernor g;
+    g.set_manual(0ms, 2, 0, 60s);
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Interactive));
+
+    std::atomic<bool> done{false};
+    std::thread foreground([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Foreground);
+        done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ThreadJoiner join_foreground(foreground);
+    ASSERT(wait_until([&] { return g.status().waiting_foreground == 1; }));
+    ASSERT_FALSE(wait_until([&] { return done.load(); }, 25ms));
+
+    g.on_response(200, 0, {}, 1);
+    ASSERT(wait_until([&] { return done.load(); }));
+}
+
+// A Background request blocks on a Foreground request that is already in
+// flight, not only on one that is waiting.
+TEST(governor_background_waits_for_an_inflight_foreground) {
+    ProviderGovernor g;
+    g.set_manual(0ms, 2, 0, 60s);
+    agent::CancellationToken held;
+    ASSERT(g.acquire(1, held, RequestClass::Foreground));
+
+    std::atomic<bool> done{false};
+    std::thread background([&] {
+        agent::CancellationToken token;
+        const bool ok = g.acquire(1, token, RequestClass::Background);
+        done = true;
+        if (ok)
+            g.on_response(200, 0, {}, 1);
+    });
+    ThreadJoiner join_background(background);
+    ASSERT(wait_until([&] { return g.status().waiting_background == 1; }));
+    ASSERT_FALSE(wait_until([&] { return done.load(); }, 25ms));
+
+    g.on_response(200, 0, {}, 1);
+    ASSERT(wait_until([&] { return done.load(); }));
+}
+
+// A zero aging bound is clamped to a positive quantum, not a busy spin.
+TEST(governor_aging_bound_has_a_floor) {
+    ProviderGovernor g;
+    g.set_background_aging(0ms);
+    agent::CancellationToken token;
+    ASSERT(g.acquire(1, token, RequestClass::Background));
+    g.on_response(200, 0, {}, 1);
 }
