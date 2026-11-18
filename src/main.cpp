@@ -848,21 +848,6 @@ void restore_cli_tasks(CliHost& host, agent::TaskStore& store, agent::TaskInbox&
 
 // One headless run: the agent gets the plugin runtime's events and prompt
 // registry, streams its reply to stdout, and reports failure as an exit code.
-std::unique_ptr<agent::Agent> make_cli_agent(agent::Config& cfg, CliHost& host,
-                                             const agent::AgentHooks& hooks,
-                                             agent::TaskInbox* inbox, agent::AgentDeps deps) {
-    auto agent = std::make_unique<agent::Agent>(cfg, host.registry, hooks, std::move(deps));
-    // The user's own XDG state root: the workspace chooses where its policy
-    // lives, and the file name is fixed under it.
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection]
-    agent->policy().init(agent::Workspace::policy_path());
-    agent->set_shape_queue(&host.shapes);
-    agent->set_events(host.plugin_runtime.events());
-    agent->set_prompt_registry(host.plugin_runtime.prompts());
-    agent->set_inbox(inbox);
-    return agent;
-}
-
 // Bind the run to its conversation id: a fresh one per process unless the
 // host named a saved session to continue.
 bool prepare_cli_agent(agent::Agent& agent, const CliArgs& args, std::string& err) {
@@ -897,6 +882,33 @@ bool run_prompts(agent::IAgent& agent, CliHost& host, const std::vector<std::str
     return false;
 }
 
+agent::AgentDeps take_cli_deps(CliHost& host) {
+    agent::AgentDeps deps;
+    deps.compressor = std::move(host.compressor);
+    deps.gate = std::move(host.gate);
+    deps.memory_store = std::move(host.mem_store);
+    deps.retriever = std::move(host.retriever);
+    return deps;
+}
+
+int finish_cli_run(CliHost& host, agent::Config& cfg, agent::Agent& agent, agent::TaskInbox& inbox,
+                   const CliArgs& args, bool cancelled) {
+    // A cancelled turn skips the task join: the user asked to stop, and a
+    // completion that arrives after cancellation must not start another.
+    const int rc = cancelled ? 130 : finish_tasks(cfg, host, agent, inbox, args.wait_tasks_s);
+    if (!args.session.empty())
+        save_session(agent, args.session, cfg);
+    g_cancel_flag = nullptr;
+    // Join the watch workers before the inventory they finish into is
+    // destroyed: the runtime is declared before TaskService, so its destructor
+    // would otherwise run after it.
+    host.plugin_runtime.shutdown();
+    host.tasks.shutdown();
+    if (cancelled)
+        std::cerr << "cancelled\n";
+    return rc;
+}
+
 int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& hooks,
                    const std::vector<std::string>& prompts, const CliArgs& args,
                    RunTelemetry* telemetry) {
@@ -908,35 +920,22 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
     agent::TaskInbox inbox(host.plugin_runtime.events(), host.tasks);
     restore_cli_tasks(host, store, inbox);
     try {
-        agent::AgentDeps deps;
-        deps.compressor = std::move(host.compressor);
-        deps.gate = std::move(host.gate);
-        deps.memory_store = std::move(host.mem_store);
-        deps.retriever = std::move(host.retriever);
-        auto agent = make_cli_agent(cfg, host, hooks, &inbox, std::move(deps));
+        agent::Agent agent(cfg, host.registry, hooks, take_cli_deps(host));
+        agent.policy().init(agent::Workspace::policy_path());
+        agent.set_shape_queue(&host.shapes);
+        agent.set_events(host.plugin_runtime.events());
+        agent.set_prompt_registry(host.plugin_runtime.prompts());
+        agent.set_inbox(&inbox);
         std::string session_err;
-        if (!prepare_cli_agent(*agent, args, session_err)) {
+        if (!prepare_cli_agent(agent, args, session_err)) {
             std::cerr << "error: " << session_err << "\n";
             host.plugin_runtime.shutdown();
             host.tasks.shutdown();
             return 1;
         }
         install_cancel_handlers(cfg);
-        const bool cancelled = run_prompts(*agent, host, prompts, cfg, telemetry);
-        // A cancelled turn skips the task join: the user asked to stop, and a
-        // completion that arrives after cancellation must not start another.
-        const int rc = cancelled ? 130 : finish_tasks(cfg, host, *agent, inbox, args.wait_tasks_s);
-        if (!args.session.empty())
-            save_session(*agent, args.session, cfg);
-        g_cancel_flag = nullptr;
-        // Join the watch workers before the inventory they finish into is
-        // destroyed: the runtime is declared before TaskService, so its
-        // destructor would otherwise run after it.
-        host.plugin_runtime.shutdown();
-        host.tasks.shutdown();
-        if (cancelled)
-            std::cerr << "cancelled\n";
-        return rc;
+        const bool cancelled = run_prompts(agent, host, prompts, cfg, telemetry);
+        return finish_cli_run(host, cfg, agent, inbox, args, cancelled);
     } catch (const std::exception& e) {
         host.plugin_runtime.shutdown();
         host.tasks.shutdown();
