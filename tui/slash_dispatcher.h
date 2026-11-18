@@ -12,6 +12,7 @@
 #include <agent/worktree.h>
 
 #include "action_registry.h"
+#include "checkpoint_commands.h"
 #include "command_line.h"
 #include "input_state.h"
 #include "palette.h"
@@ -48,8 +49,7 @@ public:
     void build_commands();
     const palette::Command* find_command(const std::string& name);
     bool handle_slash(const std::string& line);
-    void register_action(const std::string& action,
-                         std::function<void(const std::string&)> handler);
+    void register_action(const std::string& action, std::function<void(const std::string&)> fn);
     // The menu runs the same action IDs as the slash commands and the feeds.
     // A keybinding action runs through the same registry; the input context is
     // set only for the duration of the call so ui.* handlers can reach it.
@@ -271,6 +271,7 @@ private:
     void add_compression_settings();
 
     Tui& tui_;
+    CheckpointCommands checkpoints_;
     std::vector<palette::Command> commands_;
     tui::ActionRegistry action_registry_;
     std::vector<agent::ModelInfo> model_info_;

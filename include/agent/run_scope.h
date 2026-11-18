@@ -32,6 +32,11 @@ struct RunScope {
     // start work outliving the turn (a watch) store it so a completion can be
     // routed to the window that asked for it. Null outside a host session.
     const std::string* owner_id = nullptr;
+    // The provider conversation id, which is also the checkpoint session id:
+    // the window's owner id in the TUI and the --session name in the CLI. Kept
+    // separate from owner_id because a host may route work by a broader
+    // identity than the conversation.
+    const std::string* session_id = nullptr;
 };
 
 // The active scope for a thread, flattened into a value: the leaf frame plus
@@ -48,7 +53,7 @@ struct RunScopeChain {
     bool empty() const noexcept {
         return cancel_chain.empty() && leaf.skills == nullptr && leaf.activated == nullptr &&
                leaf.project_root == nullptr && leaf.workspace_root == nullptr &&
-               leaf.owner_id == nullptr;
+               leaf.owner_id == nullptr && leaf.session_id == nullptr;
     }
 };
 
@@ -78,6 +83,16 @@ inline std::string run_owner_id() {
     return "default";
 }
 
+// The checkpoint session the running tool answers for: the conversation id
+// when the host installed one, else the owner id. "default" keeps a bare host
+// usable, with one local history.
+inline std::string run_session_id() {
+    const RunScopeChain* s = t_run_scope;
+    if (s && s->leaf.session_id && !s->leaf.session_id->empty())
+        return *s->leaf.session_id;
+    return run_owner_id();
+}
+
 // Snapshot the calling thread's chain. Empty when no scope is installed.
 inline RunScopeChain capture_run_scope() {
     return t_run_scope ? *t_run_scope : RunScopeChain{};
@@ -97,6 +112,8 @@ public:
         // owner it inherited; only the host installs the identity.
         if (!owned_.leaf.owner_id && prev_)
             owned_.leaf.owner_id = prev_->leaf.owner_id;
+        if (!owned_.leaf.session_id && prev_)
+            owned_.leaf.session_id = prev_->leaf.session_id;
         if (!owned_.leaf.project_root && prev_)
             owned_.leaf.project_root = prev_->leaf.project_root;
         if (prev_)

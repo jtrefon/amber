@@ -23,6 +23,7 @@
 #include "key_binder.h"
 
 #include <agent.h>
+#include <agent/checkpoint_turn.h>
 #include <agent/compressor.h>
 #include <agent/experience.h>
 #include <agent/tools.h>
@@ -468,6 +469,7 @@ void Tui::send_async_to(Window& w, const std::string& raw_prompt, bool harness) 
     // The worker captures its RunSlot* — slot addresses are stable, and the
     // busy-flag write must not re-enter the registry map (erase() joins
     // under the map lock, so a map lookup from the worker would deadlock).
+    slot->display_prompt = raw_prompt;
     slot->thread = std::thread(
         [this, my_win, my_id, slot, prompt] { agent_worker(*my_win, my_id, slot, prompt); });
 }
@@ -614,36 +616,60 @@ void Tui::cancel_all_runs() {
     }
 }
 
+namespace {
+
+void report_worker_failure(Window& window, EventRouter& router, size_t window_id,
+                           const std::string& error) {
+    // A failure that escaped run() never reached a recovery path inside the
+    // agent, so this is the only place that can record it: without it the turn
+    // dies with a transient status line and nothing on disk.
+    if (window.agent)
+        window.agent->log().event("error", {{"reason", "uncaught"}, {"error", error}});
+    AgentEvent ev;
+    ev.type = AgentEvent::Error;
+    ev.window_id = window_id;
+    ev.error_msg = error;
+    router.push(std::move(ev));
+}
+
+agent::CheckpointTurn make_window_checkpoint(Window& window, EventRouter& router,
+                                             size_t window_id) {
+    const std::string root =
+        window.root.empty()
+            ? (window.project_root.empty() ? agent::Workspace::project_root() : window.project_root)
+            : window.root;
+    auto report = [&router, window_id](const std::string& line) {
+        AgentEvent ev;
+        ev.type = AgentEvent::Status;
+        ev.window_id = window_id;
+        ev.text = line;
+        router.push(std::move(ev));
+    };
+    return {root, window.owner_id, std::move(report)};
+}
+
+} // namespace
+
 void Tui::agent_worker(Window& my_win, size_t window_id, RunSlot* slot, const std::string& prompt) {
     agent::AgentHooks hooks = router_->make_hooks(window_id, slot->cancel);
+    agent::CheckpointTurn checkpoints = make_window_checkpoint(my_win, *router_, window_id);
+    checkpoints.before();
+    bool ran = false;
 
     try {
         if (!slot->cancel.load()) {
+            ran = true;
             my_win.agent->set_hooks(hooks);
             my_win.agent->run(prompt);
             my_win.dirty = true;
         }
     } catch (const std::exception& e) {
-        // A failure that escaped run() never reached a recovery path inside the
-        // agent, so this is the only place that can record it: without it the
-        // turn dies with a transient status line and nothing on disk.
-        if (my_win.agent)
-            my_win.agent->log().event("error", {{"reason", "uncaught"}, {"error", e.what()}});
-        AgentEvent ev;
-        ev.type = AgentEvent::Error;
-        ev.window_id = window_id;
-        ev.error_msg = e.what();
-        router_->push(std::move(ev));
+        report_worker_failure(my_win, *router_, window_id, e.what());
     } catch (...) {
-        if (my_win.agent)
-            my_win.agent->log().event("error", {{"reason", "uncaught"},
-                                                {"error", "agent thread terminated unexpectedly"}});
-        AgentEvent ev;
-        ev.type = AgentEvent::Error;
-        ev.window_id = window_id;
-        ev.error_msg = "agent thread terminated unexpectedly";
-        router_->push(std::move(ev));
+        report_worker_failure(my_win, *router_, window_id, "agent thread terminated unexpectedly");
     }
+    if (ran)
+        checkpoints.after(slot->display_prompt);
 
     AgentEvent done;
     done.type = AgentEvent::Done;
@@ -1497,9 +1523,8 @@ bool Tui::handle_slash(const std::string& line) {
     agent::ScopedProjectRoot project_guard(win().project_root);
     return slash_dispatcher_->handle_slash(line);
 }
-void Tui::register_action(const std::string& action,
-                          std::function<void(const std::string&)> handler) {
-    slash_dispatcher_->register_action(action, std::move(handler));
+void Tui::register_action(const std::string& action, std::function<void(const std::string&)> fn) {
+    slash_dispatcher_->register_action(action, std::move(fn));
 }
 bool Tui::busy_reject(const std::string& what) {
     return slash_dispatcher_->busy_reject(what);

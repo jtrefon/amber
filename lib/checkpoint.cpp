@@ -1,5 +1,6 @@
 #include "agent/checkpoint.h"
 
+#include "agent/config.h"
 #include "agent/git_exec.h"
 #include "agent/workspace.h"
 
@@ -65,6 +66,36 @@ std::vector<std::string> split_nul(const std::string& text) {
         start = end + 1;
     }
     return out;
+}
+
+// Paths `git add` must not see: the harness's own state and cache roots when
+// someone placed them inside the project. Without this, the shadow repo stages
+// its own index and object store (and a test fixture's XDG roots) as project
+// content — in one pty run that was 64k files and a full tmpfs.
+std::vector<std::string> excluded_paths(const std::string& root) {
+    std::vector<std::string> out;
+    const auto add = [&](const std::string& path) {
+        std::error_code ec;
+        const fs::path rel = fs::relative(path, root, ec);
+        if (ec || rel.empty() || rel == ".")
+            return;
+        const auto first = rel.begin();
+        if (first != rel.end() && *first == fs::path(".."))
+            return;
+        out.push_back(rel.generic_string());
+    };
+    add(Workspace::state_dir_for(root));
+    add(cache_dir());
+    return out;
+}
+
+// `git add -A` with the harness-owned roots excluded, so the snapshot is the
+// project and not the harness's own bookkeeping.
+std::vector<std::string> add_args(const std::string& root) {
+    std::vector<std::string> args{"add", "-A", "--", "."};
+    for (const auto& path : excluded_paths(root))
+        args.push_back(":(exclude)" + path);
+    return args;
 }
 
 // A deleted file can leave its parent directories empty. Git does not track
@@ -300,7 +331,7 @@ std::string CheckpointStore::stage_tree() const {
     // real index entry or staged blob is consulted.
     fs::remove(index_path_, ec);
     const auto env = environment();
-    git_checked(root_, {"add", "-A"}, env, "could not stage the working tree");
+    git_checked(root_, add_args(root_), env, "could not stage the working tree");
     return trimmed(git_checked(root_, {"write-tree"}, env, "could not write the checkpoint tree"));
 }
 
@@ -490,7 +521,7 @@ bool CheckpointStore::restore(const Checkpoint& checkpoint, std::string& error) 
         // Stage the current worktree into the private index so the current
         // paths come from git's own ignore rules, and the user's real index is
         // never read. The same index is then replaced by the target tree.
-        git_checked(root_, {"add", "-A"}, env, "could not stage the working tree");
+        git_checked(root_, add_args(root_), env, "could not stage the working tree");
         const auto current = split_nul(
             git_checked(root_, {"ls-files", "-z"}, env, "could not list the working tree"));
 

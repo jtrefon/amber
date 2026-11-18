@@ -12,7 +12,7 @@
 
 namespace tui {
 
-SlashDispatcher::SlashDispatcher(Tui& tui) : LearnSurface(tui), tui_(tui) {}
+SlashDispatcher::SlashDispatcher(Tui& tui) : LearnSurface(tui), tui_(tui), checkpoints_(tui) {}
 
 double SlashDispatcher::compression_threshold_effective() const {
     return agent::load_compression_config(tui_.cfg_).threshold;

@@ -9,7 +9,11 @@
 #include "agent/checkpoint.h"
 #include "agent/checkpoint_service.h"
 #include "agent/checkpoint_turn.h"
+#include "agent/config.h"
 #include "agent/git_exec.h"
+#include "agent/run_scope.h"
+#include "agent/tools.h"
+#include "agent/workspace.h"
 #include "tests/test_util.h"
 
 #include <filesystem>
@@ -805,4 +809,110 @@ TEST(checkpoint_turn_reports_created_snapshots_only) {
     turn.before();
     ASSERT_EQ(lines.size(), 3u);
     ASSERT(lines[2].find("before turn 2") != std::string::npos);
+}
+
+// The agent tool resolves the running window's root and session through the
+// run scope, so the same tool instance serves every window. A restore is
+// approval-gated and records its revert.
+TEST(checkpoint_tool_lists_diffs_and_restores) {
+    agent::test::XdgGuard xdg("checkpoint_tool");
+    TempProject project("tool", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointService service(project.str(), "sess-tool");
+    ASSERT_EQ(service.after_turn("first").kind, agent::CheckpointChangeKind::Created);
+    project.write("a.txt", "two\n");
+    ASSERT_EQ(service.after_turn("second").kind, agent::CheckpointChangeKind::Created);
+
+    const std::string root = project.str();
+    const std::string session = "sess-tool";
+    agent::RunScope scope;
+    scope.workspace_root = &root;
+    scope.session_id = &session;
+    agent::ScopedRunScope guard(scope);
+    const auto tool = agent::make_checkpoint_tool();
+    ASSERT_EQ(tool->name(), std::string("git_checkpoint"));
+    ASSERT_FALSE(tool->is_read_only());
+    ASSERT_FALSE(tool->requires_approval({{"action", "list"}}));
+    ASSERT_TRUE(tool->requires_approval({{"action", "restore"}}));
+
+    const agent::ToolResult listed = tool->execute({{"action", "list"}});
+    ASSERT(listed.ok);
+    ASSERT(listed.output.find("turn 2") != std::string::npos);
+    ASSERT_EQ(listed.meta["count"].get<std::size_t>(), 2u);
+
+    const agent::ToolResult diff = tool->execute({{"action", "diff"}, {"target", "2"}});
+    ASSERT(diff.ok);
+    ASSERT(diff.output.find("-one") != std::string::npos);
+    ASSERT(diff.output.find("+two") != std::string::npos);
+
+    const agent::ToolResult restored = tool->execute({{"action", "restore"}, {"target", "1"}});
+    ASSERT(restored.ok);
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT(restored.meta["revert"].get<std::string>().size() > 0);
+}
+
+TEST(checkpoint_tool_reports_an_empty_history) {
+    agent::test::XdgGuard xdg("checkpoint_tool_empty");
+    TempProject project("tool_empty", /*git=*/true);
+    const std::string root = project.str();
+    const std::string session = "sess-tool-empty";
+    agent::RunScope scope;
+    scope.workspace_root = &root;
+    scope.session_id = &session;
+    agent::ScopedRunScope guard(scope);
+
+    const auto tool = agent::make_checkpoint_tool();
+    const agent::ToolResult listed = tool->execute({{"action", "list"}});
+    ASSERT(listed.ok);
+    ASSERT_EQ(listed.meta["count"].get<std::size_t>(), 0u);
+
+    const agent::ToolResult missing = tool->execute({{"action", "restore"}});
+    ASSERT_FALSE(missing.ok);
+    ASSERT(missing.error.find("missing target") != std::string::npos);
+}
+
+// A state or cache root placed inside the project is harness bookkeeping, not
+// project content. The shadow repo must not stage its own index and object
+// store, and restore must not delete those roots.
+TEST(checkpoint_excludes_state_and_cache_inside_the_project) {
+    agent::test::XdgGuard xdg("checkpoint_own_state");
+    TempProject project("own_state", /*git=*/false);
+    const std::string project_root = project.str();
+    setenv("XDG_STATE_HOME", (project_root + "/state").c_str(), 1);
+    setenv("XDG_CACHE_HOME", (project_root + "/cache").c_str(), 1);
+
+    project.write("a.txt", "one\n");
+    const std::string state = agent::Workspace::state_dir_for(project_root);
+    fs::create_directories(state + "/logs");
+    {
+        std::ofstream out(state + "/logs/turn.jsonl");
+        out << "{}\n";
+    }
+    fs::create_directories(agent::cache_dir());
+    {
+        std::ofstream out(agent::cache_dir() + "/model.json");
+        out << "{}\n";
+    }
+
+    agent::CheckpointStore store(project_root, "sess-own-state");
+    ASSERT(store.shadow());
+    std::string error;
+    const auto base = store.create(0, "base", error);
+    ASSERT(base.has_value());
+    ASSERT_EQ(base->files, 1u);
+
+    const std::string shadow = state + "/checkpoints/sess-own-state.git";
+    const agent::GitResult tree =
+        agent::run_git(shadow, {"ls-tree", "-r", "--name-only", base->id});
+    ASSERT_EQ(tree.status, 0);
+    ASSERT(tree.output.find("a.txt") != std::string::npos);
+    ASSERT(tree.output.find("state/") == std::string::npos);
+    ASSERT(tree.output.find("cache/") == std::string::npos);
+
+    project.write("a.txt", "two\n");
+    ASSERT(store.create(1, "change", error).has_value());
+    ASSERT(store.restore(*base, error));
+    ASSERT_TRUE(fs::exists(state + "/logs/turn.jsonl"));
+    ASSERT_TRUE(fs::exists(agent::cache_dir() + "/model.json"));
 }

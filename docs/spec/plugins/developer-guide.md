@@ -715,7 +715,10 @@ tunable unit, so a user can switch off exactly the tool they want to experiment
 with: `plugins/tool_search/`, `plugins/tool_read/`, `plugins/tool_write/`,
 `plugins/tool_bash/`, `plugins/tool_process/` (the one command spawn tool),
 `plugins/tool_tasks/` (the one inventory: list, status, output, cancel and
-wait), `plugins/tool_context/` (the
+wait), `plugins/tool_checkpoint/` (the `git_checkpoint` tool: list, diff and
+approval-gated restore of amber's per-turn working-tree snapshots; the tool
+resolves the running window's session through the run scope),
+`plugins/tool_context/` (the
 `context` tool, which lets the model name tool results the conversation has
 stopped needing and leaves the plan on the host's shaping queue for the agent
 to apply at its next request boundary), `plugins/tool_plan/`,

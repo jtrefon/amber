@@ -629,6 +629,19 @@ void Agent::rebuild_context(std::vector<Message>& compressed) {
     emit_context_event(context_events_, context_);
 }
 
+RunScope Agent::make_run_scope() {
+    RunScope scope;
+    scope.cancel_token = &cfg_.cancel_token;
+    scope.skills = skills_.get();
+    scope.activated = &activated_skills_;
+    scope.project_root = project_root_.empty() ? nullptr : &project_root_;
+    scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
+    scope.config = &cfg_;
+    scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
+    scope.session_id = cfg_.session_id.empty() ? nullptr : &cfg_.session_id;
+    return scope;
+}
+
 bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult* out,
                             const CompressionRequestPrefix* prefix) {
     // Same scope as a turn: compression may run on its own worker thread,
@@ -638,14 +651,7 @@ bool Agent::run_compression(std::function<void()> progress_cb, CompressionResult
     // top-level agent clears its own between turns.
     if (!in_subagent())
         cfg_.cancel_token.clear();
-    RunScope scope;
-    scope.cancel_token = &cfg_.cancel_token;
-    scope.skills = skills_.get();
-    scope.activated = &activated_skills_;
-    scope.project_root = project_root_.empty() ? nullptr : &project_root_;
-    scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
-    scope.config = &cfg_;
-    scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
+    RunScope scope = make_run_scope();
     ScopedRunScope scope_guard(scope);
 
     // A host that did not hand us the live prefix (manual /compress) can still
@@ -1104,14 +1110,7 @@ std::string Agent::run(const std::string& user_prompt) {
     // Install this agent's run scope so shared tools resolve OUR cancel
     // token, skill catalog, and activation sink — not whichever objects
     // were bound at registration.
-    RunScope scope;
-    scope.cancel_token = &cfg_.cancel_token;
-    scope.skills = skills_.get();
-    scope.activated = &activated_skills_;
-    scope.project_root = project_root_.empty() ? nullptr : &project_root_;
-    scope.workspace_root = workspace_root_.empty() ? nullptr : &workspace_root_;
-    scope.config = &cfg_;
-    scope.owner_id = owner_id_.empty() ? nullptr : &owner_id_;
+    RunScope scope = make_run_scope();
     ScopedRunScope scope_guard(scope);
     open_turn(user_prompt);
 
