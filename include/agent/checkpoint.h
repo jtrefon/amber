@@ -2,12 +2,18 @@
 #define AGENT_CHECKPOINT_H
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 namespace agent {
+
+// A snapshot taken at the start of a turn captures the tree the turn starts
+// from; the post snapshot captures what the turn did. Both may carry the same
+// turn number, so the phase is part of the index.
+enum class CheckpointPhase : std::uint8_t { Post, Pre };
 
 // One per-session snapshot of the working tree.
 struct Checkpoint {
@@ -17,6 +23,8 @@ struct Checkpoint {
     std::string prompt;
     std::size_t files = 0;
     long long timestamp_s = 0;
+    CheckpointPhase phase = CheckpointPhase::Post;
+    bool pre() const noexcept { return phase == CheckpointPhase::Pre; }
 };
 
 // Per-session snapshots stored as commits on `refs/amber/checkpoints/<session>`.
@@ -38,9 +46,11 @@ public:
     // `error` when the tree is identical to the previous checkpoint (a
     // read-only turn); a non-empty `error` means the snapshot could not be
     // taken. Commits are authored as amber, independent of the user's git
-    // identity.
+    // identity. `Pre` is the turn-start snapshot; it may share `turn` with the
+    // post snapshot and is distinguished in the message and by `find()`.
     std::optional<Checkpoint> create(std::size_t turn, const std::string& prompt,
-                                     std::string& error);
+                                     std::string& error,
+                                     CheckpointPhase phase = CheckpointPhase::Post);
 
     // Newest first.
     std::vector<Checkpoint> list(std::string& error) const;
@@ -52,6 +62,12 @@ public:
     // empty tree for the first checkpoint).
     std::string diff(const Checkpoint& checkpoint, std::string& error) const;
 
+    // Put the working tree back to the checkpoint's tree. The user's HEAD and
+    // real index never move; files the checkpoint did not contain are removed
+    // unless they are ignored, which the snapshot never included either.
+    // Returns false, with `error`, when git refuses.
+    bool restore(const Checkpoint& checkpoint, std::string& error) const;
+
     const std::string& ref() const noexcept { return ref_; }
     bool shadow() const noexcept { return shadow_; }
 
@@ -62,8 +78,8 @@ private:
     std::string stage_tree() const;
     bool same_as_parent(const std::string& parent, const std::string& tree) const;
     std::size_t changed_files(const std::string& parent, const std::string& tree) const;
-    std::string commit_message(std::size_t turn, const std::string& prompt,
-                               std::size_t files) const;
+    std::string commit_message(std::size_t turn, const std::string& prompt, std::size_t files,
+                               CheckpointPhase phase) const;
     std::string write_commit(const std::string& tree, const std::string& parent,
                              const std::string& message) const;
     void move_ref(const std::string& id, const std::string& parent) const;

@@ -82,12 +82,80 @@ store reports the git message through the caller's `error` and returns no
 checkpoint. A failure before `update-ref` leaves the previous checkpoint as the
 ref tip; there is no half-written history.
 
+### Turn boundary
+
+`CheckpointService` owns the turn rules above the store:
+
+- `before_turn()` stages the tree and records it only when it differs from the
+  tip. The snapshot takes the tip's turn number and the prompt
+  `before turn N` (or `initial state` when the history is empty), with
+  `Phase: pre`. Edits a person made between turns are part of the state the
+  turn starts from, and the prompt names the upcoming turn.
+- `after_turn(prompt)` records the turn under the tip's turn + 1 with
+  `Phase: post`. A read-only turn writes nothing.
+- A pre and a post snapshot can share a turn number. `find(turn)` prefers the
+  post snapshot (the turn's result); the pre entry is the fallback and is
+  addressed by SHA when both exist.
+
+`CheckpointTurn` is the host adapter: the TUI worker calls it before and after
+`Agent::run`, and the CLI calls it around every prompt (including the
+`--wait-tasks` follow-up). It reports a status line only when a commit was
+written or a git call failed, so a read-only turn stays silent.
+
+### Restore
+
+`CheckpointStore::restore(checkpoint)` writes the checkpoint's tree back
+without moving `HEAD` or the user's real index:
+
+1. stage the current worktree into the private index (this also gives the
+   current non-ignored paths, using git's own ignore rules);
+2. replace that index with the checkpoint tree and write it out with
+   `checkout-index -a -f`;
+3. remove the paths the checkpoint did not contain, and their empty parent
+   directories. Ignored files were never in the snapshot and stay.
+
+`CheckpointService::undo()` restores the checkpoint before the tip (the
+pre-turn snapshot when the host wrote one, otherwise the previous post
+snapshot), then records the restored tree as a new post checkpoint. The
+recorded revert is what makes the undo itself undoable: a second undo restores
+the state before the first. `rollback(selector)` does the same for any turn or
+SHA prefix. A failed restore leaves the tree as it was; a successful restore
+whose revert commit cannot be written reports that separately.
+
+### Commands
+
+The command tree owns the surface. `/session history|undo|rollback|diff` are
+the canonical paths; `/history`, `/undo`, `/rollback` and `/diff` are
+host-granted visible aliases that dispatch through the canonical path.
+
+| Command | Behavior |
+|---|---|
+| `/history` | Newest first: turn or `before turn N`, short SHA, changed files, local time, prompt. |
+| `/diff [turn\|sha]` | The checkpoint's unified diff against its parent; latest when omitted; bounded in the scrollback. |
+| `/undo` | Confirm, restore the checkpoint before the tip, record the revert. Refused while the window's agent is busy. |
+| `/rollback <turn\|sha>` | Confirm, restore that checkpoint, record the revert. Refused while busy. |
+
+### Agent tool
+
+The bundled `tool_checkpoint` plugin contributes `git_checkpoint`:
+
+- `action=list` — the same newest-first rows, plus a structured
+  `checkpoints[]` in `meta`.
+- `action=diff [target=...]` — a bounded unified diff.
+- `action=restore target=...` — approval-gated; restores and records the
+  revert, returning both SHAs.
+
+The tool resolves the running window's workspace root and session through
+`RunScope` (`workspace_root`, `session_id`), so one tool instance serves every
+window and a sub-agent's call belongs to its parent session. The TUI's turn
+snapshot keys the same session (the window's stable `owner_id`), and the CLI
+keys the agent's conversation id.
+
 ### Not in this slice
 
-`/history`, `/undo`, `/rollback`, `/diff`, the TUI turn trigger, the
-`git_checkpoint` agent tool, and restore. Those are the remaining slices of
-#441; the store's `ref()`, `list()`, `find()` and `diff()` are the seam they
-consume.
+A key binding for `/undo`, periodic checkpoint pruning, `/bisect`, and a
+proactive "that turn broke it" hint in the system prompt. The ref namespace
+keeps every turn for now.
 
 ### Tests
 
@@ -95,6 +163,9 @@ consume.
 a non-git project (shadow), two sessions, an ignored file, a read-only turn, the
 user's staged index and `HEAD` staying put, newest-first listing, find by turn
 and SHA, diffs against the parent and the empty tree, an empty project, a
-sanitized session id, prompt escaping and round-trip, and injected git failures
-through a PATH shim (stage, tree write, listing, commit, ref update, diff, and no
-git at all).
+sanitized session id, prompt escaping and round-trip, restore with deletions and
+ignored files, pre/post phase parsing, undo then redo, rollback, the
+service/turn report rules, the agent tool's list/diff/restore and approval
+gate, and injected git failures through a PATH shim (stage, tree write, listing,
+commit, ref update, diff, and no git at all). The pty suite drives the real TUI
+through a file-changing turn, `/history`, `/diff` and a confirmed `/undo`.

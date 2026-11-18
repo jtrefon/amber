@@ -2077,3 +2077,25 @@ int main() {
     std::cout << (failed ? "FAILED" : "ALL PASSED") << " (" << failed << " failures)\n";
     return failed;
 }
+
+// The checkpoint commands are children of /session, with /history, /undo,
+// /rollback and /diff as host-granted visible aliases. The alias and the
+// canonical path must dispatch the same action.
+TEST(test_checkpoint_commands_have_canonical_and_alias_paths) {
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+
+    const std::vector<std::string> verbs{"history", "undo", "rollback", "diff"};
+    for (const auto& verb : verbs) {
+        const auto canonical = reg.resolve_command({"session", verb});
+        ASSERT(canonical.node);
+        ASSERT_EQ(canonical.consumed, 2u);
+        ASSERT_EQ(canonical.node->at("action").get<std::string>(),
+                  std::string("core.session.") + verb);
+
+        const auto alias = reg.resolve_command({verb});
+        ASSERT(alias.node);
+        ASSERT_EQ(alias.consumed, 1u);
+        ASSERT_EQ(alias.node->at("action").get<std::string>(), std::string("core.session.") + verb);
+    }
+}

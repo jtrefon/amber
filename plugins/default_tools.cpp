@@ -8,6 +8,7 @@
 #include "plugins/search_grep/search_grep_plugin.h"
 #include "plugins/search_semantic/search_semantic_plugin.h"
 #include "plugins/tool_bash/tool_bash_plugin.h"
+#include "plugins/tool_checkpoint/tool_checkpoint_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
 #include "plugins/tool_tasks/tool_tasks_plugin.h"
@@ -97,6 +98,7 @@ void register_default_tools(ToolRegistry& reg, JobService& jobs, TodoStore& todo
     install_capabilities(bare, plugins::make_bash_tool_capabilities());
     install_capabilities(bare, plugins::make_process_tool_capabilities());
     install_capabilities(bare, plugins::make_tasks_tool_capabilities());
+    install_capabilities(bare, plugins::make_checkpoint_tool_capabilities());
     install_capabilities(bare, plugins::make_plan_tool_capabilities());
     install_capabilities(bare, plugins::make_delegate_tool_capabilities());
     install_capabilities(bare, plugins::make_skill_tool_capabilities());
