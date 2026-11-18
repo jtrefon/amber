@@ -852,9 +852,9 @@ std::unique_ptr<agent::Agent> make_cli_agent(agent::Config& cfg, CliHost& host,
                                              const agent::AgentHooks& hooks,
                                              agent::TaskInbox* inbox, agent::AgentDeps deps) {
     auto agent = std::make_unique<agent::Agent>(cfg, host.registry, hooks, std::move(deps));
-    // codeql[cpp/path-injection] lgtm[cpp/path-injection] — the user's own XDG
-    // state root: the workspace chooses where its policy lives, and the file
-    // name is fixed under it.
+    // The user's own XDG state root: the workspace chooses where its policy
+    // lives, and the file name is fixed under it.
+    // codeql[cpp/path-injection] lgtm[cpp/path-injection]
     agent->policy().init(agent::Workspace::policy_path());
     agent->set_shape_queue(&host.shapes);
     agent->set_events(host.plugin_runtime.events());
