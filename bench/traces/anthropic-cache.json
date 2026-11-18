@@ -21,5 +21,7 @@
         "body": "{\"id\":\"msg_trace_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"a short deliberation\"},{\"type\":\"text\",\"text\":\"done\"}],\"usage\":{\"input_tokens\":200,\"output_tokens\":5,\"cache_read_input_tokens\":800,\"cache_creation_input_tokens\":200}}"
       }
     }
-  ]
+  ],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
 }

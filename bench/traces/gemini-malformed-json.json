@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "provider": "gemini",
+  "dialect": "gemini",
+  "model": "gemini-test",
+  "description": "gemini malformed json",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "gemini-malformed-json",
+      "match": {
+        "path": "/v1beta/models/gemini-test:generateContent",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/plain",
+        "body": "{\"candidates\":[{\"content\":"
+      }
+    }
+  ]
+}

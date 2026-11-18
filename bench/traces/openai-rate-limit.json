@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "openai rate limit",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "openai-rate-limit",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 429,
+        "content_type": "application/json",
+        "body": "{\"error\": {\"message\": \"Rate limit reached for requests\", \"type\": \"requests\", \"param\": null, \"code\": \"rate_limit_exceeded\"}}"
+      }
+    }
+  ]
+}

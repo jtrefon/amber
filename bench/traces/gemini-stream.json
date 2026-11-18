@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "provider": "gemini",
+  "dialect": "gemini",
+  "model": "gemini-test",
+  "description": "gemini stream",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "gemini-stream",
+      "match": {
+        "path": "/v1beta/models/gemini-test:streamGenerateContent",
+        "stream": true,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "text/event-stream",
+        "body": "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"do\"}]},\"index\":0}]}\n\ndata: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"ne\"}]},\"finishReason\":\"STOP\",\"index\":0}],\"usageMetadata\":{\"promptTokenCount\":30,\"candidatesTokenCount\":2,\"totalTokenCount\":32}}\n\n"
+      }
+    }
+  ]
+}

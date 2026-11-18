@@ -40,6 +40,19 @@ struct Trace {
     int schema = 0;
     std::string provider;
     std::string dialect = "openai";
+    std::string description;
+    // The model whose path the exchange was captured against. Path-based
+    // dialects (Gemini puts the model in the URL) need it to rebuild the
+    // request; for OpenAI and Anthropic it is informational.
+    std::string model;
+    // Where the bytes came from (captured live, authored from docs, ...). Every
+    // committed fixture names its origin, so a reader never mistakes a trimmed
+    // example for a captured recording.
+    std::string source;
+    // What the recorder did before writing: "clean" (scanned, nothing found) or
+    // "redacted" (a credential-like value was removed). A trace with any other
+    // value is rejected rather than replayed with a secret still in it.
+    std::string redaction;
     std::vector<TraceExchange> exchanges;
 };
 

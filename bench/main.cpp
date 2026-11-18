@@ -38,6 +38,7 @@ void print_command_help() {
         << "  list                        list available scenarios\n"
         << "  run                         run scenarios (hermetic fake LLM by default)\n"
         << "  validate-template <scenario> prove a coding template's hidden tests pass\n"
+        << "  record [options]            record one live scenario's exchanges into --trace-out\n"
         << "  report <results.json>...     re-render stored JSON report(s);\n"
         << "                               multiple files render a model comparison\n"
         << "  delta <a.json> <b.json>      win/lose/stagnate per-scenario KPI delta\n"
@@ -65,6 +66,11 @@ void print_option_help() {
               << "  --policy-matrix  run every named policy-zoo member\n"
               << "  --trace FILE     replay recorded provider exchanges through the real client\n"
               << "  --trace-mode M   strict (default) or shape\n"
+              << "  --trace-out FILE record a live run's exchanges (manual; needs --live and one\n"
+              << "                   --scenario)\n"
+              << "  --trace-source S note written into a recorded trace (where it came from)\n"
+              << "  --trace-provider NAME  provider label for a recorded trace\n"
+              << "  --trace-dialect D      openai (default) | anthropic | gemini\n"
               << "  --keep-failures   keep a failed binary journey's workspace + request log\n"
               << "  --temperature T  temperature override (live)\n"
               << "  --repeat N       run each scenario N times\n"
@@ -213,6 +219,10 @@ struct CliOptions {
     bool policy_matrix = false;
     std::string trace;
     std::string trace_mode = "strict";
+    std::string trace_out;
+    std::string trace_source;
+    std::string trace_provider;
+    std::string trace_dialect;
     bool keep_failures = false;
     std::string category;
     std::string disable;
@@ -316,7 +326,40 @@ bool apply_policy_value(const std::string& value, CliOptions& o) {
 }
 
 // 0 = not handled, 1 = handled, 2 = bad value.
+// The trace flags are one family: replay selects an input, record selects an
+// output, and the rest label the output. Keeping them together is also what
+// keeps the generic flag parser under the size cap.
+int parse_trace_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+    if (a == "--trace") {
+        o.trace = next("");
+        return 1;
+    }
+    if (a == "--trace-mode") {
+        o.trace_mode = next("");
+        return 1;
+    }
+    if (a == "--trace-out") {
+        o.trace_out = next("");
+        return 1;
+    }
+    if (a == "--trace-source") {
+        o.trace_source = next("");
+        return 1;
+    }
+    if (a == "--trace-provider") {
+        o.trace_provider = next("");
+        return 1;
+    }
+    if (a == "--trace-dialect") {
+        o.trace_dialect = next("");
+        return 1;
+    }
+    return 0;
+}
+
 int parse_simple_flag(const std::string& a, const NextArg& next, CliOptions& o) {
+    if (const int handled = parse_trace_flag(a, next, o); handled != 0)
+        return handled;
     if (a == "--live") {
         o.live = true;
         return 1;
@@ -325,14 +368,6 @@ int parse_simple_flag(const std::string& a, const NextArg& next, CliOptions& o) 
         return apply_policy_value(next(""), o) ? 1 : 2;
     if (a == "--policy-matrix") {
         o.policy_matrix = true;
-        return 1;
-    }
-    if (a == "--trace") {
-        o.trace = next("");
-        return 1;
-    }
-    if (a == "--trace-mode") {
-        o.trace_mode = next("");
         return 1;
     }
     if (a == "--keep-failures") {
@@ -403,6 +438,10 @@ bench::RunOptions build_run_options(const CliOptions& args) {
     opts.policy_matrix = args.policy_matrix;
     opts.trace_path = args.trace;
     opts.trace_mode = args.trace_mode;
+    opts.trace_out = args.trace_out;
+    opts.trace_source = args.trace_source;
+    opts.trace_provider = args.trace_provider;
+    opts.trace_dialect = args.trace_dialect;
     if (const char* join = std::getenv("AMBER_BENCH_JOIN_MS")) {
         const int ms = std::atoi(join);
         if (ms >= 0)
@@ -502,6 +541,11 @@ int run_model_axis(const CliOptions& args) {
     }
     if (scenarios.empty()) {
         std::cerr << "error: no scenarios match\n";
+        return 1;
+    }
+    if (!opts.trace_out.empty() && scenarios.size() != 1) {
+        std::cerr << "error: --trace-out writes one scenario's exchanges; select exactly one "
+                     "with --scenario\n";
         return 1;
     }
     bench::RunMeta meta = build_run_meta(args, opts);
@@ -720,25 +764,58 @@ bool valid_category(const std::string& category) {
     return category.empty() || category == "model" || category == "harness" || category == "both";
 }
 
-bool validate_run_options(const CliOptions& args) {
+bool validate_trace_replay_options(const CliOptions& args) {
+    if (args.trace.empty())
+        return true;
     bench::TraceMode trace_mode = bench::TraceMode::Strict;
-    if (args.driver != "inproc" && args.driver != "binary") {
-        std::cerr << "error: unknown driver \"" << args.driver << "\" (expected inproc | binary)\n";
-        return false;
-    }
-    if (!args.trace.empty() && !bench::parse_trace_mode(args.trace_mode, trace_mode)) {
+    if (!bench::parse_trace_mode(args.trace_mode, trace_mode)) {
         std::cerr << "error: unknown trace mode \"" << args.trace_mode
                   << "\" (expected strict | shape)\n";
         return false;
     }
-    if (!args.trace.empty() && args.live) {
+    if (args.live) {
         std::cerr << "error: --trace replays a recording and cannot run live\n";
         return false;
     }
-    if (!args.trace.empty() && args.policy_matrix) {
+    if (args.policy_matrix) {
         std::cerr << "error: --trace and --policy-matrix are separate axes\n";
         return false;
     }
+    return true;
+}
+
+bool validate_recording_options(const CliOptions& args) {
+    if (args.trace_out.empty())
+        return true;
+    const bool known_dialect = args.trace_dialect.empty() || args.trace_dialect == "openai" ||
+                               args.trace_dialect == "anthropic" || args.trace_dialect == "gemini";
+    if (!args.live) {
+        std::cerr << "error: --trace-out records a live run; add --live\n";
+        return false;
+    }
+    if (!args.trace.empty()) {
+        std::cerr << "error: --trace-out records, --trace replays; pick one\n";
+        return false;
+    }
+    if (args.driver != "inproc") {
+        std::cerr << "error: the recorder runs in-process; --driver binary cannot record\n";
+        return false;
+    }
+    if (!known_dialect) {
+        std::cerr << "error: unknown --trace-dialect \"" << args.trace_dialect
+                  << "\" (expected openai | anthropic | gemini)\n";
+        return false;
+    }
+    return true;
+}
+
+bool validate_run_options(const CliOptions& args) {
+    if (args.driver != "inproc" && args.driver != "binary") {
+        std::cerr << "error: unknown driver \"" << args.driver << "\" (expected inproc | binary)\n";
+        return false;
+    }
+    if (!validate_trace_replay_options(args) || !validate_recording_options(args))
+        return false;
     if (!valid_category(args.category)) {
         std::cerr << "error: unknown category \"" << args.category
                   << "\" (expected model | harness | both)\n";
@@ -771,6 +848,18 @@ int cmd_run(const CliOptions& args) {
     if (!validate_run_options(args))
         return 1;
     return dispatch_run_axis(args);
+}
+
+int cmd_record(const CliOptions& args) {
+    if (!args.live) {
+        std::cerr << "error: record is a live action; add --live\n";
+        return 1;
+    }
+    if (args.trace_out.empty()) {
+        std::cerr << "error: record needs --trace-out FILE\n";
+        return 1;
+    }
+    return cmd_run(args);
 }
 
 int cmd_list(const std::string& suite) {
@@ -1097,6 +1186,11 @@ int dispatch_command(const std::string& cmd, const char* argv0, CliOptions& o) {
         if (!o.rest.empty())
             o.name = o.rest[0];
         return cmd_run(o);
+    }
+    if (cmd == "record") {
+        if (!o.rest.empty())
+            o.name = o.rest[0];
+        return cmd_record(o);
     }
     if (cmd == "validate-template" && !o.rest.empty())
         return cmd_validate(o.rest[0]);

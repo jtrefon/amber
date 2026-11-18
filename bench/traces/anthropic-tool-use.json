@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "provider": "anthropic",
+  "dialect": "anthropic",
+  "description": "anthropic tool use",
+  "source": "Authored from the provider's wire format and checked by the replay test; one trimmed exchange.",
+  "redaction": "clean",
+  "exchanges": [
+    {
+      "id": "anthropic-tool-use",
+      "match": {
+        "path": "/v1/messages",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"id\": \"msg_tool_1\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"claude-test\", \"content\": [{\"type\": \"text\", \"text\": \"Reading it.\"}, {\"type\": \"tool_use\", \"id\": \"toolu_read_1\", \"name\": \"read\", \"input\": {\"path\": \"a.txt\"}}], \"stop_reason\": \"tool_use\", \"stop_sequence\": null, \"usage\": {\"input_tokens\": 80, \"output_tokens\": 20}}"
+      }
+    }
+  ]
+}
