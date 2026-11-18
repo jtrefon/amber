@@ -931,12 +931,20 @@ TEST(shell_amber_mark_click_opens_the_menu) {
         return;
 
     // A click outside the menu closes it and gives the prompt its keys back.
-    send_click(tui, sgr, 39, 11);
-    tui.pump(300);
-    mark = tui.raw.size();
-    tui.send("mark-menu-closed");
-    if (!require(wait_since(tui, mark, "mark-menu-closed", 3000),
-                 "a click outside the menu did not close it", tui))
+    // The click is retried: on a loaded macOS runner the first one can arrive
+    // before the menu's input loop is ready and is dropped, which is timing,
+    // not the behaviour under test (measured on the macOS CI job). Each attempt
+    // uses a fresh marker so a dropped attempt cannot satisfy the next wait.
+    bool closed = false;
+    for (int attempt = 0; attempt < 3 && !closed; ++attempt) {
+        send_click(tui, sgr, 39, 11);
+        tui.pump(300);
+        mark = tui.raw.size();
+        const std::string marker = "mark-menu-closed-" + std::to_string(attempt);
+        tui.send(marker);
+        closed = wait_since(tui, mark, marker, 2000);
+    }
+    if (!require(closed, "a click outside the menu did not close it", tui))
         return;
 
     // While the menu is open the mark moves flush to column 0. Reopening from

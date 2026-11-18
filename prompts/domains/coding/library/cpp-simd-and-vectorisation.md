@@ -29,6 +29,7 @@ what it did instead of guessing.
 ## Run it
 
 ```run
+# platform: linux
 cat > vec_demo.cpp <<'SRC'
 #include <cstdio>
 #include <vector>

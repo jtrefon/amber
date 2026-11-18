@@ -34,7 +34,13 @@ driven by an OpenAI-compatible LLM API.
   in minutes instead of queueing behind the header compile. It does not build the tree or run the tests. Use
   `make verify-quick` for the local mirror of the gating static jobs and
   `make verify` for the build/test/analyzer half; `make doctor` reports which
-  analyzers cannot reproduce CI on this machine. It also runs
+  analyzers cannot reproduce CI on this machine. **`make preflight` is the
+  pre-push mirror**: it runs `verify`, then `make check-compilers` (a clean
+  `WERROR=1` build under both `g++` and `clang++`, because the default build
+  uses one compiler and the matrix uses two), then `make agent-e2e` and
+  `make tui-agent-e2e`. The measured failure history and the CI-only remainder
+  (coverage branch ratchet, macOS pty, fuzz, website audit) are in
+  `docs/ci-local.md`. It also runs
   `tools/obfuscation_guard.py`, which scans tracked files for the signature of
   an injected payload (obfuscator markers, or a single line of code longer
   than 500 chars): every other gate reads a build or a metric, none of them
@@ -150,9 +156,12 @@ driven by an OpenAI-compatible LLM API.
   be judged by the merge gate.
 - `make library-check` executes the `run` blocks in the prompt library
   (`prompts/domains/coding/library/**/*.md`). A block marked `# manual:` is
-  skipped on purpose; anything else that no longer runs is stale knowledge and
-  fails the check. It is part of `make check` and `make verify-quick`, so a
-  library content edit is gated even when no C++ changed.
+  skipped on purpose; `# platform: linux` (or `darwin`) and
+  `# requires: <tool>` skip a block on a host it cannot run on, and the summary
+  reports the skip rather than counting it as a pass. Anything else that no
+  longer runs is stale knowledge and fails the check. It is part of `make check`
+  and `make verify-quick`, so a library content edit is gated even when no C++
+  changed.
 - `make ncurses` is a **ratchet** (`tools/ncurses_ratchet.py`): only files listed
   in `tests/ncurses_baseline.json` may include a curses header, and the list can
   only shrink (`make ncurses-update` records a removal). The terminal adapter
@@ -258,8 +267,11 @@ driven by an OpenAI-compatible LLM API.
   `bench-efficiency`). The fake-LLM scenarios are compared per scenario with
   `bench/results/harness-efficiency-baseline.json`: prompt + completion tokens
   and executed tool calls fail above +10%, a scenario that passed and now fails
-  is a regression, and wall time has a 2x + 500 ms pathology ceiling (it is
-  machine-dependent even with a fake LLM). A line starting with `bench-allow: <reason>` in
+  is a regression, and wall time has a `max(2x + 500 ms, baseline + 2000 ms)`
+  pathology ceiling: the ratio catches a real slowdown on a long scenario and
+  the absolute headroom stops a 113 ms scenario's scheduling noise from failing
+  main (measured: 763-1012 ms on loaded runners). Wall time is machine-dependent
+  even with a fake LLM; tokens and calls are the precise axes. A line starting with `bench-allow: <reason>` in
   the PR body turns a regression into a reported override without rewriting the
   baseline. This measures harness overhead, not model quality; live prompt
   evaluation stays manual. `make bench-baseline` regenerates the baseline after
@@ -1016,10 +1028,11 @@ you scan later: `<area>: <imperative summary>`, one area per commit. The
   carries progress; the PR carries the finished diff. A milestone may span
   several PRs, but each opens at completion, never mid-flight.
 - **Do not open the PR until it is reviewable.** Before opening: every task is
-  green, `make verify` is clean, and the manual end-to-end test has been run
-  with its steps and observed result recorded in the body. A unit test is not
-  manual E2E. The remote branch, commits and issue/tracker are the progress
-  signal; a draft PR is not.
+  green, `make preflight` is clean on the final commit (or `make verify` plus
+  `make check-compilers` when the journey suites cannot run here), and the
+  manual end-to-end test has been run with its steps and observed result
+  recorded in the body. A unit test is not manual E2E. The remote branch,
+  commits and issue/tracker are the progress signal; a draft PR is not.
 - **Commit freely.** Push every completed step. A red commit followed by its
   green fix is the expected shape and survives in the PR's commit list.
 - **CI is a merge gate, not a checkpoint.** A push starts the workflow; keep
@@ -1291,6 +1304,13 @@ evidence about a prompt.
 - **Coverage threshold**: new code paths must have ≥80% line coverage. The
   coverage job's patch gate (`tools/coverage_gate.py`) enforces it; `make test`
   alone cannot answer it, because the measurement needs an instrumented build.
+- **Branch coverage is part of the bar.** A new decision branch in `lib/`,
+  `tools/` or `plugins/` needs a test for the path that did not happen. The
+  per-file branch ratchet starts a new file at zero uncovered decisions with 3
+  slack and only shrinks, so a well-covered line can still fail on an untested
+  `return`. Reproduce it with `BRANCH_RATCHET_ENFORCE=true make coverage
+  BASE=origin/main` on Linux or in the parity container; the gate and the
+  measured failure that motivated this rule are in `docs/ci-local.md`.
 - **Test presence is gated**: `make test-presence` (the CI `test-presence` job)
   fails a change that touches production code without touching `tests/`. A
   `tests-allow: <reason>` in the PR body or a commit message waives it. The gate

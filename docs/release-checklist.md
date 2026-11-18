@@ -15,8 +15,9 @@ Run this in order. Every command must succeed before the next step.
 
 ## 2. Local gates
 
-- [ ] `make verify` (or `make verify-container` when the pinned analyzers are
-      not installed).
+- [ ] `make preflight` (or `make verify` plus `make check-compilers` when the
+      journey suites cannot run here; `make verify-container` when the pinned
+      analyzers are not installed).
 - [ ] `make coverage BASE=origin/main` (instrumented build; restore afterwards
       with `./configure && make clean && make`).
 - [ ] `make test` includes the pty suite and the plugin conformance tests.

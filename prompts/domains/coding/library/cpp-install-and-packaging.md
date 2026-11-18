@@ -28,6 +28,7 @@ they are the ones a consumer meets first.
 ## Run it
 
 ```run
+# platform: linux
 mkdir -p pkg/src
 cat > pkg/CMakeLists.txt <<'SRC'
 cmake_minimum_required(VERSION 3.16)

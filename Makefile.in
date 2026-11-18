@@ -448,7 +448,8 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         website-bench-data check smoketest test doctor tui-agent-e2e \
         agent-e2e agent-e2e-baseline core-only \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
-        verify verify-quick coverage coverage-branch-baseline ci-manifest detach \
+        verify verify-quick preflight check-compilers \
+        coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
         release-check \
         parity-image verify-container verify-quick-container \
@@ -1172,6 +1173,38 @@ verify: verify-quick smoketest
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory analyze
 	@echo "verify: clean"
+
+# Build the whole tree under both compilers with warnings as errors, the way
+# CI's matrix does. The default local build uses one compiler, so a warning only
+# the other emits reaches the pipeline (measured: -Wmismatched-tags on a
+# class/struct mismatch, clang++ only). A clean rebuild per compiler is
+# deliberate: reusing objects from the other compiler would measure nothing.
+check-compilers:
+	@command -v g++ >/dev/null || { echo "error: g++ not found"; exit 2; }
+	@command -v clang++ >/dev/null || { echo "error: clang++ not found"; exit 2; }
+	@$(MAKE) --no-print-directory clean
+	@$(MAKE) --no-print-directory -j4 WERROR=1 CXX=g++
+	@$(MAKE) --no-print-directory clean
+	@$(MAKE) --no-print-directory -j4 WERROR=1 CXX=clang++
+	@gxx_id="$$(g++ --version 2>/dev/null | head -n 1)"; \
+	 clang_id="$$(clang++ --version 2>/dev/null | head -n 1)"; \
+	 if [ -n "$$gxx_id" ] && [ "$$gxx_id" = "$$clang_id" ]; then \
+	   echo "check-compilers: note: g++ and clang++ both report $$gxx_id;"; \
+	   echo "                  this host cannot reproduce CI's two-compiler split."; \
+	   echo "                  Run make verify-container for the Linux matrix."; \
+	 fi
+	@echo "check-compilers: g++ and clang++ build clean with WERROR=1"
+
+# The local pre-push run: every deterministic CI gate this host can reproduce,
+# in the order that fails fastest. The CI-only remainder is printed, not hidden.
+preflight:
+	@$(MAKE) --no-print-directory verify
+	@$(MAKE) --no-print-directory check-compilers
+	@$(MAKE) --no-print-directory agent-e2e
+	@$(MAKE) --no-print-directory tui-agent-e2e
+	@echo "preflight: deterministic gates clean"
+	@echo "preflight: CI-only remainder: coverage branch ratchet (Linux/container),"
+	@echo "          macOS pty repeat, fuzz, and the website audit. See docs/ci-local.md."
 
 # Coverage, locally. CI's coverage job and this target both call
 # tools/coverage_report.sh, so the filters, the 80% project floor, the TUI floor,

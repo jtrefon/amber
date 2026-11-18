@@ -38,6 +38,6 @@ printf 'base\n' > file.txt && git add . && git commit -qm "base"
 git worktree add -q ../hotfix -b hotfix
 test -f ../hotfix/file.txt
 (cd ../hotfix && printf 'fix\n' > fix.txt && git add . && git commit -qm "apply the hotfix")
-git log --oneline hotfix | grep -q "apply the hotfix"
-git worktree list | grep -q hotfix
+git log --oneline hotfix | grep "apply the hotfix" >/dev/null
+git worktree list | grep hotfix >/dev/null
 git worktree remove ../hotfix

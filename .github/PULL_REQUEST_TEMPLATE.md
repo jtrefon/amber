@@ -12,7 +12,7 @@ section, or a PR labelled `feature`/`bug`/`security`/`ci` without the
 `review:approved` label.
 
 - [ ] This is a completed feature or bug fix, not a task slice or a draft.
-- [ ] Every task is green and `make verify` is clean.
+- [ ] Every task is green and `make preflight` is clean on the final commit.
 - [ ] The branch has been pushed as work completed; this PR is the first request
       for review, not a progress board.
 
@@ -39,9 +39,11 @@ Closes #
 ## Verification
 
 - [ ] `make verify-quick` passes (the static gate set CI runs; pre-push)
-- [ ] `make verify` passes, or the final CI run is green on this commit
+- [ ] `make preflight` passes on the final commit, or `make verify` plus
+      `make check-compilers` when the journey suites cannot run here
 - [ ] `make doctor` is clean, or the local/CI toolchain difference is noted
-- [ ] Coverage checked when production lines changed (`make coverage BASE=…`)
+- [ ] Coverage checked when production lines changed (`make coverage BASE=…`),
+      including the per-file **branch** ratchet (`docs/ci-local.md`)
 
 ## Review
 

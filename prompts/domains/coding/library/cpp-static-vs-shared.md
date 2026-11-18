@@ -29,6 +29,7 @@ when the library changes.
 ## Run it
 
 ```run
+# platform: linux
 cat > hidden.cpp <<'SRC'
 __attribute__((visibility("default"))) int exported() { return 1; }
 int internal() { return 2; }

@@ -8,7 +8,12 @@ commands no longer work is knowledge that has silently gone stale.
 
 A block whose first line begins `# manual:` is skipped on purpose. It needs a
 project, a cluster or a machine this check does not have, and saying so is honest
-where a silent skip is not.
+where a silent skip is not. Two further directives make a platform-specific
+block explicit instead of a red run on the wrong host:
+
+- `# platform: linux` (or `darwin`, comma separated): run only there. The check
+  reports `skip`, never `pass`.
+- `# requires: cmake readelf`: skip when one of the commands is not on PATH.
 
 Exit codes: 0 clean, 1 a block failed, 2 the check could not run (no library).
 Fail closed: a measurement that covers nothing is not a pass.
@@ -19,6 +24,7 @@ Usage: library_check.py [--dir <library dir>] [--verbose]
 import argparse
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,6 +32,8 @@ import tempfile
 FENCE = re.compile(r"^```run\s*$")
 CLOSE = re.compile(r"^```\s*$")
 MANUAL = re.compile(r"^\s*#\s*manual:")
+PLATFORM = re.compile(r"^\s*#\s*platform:\s*(.+)$")
+REQUIRES = re.compile(r"^\s*#\s*requires:\s*(.+)$")
 
 
 def library_dir(root):
@@ -63,12 +71,40 @@ def run_blocks(path):
     return blocks
 
 
-def is_manual(block):
+def first_line(block):
     for line in block.split("\n"):
-        if not line.strip():
-            continue
-        return bool(MANUAL.match(line))
-    return False
+        if line.strip():
+            return line
+    return ""
+
+
+def is_manual(block):
+    return bool(MANUAL.match(first_line(block)))
+
+
+def host_platform():
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform == "darwin":
+        return "darwin"
+    return sys.platform
+
+
+def skip_reason(block, platform):
+    """The reason this block cannot run on `platform`, or None."""
+    line = first_line(block)
+    match = PLATFORM.match(line)
+    if match:
+        allowed = {part.strip().lower() for part in match.group(1).split(",") if part.strip()}
+        if platform.lower() not in allowed:
+            return "platform " + match.group(1).strip()
+    match = REQUIRES.match(line)
+    if match:
+        missing = [tool for tool in re.split(r"[,\s]+", match.group(1).strip())
+                   if tool and shutil.which(tool) is None]
+        if missing:
+            return "missing " + ", ".join(missing)
+    return None
 
 
 def execute(block, workdir):
@@ -82,6 +118,8 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Run the library's run blocks")
     parser.add_argument("--dir", dest="directory", default=None)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--platform", default=None,
+                        help="host platform for # platform directives (default: this host)")
     args = parser.parse_args(argv)
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -95,8 +133,10 @@ def main(argv):
         print("library-check: no entries found", file=sys.stderr)
         return 2
 
+    platform = (args.platform or host_platform()).lower()
     ran = 0
     manual = 0
+    skipped = 0
     failures = []
     for path in entries:
         for line, block in run_blocks(path):
@@ -104,6 +144,12 @@ def main(argv):
                 manual += 1
                 if args.verbose:
                     print(f"  manual   {os.path.relpath(path, root)}:{line}")
+                continue
+            reason = skip_reason(block, platform)
+            if reason:
+                skipped += 1
+                if args.verbose:
+                    print(f"  skip     {os.path.relpath(path, root)}:{line} ({reason})")
                 continue
             with tempfile.TemporaryDirectory(prefix="library_check_") as work:
                 try:
@@ -123,7 +169,7 @@ def main(argv):
             print("    " + text, file=sys.stderr)
 
     print(f"library-check: {len(entries)} entries, {ran} block(s) run, {manual} manual, "
-          f"{len(failures)} failed")
+          f"{skipped} skipped ({platform}), {len(failures)} failed")
 
     # A vocabulary tag no entry carries selects nothing, silently. Reporting it is
     # the evidence for which domain to write next.
