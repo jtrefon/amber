@@ -87,6 +87,7 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/prompt.o \
             $(BUILD_DIR)/lib/conversation_log.o \
             $(BUILD_DIR)/lib/agent.o \
+            $(BUILD_DIR)/lib/git_exec.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
             $(BUILD_DIR)/lib/loop_guard.o \

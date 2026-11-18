@@ -1,6 +1,7 @@
 
 #include "agent/worktree.h"
 
+#include "agent/git_exec.h"
 #include "agent/workspace.h"
 
 #include <algorithm>
@@ -23,52 +24,6 @@ namespace fs = std::filesystem;
 using json = nlohmann::json;
 
 namespace {
-
-struct GitResult {
-    int status = -1;
-    std::string output;
-};
-
-// Run `git -C <repo> <args...>` with argv exec — never a shell string, because
-// worktree names reach this from the model — and capture merged stdout+stderr:
-// git's own refusals are the messages the user ends up reading.
-GitResult run_git(const std::string& repo, const std::vector<std::string>& args) {
-    GitResult result;
-    int fds[2] = {-1, -1};
-    if (pipe(fds) != 0)
-        return result;
-    const pid_t pid = fork();
-    if (pid < 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return result;
-    }
-    if (pid == 0) {
-        close(fds[0]);
-        dup2(fds[1], STDOUT_FILENO);
-        dup2(fds[1], STDERR_FILENO);
-        close(fds[1]);
-        std::vector<char*> argv;
-        argv.push_back(const_cast<char*>("git"));
-        argv.push_back(const_cast<char*>("-C"));
-        argv.push_back(const_cast<char*>(repo.c_str()));
-        for (const auto& a : args)
-            argv.push_back(const_cast<char*>(a.c_str()));
-        argv.push_back(nullptr);
-        execvp("git", argv.data());
-        _exit(127);
-    }
-    close(fds[1]);
-    char buf[512];
-    ssize_t got = 0;
-    while ((got = read(fds[0], buf, sizeof buf)) > 0)
-        result.output.append(buf, static_cast<std::size_t>(got));
-    close(fds[0]);
-    int status = 0;
-    if (waitpid(pid, &status, 0) > 0 && WIFEXITED(status))
-        result.status = WEXITSTATUS(status);
-    return result;
-}
 
 // Trimming in place on a by-value copy tripped GCC 15.2's
 // -Wfree-nonheap-object: a known false positive whose warning fired from the
