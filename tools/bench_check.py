@@ -15,9 +15,13 @@ report with `bench/results/harness-efficiency-baseline.json`:
   regression; a new scenario that fails is a regression too;
 - **corpus floor**: a report below 30 scenarios fails closed, so a gate that
   measured less than it claims does not report a pass;
-- **wall time**: reported, and failed above a 2x + 500 ms ceiling. Wall time is
-  machine- and load-dependent even with a fake LLM, so it is a pathology
-  ceiling rather than a precise budget; tokens and calls are the real gate.
+- **wall time**: reported, and failed above a 2x + 500 ms ceiling, raised to a
+  minimum of baseline + 2000 ms. Wall time is machine- and load-dependent even
+  with a fake LLM, so it is a pathology ceiling rather than a precise budget;
+  tokens and calls are the real gate. The absolute headroom exists because a
+  short scenario's 2x ceiling is smaller than ordinary CI scheduling noise
+  (measured: `t-07-planning-multi-file`, 113 ms baseline, 763-1012 ms on loaded
+  runners).
 
 A `bench-allow: <reason>` line in the PR body (the CI job passes it as
 `--allow`) turns a regression into a reported override. It does not rewrite the
@@ -43,6 +47,10 @@ TOKEN_REGRESSION = 0.10
 CALL_REGRESSION = 0.10
 WALL_CEILING_FACTOR = 2.0
 WALL_CEILING_MS = 500
+# Absolute headroom for short scenarios: 2x of a 113 ms baseline is 226 ms,
+# less than one scheduling slice on a shared runner. The floor keeps the gate
+# a pathology check; tokens and calls remain the precise axes.
+WALL_HEADROOM_MS = 2000
 REQUIRED_METRICS = ("prompt_tokens", "completion_tokens", "tool_calls", "wall_ms", "success")
 # The hermetic corpus floor. A report below it measured less than the gate
 # claims, even when every scenario it did run passed.
@@ -128,7 +136,8 @@ def compare(current, recorded):
         if cur["tool_calls"] > base["tool_calls"] * (1 + CALL_REGRESSION):
             violations.append((name, "tool calls", base["tool_calls"], cur["tool_calls"],
                                f"bar +{CALL_REGRESSION * 100:.0f}%"))
-        ceiling = base["wall_ms"] * WALL_CEILING_FACTOR + WALL_CEILING_MS
+        ceiling = max(base["wall_ms"] * WALL_CEILING_FACTOR + WALL_CEILING_MS,
+                      base["wall_ms"] + WALL_HEADROOM_MS)
         if cur["wall_ms"] > ceiling:
             violations.append((name, "wall time", base["wall_ms"], cur["wall_ms"],
                                f"ceiling {ceiling:.0f}ms"))

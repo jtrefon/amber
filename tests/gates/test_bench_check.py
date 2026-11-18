@@ -77,9 +77,33 @@ class Comparison(unittest.TestCase):
         self.assertEqual(run_check(current, recorded)[0], 0)
 
     def test_wall_time_is_a_ceiling_not_a_percentage(self):
-        # baseline 100ms -> ceiling 700ms; a 3x run fails, 6x+500 is the line.
-        self.assertEqual(run_check(self.current({"alpha": {"wall_ms": 700}}), SCENARIOS)[0], 0)
-        self.assertEqual(run_check(self.current({"alpha": {"wall_ms": 701}}), SCENARIOS)[0], 1)
+        # baseline 100ms -> max(2x+500, baseline+2000) = 2100ms.
+        self.assertEqual(run_check(self.current({"alpha": {"wall_ms": 2100}}), SCENARIOS)[0], 0)
+        self.assertEqual(run_check(self.current({"alpha": {"wall_ms": 2101}}), SCENARIOS)[0], 1)
+
+    def test_wall_time_has_absolute_headroom_for_short_scenarios(self):
+        """A 2 ms baseline must not turn one scheduling slice into a regression.
+
+        This is the measured t-07 case: a 113 ms hermetic scenario ran at
+        763-1012 ms on loaded runners, inside a 726 ms 2x ceiling's noise but
+        far outside it. The absolute headroom keeps the gate a pathology check
+        while the per-scenario ceiling still catches a 2x regression on a
+        longer run."""
+        short = {"tiny": {"suite": "tools", "prompt_tokens": 1, "completion_tokens": 1,
+                          "tool_calls": 1, "wall_ms": 2, "success": True}}
+        current = {"tiny": {"suite": "tools", "prompt_tokens": 1, "completion_tokens": 1,
+                            "tool_calls": 0, "wall_ms": 1900, "success": True}}
+        self.assertEqual(run_check(current, short)[0], 0)
+        current["tiny"]["wall_ms"] = 2003
+        self.assertEqual(run_check(current, short)[0], 1)
+
+    def test_wall_time_keeps_the_ratio_for_long_scenarios(self):
+        long_run = {"slow": {"suite": "tools", "prompt_tokens": 1, "completion_tokens": 1,
+                             "tool_calls": 1, "wall_ms": 5000, "success": True}}
+        current = dict(long_run["slow"], wall_ms=10500)
+        self.assertEqual(run_check({"slow": current}, long_run)[0], 0)
+        current["wall_ms"] = 10501
+        self.assertEqual(run_check({"slow": current}, long_run)[0], 1)
 
     def test_a_success_drop_fails(self):
         current = self.current({"alpha": {"success": False}})

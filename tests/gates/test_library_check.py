@@ -7,10 +7,12 @@ entries rot without anyone noticing, which is exactly the failure the block
 exists to prevent.
 """
 
+import io
 import os
 import shutil
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 from harness import load
 
@@ -43,6 +45,33 @@ class LibraryCheckTests(unittest.TestCase):
         directory = self._library(
             "trigger: t\n\n## Run it\n\n```run\n# manual: needs a cluster\nexit 9\n```\n")
         self.assertEqual(lc.main(["--dir", directory]), 0)
+
+    def test_a_platform_block_is_skipped_on_another_host(self):
+        directory = self._library(
+            "trigger: t\n\n## Run it\n\n```run\n# platform: linux\nexit 9\n```\n")
+        self.assertEqual(lc.main(["--dir", directory, "--platform", "darwin"]), 0)
+        self.assertEqual(lc.main(["--dir", directory, "--platform", "linux"]), 1)
+
+    def test_a_requires_block_is_skipped_when_the_tool_is_missing(self):
+        directory = self._library(
+            "trigger: t\n\n## Run it\n\n```run\n# requires: definitely-not-a-command-xyz\n"
+            "exit 9\n```\n")
+        self.assertEqual(lc.main(["--dir", directory, "--platform", "linux"]), 0)
+
+    def test_a_requires_block_runs_when_the_tool_exists(self):
+        directory = self._library(
+            "trigger: t\n\n## Run it\n\n```run\n# requires: sh\nexit 0\n```\n")
+        self.assertEqual(lc.main(["--dir", directory, "--platform", "linux"]), 0)
+
+    def test_a_skip_is_reported_not_counted_as_a_pass(self):
+        directory = self._library(
+            "trigger: t\n\n## Run it\n\n```run\n# platform: linux\nexit 9\n```\n")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = lc.main(["--dir", directory, "--platform", "darwin", "--verbose"])
+        self.assertEqual(rc, 0)
+        self.assertIn("skip", out.getvalue())
+        self.assertIn("1 skipped (darwin)", out.getvalue())
 
     def test_a_missing_library_fails_closed(self):
         missing = os.path.join(tempfile.gettempdir(), "library_check_absent_dir")

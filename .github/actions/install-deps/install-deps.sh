@@ -123,7 +123,7 @@ else
     PRIMARY_SOURCES=""
     PRIMARY_SOURCE_OPTS=()
 fi
-SOURCE_OPTS=("${PRIMARY_SOURCE_OPTS[@]}")
+SOURCE_OPTS=(${PRIMARY_SOURCE_OPTS[@]+"${PRIMARY_SOURCE_OPTS[@]}"})
 
 PACKAGES="build-essential libcurl4-openssl-dev"
 if [ "$CPP_TOOLCHAIN" = "true" ]; then
@@ -181,7 +181,7 @@ write_sources() {
 apt_get() {
     local limit="$1"
     shift
-    "${SUDO[@]}" timeout "$limit" apt-get "${APT_OPTS[@]}" "$@"
+    ${SUDO[@]+"${SUDO[@]}"} timeout "$limit" apt-get "${APT_OPTS[@]}" "$@"
 }
 
 # The budget is the important bound: a single slow download may legitimately
@@ -201,7 +201,7 @@ remaining_limit() {
 
 apt_update() {
     local limit="$1"
-    apt_get "$limit" "${SOURCE_OPTS[@]}" update
+    apt_get "$limit" ${SOURCE_OPTS[@]+"${SOURCE_OPTS[@]}"} update
 }
 
 apt_install() {
@@ -212,8 +212,8 @@ apt_install() {
     fi
     # PACKAGES is a deliberate word list, not a single argument.
     # shellcheck disable=SC2086
-    apt_get "$limit" "${SOURCE_OPTS[@]}" install -y \
-        --no-install-recommends "${offline_opts[@]}" $PACKAGES
+    apt_get "$limit" ${SOURCE_OPTS[@]+"${SOURCE_OPTS[@]}"} install -y \
+        --no-install-recommends ${offline_opts[@]+"${offline_opts[@]}"} $PACKAGES
 }
 
 attempt_update() {
@@ -306,7 +306,7 @@ probe_mirror() {
     shift
     local opts=("$@")
     echo "install-deps: probing $label"
-    if apt_get "$PROBE_TIMEOUT" "${opts[@]}" update >>"$LOG" 2>&1; then
+    if apt_get "$PROBE_TIMEOUT" ${opts[@]+"${opts[@]}"} update >>"$LOG" 2>&1; then
         echo "install-deps: $label OK"
         return 0
     fi
@@ -317,7 +317,7 @@ probe_mirror() {
 
 if [ "$PROBE" -eq 1 ]; then
     primary_ok=0
-    if probe_mirror "primary (${PRIMARY_SOURCES:-default apt sources})" "${PRIMARY_SOURCE_OPTS[@]}"; then
+    if probe_mirror "primary (${PRIMARY_SOURCES:-default apt sources})" ${PRIMARY_SOURCE_OPTS[@]+"${PRIMARY_SOURCE_OPTS[@]}"}; then
         primary_ok=1
     fi
     fallback_ok=0
@@ -364,11 +364,11 @@ if [ "$updated" -eq 0 ]; then
 fi
 
 if [ "$updated" -eq 0 ]; then
-    SOURCE_OPTS=("${PRIMARY_SOURCE_OPTS[@]}")
+    SOURCE_OPTS=(${PRIMARY_SOURCE_OPTS[@]+"${PRIMARY_SOURCE_OPTS[@]}"})
     if try_cached_install; then
         cached_success
     fi
-    for file in "${fallback_files[@]}"; do
+    for file in ${fallback_files[@]+"${fallback_files[@]}"}; do
         SOURCE_OPTS=(-o "Dir::Etc::sourcelist=$file" -o "Dir::Etc::sourceparts=-")
         if try_cached_install; then
             cached_success
