@@ -13,8 +13,9 @@ flood by killing the work; this one avoids it by pacing.
 ### Ownership
 
 - **Source**: `include/agent/rate_governor.h`, `lib/rate_governor.cpp`.
-- **Wire point**: `lib/http_transport.cpp::curl_exec` acquires before the
-  request and reports the status/headers/usage after it.
+- **Wire points**: `lib/http_transport.cpp::curl_exec` acquires before the
+  request and reports the status/headers/usage after it; the model catalogue
+  GET in `lib/model_probe.cpp` acquires and reports through the same governor.
 - **Retry policy**: `lib/agent_helpers.cpp` (`chat_with_retry`) retries a 429;
   the governor, not a sleep in the retry loop, owns the wait.
 - **Tools**: `plugins/tool_rate/` (`wait`, `throttle`).
