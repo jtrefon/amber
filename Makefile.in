@@ -1407,7 +1407,7 @@ agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
 
 # The agent journeys reuse the pty driver and the shared scripted endpoint, so
 # the real TUI, the real tools and the real plugin runtime all run.
-tui-agent-e2e: $(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN)
+tui-agent-e2e: $(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN) $(if $(REPEAT),--repeat $(REPEAT))
 
 $(BUILD_DIR)/tui_agent_e2e_test: $(TUI_AGENT_E2E_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
