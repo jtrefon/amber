@@ -40,6 +40,12 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `agent-loop/prompt-assembly.md` | Injected prompt blocks: head/tail placement, `prompt_priority`, the after-the-gate rule, and why core blocks aren't registry entries |
 | `agent-loop/background-tasks.md` | One task inventory for commands, watches and workers: record model, state machine, ownership/cascade, admission, the two safe delivery boundaries, events, cancellation and restart invariants |
 
+## Checkpoints
+
+| File | Covers |
+|------|--------|
+| `checkpoints/store.md` | Per-session working-tree snapshots on a private ref, the shadow repo for non-git projects, the structured message, and the guarantee that the user's HEAD and index never move |
+
 ## Tools
 
 | File | Covers |

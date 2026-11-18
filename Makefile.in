@@ -87,6 +87,8 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/prompt.o \
             $(BUILD_DIR)/lib/conversation_log.o \
             $(BUILD_DIR)/lib/agent.o \
+            $(BUILD_DIR)/lib/git_exec.o \
+            $(BUILD_DIR)/lib/checkpoint.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
             $(BUILD_DIR)/lib/loop_guard.o \
@@ -363,6 +365,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/prompt_assembler_test.o \
                $(BUILD_DIR)/tests/compression_controller_test.o \
                $(BUILD_DIR)/tests/loop_guard_test.o \
+               $(BUILD_DIR)/tests/checkpoint_test.o \
                $(BUILD_DIR)/tests/agent_ports_test.o \
                $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
