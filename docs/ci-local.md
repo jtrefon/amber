@@ -60,6 +60,21 @@ It runs, in order:
 the tree twice, and it is a pre-push ritual, not a per-commit one. Before each
 push, `make verify-quick` is still the fast loop.
 
+### Prerequisites
+
+The analyzers are pinned to what CI runs. On a Homebrew Mac the pinned LLVM is
+keg-only, so `clang-tidy`/`clang-format` may not be on PATH even when llvm@18 is
+installed:
+
+```sh
+export PATH="$(brew --prefix llvm@18)/bin:$PATH"   # clang-tidy 18 / clang-format 18
+make doctor      # names any analyzer that still cannot reproduce CI
+make preflight
+```
+
+When the host cannot match the pin, `make verify-container` runs the same
+mirror in the pinned image.
+
 ## The rules this adds
 
 ### 1. Wall time is a pathology check, not a benchmark
