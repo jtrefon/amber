@@ -2,6 +2,19 @@
   "mode": "agent-e2e",
   "rows": [
     {
+      "completion_tokens": 15,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-approval-allowed",
+      "ok": true,
+      "prompt_tokens": 220,
+      "tool_calls": [
+        "bash"
+      ],
+      "wall_ms": 81
+    },
+    {
       "completion_tokens": 25,
       "exit_code": 0,
       "failures": [],
@@ -13,7 +26,36 @@
         "bash",
         "write"
       ],
-      "wall_ms": 28
+      "wall_ms": 35
+    },
+    {
+      "completion_tokens": 10,
+      "exit_code": 130,
+      "failures": [],
+      "final_text": "",
+      "name": "e2e-cancel-slow-tool",
+      "ok": true,
+      "prompt_tokens": 100,
+      "tool_calls": [
+        "bash"
+      ],
+      "wall_ms": 198
+    },
+    {
+      "completion_tokens": 75,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done. a.txt contains hello world.",
+      "name": "e2e-compression-mid-task",
+      "ok": true,
+      "prompt_tokens": 15500,
+      "tool_calls": [
+        "read",
+        "read",
+        "read",
+        "read"
+      ],
+      "wall_ms": 37
     },
     {
       "completion_tokens": 35,
@@ -28,7 +70,7 @@
         "write",
         "bash"
       ],
-      "wall_ms": 485
+      "wall_ms": 207
     },
     {
       "completion_tokens": 55,
@@ -45,7 +87,32 @@
         "read",
         "read"
       ],
-      "wall_ms": 52
+      "wall_ms": 40
+    },
+    {
+      "completion_tokens": 10,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "PINEAPPLE",
+      "name": "e2e-session-resume",
+      "ok": true,
+      "prompt_tokens": 220,
+      "tool_calls": [],
+      "wall_ms": 49
+    },
+    {
+      "completion_tokens": 25,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "done",
+      "name": "e2e-subagent-worker-report",
+      "ok": true,
+      "prompt_tokens": 360,
+      "tool_calls": [
+        "delegate",
+        "bash"
+      ],
+      "wall_ms": 88
     },
     {
       "completion_tokens": 30,
@@ -59,7 +126,7 @@
         "read",
         "write"
       ],
-      "wall_ms": 37
+      "wall_ms": 30
     },
     {
       "completion_tokens": 25,
@@ -73,7 +140,7 @@
         "read",
         "read"
       ],
-      "wall_ms": 34
+      "wall_ms": 26
     }
   ]
 }

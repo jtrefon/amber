@@ -1,0 +1,128 @@
+{
+  "name": "e2e-subagent-worker-report",
+  "suite": "e2e",
+  "description": "the parent delegates, the worker writes its marker and reports back",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Delegate the worker task, then reply with the word done.",
+  "approval": "allow",
+  "oracle": [
+    {
+      "tool": "delegate",
+      "args": {}
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 4,
+  "expected_steps": 4,
+  "min_prompt_tokens": 300,
+  "min_completion_tokens": 10,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "delegate",
+            "arguments": "{\"goal\": \"Write the worker marker.\", \"context\": \"the workspace\", \"expect\": \"a report\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "subagent_replies": [
+    [
+      {
+        "prompt_tokens": 100,
+        "completion_tokens": 10,
+        "tool_calls": [
+          {
+            "id": "c2",
+            "type": "function",
+            "function": {
+              "name": "bash",
+              "arguments": "{\"command\": \"echo worker > worker.txt\"}"
+            }
+          }
+        ]
+      },
+      {
+        "prompt_tokens": 140,
+        "completion_tokens": 5,
+        "content": "WORKER-REPORT"
+      }
+    ]
+  ],
+  "endpoint_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "delegate",
+            "arguments": "{\"goal\": \"Write the worker marker.\", \"context\": \"the workspace\", \"expect\": \"a report\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\": \"echo worker > worker.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 5,
+      "content": "WORKER-REPORT"
+    },
+    {
+      "prompt_tokens": 160,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "request_log_contains": [
+    "WORKER-REPORT"
+  ],
+  "expected_workspace": {
+    "files": {
+      "worker.txt": {
+        "exact": "worker\n"
+      }
+    }
+  },
+  "expected_tools": [
+    "delegate",
+    "bash"
+  ]
+}

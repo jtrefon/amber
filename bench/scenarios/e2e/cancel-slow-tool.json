@@ -1,0 +1,52 @@
+{
+  "name": "e2e-cancel-slow-tool",
+  "suite": "e2e",
+  "description": "SIGINT cancels the running shell tool and leaves no partial artifact",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Run the slow command.",
+  "approval": "allow",
+  "oracle": [
+    {
+      "tool": "bash",
+      "args": {}
+    }
+  ],
+  "expected_exit_code": 130,
+  "cancel_marker": "[tool] bash",
+  "budget": {
+    "max_steps": 4,
+    "max_wall_ms": 15000
+  },
+  "difficulty": 3,
+  "expected_steps": 2,
+  "min_prompt_tokens": 100,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\": \"sleep 5; echo x > partial.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 5,
+      "content": "done"
+    }
+  ],
+  "cli_expected_workspace": {
+    "absent": [
+      "partial.txt"
+    ]
+  }
+}

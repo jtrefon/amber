@@ -1,0 +1,61 @@
+{
+  "name": "e2e-session-resume",
+  "suite": "e2e",
+  "description": "a second process resumes the saved session and sees the first turn",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Two turns across two processes.",
+  "session": "e2e-resume",
+  "resume": true,
+  "turns": [
+    {
+      "prompt": "Remember the word PINEAPPLE.",
+      "fake_replies": [
+        {
+          "prompt_tokens": 100,
+          "completion_tokens": 5,
+          "content": "PINEAPPLE noted"
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "PINEAPPLE"
+        ]
+      }
+    },
+    {
+      "prompt": "What word did I ask you to remember?",
+      "fake_replies": [
+        {
+          "prompt_tokens": 120,
+          "completion_tokens": 5,
+          "content": "PINEAPPLE"
+        }
+      ],
+      "checks": {
+        "must_contain": [
+          "PINEAPPLE"
+        ]
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "PINEAPPLE"
+    ]
+  },
+  "request_log_contains": [
+    "PINEAPPLE noted",
+    "What word did I ask you to remember?"
+  ],
+  "budget": {
+    "max_steps": 6,
+    "max_wall_ms": 30000
+  },
+  "difficulty": 2,
+  "expected_steps": 2,
+  "min_prompt_tokens": 200,
+  "min_completion_tokens": 10
+}

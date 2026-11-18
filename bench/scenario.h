@@ -61,6 +61,9 @@ struct Scenario {
     agent::json fake_replies = agent::json::array(); // hermetic script
     agent::json policy = agent::json::object();      // closed-loop state machine; empty = FIFO
     agent::json expected_workspace = agent::json::object();
+    // A workspace assertion the CLI tier makes after a behaviour the in-process
+    // reference run cannot reproduce (a cancelled tool leaves no artifact).
+    agent::json cli_expected_workspace = agent::json::object();
     agent::json request_contract = agent::json::object();
     std::vector<agent::json> faults;
     std::vector<agent::json> subagent_replies; // hermetic: per-sub-agent scripts
@@ -101,6 +104,31 @@ struct Scenario {
     int expected_exit_code = 0;
     long min_prompt_tokens = 0;     // 0 = unchecked
     long min_completion_tokens = 0; // 0 = unchecked
+    // Binary tier session support: --session NAME persists the conversation,
+    // and `resume` runs each turn as a separate CLI process against it.
+    std::string session;
+    bool resume = false;
+    // Send SIGINT to the CLI when this text appears on its stderr; the journey
+    // asserts the normal cancel path (exit 130, no partial artifact).
+    std::string cancel_marker;
+    // Strings that must appear somewhere in the endpoint's chat request bodies
+    // (context carry, a worker report, a skill body).
+    std::vector<std::string> request_log_contains;
+    // The CLI endpoint's FIFO when it differs from the in-process script: a
+    // subagent run sees the parent's and the worker's replies on one wire, and
+    // a compression pass appends its classify/extract replies here.
+    agent::json endpoint_replies = agent::json::array();
+    // The CLI tier's full tool sequence when it includes calls the in-process
+    // parent does not record (a subagent's worker tools). Empty = the
+    // in-process run's sequence.
+    std::vector<std::string> expected_tools;
+    // Compression overrides for the CLI tier and the in-process reference run.
+    // <0 leaves the Config default; the journey sets a small window and a low
+    // threshold so one turn crosses the gate.
+    double compression_threshold = -1.0;
+    int compression_min_turns = -1;
+    int compression_cooldown_turns = -1;
+    int compression_target_pct = -1;
 };
 
 // Parse and validate a scenario file. Returns nullopt with a message on error.
