@@ -14,6 +14,14 @@
   **tools-only**: it contributes tools and manifest settings, not command
   namespaces. The core C++ embedding API is not frozen at 1.0; the plugin
   source/API promise is `docs/spec/plugins/api-compatibility.md`.
+
+**What stays in the core archive.** The split is about the shipped plugin
+*set*, not about relocating every subsystem. MCP, skills and memory keep their
+implementations in `lib/` because their clients, catalogs and stores are usable
+without the bundled plugins; their tool, command and prose surfaces are already
+plugins under `plugins/`. A subsystem moves under `plugins/` only when nothing
+in `libagent_core.a` would reference it after the move, and the composition
+roots plus the plugin objects they name are the only such set today.
 - **Supersedes:** the aspirational sections of the earlier framework draft
   (which described `void*` capabilities, an untyped event bus, and capability
   routing that no code performed). The external-plugin protocol
