@@ -387,13 +387,19 @@ std::optional<Checkpoint> CheckpointStore::find(const std::string& turn_or_sha,
     const bool numeric =
         !turn_or_sha.empty() && std::all_of(turn_or_sha.begin(), turn_or_sha.end(),
                                             [](unsigned char c) { return std::isdigit(c) != 0; });
-    for (const auto& checkpoint : checkpoints) {
-        if (numeric) {
-            if (checkpoint.turn == std::strtoul(turn_or_sha.c_str(), nullptr, 10))
+    // A turn number wins when it exists. A SHA prefix may also be all digits
+    // (roughly one in forty), so a numeric selector falls through to the SHA
+    // match rather than deciding the selector's kind by its characters alone.
+    if (numeric) {
+        const std::size_t turn = std::strtoul(turn_or_sha.c_str(), nullptr, 10);
+        for (const auto& checkpoint : checkpoints)
+            if (checkpoint.turn == turn)
                 return checkpoint;
-        } else if (!turn_or_sha.empty() && checkpoint.id.rfind(turn_or_sha, 0) == 0) {
-            return checkpoint;
-        }
+    }
+    if (!turn_or_sha.empty()) {
+        for (const auto& checkpoint : checkpoints)
+            if (checkpoint.id.rfind(turn_or_sha, 0) == 0)
+                return checkpoint;
     }
     return std::nullopt;
 }
