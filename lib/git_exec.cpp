@@ -7,16 +7,30 @@
 #include <unistd.h>
 #include <utility>
 
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#endif
+
 namespace agent {
 
 namespace {
+
+// The process environment. Linux declares `environ` in <unistd.h>; Apple keeps
+// it behind _NSGetEnviron().
+char** process_environment() {
+#if defined(__APPLE__)
+    return *_NSGetEnviron();
+#else
+    return environ;
+#endif
+}
 
 // The parent environment with `env` applied. Built before spawning: setenv in a
 // forked child of a multithreaded process is not async-signal-safe.
 std::vector<std::string>
 child_environment(const std::vector<std::pair<std::string, std::string>>& overrides) {
     std::vector<std::string> out;
-    for (char** entry = environ; entry != nullptr && *entry != nullptr; ++entry) {
+    for (char** entry = process_environment(); entry != nullptr && *entry != nullptr; ++entry) {
         const std::string text(*entry);
         const std::size_t equals = text.find('=');
         const std::string key = text.substr(0, equals);
