@@ -7,6 +7,8 @@
 // no network.
 
 #include "agent/checkpoint.h"
+#include "agent/checkpoint_service.h"
+#include "agent/checkpoint_turn.h"
 #include "agent/git_exec.h"
 #include "tests/test_util.h"
 
@@ -54,6 +56,15 @@ public:
         std::ofstream out(target);
         out << content;
     }
+
+    std::string read(const std::string& name) const {
+        std::ifstream in(dir_ / name);
+        std::ostringstream out;
+        out << in.rdbuf();
+        return out.str();
+    }
+
+    bool exists(const std::string& name) const { return fs::exists(dir_ / name); }
 
     agent::GitResult git(const std::vector<std::string>& args) const {
         return agent::run_git(dir_.string(), args);
@@ -548,4 +559,236 @@ TEST(checkpoint_reports_missing_git) {
     bogus.id = "deadbeef";
     ASSERT(store.diff(bogus, error).empty());
     ASSERT_FALSE(error.empty());
+}
+
+// A restore puts the working tree back to the snapshot without touching HEAD
+// or the real index. Files the snapshot did not contain are removed; ignored
+// files were never in it and stay.
+TEST(checkpoint_restore_brings_the_tree_back) {
+    agent::test::XdgGuard xdg("checkpoint_restore");
+    TempProject project("restore", /*git=*/true);
+    project.write("a.txt", "one\n");
+    project.write("keep.txt", "keep\n");
+    project.write(".gitignore", "ignored.txt\n");
+    project.commit_all("init");
+
+    agent::CheckpointStore store(project.str(), "sess-restore");
+    std::string error;
+    const auto base = store.create(0, "base", error, agent::CheckpointPhase::Post);
+    ASSERT(base.has_value());
+
+    project.write("a.txt", "two\n");
+    project.write("added.txt", "new\n");
+    project.write("ignored.txt", "ignore\n");
+    ASSERT(store.create(1, "change", error).has_value());
+
+    ASSERT(store.restore(*base, error));
+    ASSERT_TRUE(error.empty());
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT_EQ(project.read("keep.txt"), std::string("keep\n"));
+    ASSERT_FALSE(project.exists("added.txt"));
+    ASSERT_TRUE(project.exists("ignored.txt"));
+}
+
+TEST(checkpoint_restore_never_moves_head_or_the_user_index) {
+    agent::test::XdgGuard xdg("checkpoint_restore_index");
+    TempProject project("restore_index", /*git=*/true);
+    project.write("a.txt", "one\n");
+    project.commit_all("init");
+
+    project.write("a.txt", "staged\n");
+    const agent::GitResult staged = project.git({"add", "a.txt"});
+    ASSERT_EQ(staged.status, 0);
+    const std::string head = trimmed(project.git({"rev-parse", "HEAD"}).output);
+    const std::string cached = project.git({"diff", "--cached", "--name-only"}).output;
+
+    agent::CheckpointStore store(project.str(), "sess-restore-index");
+    std::string error;
+    const auto base = store.create(0, "base", error);
+    ASSERT(base.has_value());
+    project.write("a.txt", "later\n");
+    ASSERT(store.create(1, "change", error).has_value());
+
+    ASSERT(store.restore(*base, error));
+    ASSERT_TRUE(error.empty());
+    ASSERT_EQ(trimmed(project.git({"rev-parse", "HEAD"}).output), head);
+    ASSERT_EQ(project.git({"diff", "--cached", "--name-only"}).output, cached);
+}
+
+TEST(checkpoint_restore_works_in_a_shadow_repo) {
+    agent::test::XdgGuard xdg("checkpoint_restore_shadow");
+    TempProject project("restore_shadow", /*git=*/false);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointStore store(project.str(), "sess-restore-shadow");
+    ASSERT(store.shadow());
+    std::string error;
+    const auto base = store.create(0, "base", error);
+    ASSERT(base.has_value());
+    project.write("a.txt", "two\n");
+    project.write("added.txt", "new\n");
+    ASSERT(store.create(1, "change", error).has_value());
+
+    ASSERT(store.restore(*base, error));
+    ASSERT_TRUE(error.empty());
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT_FALSE(project.exists("added.txt"));
+    ASSERT_FALSE(fs::exists(project.path() / ".git"));
+}
+
+TEST(checkpoint_restore_reports_an_unknown_tree) {
+    agent::test::XdgGuard xdg("checkpoint_restore_unknown");
+    TempProject project("restore_unknown", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointStore store(project.str(), "sess-restore-unknown");
+    agent::Checkpoint bogus;
+    bogus.id = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    std::string error;
+    ASSERT_FALSE(store.restore(bogus, error));
+    ASSERT_FALSE(error.empty());
+}
+
+// The pre-turn snapshot is a distinct entry: it can carry the same turn number
+// as the post-turn snapshot, and `find` prefers the post one (the turn's own
+// result) while the message records which phase it was.
+TEST(checkpoint_phase_is_part_of_the_message) {
+    agent::test::XdgGuard xdg("checkpoint_phase");
+    TempProject project("phase", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointStore store(project.str(), "sess-phase");
+    std::string error;
+    ASSERT(store.create(1, "post", error).has_value());
+    project.write("a.txt", "two\n");
+    const auto pre = store.create(1, "before turn 2", error, agent::CheckpointPhase::Pre);
+    ASSERT(pre.has_value());
+    ASSERT_TRUE(pre->pre);
+
+    const auto list = store.list(error);
+    ASSERT_EQ(list.size(), 2u);
+    ASSERT_TRUE(list[0].pre);
+    ASSERT_FALSE(list[1].pre);
+
+    const auto found = store.find("1", error);
+    ASSERT(found.has_value());
+    ASSERT_FALSE(found->pre);
+
+    const agent::GitResult message = project.git({"show", "-s", "--format=%B", pre->id});
+    ASSERT(message.output.find("Phase: pre") != std::string::npos);
+}
+
+// The service owns the turn boundary and the revert rule: a before snapshot
+// records the state the turn starts from, an after snapshot records the turn,
+// and an unchanged tree writes neither.
+TEST(checkpoint_service_snapshots_before_and_after_a_turn) {
+    agent::test::XdgGuard xdg("checkpoint_service_turns");
+    TempProject project("service_turns", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointService service(project.str(), "sess-service");
+    const auto before = service.before_turn();
+    ASSERT_EQ(before.kind, agent::CheckpointChangeKind::Created);
+    ASSERT_EQ(before.checkpoint.turn, 0u);
+    ASSERT_TRUE(before.checkpoint.pre);
+
+    const auto after = service.after_turn("first turn");
+    ASSERT_EQ(after.kind, agent::CheckpointChangeKind::Created);
+    ASSERT_EQ(after.checkpoint.turn, 1u);
+    ASSERT_FALSE(after.checkpoint.pre);
+
+    const auto unchanged = service.before_turn();
+    ASSERT_EQ(unchanged.kind, agent::CheckpointChangeKind::None);
+
+    project.write("a.txt", "two\n");
+    const auto manual = service.before_turn();
+    ASSERT_EQ(manual.kind, agent::CheckpointChangeKind::Created);
+    ASSERT_EQ(manual.checkpoint.turn, 1u);
+    ASSERT_TRUE(manual.checkpoint.pre);
+
+    const auto second = service.after_turn("second turn");
+    ASSERT_EQ(second.kind, agent::CheckpointChangeKind::Created);
+    ASSERT_EQ(second.checkpoint.turn, 2u);
+    ASSERT_FALSE(second.checkpoint.pre);
+}
+
+// Undo restores the previous checkpoint and records the revert, so the undo is
+// itself undoable. The second undo returns to the state before the first.
+TEST(checkpoint_service_undo_restores_and_records_the_revert) {
+    agent::test::XdgGuard xdg("checkpoint_service_undo");
+    TempProject project("service_undo", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointService service(project.str(), "sess-undo");
+    ASSERT_EQ(service.before_turn().kind, agent::CheckpointChangeKind::Created);
+    const auto first = service.after_turn("first");
+    ASSERT_EQ(first.kind, agent::CheckpointChangeKind::Created);
+    project.write("a.txt", "two\n");
+    ASSERT_EQ(service.after_turn("second").kind, agent::CheckpointChangeKind::Created);
+
+    const auto undo = service.undo();
+    ASSERT_EQ(undo.kind, agent::CheckpointChangeKind::Restored);
+    ASSERT_EQ(undo.target.turn, first.checkpoint.turn);
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT_EQ(undo.checkpoint.turn, 3u);
+
+    const auto redo = service.undo();
+    ASSERT_EQ(redo.kind, agent::CheckpointChangeKind::Restored);
+    ASSERT_EQ(project.read("a.txt"), std::string("two\n"));
+    ASSERT_EQ(redo.checkpoint.turn, 4u);
+}
+
+TEST(checkpoint_service_rollback_reaches_an_older_turn) {
+    agent::test::XdgGuard xdg("checkpoint_service_rollback");
+    TempProject project("service_rollback", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointService service(project.str(), "sess-rollback");
+    ASSERT_EQ(service.before_turn().kind, agent::CheckpointChangeKind::Created);
+    ASSERT_EQ(service.after_turn("first").kind, agent::CheckpointChangeKind::Created);
+    project.write("a.txt", "two\n");
+    ASSERT_EQ(service.after_turn("second").kind, agent::CheckpointChangeKind::Created);
+
+    const auto rolled = service.rollback("0");
+    ASSERT_EQ(rolled.kind, agent::CheckpointChangeKind::Restored);
+    ASSERT_EQ(rolled.target.turn, 0u);
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT_EQ(rolled.checkpoint.turn, 3u);
+}
+
+TEST(checkpoint_service_without_an_earlier_checkpoint_refuses_undo) {
+    agent::test::XdgGuard xdg("checkpoint_service_undo_empty");
+    TempProject project("service_undo_empty", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    agent::CheckpointService service(project.str(), "sess-undo-empty");
+    ASSERT_EQ(service.after_turn("only").kind, agent::CheckpointChangeKind::Created);
+    const auto undo = service.undo();
+    ASSERT_EQ(undo.kind, agent::CheckpointChangeKind::Failed);
+    ASSERT_FALSE(undo.error.empty());
+}
+
+TEST(checkpoint_turn_reports_created_snapshots_only) {
+    agent::test::XdgGuard xdg("checkpoint_turn_reports");
+    TempProject project("turn_reports", /*git=*/true);
+    project.write("a.txt", "one\n");
+
+    std::vector<std::string> lines;
+    agent::CheckpointTurn turn(project.str(), "sess-turn",
+                               [&lines](const std::string& line) { lines.push_back(line); });
+    turn.before();
+    ASSERT_EQ(lines.size(), 1u);
+    ASSERT(lines[0].find("checkpoint:") == 0);
+
+    turn.after("first");
+    ASSERT_EQ(lines.size(), 2u);
+    ASSERT(lines[1].find("turn 1") != std::string::npos);
+
+    turn.before();
+    ASSERT_EQ(lines.size(), 2u);
+
+    project.write("a.txt", "two\n");
+    turn.before();
+    ASSERT_EQ(lines.size(), 3u);
+    ASSERT(lines[2].find("before turn 2") != std::string::npos);
 }
