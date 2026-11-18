@@ -202,7 +202,7 @@ CheckpointStore::CheckpointStore(std::string project_root, std::string session_i
     root_ = ec ? std::move(project_root) : absolute.lexically_normal().string();
 
     const GitResult inside = run_git(root_, {"rev-parse", "--is-inside-work-tree"});
-    shadow_ = !(inside.status == 0 && trimmed(inside.output) == "true");
+    shadow_ = inside.status != 0 || trimmed(inside.output) != "true";
     if (!shadow_) {
         const GitResult top = run_git(root_, {"rev-parse", "--show-toplevel"});
         if (top.status == 0 && !trimmed(top.output).empty())
@@ -226,8 +226,8 @@ std::vector<std::pair<std::string, std::string>> CheckpointStore::environment() 
         {"GIT_COMMITTER_EMAIL", "amber@localhost"},
     };
     if (shadow_) {
-        env.push_back({"GIT_DIR", shadow_git_dir_});
-        env.push_back({"GIT_WORK_TREE", root_});
+        env.emplace_back("GIT_DIR", shadow_git_dir_);
+        env.emplace_back("GIT_WORK_TREE", root_);
     }
     return env;
 }
@@ -247,7 +247,7 @@ std::optional<std::string> CheckpointStore::read_ref() const {
     const GitResult r = run_git(root_, {"rev-parse", "--verify", "--quiet", ref_}, environment());
     if (r.status != 0)
         return std::nullopt;
-    const std::string id = trimmed(r.output);
+    std::string id = trimmed(r.output);
     if (id.empty())
         return std::nullopt;
     return id;
@@ -298,10 +298,10 @@ std::string CheckpointStore::write_commit(const std::string& tree, const std::st
                                           const std::string& message) const {
     std::vector<std::string> args{"commit-tree", tree};
     if (!parent.empty()) {
-        args.push_back("-p");
+        args.emplace_back("-p");
         args.push_back(parent);
     }
-    args.push_back("-m");
+    args.emplace_back("-m");
     args.push_back(message);
     return trimmed(
         git_checked(root_, args, environment(), "could not write the checkpoint commit"));

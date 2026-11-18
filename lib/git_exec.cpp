@@ -5,8 +5,7 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
-extern char** environ;
+#include <utility>
 
 namespace agent {
 
@@ -32,8 +31,12 @@ child_environment(const std::vector<std::pair<std::string, std::string>>& overri
         if (!overridden)
             out.push_back(text);
     }
-    for (const auto& [name, value] : overrides)
-        out.push_back(name + "=" + value);
+    for (const auto& [name, value] : overrides) {
+        std::string entry = name;
+        entry += '=';
+        entry += value;
+        out.push_back(std::move(entry));
+    }
     return out;
 }
 
