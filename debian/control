@@ -34,10 +34,11 @@ Section: libdevel
 Architecture: any
 Depends: amber-agent (= ${binary:Version}), ${misc:Depends}
 Description: development files for the amber agent harness
- Headers, static libraries and the pkg-config file needed to build a tool, a
+ Headers, static libraries and the pkg-config files needed to build a tool, a
  plugin or an embedding application against the amber core.
  .
- Build with: pkg-config --cflags --libs amber-agent
+ Build with: pkg-config --cflags --libs amber-agent (bundled plugin set), or
+ pkg-config --cflags --libs amber-agent-core (core and tools only)
 
 Package: amber-agent-bench
 Section: devel

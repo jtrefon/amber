@@ -30,6 +30,7 @@ class Amber < Formula
     # Static libs + headers (for downstream linking / plugin development).
     lib.install "lib/libagent_core.a"
     lib.install "lib/libagent_tools.a"
+    lib.install "lib/libagent_plugins.a"
     (include/"agent").install Dir["include/agent/*.h"]
     (include/"nlohmann").install "include/nlohmann/json.hpp"
 

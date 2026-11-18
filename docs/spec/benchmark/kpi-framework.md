@@ -35,8 +35,8 @@ The framework turns engine behavior into objective, repeatable KPIs:
 - **In-engine**: the engine is the thing being measured. Built-in telemetry
   corrupts SRP and the benchmark's trustworthiness. `AgentHooks`
   (agent.h:54-78) exists precisely so observers (TUI, CLI, bench) stay outside.
-- The benchmark is a **third thin client** linking `libagent_core.a` +
-  `libagent_tools.a`, sibling to `amber-cli`. If a future KPI needs a
+- The benchmark is a **third thin client** linking `libagent_plugins.a` +
+  `libagent_tools.a` + `libagent_core.a`, sibling to `amber-cli`. If a future KPI needs a
   structured signal the hooks cannot carry, that is a separate, spec'd engine
   change — not this framework's concern.
 

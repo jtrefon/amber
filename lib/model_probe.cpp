@@ -1,7 +1,9 @@
 #include "agent/model_probe.h"
 #include "agent/debug_log.h"
 #include "agent/dialect.h"
+#include "agent/rate_governor.h"
 
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -103,6 +105,17 @@ std::map<std::string, std::shared_ptr<FetchSlot>>& slots() {
     return m;
 }
 
+// A catalogue GET yields to a user turn and shares the provider's pause,
+// interval and concurrency. Cancellation is a failed fetch, not an empty
+// catalogue.
+ProviderGovernor* acquire_catalog(const Config& cfg, ModelsGetResult& out) {
+    auto& governor = RateGovernorRegistry::global().for_config(cfg);
+    if (governor.acquire(0, cfg.cancel_token, RequestClass::Foreground))
+        return &governor;
+    out.transport_ok = false;
+    return nullptr;
+}
+
 } // namespace
 
 // One GET {api_base}/models. `want_body` buffers the response body; either way
@@ -118,9 +131,15 @@ ModelsGetResult models_get(const Config& cfg, bool want_body) {
     if (url.empty())
         return out;
 
-    CURL* c = curl_easy_init();
-    if (!c)
+    ProviderGovernor* governor = acquire_catalog(cfg, out);
+    if (!governor)
         return out;
+
+    CURL* c = curl_easy_init();
+    if (!c) {
+        governor->on_response(0, 0, {}, 0);
+        return out;
+    }
 
     struct curl_slist* headers = nullptr;
     for (const std::string& h : dialect->auth_headers(cfg))
@@ -142,6 +161,7 @@ ModelsGetResult models_get(const Config& cfg, bool want_body) {
     curl_easy_getinfo(c, CURLINFO_RESPONSE_CODE, &out.http_code);
     curl_slist_free_all(headers);
     curl_easy_cleanup(c);
+    governor->on_response(out.http_code, 0, {}, /*tokens=*/0);
 
     out.transport_ok = (rc == CURLE_OK);
     if (!want_body)

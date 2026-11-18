@@ -26,6 +26,9 @@ std::string status_text(const RateStatus& s) {
     std::ostringstream out;
     out << "provider pacing: interval=" << s.interval_ms << "ms pause=" << s.pause_ms
         << "ms concurrency=" << s.concurrency << " in_flight=" << s.in_flight
+        << " waiting=" << s.waiting_interactive << "/" << s.waiting_foreground << "/"
+        << s.waiting_background << " in_flight_class=" << s.in_flight_interactive << "/"
+        << s.in_flight_foreground << "/" << s.in_flight_background
         << " consecutive_rate_limits=" << s.consecutive_rate_limits
         << " tokens_in_window=" << s.tokens_in_window;
     if (s.token_capacity > 0)

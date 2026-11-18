@@ -1,7 +1,7 @@
 # AGENTS.md, amber (cpp-agent)
 
 C++17 AI agent harness: a core library (`libagent_core.a` + `libagent_tools.a`)
-plus a headless CLI (`amber-cli`) and an ncurses TUI (`amber`, the flagship),
+and the bundled plugin set (`libagent_plugins.a`), plus a headless CLI (`amber-cli`) and an ncurses TUI (`amber`, the flagship),
 driven by an OpenAI-compatible LLM API.
 
 ## Build & verify
@@ -10,7 +10,8 @@ driven by an OpenAI-compatible LLM API.
   generate `Makefile` from `Makefile.in`. You rarely need to call `./configure`
   by hand.
 - `make` builds everything (`lib cli tui`). The binaries and archive land in the
-  repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`), in-tree, not in a `build/`.
+  repo root (`amber`, `amber-cli`, `libagent_core.a`, `libagent_tools.a`,
+  `libagent_plugins.a`), in-tree, not in a `build/`.
 - `make test` builds and runs the unit suite (`run_tests`). The binary is
   interrogable: `./run_tests --list` prints every test name, a positional
   argument is a substring filter (`./run_tests agent_loop`), and each test runs
@@ -167,8 +168,7 @@ driven by an OpenAI-compatible LLM API.
 - `make hygiene` is a **cliff** (`tools/hygiene_gate.py`): no `using namespace`
   in a header, no raw `new`/`delete` in owned source, `lib/` and
   `include/agent/` do not `#include` from `tui/`, `src/`, `tools/` or
-  `plugins/` except the two composition roots (`lib/plugins_bundled.cpp`,
-  `lib/tools_default.cpp`; the plugin-free split is post-1.0), and a
+  `plugins/` — there is no composition-root exception any more — and a
   source file's first line is functional (no SPDX/copyright boilerplate). Every
   header also compiles on its own. All of these measured clean first (0 / 1
   acknowledged / 0 layering / 0 boilerplate / 0 failing headers; the
@@ -604,11 +604,15 @@ below, so nobody re-derives them:
 
 ## Architecture boundaries
 
-- `lib/` + `include/agent/` is the UI-free core: LLM client, tool registry,
-  agent loop, prompt/markdown loader, built-in tools. Keep UI concerns out.
+- `lib/` + `include/agent/` is the UI-free, plugin-free core: LLM client, tool
+  registry, agent loop, prompt/markdown loader, plugin framework. It does not
+  include `plugins/` and does not link a bundled plugin: `plugins/` (including
+  the composition roots `plugins/bundled.cpp` and `plugins/default_tools.cpp`)
+  is a separate archive, `libagent_plugins.a`. Keep UI concerns out.
 - `src/amber-cli` is the headless CLI; `tui/` is the ncurses client (`amber`).
-  Both only *link* `libagent_core.a` + `libagent_tools.a` and communicate via
-  `AgentHooks`. `tui/` must never be depended on by `lib/`.
+  Both *link* `libagent_plugins.a` + `libagent_tools.a` + `libagent_core.a`
+  and communicate via `AgentHooks`. `tui/` must never be depended on by
+  `lib/`.
 - `bench/` is the benchmark & KPI harness (`amber-bench`): scenario loader,
   oracle scorer, recorder (an `AgentHooks` observer), KPI aggregation, static
   template engine. Same layering rules as the clients, `bench/` only links
@@ -664,9 +668,12 @@ deferred, see the developer guide's availability table).
   `~/.config/amber/plugins/<id>/plugin.conf`, the status bar is composed from a
   registry, and both hosts (`src/main.cpp`, `tui/tui_main.cpp`) construct a
   `PluginRuntime`. The runtime lives in `lib/plugin_runtime.cpp`; the bundled set
-  in `lib/plugins_bundled.cpp`.
-- **1.0 boundary:** 1.0 is a plugin-extensible **modular core**: bundled plugins
-  compile into the same archive; the plugin-free core split is post-1.0. The
+  and its host composition root in `plugins/bundled.cpp`, the bare-host tools in
+  `plugins/default_tools.cpp`, both in `libagent_plugins.a`.
+- **1.0 boundary:** 1.0 ships a decomposed, plugin-extensible core with a real
+  plugin-free archive: `libagent_core.a` carries the framework and the agent, and
+  a host chooses the shipped set by linking `libagent_plugins.a` (the hosts and
+  the benchmark do; `make core-only` proves the core boots without it). The
   external process tier is **tools-only** at 1.0 (no command namespaces), and
   external tools are owner-scoped through the runtime ledger. The long-term
   target remains a microkernel, amber as orchestrator plus plugin registry, so no

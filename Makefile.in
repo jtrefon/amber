@@ -19,6 +19,8 @@ CURL_LIBS   = @CURL_LIBS@
 # pair as a duplicate; the repeat is deliberate, so ask it not to warn.
 CORE_AND_TOOLS = $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
                  $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+FULL_LIBS = $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
+            $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(CORE_LIB)
 ifeq ($(shell uname -s),Darwin)
 DUP_LIB_FLAG = -Wl,-no_warn_duplicate_libraries
 endif
@@ -74,19 +76,20 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/dialect.o \
             $(BUILD_DIR)/lib/stream_decoder.o \
             $(BUILD_DIR)/lib/dialect_openai.o \
-              $(BUILD_DIR)/lib/dialect_anthropic.o \
-              $(BUILD_DIR)/lib/dialect_gemini.o \
+            $(BUILD_DIR)/lib/dialect_anthropic.o \
+            $(BUILD_DIR)/lib/dialect_gemini.o \
             $(BUILD_DIR)/lib/http_transport.o \
             $(BUILD_DIR)/lib/rate_governor.o \
             $(BUILD_DIR)/lib/model_probe.o \
-$(BUILD_DIR)/lib/provider_health.o \
+            $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/registry.o \
-              $(BUILD_DIR)/lib/toolset_audit.o \
+            $(BUILD_DIR)/lib/toolset_audit.o \
             $(BUILD_DIR)/lib/prompt.o \
             $(BUILD_DIR)/lib/conversation_log.o \
             $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
+            $(BUILD_DIR)/lib/loop_guard.o \
             $(BUILD_DIR)/lib/repair.o \
             $(BUILD_DIR)/lib/agent_helpers.o \
             $(BUILD_DIR)/lib/turn.o \
@@ -110,50 +113,61 @@ $(BUILD_DIR)/lib/provider_health.o \
             $(BUILD_DIR)/lib/compressor.o \
             $(BUILD_DIR)/lib/compressor_scanner.o \
             $(BUILD_DIR)/lib/compressor_request.o \
-             $(BUILD_DIR)/lib/compressor_parser.o \
-             $(BUILD_DIR)/lib/compressor_apply.o \
-             $(BUILD_DIR)/lib/global_config.o \
-             $(BUILD_DIR)/lib/compressor_archive.o \
-             $(BUILD_DIR)/lib/context_shape.o \
-             $(BUILD_DIR)/lib/compressor_reporter.o \
-              $(BUILD_DIR)/lib/memory_store.o \
-              $(BUILD_DIR)/lib/memory_scoring.o \
-              $(BUILD_DIR)/lib/memory_persistence.o \
-              $(BUILD_DIR)/lib/memory_retriever.o \
-              $(BUILD_DIR)/lib/skill_file.o \
-             $(BUILD_DIR)/lib/skill_catalog.o \
-             $(BUILD_DIR)/lib/skill_index.o \
-             $(BUILD_DIR)/lib/github_index.o \
-             $(BUILD_DIR)/lib/well_known_index.o \
-             $(BUILD_DIR)/lib/sha256.o \
-             $(BUILD_DIR)/lib/remote_text.o \
-             $(BUILD_DIR)/lib/skill_commands.o \
-             $(BUILD_DIR)/lib/learn_commands.o \
-             $(BUILD_DIR)/lib/mcp_jsonrpc.o \
-             $(BUILD_DIR)/lib/mcp_transport_stdio.o \
-             $(BUILD_DIR)/lib/mcp_transport_http.o \
-             $(BUILD_DIR)/lib/mcp_client.o \
-             $(BUILD_DIR)/lib/mcp_config.o \
-             $(BUILD_DIR)/lib/mcp_tools.o \
-             $(BUILD_DIR)/lib/mcp_commands.o \
-             $(BUILD_DIR)/lib/policy.o \
-             $(BUILD_DIR)/lib/shell_classify.o \
-             $(BUILD_DIR)/lib/policy_engine.o \
-             $(BUILD_DIR)/lib/environment.o \
-             $(BUILD_DIR)/lib/data_path.o \
-              $(BUILD_DIR)/lib/bootstrap.o \
-              $(BUILD_DIR)/lib/plugin.o \
-             $(BUILD_DIR)/lib/plugin_protocol.o \
-              $(BUILD_DIR)/lib/event_bus.o \
-              $(BUILD_DIR)/lib/plugin_capability.o \
-              $(BUILD_DIR)/lib/extensions.o \
-              $(BUILD_DIR)/lib/plugin_runtime.o \
-              $(BUILD_DIR)/lib/plugin_external_adapter.o \
-              $(BUILD_DIR)/lib/plugins_bundled.o \
-              $(BUILD_DIR)/lib/core_segments.o \
-              $(BUILD_DIR)/lib/plugin_console.o \
-              $(BUILD_DIR)/lib/http_get.o \
-              $(BUILD_DIR)/lib/plugin_registry.o \
+            $(BUILD_DIR)/lib/compressor_parser.o \
+            $(BUILD_DIR)/lib/compressor_apply.o \
+            $(BUILD_DIR)/lib/global_config.o \
+            $(BUILD_DIR)/lib/compressor_archive.o \
+            $(BUILD_DIR)/lib/context_shape.o \
+            $(BUILD_DIR)/lib/compressor_reporter.o \
+            $(BUILD_DIR)/lib/memory_store.o \
+            $(BUILD_DIR)/lib/memory_scoring.o \
+            $(BUILD_DIR)/lib/memory_persistence.o \
+            $(BUILD_DIR)/lib/memory_retriever.o \
+            $(BUILD_DIR)/lib/skill_file.o \
+            $(BUILD_DIR)/lib/skill_catalog.o \
+            $(BUILD_DIR)/lib/skill_index.o \
+            $(BUILD_DIR)/lib/github_index.o \
+            $(BUILD_DIR)/lib/well_known_index.o \
+            $(BUILD_DIR)/lib/sha256.o \
+            $(BUILD_DIR)/lib/remote_text.o \
+            $(BUILD_DIR)/lib/skill_commands.o \
+            $(BUILD_DIR)/lib/learn_commands.o \
+            $(BUILD_DIR)/lib/mcp_jsonrpc.o \
+            $(BUILD_DIR)/lib/mcp_transport_stdio.o \
+            $(BUILD_DIR)/lib/mcp_transport_http.o \
+            $(BUILD_DIR)/lib/mcp_client.o \
+            $(BUILD_DIR)/lib/mcp_config.o \
+            $(BUILD_DIR)/lib/mcp_tools.o \
+            $(BUILD_DIR)/lib/mcp_commands.o \
+            $(BUILD_DIR)/lib/policy.o \
+            $(BUILD_DIR)/lib/shell_classify.o \
+            $(BUILD_DIR)/lib/policy_engine.o \
+            $(BUILD_DIR)/lib/environment.o \
+            $(BUILD_DIR)/lib/data_path.o \
+            $(BUILD_DIR)/lib/bootstrap.o \
+            $(BUILD_DIR)/lib/plugin.o \
+            $(BUILD_DIR)/lib/plugin_protocol.o \
+            $(BUILD_DIR)/lib/event_bus.o \
+            $(BUILD_DIR)/lib/plugin_capability.o \
+            $(BUILD_DIR)/lib/extensions.o \
+            $(BUILD_DIR)/lib/plugin_runtime.o \
+            $(BUILD_DIR)/lib/plugin_external_adapter.o \
+            $(BUILD_DIR)/lib/core_segments.o \
+            $(BUILD_DIR)/lib/plugin_console.o \
+            $(BUILD_DIR)/lib/http_get.o \
+            $(BUILD_DIR)/lib/plugin_registry.o \
+            $(BUILD_DIR)/lib/tool_prompt.o \
+            $(BUILD_DIR)/lib/archive_util.o \
+            $(BUILD_DIR)/lib/skill_install.o \
+            $(BUILD_DIR)/lib/skill_cli.o \
+            $(BUILD_DIR)/lib/skill_ledger.o \
+            $(BUILD_DIR)/lib/tool_call_parser.o \
+            $(BUILD_DIR)/lib/session_brief.o
+
+# The bundled plugin set, its composition roots included. These objects form
+# libagent_plugins.a; none of them may appear in libagent_core.a.
+PLUGIN_OBJS = $(BUILD_DIR)/plugins/bundled.o \
+              $(BUILD_DIR)/plugins/default_tools.o \
               $(BUILD_DIR)/plugins/clock/clock_plugin.o \
               $(BUILD_DIR)/plugins/metrics/metrics_plugin.o \
               $(BUILD_DIR)/plugins/cache/cache_plugin.o \
@@ -187,7 +201,6 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/mcp/mcp_plugin.o \
               $(BUILD_DIR)/plugins/search_grep/search_grep_plugin.o \
               $(BUILD_DIR)/plugins/search_semantic/search_semantic_plugin.o \
-              $(BUILD_DIR)/lib/tool_prompt.o \
               $(BUILD_DIR)/plugins/custom/custom_plugin.o \
               $(BUILD_DIR)/plugins/gemini/gemini_plugin.o \
               $(BUILD_DIR)/plugins/kilocode/kilocode_plugin.o \
@@ -206,14 +219,7 @@ $(BUILD_DIR)/lib/provider_health.o \
               $(BUILD_DIR)/plugins/project_index/index_tools.o \
               $(BUILD_DIR)/plugins/coding/coding_plugin.o \
               $(BUILD_DIR)/plugins/coding/coding_library.o \
-              $(BUILD_DIR)/plugins/coding/library_lookup_tool.o \
-              $(BUILD_DIR)/lib/archive_util.o \
-             $(BUILD_DIR)/lib/skill_install.o \
-             $(BUILD_DIR)/lib/skill_cli.o \
-             $(BUILD_DIR)/lib/skill_ledger.o \
-             $(BUILD_DIR)/lib/tools_default.o \
-             $(BUILD_DIR)/lib/tool_call_parser.o \
-             $(BUILD_DIR)/lib/session_brief.o
+              $(BUILD_DIR)/plugins/coding/library_lookup_tool.o
 
 TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/tools/read_result_tool.o \
@@ -356,6 +362,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/agent_loop_test.o \
                $(BUILD_DIR)/tests/prompt_assembler_test.o \
                $(BUILD_DIR)/tests/compression_controller_test.o \
+               $(BUILD_DIR)/tests/loop_guard_test.o \
                $(BUILD_DIR)/tests/agent_ports_test.o \
                $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
@@ -409,6 +416,7 @@ E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
 BENCH_TEST_OBJ = $(BUILD_DIR)/tests/bench_test.o
+CORE_ONLY_TEST_OBJ = $(BUILD_DIR)/tests/core_only_test.o
 
 # The copy-me template (tests/example_plugin_test.cpp compiles and exercises
 # it). Deliberately not registered in make_bundled_plugins(), so it does not
@@ -421,8 +429,9 @@ MCP_FIXTURES = $(BUILD_DIR)/tests/fixtures/mcp_echo \
                $(BUILD_DIR)/tests/fixtures/mcp_http \
                $(BUILD_DIR)/tests/fixtures/mcp_ignore_sigterm
 
-CORE_LIB  = libagent_core.a
-TOOLS_LIB = libagent_tools.a
+CORE_LIB   = libagent_core.a
+TOOLS_LIB  = libagent_tools.a
+PLUGIN_LIB = libagent_plugins.a
 CLI_BIN   = amber-cli
 TUI_BIN   = amber
 BENCH_BIN = amber-bench
@@ -434,7 +443,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 .PHONY: all lib cli tui bench bench-check bench-e2e bench-baseline bench-reap bench-reap-apply \
         trace-check \
         website-bench-data check smoketest test doctor tui-agent-e2e \
-        agent-e2e agent-e2e-baseline \
+        agent-e2e agent-e2e-baseline core-only \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick preflight check-compilers \
         coverage coverage-branch-baseline ci-manifest detach \
@@ -1287,10 +1296,29 @@ pty-matrix: $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
 	AMBER_PTY_TERM=xterm-256color $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
 	./tests/tmux_smoke.sh $(BUILD_DIR)/$(TUI_BIN)
 
-test: $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(CLI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
+test: core-only $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(CLI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/run_tests && $(BUILD_DIR)/command_line_test && $(BUILD_DIR)/session_browser_test && $(BUILD_DIR)/e2e_test && $(BUILD_DIR)/completions_test && $(BUILD_DIR)/plugin_test && $(BUILD_DIR)/ws_test && $(BUILD_DIR)/url_test && $(BUILD_DIR)/bench_test && $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)
-$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/widgets.o $(BUILD_DIR)/tui/dialog_state.o $(BUILD_DIR)/tui/dialog_view.o $(BUILD_DIR)/tui/rich_surface.o $(BUILD_DIR)/tui/text_screen.o $(BUILD_DIR)/tui/skills_screen_view.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/modal_host.o $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/frame_painter.o $(BUILD_DIR)/tui/drawer_view.o $(BUILD_DIR)/tui/text_canvas.o $(BUILD_DIR)/tui/screen_view.o $(BUILD_DIR)/tui/screen_host.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/widgets.o $(BUILD_DIR)/tui/dialog_state.o $(BUILD_DIR)/tui/dialog_view.o $(BUILD_DIR)/tui/rich_surface.o $(BUILD_DIR)/tui/text_screen.o $(BUILD_DIR)/tui/skills_screen_view.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/modal_host.o $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/frame_painter.o $(BUILD_DIR)/tui/drawer_view.o $(BUILD_DIR)/tui/text_canvas.o $(BUILD_DIR)/tui/screen_view.o $(BUILD_DIR)/tui/screen_host.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
+# The plugin-free core. This target links only the core and tools archives and
+# then boots a runtime with no bundled plugin set, so the deployment claim is
+# measured instead of asserted. The archive check is the gate: a plugin object
+# inside libagent_core.a means the split regressed even if the link happens to
+# succeed.
+core-only: $(BUILD_DIR)/core_only_test
+	@members=$$($(AR) t $(BUILD_DIR)/$(CORE_LIB)); \
+	for obj in $(PLUGIN_OBJS); do \
+	    name=$$(basename "$$obj"); \
+	    if printf '%s\n' "$$members" | grep -qx "$$name"; then \
+	        echo "core-only: libagent_core.a contains bundled plugin object $$name"; \
+	        exit 1; \
+	    fi; \
+	done
+	$(BUILD_DIR)/core_only_test
+
+$(BUILD_DIR)/core_only_test: $(CORE_ONLY_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CORE_ONLY_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+
+$(BUILD_DIR)/run_tests: $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/widgets.o $(BUILD_DIR)/tui/dialog_state.o $(BUILD_DIR)/tui/dialog_view.o $(BUILD_DIR)/tui/rich_surface.o $(BUILD_DIR)/tui/text_screen.o $(BUILD_DIR)/tui/skills_screen_view.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/modal_host.o $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/frame_painter.o $(BUILD_DIR)/tui/drawer_view.o $(BUILD_DIR)/tui/text_canvas.o $(BUILD_DIR)/tui/screen_view.o $(BUILD_DIR)/tui/screen_host.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(UNITTEST_OBJ) $(BUILD_DIR)/src/update.o $(TUI_TEST_OBJ) $(BUILD_DIR)/tui/action_registry.o $(BUILD_DIR)/tui/top_bar.o $(BUILD_DIR)/tui/menu_model.o $(BUILD_DIR)/tui/menu_view.o $(BUILD_DIR)/tui/menu_controller.o $(BUILD_DIR)/tui/hints.o $(BUILD_DIR)/tui/textutil.o $(BUILD_DIR)/tui/git_reads.o $(BUILD_DIR)/tui/palette.o $(BUILD_DIR)/tui/rich.o $(BUILD_DIR)/tui/markdown.o $(BUILD_DIR)/tui/markdown_md4c.o $(BUILD_DIR)/tui/markdown_normalize.o $(BUILD_DIR)/tui/drawer_rows.o $(BUILD_DIR)/tui/model_picker.o $(BUILD_DIR)/tui/drawer_tabs.o $(BUILD_DIR)/tui/bracket_paste.o $(BUILD_DIR)/tui/tool_display.o $(BUILD_DIR)/tui/scroll_dispatch.o $(BUILD_DIR)/tui/option_key_decode.o $(BUILD_DIR)/tui/status_bar_layout.o $(BUILD_DIR)/tui/toggle_value.o $(BUILD_DIR)/tui/list_state.o $(BUILD_DIR)/tui/skills_browse_core.o $(BUILD_DIR)/tui/skills_service.o $(BUILD_DIR)/tui/skills_detail_view.o $(BUILD_DIR)/tui/skills_lifecycle.o $(BUILD_DIR)/tui/skills_install_sheet.o $(BUILD_DIR)/tui/panel_view_state.o $(BUILD_DIR)/tui/form_focus.o $(BUILD_DIR)/tui/session_row.o $(BUILD_DIR)/tui/input_line_layout.o $(BUILD_DIR)/tui/ansi_sgr.o $(BUILD_DIR)/tui/setting_registry.o $(BUILD_DIR)/tui/plugin_commands.o $(BUILD_DIR)/tui/reasoning_block.o $(BUILD_DIR)/tui/plugin_feed.o $(BUILD_DIR)/tui/path_confine.o $(BUILD_DIR)/tui/key_binder.o $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o $(BUILD_DIR)/tui/component.o $(BUILD_DIR)/tui/gallery.o $(BUILD_DIR)/tui/widgets.o $(BUILD_DIR)/tui/dialog_state.o $(BUILD_DIR)/tui/dialog_view.o $(BUILD_DIR)/tui/rich_surface.o $(BUILD_DIR)/tui/text_screen.o $(BUILD_DIR)/tui/skills_screen_view.o $(BUILD_DIR)/tui/skills_sheet_view.o $(BUILD_DIR)/tui/modal_host.o $(BUILD_DIR)/tui/terminal.o $(BUILD_DIR)/tui/frame_painter.o $(BUILD_DIR)/tui/drawer_view.o $(BUILD_DIR)/tui/text_canvas.o $(BUILD_DIR)/tui/screen_view.o $(BUILD_DIR)/tui/screen_host.o $(BUILD_DIR)/tui/window_ops.o $(BUILD_DIR)/tui/watch_cancel.o $(BUILD_DIR)/tui/window_manager.o $(BUILD_DIR)/tui/work_auto_attach.o $(BUILD_DIR)/tui/run_registry.o $(BUILD_DIR)/third_party/md4c/md4c.o $(TEMPLATE_PLUGIN_OBJ) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS) $(NCURSES_LIBS)
 
 
 
@@ -1314,8 +1342,8 @@ $(BUILD_DIR)/completions_test: $(COMP_TEST_OBJ) $(BUILD_DIR)/tui/command_line.o 
 $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(PLUGIN_TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
-$(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+$(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
 bench: $(BUILD_DIR)/$(BENCH_BIN)
 
@@ -1416,32 +1444,41 @@ website-bench-data: $(BUILD_DIR)/$(BENCH_BIN)
 bench-reap-apply: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) reap-state --apply
 
-$(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+$(BUILD_DIR)/$(BENCH_BIN): $(BENCH_MAIN) $(BENCH_OBJS) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_MAIN) $(BENCH_OBJS) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
-$(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
-	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TEST_OBJ) $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
+$(BUILD_DIR)/smoketest: $(TEST_OBJ) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TEST_OBJ) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
-lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+lib: $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) $(BUILD_DIR)/$(PLUGIN_LIB)
 
+# Recreate instead of update: `ar rcs` replaces members but never removes one,
+# so a split (a source moving to another archive) would leave the old object
+# behind and every later link would still see it.
 $(BUILD_DIR)/$(CORE_LIB): $(CORE_OBJS)
+	rm -f $@
 	$(AR) rcs $@ $(CORE_OBJS)
 
 $(BUILD_DIR)/$(TOOLS_LIB): $(TOOLS_OBJS)
+	rm -f $@
 	$(AR) rcs $@ $(TOOLS_OBJS)
+
+$(BUILD_DIR)/$(PLUGIN_LIB): $(PLUGIN_OBJS)
+	rm -f $@
+	$(AR) rcs $@ $(PLUGIN_OBJS)
 
 cli: $(BUILD_DIR)/$(CLI_BIN)
 
-$(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+$(BUILD_DIR)/$(CLI_BIN): $(CLI_OBJ) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(CLI_OBJ) \
-	    $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) \
+	    $(FULL_LIBS) $(DUP_LIB_FLAG) \
 	    $(CURL_LIBS)
 
 tui: $(BUILD_DIR)/$(TUI_BIN)
 
-$(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+$(BUILD_DIR)/$(TUI_BIN): $(TUI_OBJS) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TUI_OBJS) \
-	    $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) \
+	    $(FULL_LIBS) $(DUP_LIB_FLAG) \
 	    $(CURL_LIBS) $(NCURSES_LIBS)
 
 # Object compilation rules. The library and tools are compiled once into the
@@ -1574,6 +1611,7 @@ install-dev: all
 	install -d $(DESTDIR)$(libdir)
 	install -m 644 $(BUILD_DIR)/$(CORE_LIB) $(DESTDIR)$(libdir)/
 	install -m 644 $(BUILD_DIR)/$(TOOLS_LIB) $(DESTDIR)$(libdir)/
+	install -m 644 $(BUILD_DIR)/$(PLUGIN_LIB) $(DESTDIR)$(libdir)/
 	# Headers live under amber-agent/, never directly in include/: `agent` and
 	# `nlohmann` are generic names and collide with any other installed project.
 	install -d $(DESTDIR)$(pkg_includedir)/agent
@@ -1591,6 +1629,14 @@ install-dev: all
 	    -e 's|@PC_CURL_LIBS@|$(CURL_LIBS)|g' \
 	    $(SRC_DIR)/packaging/amber-agent.pc.in > $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
 	chmod 644 $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
+	# The plugin-free variant: same headers, core and tools only.
+	sed -e 's|@PREFIX@|$(prefix)|g' \
+	    -e 's|@LIBDIR@|$(libdir)|g' \
+	    -e 's|@INCLUDEDIR@|$(pkg_includedir)|g' \
+	    -e 's|@PC_VERSION@|$(VERSION)|g' \
+	    -e 's|@PC_CURL_LIBS@|$(CURL_LIBS)|g' \
+	    $(SRC_DIR)/packaging/amber-agent-core.pc.in > $(DESTDIR)$(pkgconfigdir)/amber-agent-core.pc
+	chmod 644 $(DESTDIR)$(pkgconfigdir)/amber-agent-core.pc
 
 install-bench: all
 	install -d $(DESTDIR)$(bindir)
@@ -1610,7 +1656,9 @@ uninstall:
 	rm -rf $(DESTDIR)$(bench_datadir)
 	rm -f $(DESTDIR)$(libdir)/$(CORE_LIB)
 	rm -f $(DESTDIR)$(libdir)/$(TOOLS_LIB)
+	rm -f $(DESTDIR)$(libdir)/$(PLUGIN_LIB)
 	rm -f $(DESTDIR)$(pkgconfigdir)/amber-agent.pc
+	rm -f $(DESTDIR)$(pkgconfigdir)/amber-agent-core.pc
 	rm -rf $(DESTDIR)$(pkg_includedir)
 	rm -rf $(DESTDIR)$(plugin_dir)
 	rm -rf $(DESTDIR)$(datadir)
@@ -1631,10 +1679,12 @@ clean:
 	rm -f $(SYSINFO_PLUGIN) $(SYSINFO_PLUGIN).d $(CDP_PLUGIN)
 	rm -f $(BUILD_DIR)/tools/plugins/cdp/*.o $(BUILD_DIR)/tools/plugins/cdp/*.d
 	rm -f $(BUILD_DIR)/plugins/*/*.o $(BUILD_DIR)/plugins/*/*.d
+	rm -f $(BUILD_DIR)/plugins/*.o $(BUILD_DIR)/plugins/*.d
 	rm -f $(BUILD_DIR)/ws_test.d
 	rm -rf $(FUZZ_BIN)
 	rm -f $(BUILD_DIR)/url_test $(BUILD_DIR)/url_test.d
-	rm -f $(CORE_LIB) $(TOOLS_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
+	rm -f $(CORE_LIB) $(TOOLS_LIB) $(PLUGIN_LIB) $(CLI_BIN) $(TUI_BIN) $(BENCH_BIN)
+	rm -f $(BUILD_DIR)/core_only_test
 	rm -f $(BUILD_DIR)/run_tests $(BUILD_DIR)/command_line_test $(BUILD_DIR)/session_browser_test $(BUILD_DIR)/e2e_test $(BUILD_DIR)/completions_test $(BUILD_DIR)/plugin_test $(BUILD_DIR)/ws_test $(BUILD_DIR)/url_test $(BUILD_DIR)/bench_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/smoketest
 	rm -f $(BUILD_DIR)/tests/fixtures/mcp_echo $(BUILD_DIR)/tests/fixtures/mcp_http $(BUILD_DIR)/tests/fixtures/mcp_ignore_sigterm
 	rm -rf $(BUILD_DIR)/tests/fixtures/*.dSYM $(BUILD_DIR)/*.dSYM

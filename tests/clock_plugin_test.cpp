@@ -14,6 +14,7 @@
 
 #include <ctime>
 #include <memory>
+#include "agent/plugins_bundled.h"
 
 using namespace agent;
 using agent::plugins::ClockPlugin;
@@ -64,7 +65,7 @@ TEST(clock_attaches_to_the_top_right_edge) {
     Config cfg;
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     auto segment = find_segment(runtime, "clock");
@@ -79,7 +80,7 @@ TEST(disabling_the_clock_plugin_removes_it_from_the_bar) {
     Config cfg;
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
     ASSERT(find_segment(runtime, "clock").has_value());
 
@@ -98,7 +99,7 @@ TEST(the_clock_shares_the_registry_with_the_segments_that_were_always_there) {
     Config cfg;
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     bool saw_left = false;

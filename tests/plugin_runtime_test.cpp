@@ -449,7 +449,7 @@ TEST(runtime_tool_plugins_are_active_on_a_default_config) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE(runtime.status("tool_read").enabled);
@@ -482,7 +482,7 @@ TEST(runtime_migrates_tool_task_state_to_tool_delegate) {
     HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     const fs::path moved =
@@ -507,7 +507,7 @@ TEST(runtime_tool_plugin_state_controls_the_plan_and_task_tools) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE((bool)f.tools.find("todowrite"));
@@ -534,7 +534,7 @@ TEST(runtime_tool_plugin_state_controls_the_context_tool) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     auto tool = f.tools.find("context");
@@ -559,7 +559,7 @@ TEST(the_context_tool_declines_without_a_shape_queue) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_FALSE((bool)f.tools.find("context"));
@@ -863,7 +863,7 @@ TEST(mcp_command_surface_is_documented_and_executable) {
     ScratchConfig scratch("mcp-docs");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(/*use_persisted_state=*/false);
 
     const CommandRegistry::Entry* mcp = nullptr;
@@ -907,7 +907,7 @@ TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
     write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(/*use_persisted_state=*/false);
 
     // The plugin is bundled and on, and its configured server's discovered tool
@@ -955,7 +955,7 @@ TEST(mcp_activation_returns_before_a_slow_server_answers) {
     write_mcp_server_conf(scratch.root(), "slow", cwd + "/tests/fixtures/mcp_slow", ".");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     const auto started = std::chrono::steady_clock::now();
     runtime.start(/*use_persisted_state=*/false);
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -979,7 +979,7 @@ TEST(mcp_a_failed_server_does_not_block_a_good_one) {
     write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(/*use_persisted_state=*/false);
     ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
     ASSERT_TRUE(runtime.status("mcp").enabled);
@@ -1001,7 +1001,7 @@ TEST(mcp_stop_joins_an_inflight_connect) {
     write_mcp_server_conf(scratch.root(), "slow", cwd + "/tests/fixtures/mcp_slow", ".");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(/*use_persisted_state=*/false);
     ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
     runtime.shutdown();
@@ -1052,7 +1052,7 @@ struct LiveMcp {
         write_mcp_server_conf(scratch.root(), "echo", cwd + "/tests/fixtures/mcp_echo", ".");
         if (ui)
             runtime.attach_ui_services(ui);
-        runtime.add_bundled();
+        agent::add_bundled_plugins(runtime);
         runtime.start(/*use_persisted_state=*/false);
         ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
     }
@@ -1093,7 +1093,7 @@ TEST(coding_domain_prose_arrives_and_leaves) {
     ScratchConfig scratch("coding-domain-prose-arrives-and-leaves-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string blocks = system_blocks_text(runtime);
@@ -1118,7 +1118,7 @@ TEST(project_instructions_reach_the_system_prompt) {
     write_text(ws.root() / "apps" / "web" / "AGENTS.md", "# Web\n\nNext.js app.\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = instructions_block(runtime);
@@ -1144,7 +1144,7 @@ TEST(project_instructions_are_capped_and_say_so) {
     write_text(ws.root() / "AGENTS.md", big);
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = instructions_block(runtime);
@@ -1169,7 +1169,7 @@ TEST(project_instructions_digest_names_omitted_sections) {
     write_text(ws.root() / "AGENTS.md", big);
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = instructions_block(runtime);
@@ -1188,7 +1188,7 @@ TEST(project_instructions_absent_leaves_no_block) {
     ScratchWorkspace ws("instructions-none");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(instructions_block(runtime).empty());
 }
@@ -1198,7 +1198,7 @@ TEST(project_instructions_whitespace_only_is_not_a_block) {
     write_text(ws.root() / "AGENTS.md", " \n\t\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(instructions_block(runtime).empty());
 }
@@ -1219,7 +1219,7 @@ TEST(project_instructions_git_scan_skips_ignored_and_nested_repositories) {
 
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = instructions_block(runtime);
@@ -1239,7 +1239,7 @@ TEST(project_instructions_walk_skips_nested_repositories) {
 
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = instructions_block(runtime);
@@ -1253,7 +1253,7 @@ TEST(project_instructions_report_names_the_file_and_nested) {
     write_text(ws.root() / "pkg" / "AGENTS.md", "# Pkg\n\nrules\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     auto* plugin = dynamic_cast<plugins::ProjectInstructionsPlugin*>(runtime.find("instructions"));
@@ -1330,7 +1330,7 @@ TEST(project_index_reaches_the_system_prompt) {
     write_project_index("# Project: turbo-shop\n\nmonorepo, backend .NET 8, Angular web\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = project_index_block(runtime);
@@ -1350,7 +1350,7 @@ TEST(project_index_is_frozen_within_a_session) {
     write_project_index("# Project: one\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string first = project_index_block(runtime);
@@ -1378,7 +1378,7 @@ TEST(project_index_provenance_reports_a_moved_source) {
                         "\n\nruns in compose\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string fresh = project_index_block(runtime);
@@ -1401,7 +1401,7 @@ TEST(project_index_absent_leaves_no_block) {
     ScratchState state("index-none");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(project_index_block(runtime).empty());
 }
@@ -1415,7 +1415,7 @@ TEST(project_index_is_capped_and_says_so) {
     write_project_index(big);
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string block = project_index_block(runtime);
@@ -1454,7 +1454,7 @@ TEST(index_init_proposes_and_commits) {
                R"("devDependencies":{"vitest":"1.0.0"}})");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::shared_ptr<Tool> init = f.tools.find("index_init");
@@ -1507,7 +1507,7 @@ TEST(index_init_refuses_a_credential) {
     ScratchState state("index-init-secret");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string body =
@@ -1523,7 +1523,7 @@ TEST(index_add_writes_and_creates_what_is_missing) {
     ScratchState state("index-add");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     // Render once, so the frozen block is the empty one this session sees.
     ASSERT(project_index_block(runtime).empty());
@@ -1586,7 +1586,7 @@ TEST(project_index_block_follows_a_compaction) {
     write_project_index("# Project: before\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(project_index_block(runtime).find("Project: before") != std::string::npos);
 
@@ -1625,7 +1625,7 @@ TEST(project_index_does_not_read_outside_the_workspace) {
                         "\n\nruns in compose\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     // Refused rather than read: "cannot check" is not "fine", so the block says
@@ -1640,7 +1640,7 @@ TEST(index_add_refuses_a_credential) {
     ScratchState state("index-add-secret");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult r = call_tool(
@@ -1656,7 +1656,7 @@ TEST(index_update_replaces_a_line_and_reports_a_miss) {
     ScratchState state("index-update");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(call_tool(f, "index_add", json{{"section", "runs"}, {"entry", "up: make dev"}}).ok);
 
@@ -1707,7 +1707,7 @@ TEST(index_init_scans_every_stack_it_knows) {
     write_text(ws.root() / "old.csproj", "<Project></Project>");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -1727,7 +1727,7 @@ TEST(index_init_reads_a_manifest_that_is_not_json) {
     write_text(ws.root() / "package.json", "this is not json\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -1742,7 +1742,7 @@ TEST(index_remove_takes_a_line_out_and_reports_a_miss) {
     ScratchState state("index-remove");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "one service"}}).ok);
     ASSERT(call_tool(f, "index_add", json{{"section", "shape"}, {"entry", "two services"}}).ok);
@@ -1762,7 +1762,7 @@ TEST(index_show_prints_the_file_or_says_there_is_none) {
     ScratchState state("index-show");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::shared_ptr<Tool> show = f.tools.find("index_show");
@@ -1784,7 +1784,7 @@ TEST(index_command_shows_the_file_and_refreshes_the_block) {
     ScratchState state("index-cmd");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     ASSERT(run_verb(runtime, "index", "show", "").find("no project index") != std::string::npos);
@@ -1803,7 +1803,7 @@ TEST(index_tools_travel_with_the_plugin) {
     ScratchConfig scratch("index-tools-travel-with-the-plugin-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(f.tools.find("index_show") != nullptr);
 
@@ -1869,7 +1869,7 @@ TEST(library_ranking_puts_the_heaviest_first) {
     write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string head = head_blocks_text(runtime);
@@ -1895,7 +1895,7 @@ TEST(library_topic_is_one_line_and_hides_its_children) {
     write_project_index("# Project: x\n\n## Library selection\n#cpp #debugging\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string head = head_blocks_text(runtime);
@@ -1924,7 +1924,7 @@ TEST(coding_library_index_lists_what_the_project_selects) {
     write_project_index("# Project: x\n\n## Library selection\n#cpp #testing\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string head = head_blocks_text(runtime);
@@ -1953,7 +1953,7 @@ TEST(coding_library_index_shows_the_craft_layer_without_a_selection) {
     ScratchState state("library-dark");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     const std::string head = head_blocks_text(runtime);
     // The craft layer answers what the task needs, not what the project is, so
@@ -1978,7 +1978,7 @@ TEST(coding_library_index_reports_the_entries_it_had_to_drop) {
                         "#cpp #build #git #testing #debugging #tooling\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const std::string head = head_blocks_text(runtime);
@@ -2002,7 +2002,7 @@ TEST(coding_library_index_leaves_with_the_domain) {
     write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(head_blocks_text(runtime).find("Library entries") != std::string::npos);
     ASSERT_TRUE(runtime.set_state("coding", false));
@@ -2014,7 +2014,7 @@ TEST(library_lookup_reads_an_entry_by_name) {
     ScratchState state("library-lookup-name");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult entry =
@@ -2041,7 +2041,7 @@ TEST(library_lookup_answers_a_query_and_reports_a_miss) {
     ScratchState state("library-lookup-query");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult hits = call_tool(f, "library_lookup", json{{"query", "sanitizer"}});
@@ -2069,7 +2069,7 @@ TEST(library_lookup_travels_with_the_domain) {
     ScratchConfig scratch("library-lookup-travels-with-the-domain-config");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
     ASSERT(f.tools.find("library_lookup") != nullptr);
 
@@ -2085,7 +2085,7 @@ TEST(library_lookup_finds_oop_and_solid) {
     ScratchState state("library-lookup-oop");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult oop = call_tool(f, "library_lookup", json{{"query", "OOP"}});
@@ -2110,7 +2110,7 @@ TEST(library_lookup_finds_the_names_people_use) {
     ScratchState state("library-lookup-names");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult event = call_tool(f, "library_lookup", json{{"query", "event sourcing"}});
@@ -2127,7 +2127,7 @@ TEST(library_lookup_lists_the_vocabulary_and_every_entry) {
     ScratchState state("library-lookup-list");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult listed = call_tool(f, "library_lookup", json{{"list", true}});
@@ -2142,7 +2142,7 @@ TEST(coding_library_skill_installs_and_unwinds) {
     ScratchConfig scratch("coding-library-skill");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     const auto has_skill = [] {
         for (const auto& skill : agent::system_skills())
             if (skill.name == "coding-library")
@@ -2168,7 +2168,7 @@ TEST(library_command_lists_entries_and_the_selection) {
     write_project_index("# Project: x\n\n## Library selection\n#cpp\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     ASSERT_TRUE(command_root_present(runtime.commands(), "library"));
@@ -2188,7 +2188,7 @@ TEST(coding_library_retrieval_eval_keeps_its_floor) {
     ScratchState state("library-eval");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     struct Case {
@@ -2263,7 +2263,7 @@ TEST(library_selection_pulls_only_what_a_rust_project_needs) {
     write_text(ws.root() / "Cargo.toml", "[package]\nname = \"cli\"\nversion = \"0.1.0\"\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -2287,7 +2287,7 @@ TEST(library_selection_for_a_python_project_does_not_leak_cpp) {
     write_text(ws.root() / "docker-compose.yml", "services:\n  db:\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -2316,7 +2316,7 @@ TEST(profile_cpp_cmake_and_compose_selects_the_cpp_set) {
     write_text(ws.root() / "docker-compose.yml", "services:\n  app:\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -2343,7 +2343,7 @@ TEST(profile_dotnet_angular_monorepo_reports_what_it_cannot_serve) {
     write_text(ws.root() / "docker-compose.yml", "services:\n  api:\n  web:\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -2366,7 +2366,7 @@ TEST(profile_go_service_selects_nothing_yet) {
     write_text(ws.root() / "main.go", "package main\n\nfunc main() {}\n");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     const ToolResult proposed = call_tool(f, "index_init", json::object());
@@ -2483,7 +2483,7 @@ TEST(mcp_plugin_status_segment_reports_failures) {
         write_mcp_server_conf(scratch.root(), "bad", "no-such-mcp-binary", cwd);
         Fixture f;
         PluginRuntime runtime(f.tools, f.cfg, f.ws);
-        runtime.add_bundled();
+        agent::add_bundled_plugins(runtime);
         runtime.start(false);
         std::string text = "<no mcp segment>";
         ASSERT_TRUE(wait_until([&] {
@@ -2499,7 +2499,7 @@ TEST(mcp_plugin_status_segment_reports_failures) {
         ScratchConfig scratch("mcp-segment-empty");
         Fixture f;
         PluginRuntime runtime(f.tools, f.cfg, f.ws);
-        runtime.add_bundled();
+        agent::add_bundled_plugins(runtime);
         runtime.start(false);
         for (const auto& s : runtime.status().render(StatusSnapshot{}))
             if (s.id == "mcp")
@@ -2541,7 +2541,7 @@ TEST(runtime_bundles_the_skill_tools) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE(runtime.status("tool_skills").enabled);
@@ -2560,7 +2560,7 @@ TEST(disabling_tool_skills_removes_its_tools_and_prose) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE((bool)f.tools.find("read_skill"));
@@ -2591,7 +2591,7 @@ TEST(runtime_audit_follows_the_enabled_toolset) {
 
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     // The shipped set is complete: nothing to warn about.
@@ -3282,7 +3282,7 @@ TEST(runtime_provider_plugin_registers_and_unwinds) {
     ScratchConfig scratch("provider");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE(runtime.status("gemini").enabled);
@@ -3524,7 +3524,7 @@ TEST(runtime_exposes_the_builtin_wallets) {
     ScratchConfig scratch("wallets");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE(runtime.wallets().find("kilocode") != nullptr);
@@ -3560,7 +3560,7 @@ TEST(runtime_disable_releases_an_observers_subscriptions) {
     ScratchConfig scratch("observer_off");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     // The metrics plugin observes the loop; while it is on its subscriptions
@@ -3648,7 +3648,7 @@ TEST(runtime_find_returns_null_for_unknown_plugins) {
     ScratchConfig scratch("find_unknown");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     ASSERT_TRUE(runtime.find("metrics") != nullptr);
     ASSERT_TRUE(runtime.find("nope") == nullptr);
 }
@@ -3657,7 +3657,7 @@ TEST(runtime_bundled_set_registers_the_metrics_plugin) {
     ScratchConfig scratch("bundled");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     ASSERT_TRUE(runtime.has("metrics"));
     ASSERT_FALSE(make_bundled_plugins().empty());
 }
@@ -3775,7 +3775,7 @@ TEST(opencode_go_preset_asks_for_its_session_header) {
     ScratchConfig scratch("opencode_go_session");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     bool listed = false;
@@ -4043,7 +4043,7 @@ TEST(bundled_plugins_include_new_providers) {
     ScratchConfig scratch("new_providers");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     auto list = runtime.list();
     std::vector<std::string> ids;
     ids.reserve(list.size());
@@ -4071,7 +4071,7 @@ TEST(apply_state_changes_the_toolset_without_writing_state) {
     HostServices host{&jobs, &todos, &subagents, &f.cfg.cancel_token};
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(/*use_persisted_state=*/false);
 
     ASSERT_TRUE((bool)f.tools.find("search"));
@@ -4097,7 +4097,7 @@ TEST(start_ignores_persisted_state_when_told_to) {
     // A saved preference that says "off", as a previous session would leave.
     {
         PluginRuntime writer(f.tools, f.cfg, f.ws);
-        writer.add_bundled();
+        agent::add_bundled_plugins(writer);
         ASSERT_TRUE(writer.set_state("tool_search", false));
         ASSERT_FALSE((bool)f.tools.find("search"));
     }
@@ -4106,7 +4106,7 @@ TEST(start_ignores_persisted_state_when_told_to) {
     Fixture fresh;
     PluginRuntime bench(fresh.tools, f.cfg, fresh.ws);
     bench.attach_host_services(host);
-    bench.add_bundled();
+    agent::add_bundled_plugins(bench);
     bench.start(/*use_persisted_state=*/false);
     ASSERT_TRUE((bool)fresh.tools.find("search"));
 
@@ -4114,7 +4114,7 @@ TEST(start_ignores_persisted_state_when_told_to) {
     Fixture hosted;
     PluginRuntime host_rt(hosted.tools, f.cfg, hosted.ws);
     host_rt.attach_host_services(host);
-    host_rt.add_bundled();
+    agent::add_bundled_plugins(host_rt);
     host_rt.start();
     ASSERT_FALSE((bool)hosted.tools.find("search"));
 }
@@ -4220,7 +4220,7 @@ TEST(bundled_hello_keybinding_resolves_through_its_command) {
     ScratchConfig scratch("hello-keybinding");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     const auto& bindings = runtime.keybindings().all();
@@ -4254,7 +4254,7 @@ TEST(bundled_hello_plugin_contributes_the_hello_command) {
     ScratchConfig scratch("hello-command");
     Fixture f;
     PluginRuntime runtime(f.tools, f.cfg, f.ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     ASSERT_TRUE(runtime.status("hello").enabled);

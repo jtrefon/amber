@@ -75,7 +75,8 @@ rm -rf %{buildroot}%{_datadir}/doc/%{name}
 # once they are gone. dh_strip does this for the Debian package, and both
 # packages have to carry the same thing.
 %{__strip} --strip-debug %{buildroot}%{_libdir}/libagent_core.a \
-                          %{buildroot}%{_libdir}/libagent_tools.a
+                          %{buildroot}%{_libdir}/libagent_tools.a \
+                          %{buildroot}%{_libdir}/libagent_plugins.a
 
 %files
 %license LICENSE NOTICE THIRD_PARTY_LICENSES
@@ -92,7 +93,9 @@ rm -rf %{buildroot}%{_datadir}/doc/%{name}
 %{_includedir}/amber-agent
 %{_libdir}/libagent_core.a
 %{_libdir}/libagent_tools.a
+%{_libdir}/libagent_plugins.a
 %{_libdir}/pkgconfig/amber-agent.pc
+%{_libdir}/pkgconfig/amber-agent-core.pc
 
 %files bench
 %{_bindir}/amber-bench

@@ -124,6 +124,8 @@ jobs:
           test -f stage/usr/share/amber/data/skill-collections.json
           test -f stage/usr/share/man/man1/amber.1
           test -f stage/usr/lib/pkgconfig/amber-agent.pc
+          test -f stage/usr/lib/pkgconfig/amber-agent-core.pc
+          test -f stage/usr/lib/libagent_plugins.a
           test -f stage/usr/include/amber-agent/agent/agent.h
           test -n "$(find stage -path '*/share/amber-bench/scenarios/*/*.json' -print -quit)"
 
@@ -202,8 +204,11 @@ jobs:
           test -f /usr/include/amber-agent/agent/agent.h
           test -f /usr/include/amber-agent/nlohmann/json.hpp
           test -f /usr/lib/libagent_core.a
+          test -f /usr/lib/libagent_plugins.a
           test -f /usr/lib/pkgconfig/amber-agent.pc
+          test -f /usr/lib/pkgconfig/amber-agent-core.pc
           PKG_CONFIG_PATH=/usr/lib/pkgconfig pkg-config --cflags --libs amber-agent
+          PKG_CONFIG_PATH=/usr/lib/pkgconfig pkg-config --cflags --libs amber-agent-core
 
       - name: Download macOS tarball (arm64)
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8

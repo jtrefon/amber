@@ -249,7 +249,7 @@ bool setup_plugins(const RunOptions& opts, agent::PluginRuntime& plugins,
     // leave those plugins with nothing to bind to, which is how the benchmark
     // ran without a `context` tool while every real host had one.
     plugins.attach_host_services(host_services);
-    plugins.add_bundled();
+    agent::add_bundled_plugins(plugins);
     for (const auto& id : opts.disable_plugins) {
         if (!plugins.has(id)) {
             // A typo must not produce a run that quietly measured the default

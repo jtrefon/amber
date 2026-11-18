@@ -15,6 +15,6 @@ To make your own plugin from this:
 1. Copy this directory to `plugins/<your-id>/`.
 2. Rename the class and change `id()`/`name()`/`description()`/`category()`.
 3. Replace `GreetTool` with your tool.
-4. Register it in `make_bundled_plugins()` (`lib/plugins_bundled.cpp`) and add
+4. Register it in `make_bundled_plugins()` (`plugins/bundled.cpp`) and add
    the object to `Makefile.in`.
 5. Write a test like `tests/example_plugin_test.cpp`.

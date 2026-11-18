@@ -198,11 +198,6 @@ bool PluginRuntime::add(std::shared_ptr<IPlugin> plugin, bool bundled) {
     return true;
 }
 
-void PluginRuntime::add_bundled() {
-    for (auto& plugin : make_bundled_plugins())
-        add(std::move(plugin), true);
-}
-
 void PluginRuntime::add_external(PluginManager& manager) {
     for (auto& plugin : make_v1_plugin_adapters(manager))
         add(std::move(plugin), /*bundled=*/false);

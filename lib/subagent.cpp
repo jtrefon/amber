@@ -3,6 +3,7 @@
 #include "agent/event_bus.h"
 #include "agent/private_file.h"
 #include "agent/run_scope.h"
+#include "agent/rate_governor.h"
 #include "agent/task_store.h"
 
 #include <algorithm>
@@ -434,6 +435,10 @@ std::string SubAgentExecutor::execute_child(const Work& work, const Cancellation
         sub_cfg.max_tool_iterations = work.request.max_turns;
     const AgentHooks sub_hooks = progress_hooks(work.task_id);
     t_in_subagent = true;
+    // A worker never competes with the user's turn for the provider: its whole
+    // run is Background, and a compression pass inside it raises only to
+    // Foreground.
+    ScopedRequestClass request_class(RequestClass::Background);
     const std::string reply =
         run_sub_agent(*work.registry, sub_cfg, sub_hooks, work.request, err, transcript);
     t_in_subagent = false;

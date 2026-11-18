@@ -6,12 +6,22 @@
   `docs/spec/plugins/developer-guide.md`**; where this document describes a
   surface that is not implemented, the guide and the code win. Code and this
   spec disagree → the code is wrong.
-- **1.0 boundary:** amber 1.0 is a **plugin-extensible modular core**. Bundled
-  plugins are compiled into the same binary/archive; the plugin-free core split
-  is post-1.0. The external process tier is **tools-only**: it contributes tools
-  and manifest settings, not command namespaces. The core C++ embedding API is
-  not frozen at 1.0; the plugin source/API promise is
-  `docs/spec/plugins/api-compatibility.md`.
+- **1.0 boundary:** amber 1.0 is a **decomposed, plugin-extensible core with a
+  plugin-free archive**. `libagent_core.a` carries the framework and the agent;
+  the shipped plugin set (including its `plugins/bundled.cpp` and
+  `plugins/default_tools.cpp` composition roots) is `libagent_plugins.a`, which
+  a host links when it wants the bundled tier. The external process tier is
+  **tools-only**: it contributes tools and manifest settings, not command
+  namespaces. The core C++ embedding API is not frozen at 1.0; the plugin
+  source/API promise is `docs/spec/plugins/api-compatibility.md`.
+
+**What stays in the core archive.** The split is about the shipped plugin
+*set*, not about relocating every subsystem. MCP, skills and memory keep their
+implementations in `lib/` because their clients, catalogs and stores are usable
+without the bundled plugins; their tool, command and prose surfaces are already
+plugins under `plugins/`. A subsystem moves under `plugins/` only when nothing
+in `libagent_core.a` would reference it after the move, and the composition
+roots plus the plugin objects they name are the only such set today.
 - **Supersedes:** the aspirational sections of the earlier framework draft
   (which described `void*` capabilities, an untyped event bus, and capability
   routing that no code performed). The external-plugin protocol

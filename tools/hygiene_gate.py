@@ -78,14 +78,11 @@ RAW_DELETE = re.compile(r"\bdelete\b")
 EQUALS_DELETE = re.compile(r"=\s*delete\b")
 
 # The domain core. A file under these prefixes may depend on other core headers
-# and on the standard library, never on an adapter or a UI. `plugins/` is
-# included for the two host composition roots below: bundled plugin objects are
-# part of the modular core at 1.0, and the split is post-1.0.
+# and on the standard library, never on an adapter, a UI or a bundled plugin.
+# The bundled set and its composition roots live under `plugins/` and are linked
+# by the host, so the core has no plugin edge at all.
 CORE_PREFIXES = ("lib/", "include/agent/")
 LAYERING_INCLUDE = re.compile(r'^\s*#\s*include\s*[<"](tui|src|tools|plugins)/')
-# The only core files allowed to name a bundled plugin: registering the shipped
-# set and the bare-host fallback are composition, not domain logic.
-PLUGIN_COMPOSITION_ROOTS = ("lib/plugins_bundled.cpp", "lib/tools_default.cpp")
 HEADER_BOILERPLATE = re.compile(r"^\s*(?://|/\*|\*)?\s*(?:SPDX-|Copyright\b)",
                                 re.IGNORECASE)
 
@@ -156,8 +153,6 @@ def raw_memory_findings(source):
 def layering_findings(rel, source):
     """(line_number, text) for core files reaching into an adapter or UI."""
     if not rel.startswith(CORE_PREFIXES):
-        return []
-    if rel in PLUGIN_COMPOSITION_ROOTS:
         return []
     out = []
     for number, (line, original) in enumerate(paired_lines(source), start=1):

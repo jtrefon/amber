@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include "agent/plugins_bundled.h"
 
 using namespace agent;
 
@@ -259,7 +260,7 @@ TEST(bundled_search_backend_plugins_provide_grep_and_semantic) {
     Config cfg;
     Workspace ws;
     PluginRuntime runtime(tools, cfg, ws);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     ASSERT_TRUE(runtime.status("search_grep").enabled);

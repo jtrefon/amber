@@ -11,7 +11,6 @@
 #include "agent/tool_call_parser.h"
 #include "agent/agent_helpers.h"
 #include "agent/context_shape.h"
-#include "agent/tool_recovery.h"
 #include "agent/dispatch.h"
 #include "agent/tools.h"
 #include "agent/model_probe.h"
@@ -74,6 +73,9 @@ Agent::Agent(Config cfg, ToolRegistry& registry, AgentHooks hooks, AgentDeps dep
       compression_controller_(std::make_unique<CompressionController>(std::move(deps.compressor),
                                                                       std::move(deps.gate))),
       memory_store_(std::move(deps.memory_store)), retriever_(std::move(deps.retriever)) {
+    loop_guard_ =
+        std::make_unique<LoopGuard>(cfg_, hooks_, log_, context_, context_events_,
+                                    [this](const std::string& text) { inject_harness_note(text); });
     if (!client_)
         client_ = make_client(cfg_, client_factory_);
     // A window's workspace may be a detached worktree; the prompt says so before
@@ -722,97 +724,6 @@ void Agent::log_and_push_user_prompt(const std::string& prompt) {
     publish_message_added(context_.get_all().back());
 }
 
-namespace {
-
-// The tooling-phase notifications, emitted once per dispatch.
-void emit_tooling_hooks(const AgentHooks& hooks, const json& tool_calls,
-                        const std::string& content) {
-    if (hooks.on_assistant && !content.empty())
-        hooks.on_assistant(content);
-    if (hooks.on_state)
-        hooks.on_state(RunState::Tooling);
-    if (hooks.on_debug)
-        hooks.on_debug("dispatching " + std::to_string(tool_calls.size()) + " tool call(s)");
-}
-
-} // namespace
-
-// True when the same tool-call fingerprint has now repeated the loop guard's
-// limit of times: the turn stops rather than dispatching it again.
-bool Agent::stop_on_dispatch_loop(const json& tool_calls, Turn& turn) {
-    if (!turn.record_dispatch_fingerprint(fingerprint_tool_calls(tool_calls)))
-        return false;
-    if (hooks_.on_status)
-        hooks_.on_status("loop detected: breaking tool loop");
-    log_.event("error", {{"reason", "tool_loop_detected"}});
-    turn.stop_with("[loop detected: the model repeated the same tool "
-                   "call 3+ times. Rephrase or break down the task.]");
-    return true;
-}
-
-// The fail-streak ladder: steer once, then hard-stop.
-void Agent::fold_fail_streak(const json& tool_calls, bool dispatch_ok, Turn& turn) {
-    if (turn.record_tool_result(tool_calls, dispatch_ok) < Turn::kFailStreakAt)
-        return;
-    if (turn.claim_recovery_steer()) {
-        inject_tool_recovery_steer(&context_, hooks_, log_);
-        return;
-    }
-    if (hooks_.on_status)
-        hooks_.on_status("tool recovery failed, stopping");
-    log_.event("tool_recovery", {{"action", "hard_stop"}});
-    turn.stop_with("[stopped: tool calls kept failing after recovery "
-                   "steer; rephrase your request or run a simpler command]");
-}
-
-bool Agent::dispatch_with_loop_detection(const json& tool_calls, const std::string& content,
-                                         Turn& turn) {
-    if (tool_calls.is_null() || tool_calls.empty())
-        return false;
-
-    emit_tooling_hooks(hooks_, tool_calls, content);
-    const bool ok =
-        dispatch_tool_calls(DispatchRequest{tool_calls, cfg_, registry_, hooks_, log_,
-                                            session_approved_, &policy_, event_bus_, context_});
-
-    if (cfg_.detection_loop) {
-        if (stop_on_dispatch_loop(tool_calls, turn))
-            return true;
-        fold_fail_streak(tool_calls, ok, turn);
-    }
-    return true;
-}
-
-bool Agent::detect_text_loop(Turn& turn, const std::string& content) {
-    if (!cfg_.detection_loop)
-        return false;
-    const TextRepeat repeat = turn.observe_text(content);
-    if (repeat == TextRepeat::Steer) {
-        Message steer;
-        steer.role = "user";
-        steer.harness = true;
-        steer.content = "[harness] the same reply has arrived twice in a row. Either close the "
-                        "turn with the result, or take a different step — repeating the same "
-                        "words again changes nothing.";
-        context_.push(std::move(steer));
-        emit_context_event(context_events_, context_);
-        if (hooks_.on_status)
-            hooks_.on_status("text loop: injected recovery steer");
-        return false;
-    }
-    if (repeat != TextRepeat::Unrecoverable)
-        return false;
-    if (hooks_.on_status)
-        hooks_.on_status("agent looped beyond recovery, stopping");
-    log_.event("error", {{"reason", "text_loop_unrecoverable"}});
-    turn.stop_with("[loop detected: the model repeated itself "
-                   "and did not recover. Please rephrase your request.]");
-    if (hooks_.on_assistant)
-        hooks_.on_assistant("[loop detected: the model repeated itself "
-                            "and did not recover. Please rephrase your request.]");
-    return true;
-}
-
 std::vector<std::shared_ptr<Tool>> Agent::resolve_tools() {
     // Keep the snapshot's ownership leases: raw pointers into a temporary
     // snapshot would dangle the moment the registry mutates.
@@ -999,12 +910,17 @@ bool Agent::turn_budget_exceeded(Turn& turn) {
 // loop must stop.
 bool Agent::fold_tool_calls(Turn& turn, const json& tool_calls, const std::string& content) {
     turn.record_tool_reply();
-    if (detect_text_loop(turn, content))
+    if (loop_guard_->repeated_narration(content, turn))
         return true;
     // The repeat counter is the reporting one (canonical arguments, timing
     // stripped); it never intervenes, it just feeds the loop-state note.
     turn.observe_repeated_call(canonical_call_key(tool_calls));
-    dispatch_with_loop_detection(tool_calls, content, turn);
+    loop_guard_->announce_dispatch(tool_calls, content);
+    const bool ok =
+        dispatch_tool_calls(DispatchRequest{tool_calls, cfg_, registry_, hooks_, log_,
+                                            session_approved_, &policy_, event_bus_, context_});
+    if (!loop_guard_->stop_dispatch_loop(tool_calls, turn))
+        loop_guard_->fold_fail_streak(tool_calls, ok, turn);
     return turn.has_reply();
 }
 
@@ -1076,29 +992,6 @@ bool Agent::fold_reply(Turn& turn, const std::vector<std::shared_ptr<Tool>>& too
     }
 }
 
-// The loop's own state, said once at the moment it changes: how much of the
-// iteration and wall-clock budget is spent, and whether the same call keeps
-// coming back. Nothing here intervenes — a bound that arrives without warning is
-// a trap, so the model is told and decides.
-void Agent::note_loop_state(Turn& turn, int iter) {
-    if (turn.note_iteration_budget(iter, cfg_.max_tool_iterations)) {
-        inject_harness_note("[harness] step " + std::to_string(iter + 1) + "/" +
-                            std::to_string(cfg_.max_tool_iterations) +
-                            " of this turn's iteration budget is used.");
-    }
-    if (turn.note_wall_budget(cfg_.max_wall_ms, std::chrono::steady_clock::now())) {
-        const long wall_ms = turn.elapsed_ms(std::chrono::steady_clock::now());
-        inject_harness_note("[harness] " + std::to_string(wall_ms / 60000) +
-                            "m of this turn's wall-clock budget is used.");
-    }
-    const int repeated = turn.note_repeated_call();
-    if (repeated > 0) {
-        inject_harness_note("[harness] the same tool call has been issued " +
-                            std::to_string(repeated) +
-                            " times in a row; arguments that only change the timing do not count.");
-    }
-}
-
 // Push a harness notice into the conversation. It rides the user channel with
 // the harness flag set: the model sees it in place, the loop never mistakes it
 // for an answer, and a UI can render it as the environment speaking.
@@ -1113,7 +1006,7 @@ void Agent::inject_harness_note(const std::string& text) {
 }
 
 void Agent::prepare_iteration(Turn& turn, int iter) {
-    note_loop_state(turn, iter);
+    loop_guard_->note_state(turn, iter);
     // Safe boundary: everything the environment finished since the last request
     // enters the conversation once, before the next request.
     drain_inbox();

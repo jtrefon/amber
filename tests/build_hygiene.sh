@@ -107,7 +107,7 @@ for v in CDP_MAIN_OBJ CDP_WS_OBJ WS_TEST_OBJ; do
 done
 
 # P3
-artifacts="run_tests command_line_test session_browser_test e2e_test completions_test plugin_test ws_test bench_test smoketest run_command_line_test run_completions_test run_e2e_test amber-cli amber amber-bench sysinfo-plugin cdp-plugin libagent_core.a libagent_tools.a tests/fixtures/mcp_echo tests/fixtures/mcp_http tests/fixtures/mcp_ignore_sigterm"
+artifacts="run_tests command_line_test session_browser_test e2e_test completions_test plugin_test ws_test bench_test smoketest run_command_line_test run_completions_test run_e2e_test amber-cli amber amber-bench sysinfo-plugin cdp-plugin libagent_core.a libagent_tools.a libagent_plugins.a core_only_test tests/fixtures/mcp_echo tests/fixtures/mcp_http tests/fixtures/mcp_ignore_sigterm"
 clean_out=$(make -n clean 2>/dev/null)
 for f in $artifacts; do
     if echo "$clean_out" | grep -qF "$f"; then

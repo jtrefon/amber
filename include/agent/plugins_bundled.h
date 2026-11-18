@@ -12,7 +12,14 @@
 
 namespace agent {
 
+class PluginRuntime;
+
 std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins();
+
+// Register the shipped set on a runtime. The host calls this when it wants the
+// bundled tier; the core archive has no link-time dependency on it, so a
+// plugin-free embedder links the core and tools alone.
+void add_bundled_plugins(PluginRuntime& runtime);
 
 } // namespace agent
 

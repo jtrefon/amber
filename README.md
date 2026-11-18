@@ -67,10 +67,12 @@ Build requirements:
 
 Layout:
   lib/        libagent_core.a + libagent_tools.a, harness core (LLM client,
-              tool registry, agent loop, prompt/markdown loader, built-in
-              tools). No UI dependency.
-  src/        amber-cli, headless CLI client linking libagent.
-  tui/        amber, ncurses TUI client linking libagent.
+              tool registry, agent loop, prompt/markdown loader, plugin
+              framework). No UI dependency and no bundled plugin edge.
+  plugins/    libagent_plugins.a, the shipped plugin set and its composition
+              roots (bundled.cpp, default_tools.cpp).
+  src/        amber-cli, headless CLI client linking the libraries.
+  tui/        amber, ncurses TUI client linking the libraries.
   bench/      amber-bench, benchmark & KPI harness (scenarios, oracle scoring,
               static templates). Observer over AgentHooks; no engine changes.
   tools/      the pre-defined tools: read (paginated), write (patch-style),

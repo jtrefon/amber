@@ -1,6 +1,7 @@
 #include "watch_observer.h"
 
 #include "agent/llm.h"
+#include "agent/rate_governor.h"
 #include "agent/prompt.h"
 
 #include <algorithm>
@@ -78,6 +79,8 @@ std::string HttpObserverModel::complete(const std::string& system_prompt, const 
     cfg.reasoning_effort = "off";
     cfg.cancel_token = cancel;
     try {
+        // A watch is background work: it yields to the user's turn.
+        agent::ScopedRequestClass request_class(agent::RequestClass::Background);
         agent::HttpLLMClient client(cfg);
         std::vector<agent::Message> messages;
         agent::Message system;

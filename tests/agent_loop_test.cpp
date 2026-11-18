@@ -2599,6 +2599,8 @@ TEST(rate_tools_are_registered_and_bounded) {
     const agent::ToolResult status = throttle_tool->execute({{"action", "status"}});
     ASSERT_TRUE(status.ok);
     ASSERT(status.output.find("provider pacing") != std::string::npos);
+    ASSERT(status.output.find("waiting=0/0/0") != std::string::npos);
+    ASSERT(status.output.find("in_flight_class=0/0/0") != std::string::npos);
 
     const agent::ToolResult set = throttle_tool->execute(
         {{"action", "set"}, {"interval_ms", 1000}, {"concurrency", 1}, {"ttl_seconds", 5}});
@@ -2911,6 +2913,67 @@ TEST(subagent_usage_is_recorded_and_forwarded) {
     ASSERT(samples[0].source == agent::UsageSource::Subagent);
     ASSERT_EQ(samples[0].prompt_tokens, 111L);
     ASSERT_EQ(samples[0].task_id, tasks[0].id);
+}
+
+namespace {
+
+class ClassRecordingClient : public agent::LLMClient {
+public:
+    ClassRecordingClient(std::shared_ptr<std::atomic<int>> background,
+                         std::shared_ptr<std::atomic<int>> other)
+        : background_(std::move(background)), other_(std::move(other)) {}
+
+    agent::ServerInfo probe_server() const override { return {}; }
+
+    agent::Message chat(const std::vector<agent::Message>&,
+                        const std::vector<std::shared_ptr<agent::Tool>>&,
+                        agent::Stats* = nullptr) override {
+        if (agent::current_request_class() == agent::RequestClass::Background)
+            ++*background_;
+        else
+            ++*other_;
+        agent::Message reply;
+        reply.role = "assistant";
+        reply.content = "done";
+        return reply;
+    }
+
+    agent::Message chat_stream(const std::vector<agent::Message>& messages,
+                               const std::vector<std::shared_ptr<agent::Tool>>& tools,
+                               const std::function<void(const agent::StreamChunk&)>&,
+                               agent::Stats* stats = nullptr) override {
+        return chat(messages, tools, stats);
+    }
+
+private:
+    std::shared_ptr<std::atomic<int>> background_;
+    std::shared_ptr<std::atomic<int>> other_;
+};
+
+} // namespace
+
+TEST(subagent_requests_are_background) {
+    agent::Workspace::set_root(cwd());
+    agent::ToolRegistry reg;
+    agent::JobService jobs;
+    agent::TodoStore todos;
+    agent::SubAgentExecutor executor;
+    executor.set_max(1);
+    executor.set_config(loop_cfg());
+
+    auto background = std::make_shared<std::atomic<int>>(0);
+    auto other = std::make_shared<std::atomic<int>>(0);
+    executor.set_factory([background, other](const agent::Config&) {
+        return std::make_unique<ClassRecordingClient>(background, other);
+    });
+    agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, executor);
+
+    std::string err;
+    const std::string out = executor.run_task("say done", reg, err);
+    ASSERT_EQ(out, std::string("done"));
+    ASSERT_TRUE(err.empty());
+    ASSERT_EQ(background->load(), 1);
+    ASSERT_EQ(other->load(), 0);
 }
 
 TEST(subagent_task_record_tracks_owner_state_and_progress) {
@@ -3598,6 +3661,29 @@ public:
     }
 };
 
+// Records the request class the compression pass runs under. The controller
+// raises it to Foreground even when the caller is a Background worker, because
+// its classify/extract calls yield to a user turn.
+class ClassRecordingCompressor : public agent::CompressionStrategy {
+public:
+    agent::RequestClass seen = agent::RequestClass::Interactive;
+    int calls = 0;
+
+    std::vector<agent::Message> compress(const agent::Context& context,
+                                         const agent::CompressionConfig&, agent::LLMClient&,
+                                         agent::CompressionObserver* = nullptr,
+                                         agent::CompressionResponse* = nullptr,
+                                         const agent::CompressionRequestPrefix& = {}) override {
+        ++calls;
+        seen = agent::current_request_class();
+        std::vector<agent::Message> out;
+        for (const auto& m : context.get_all())
+            if (m.role == "system")
+                out.push_back(m);
+        return out;
+    }
+};
+
 // A store holding one retrievable memory, plus the retriever that finds it.
 struct MemoryFixture {
     agent::ExperienceConfig cfg;
@@ -3624,6 +3710,41 @@ bool request_contains(const agent_test::FakeLLMClient& fake, const std::string& 
 }
 
 } // namespace
+
+TEST(compression_requests_are_foreground) {
+    agent::test::XdgGuard xdg("compression_request_class");
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto compressor = std::make_unique<ClassRecordingCompressor>();
+    ClassRecordingCompressor* raw = compressor.get();
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor), {}, {}, {}, std::move(fake), {}, {}});
+
+    agent::Message system;
+    system.role = "system";
+    system.content = "SYSTEM";
+    agent::Message user;
+    user.role = "user";
+    user.content = "hello";
+    agent::Message assistant;
+    assistant.role = "assistant";
+    assistant.content = "hi";
+    ag.set_context({system, user, assistant});
+
+    {
+        // A worker's compression is still Foreground, and the outer class is
+        // restored when the pass ends.
+        agent::ScopedRequestClass outer(agent::RequestClass::Background);
+        const auto result = ag.compress_now();
+        ASSERT(result.error.empty());
+        ASSERT_EQ(raw->calls, 1);
+        ASSERT(raw->seen == agent::RequestClass::Foreground);
+        ASSERT(agent::current_request_class() == agent::RequestClass::Background);
+    }
+    ASSERT(agent::current_request_class() == agent::RequestClass::Interactive);
+}
 
 TEST(agent_keeps_injected_blocks_when_compression_fires) {
     agent::Workspace::set_root(cwd());
@@ -3973,7 +4094,7 @@ TEST(disabling_a_tool_plugin_removes_its_documentation) {
     agent::Workspace ws;
     agent::PluginRuntime runtime(reg, cfg, ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start(false);
 
     auto fake = std::make_unique<agent_test::FakeLLMClient>();
@@ -4055,7 +4176,7 @@ TEST(agent_runs_a_turn_with_the_skill_plugin_disabled) {
     agent::Workspace ws;
     agent::PluginRuntime runtime(reg, cfg, ws);
     runtime.attach_host_services(host);
-    runtime.add_bundled();
+    agent::add_bundled_plugins(runtime);
     runtime.start();
 
     // apply_state, not set_state: a test must not write the developer's
