@@ -1,0 +1,60 @@
+{
+  "name": "e2e-mcp-missing-tool-recovery",
+  "suite": "e2e",
+  "description": "a missing MCP tool is a tool error, and the agent recovers",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      ".amber/mcp/echo.conf": "type=stdio\ncommand=@ROOT@/tests/fixtures/mcp_echo\ncwd=.\nenabled=1\nauto_connect=1\ntrusted=1\n"
+    }
+  },
+  "prompt": "Call mcp_echo_no_such_tool, then recover and reply.",
+  "oracle": [
+    {
+      "tool": "mcp_echo_no_such_tool",
+      "args": {}
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "mcp_echo_echo_tool"
+    ]
+  },
+  "request_log_contains": [
+    "unknown tool"
+  ],
+  "checks": {
+    "must_contain": [
+      "MCP-MISSING-RECOVERED"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "mcp_echo_no_such_tool",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 180,
+      "completion_tokens": 5,
+      "content": "MCP-MISSING-RECOVERED"
+    }
+  ]
+}

@@ -1007,11 +1007,30 @@ namespace {
 // misspelled oracle (the h-02 class of bug) is a harness defect.
 namespace {
 
-// True when every oracle step in the scenario names a registered tool.
+// A tool a scenario's own setup contributes (an MCP server or an external
+// plugin) cannot be in the default registry the probe builds. Accept exactly
+// the namespaces that setup piece provides; every other oracle name is still
+// checked for a typo.
+bool setup_provides_tool(const Scenario& s, const std::string& tool) {
+    if (!s.setup.is_object() || !s.setup.contains("files") || !s.setup["files"].is_object())
+        return false;
+    const std::string prefix = tool.rfind("mcp_", 0) == 0      ? ".amber/mcp/"
+                               : tool.rfind("plugin_", 0) == 0 ? ".amber/plugins/"
+                                                               : std::string();
+    if (prefix.empty())
+        return false;
+    for (auto it = s.setup["files"].begin(); it != s.setup["files"].end(); ++it)
+        if (it.key().rfind(prefix, 0) == 0)
+            return true;
+    return false;
+}
+
+// True when every oracle step in the scenario names a registered tool, or a
+// tool the scenario's setup contributes.
 bool oracle_tools_registered(const Scenario& s, const agent::ToolRegistry& reg,
                              const std::string& name, std::string& err) {
     for (const auto& step : s.oracle) {
-        if (reg.find(step.tool))
+        if (reg.find(step.tool) || setup_provides_tool(s, step.tool))
             continue;
         err = name + ": oracle tool '" + step.tool + "' not registered";
         return false;

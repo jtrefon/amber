@@ -60,6 +60,7 @@ void print_usage(const char* prog) {
               << "  --system FILE      System prompt markdown file\n"
               << "  --tools FILE       Tools advertising markdown file\n"
               << "  --config FILE      KEY=VALUE config file\n"
+              << "  --enable-plugin ID enable a discovered external plugin (repeatable)\n"
               << "  --prompt TEXT      User prompt (else read from stdin)\n"
               << "  --script FILE      JSON array of prompts; one session, in order\n"
               << "  --session NAME     resume the saved session NAME (or start it), then\n"
@@ -175,6 +176,7 @@ struct CliArgs {
     std::string mcp_prompt_server;
     std::string mcp_prompt_name;
     std::string mcp_prompt_args;
+    std::vector<std::string> enable_plugins;
 };
 
 using NextArg = std::function<std::string(const char*)>;
@@ -219,6 +221,8 @@ bool apply_value_flag(const std::string& a, const NextArg& next, agent::Config& 
         out.json_out = next("");
     else if (a == "--mcp-connect")
         out.mcp_connect_name = next("");
+    else if (a == "--enable-plugin")
+        out.enable_plugins.push_back(next(""));
     else
         return false;
     return true;
@@ -611,6 +615,15 @@ void start_plugin_runtime(CliHost& host, agent::Config& cfg, bool no_plugins) {
     host.plugin_runtime.attach_config(cfg);
     if (!no_plugins) {
         host.plugin_runtime.start();
+        // The benchmark driver asks the headless host to wait for MCP's
+        // auto-connect worker so a scenario's first turn sees the tool set.
+        // Interactive hosts keep the non-blocking startup.
+        if (const char* wait = std::getenv("AMBER_MCP_WAIT_MS")) {
+            const int ms = std::atoi(wait);
+            if (ms > 0)
+                if (auto* mcp = agent::plugins::mcp_plugin_from(host.plugin_runtime))
+                    mcp->wait_ready(ms);
+        }
         return;
     }
     // The core tools are plugin contributions, so skipping activation would
@@ -1008,6 +1021,16 @@ int run_subcommands(int argc, char** argv) {
     return run_skills_surface(argc, argv);
 }
 
+bool enable_requested_plugins(CliHost& host, const std::vector<std::string>& ids) {
+    for (const std::string& id : ids) {
+        if (!host.plugin_runtime.set_state(id, true)) {
+            std::cerr << "error: unknown plugin: " << id << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
 int run_configured(agent::Config& cfg, CliArgs& args, const agent::GlobalConfig& global,
                    const char* argv0) {
     load_run_config(cfg, args, global);
@@ -1031,6 +1054,8 @@ int run_configured(agent::Config& cfg, CliArgs& args, const agent::GlobalConfig&
     const agent::AgentHooks hooks =
         apply_headless_hooks(host, cfg, args.auto_approve, tty, &telemetry);
     start_plugin_runtime(host, cfg, args.no_plugins);
+    if (!enable_requested_plugins(host, args.enable_plugins))
+        return 1;
     // --mcp-connect attaches one server to THIS session before the run: the
     // connect is the run's, not a second client's.
     if (!args.mcp_connect_name.empty()) {

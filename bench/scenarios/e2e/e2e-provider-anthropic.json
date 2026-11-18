@@ -1,0 +1,44 @@
+{
+  "name": "e2e-provider-anthropic",
+  "suite": "e2e",
+  "description": "the Anthropic provider plugin drives the Messages dialect end to end",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "provider": "anthropic",
+  "flavor": "anthropic",
+  "prompt": "Reply with the word done.",
+  "request_contract": {
+    "path": "/v1/messages",
+    "tools_include": [
+      "read"
+    ]
+  },
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 3,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 2,
+  "min_prompt_tokens": 1,
+  "min_completion_tokens": 1,
+  "fake_replies": [
+    {
+      "prompt_tokens": 10,
+      "completion_tokens": 2,
+      "content": "done"
+    }
+  ],
+  "endpoint_replies": [
+    {
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"id\": \"msg_e2e_1\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"fake\", \"content\": [{\"type\": \"text\", \"text\": \"done\"}], \"stop_reason\": \"end_turn\", \"stop_sequence\": null, \"usage\": {\"input_tokens\": 10, \"output_tokens\": 2}}"
+    }
+  ]
+}

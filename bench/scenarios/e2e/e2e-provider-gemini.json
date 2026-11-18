@@ -1,0 +1,44 @@
+{
+  "name": "e2e-provider-gemini",
+  "suite": "e2e",
+  "description": "the Gemini provider plugin drives generateContent end to end",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "provider": "gemini",
+  "flavor": "gemini",
+  "prompt": "Reply with the word done.",
+  "request_contract": {
+    "path": "/v1beta/models/fake:generateContent",
+    "tools_include": [
+      "read"
+    ]
+  },
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "budget": {
+    "max_steps": 3,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 2,
+  "min_prompt_tokens": 1,
+  "min_completion_tokens": 1,
+  "fake_replies": [
+    {
+      "prompt_tokens": 10,
+      "completion_tokens": 2,
+      "content": "done"
+    }
+  ],
+  "endpoint_replies": [
+    {
+      "status": 200,
+      "content_type": "application/json",
+      "body": "{\"candidates\": [{\"content\": {\"role\": \"model\", \"parts\": [{\"text\": \"done\"}]}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 10, \"candidatesTokenCount\": 2, \"totalTokenCount\": 12}}"
+    }
+  ]
+}

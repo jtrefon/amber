@@ -299,6 +299,12 @@ bool check_request_log(const agent::json& contract, const std::vector<EndpointRe
         if (!endpoint_is_chat_path(request.path))
             continue;
         ++index;
+        if (contract.contains("path") && contract["path"].is_string() &&
+            request.path != contract["path"].get<std::string>()) {
+            err = "request " + std::to_string(index) + ": path expected '" +
+                  contract["path"].get<std::string>() + "', got '" + request.path + "'";
+            return false;
+        }
         if (ordered && !check_log_system_order(request, index, err))
             return false;
         if (!check_log_tools(contract, request, index, err))

@@ -1,0 +1,65 @@
+{
+  "name": "e2e-mcp-tool-call",
+  "suite": "e2e",
+  "description": "the agent calls a tool discovered from a real stdio MCP server",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      ".amber/mcp/echo.conf": "type=stdio\ncommand=@ROOT@/tests/fixtures/mcp_echo\ncwd=.\nenabled=1\nauto_connect=1\ntrusted=1\n"
+    }
+  },
+  "prompt": "Call the echo MCP tool with MCP-OK, then reply done.",
+  "oracle": [
+    {
+      "tool": "mcp_echo_echo_tool",
+      "args": {
+        "text": "MCP-OK"
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "mcp_echo_echo_tool"
+    ]
+  },
+  "request_log_contains": [
+    "echo:MCP-OK"
+  ],
+  "expected_tools": [
+    "mcp_echo_echo_tool"
+  ],
+  "checks": {
+    "must_contain": [
+      "MCP-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 4,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 12,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "mcp_echo_echo_tool",
+            "arguments": "{\"text\":\"MCP-OK\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 200,
+      "completion_tokens": 5,
+      "content": "MCP-TOOL-DONE"
+    }
+  ]
+}

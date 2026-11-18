@@ -247,6 +247,7 @@ TEST(config_load_covers_every_key) {
         f << "api_key=sk-test\n";
         f << "kilo_balance_token=kilo-tok\n";
         f << "provider=openrouter\n";
+        f << "flavor=anthropic\n";
         f << "model=my-model\n";
         f << "system_prompt=sys.md\n";
         f << "tools_prompt=tools.md\n";
@@ -302,6 +303,7 @@ TEST(config_load_covers_every_key) {
     ASSERT_EQ(c.api_key, "sk-test");
     ASSERT_EQ(c.kilo_balance_token, "kilo-tok");
     ASSERT_EQ(c.provider_name, "openrouter");
+    ASSERT_EQ(c.flavor, "anthropic");
     ASSERT_EQ(c.model, "my-model");
     ASSERT_TRUE(c.model_explicit);
     ASSERT_EQ(c.system_prompt_path, "sys.md");

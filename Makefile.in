@@ -1395,14 +1395,14 @@ trace-check: $(BUILD_DIR)/bench_test $(BUILD_DIR)/$(BENCH_BIN)
 # and checks the request contract at the wire. A failed journey keeps its
 # workspace and request log.
 AGENT_E2E_REPORT ?= $(BUILD_DIR)/artifacts/agent-e2e.json
-agent-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+agent-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN) $(MCP_FIXTURES)
 	@mkdir -p $(dir $(AGENT_E2E_REPORT))
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e --keep-failures \
 		--out $(AGENT_E2E_REPORT)
 
 # Record the committed baseline (tokens, tool calls, wall time). It is data, not
 # a gate: machine-dependent wall time cannot fail a build.
-agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e \
 		--out bench/results/agent-e2e-baseline.json
 

@@ -4142,6 +4142,23 @@ TEST(binary_driver_keeps_failure_artifacts) {
     fs::remove_all(results[0].workspace, ec);
 }
 
+TEST(scenario_setup_expands_root_and_marks_executables) {
+    const std::string ws = tmp_dir("setup_root");
+    const agent::json setup = agent::json::parse(R"({
+        "files": {
+            "conf/server.conf": "command=@ROOT@/tests/fixtures/mcp_echo\n",
+            ".amber/plugins/fake/run.py": "#!/bin/sh\n"
+        },
+        "executables": [".amber/plugins/fake/run.py"]
+    })");
+    bench::materialize_setup_files(ws, setup);
+    std::ifstream in(ws + "/conf/server.conf");
+    const std::string conf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    ASSERT(conf.find(fs::current_path().string() + "/tests/fixtures/mcp_echo") !=
+           std::string::npos);
+    ASSERT(access((ws + "/.amber/plugins/fake/run.py").c_str(), X_OK) == 0);
+}
+
 TEST(request_log_contract_checks) {
     auto request = [](const char* system, const char* tool) {
         bench::EndpointRequest request;
@@ -4168,6 +4185,13 @@ TEST(request_log_contract_checks) {
         agent::json::parse(R"({"system_prefix_stable": true})", nullptr, false), drift, err));
     ASSERT(err.find("system prefix") != std::string::npos);
     ASSERT(err.find("request 2") != std::string::npos);
+
+    ASSERT(bench::check_request_log(
+        agent::json::parse(R"({"path": "/v1/chat/completions"})", nullptr, false), stable, err));
+    ASSERT(!bench::check_request_log(
+        agent::json::parse(R"({"path": "/v1/messages"})", nullptr, false), stable, err));
+    ASSERT(err.find("path expected") != std::string::npos);
+    ASSERT(err.find("/v1/messages") != std::string::npos);
 
     const std::vector<bench::EndpointRequest> forbidden = {request("stable", "read")};
     ASSERT(!bench::check_request_log(

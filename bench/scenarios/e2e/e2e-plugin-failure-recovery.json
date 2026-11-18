@@ -1,0 +1,68 @@
+{
+  "name": "e2e-plugin-failure-recovery",
+  "suite": "e2e",
+  "description": "an external plugin tool failure is a tool error, and the agent recovers",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "setup": {
+    "files": {
+      ".amber/plugins/fake/manifest.json": "{\n  \"id\": \"fake\",\n  \"name\": \"Fake Journey Plugin\",\n  \"version\": \"1.0.0\",\n  \"protocol_version\": 1,\n  \"main\": \"fake_plugin.py\",\n  \"tools\": [\n    {\n      \"name\": \"echo\",\n      \"description\": \"Echo text back.\",\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"text\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"text\"\n        ]\n      }\n    },\n    {\n      \"name\": \"fail\",\n      \"description\": \"Always fails.\",\n      \"schema\": {\n        \"type\": \"object\",\n        \"properties\": {}\n      }\n    }\n  ]\n}",
+      ".amber/plugins/fake/fake_plugin.py": "#!/usr/bin/env python3\nimport json\nimport sys\n\nfor line in sys.stdin:\n    msg = json.loads(line)\n    method = msg.get(\"method\")\n    if method == \"initialize\":\n        sys.stdout.write(json.dumps({\"id\": msg[\"id\"], \"result\": {\n            \"protocol_version\": 1, \"ok\": True}}) + \"\\n\")\n    elif method == \"tool.call\":\n        name = msg[\"params\"][\"name\"]\n        args = msg[\"params\"][\"args\"]\n        if name == \"echo\":\n            result = {\"ok\": True, \"output\": \"echo:\" + args.get(\"text\", \"\"), \"meta\": {}}\n        elif name == \"fail\":\n            result = {\"ok\": False, \"output\": \"ERROR: nope\"}\n        else:\n            result = {\"ok\": False, \"output\": \"ERROR: unknown tool \" + name}\n        sys.stdout.write(json.dumps({\"id\": msg[\"id\"], \"result\": result}) + \"\\n\")\n    elif method == \"shutdown\":\n        sys.exit(0)\n    sys.stdout.flush()\n"
+    },
+    "executables": [
+      ".amber/plugins/fake/fake_plugin.py"
+    ]
+  },
+  "approval": "allow",
+  "prompt": "Call the plugin fail tool, then recover and reply.",
+  "oracle": [
+    {
+      "tool": "plugin_fake_fail",
+      "args": {}
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "plugin_fake_fail"
+    ]
+  },
+  "request_log_contains": [
+    "status=error"
+  ],
+  "checks": {
+    "must_contain": [
+      "PLUGIN-FAILURE-RECOVERED"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "plugin_fake_fail",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 180,
+      "completion_tokens": 5,
+      "content": "PLUGIN-FAILURE-RECOVERED"
+    }
+  ],
+  "enable_plugins": [
+    "fake"
+  ]
+}

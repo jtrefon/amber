@@ -26,17 +26,6 @@ namespace bench {
 
 namespace {
 
-void write_setup_files(const fs::path& workspace, const agent::json& setup) {
-    if (!setup.contains("files") || !setup["files"].is_object())
-        return;
-    for (auto it = setup["files"].begin(); it != setup["files"].end(); ++it) {
-        const fs::path path = workspace / it.key();
-        fs::create_directories(path.parent_path());
-        std::ofstream out(path);
-        out << (it.value().is_string() ? it.value().get<std::string>() : it.value().dump());
-    }
-}
-
 std::deque<EndpointReply> replies_for(const Scenario& scenario) {
     std::deque<EndpointReply> replies;
     const agent::json& script =
@@ -48,6 +37,14 @@ std::deque<EndpointReply> replies_for(const Scenario& scenario) {
         reply.content = entry.value("content", "");
         if (entry.contains("tool_calls"))
             reply.tool_calls = entry["tool_calls"];
+        // A dialect scenario replays the provider's own bytes; the OpenAI-shaped
+        // content/tool_calls fields cannot express an Anthropic or Gemini body.
+        if (entry.contains("body") && entry["body"].is_string())
+            reply.body = entry["body"].get<std::string>();
+        if (entry.contains("content_type") && entry["content_type"].is_string())
+            reply.content_type = entry["content_type"].get<std::string>();
+        if (entry.contains("status") && entry["status"].is_number_integer())
+            reply.status = entry["status"].get<int>();
         reply.prompt_tokens = entry.value("prompt_tokens", 0L);
         reply.completion_tokens = entry.value("completion_tokens", 0L);
         replies.push_back(std::move(reply));
@@ -125,6 +122,9 @@ pid_t spawn_cli(const std::string& cli_path, const std::vector<std::string>& arg
         setenv("XDG_STATE_HOME", (xdg + "/state").c_str(), 1);
         setenv("XDG_CACHE_HOME", (xdg + "/cache").c_str(), 1);
         setenv("HOME", ws.string().c_str(), 1);
+        // A surface scenario's first turn may call an MCP tool; wait for the
+        // plugin's auto-connect before the prompt runs.
+        setenv("AMBER_MCP_WAIT_MS", "5000", 1);
         const int out = open((ws / "out.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
         const int err_file = open((ws / "err.txt").c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
         if (out >= 0)
@@ -187,7 +187,7 @@ int run_cli(const std::string& cli_path, const std::vector<std::string>& args, c
 }
 
 bool prepare_workspace(const Scenario& scenario, const fs::path& ws, std::string& err) {
-    write_setup_files(ws, scenario.setup);
+    materialize_setup_files(ws.string(), scenario.setup);
     std::error_code ec;
     fs::create_directories(ws / "xdg" / "config", ec);
     fs::create_directories(ws / "xdg" / "state", ec);
@@ -213,15 +213,19 @@ struct CliInvocation {
     fs::path telemetry;
 };
 
-void append_scenario_config(const Scenario& scenario, const fs::path& ws,
-                            std::vector<std::string>& args) {
-    if (scenario.compression_threshold < 0 && scenario.compression_min_turns < 0 &&
-        scenario.compression_cooldown_turns < 0 && scenario.compression_target_pct < 0 &&
-        scenario.context_size <= 0) {
-        return;
-    }
-    const fs::path config = ws / "scenario.conf";
-    std::ofstream out(config);
+bool scenario_has_config(const Scenario& s) {
+    return s.compression_threshold >= 0 || s.compression_min_turns >= 0 ||
+           s.compression_cooldown_turns >= 0 || s.compression_target_pct >= 0 ||
+           s.context_size > 0 || !s.provider.empty() || !s.flavor.empty();
+}
+
+void write_scenario_config(const Scenario& scenario, std::ostream& out) {
+    if (!scenario.provider.empty())
+        out << "provider=" << scenario.provider << "\n";
+    if (!scenario.flavor.empty())
+        out << "flavor=" << scenario.flavor << "\n";
+    if (!scenario.provider.empty() || !scenario.flavor.empty())
+        out << "api_key=e2e-placeholder\n";
     if (scenario.context_size > 0)
         out << "context_size=" << scenario.context_size << "\n";
     if (scenario.compression_threshold >= 0)
@@ -232,6 +236,15 @@ void append_scenario_config(const Scenario& scenario, const fs::path& ws,
         out << "compression_cooldown_turns=" << scenario.compression_cooldown_turns << "\n";
     if (scenario.compression_target_pct >= 0)
         out << "compression_target_pct=" << scenario.compression_target_pct << "\n";
+}
+
+void append_scenario_config(const Scenario& scenario, const fs::path& ws,
+                            std::vector<std::string>& args) {
+    if (!scenario_has_config(scenario))
+        return;
+    const fs::path config = ws / "scenario.conf";
+    std::ofstream out(config);
+    write_scenario_config(scenario, out);
     out.close();
     args.emplace_back("--config");
     args.push_back(config.string());
@@ -272,6 +285,10 @@ std::vector<std::string> cli_args(const Scenario& scenario, const std::string& a
                                      invocation.telemetry.string()};
     if (scenario.allow_tools)
         args.emplace_back("--yes");
+    for (const std::string& id : scenario.enable_plugins) {
+        args.emplace_back("--enable-plugin");
+        args.push_back(id);
+    }
     append_scenario_config(scenario, ws, args);
     if (!invocation.session.empty()) {
         args.emplace_back("--session");
@@ -403,7 +420,12 @@ bool start_endpoint(const Scenario& scenario, const BinaryE2eOptions& options, D
             err = "mock server did not start";
             return false;
         }
-        out.api_base = out.server->base_url();
+        // OpenAI's client appends /chat/completions to a /v1 base; the
+        // versioned dialects add their own segment, so their scenarios use the
+        // bare root or the path would be /v1/v1beta/...
+        out.api_base = scenario.flavor.empty() || scenario.flavor == "openai"
+                           ? out.server->base_url()
+                           : out.server->root_url();
         return true;
     }
     TraceMode mode = TraceMode::Strict;

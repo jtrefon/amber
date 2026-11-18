@@ -8,6 +8,19 @@ token floors and per-call status.
 
 Fields beyond the common scenario schema:
 
+- `setup.executables`: paths under the workspace to mark executable after
+  `setup.files` writes them. `@ROOT@` in a setup file body, executable path or
+  shell command expands to the checkout root, so a scenario can point at
+  `tests/fixtures/mcp_echo` or copy a plugin script without an absolute path in
+  the JSON.
+- `enable_plugins`: external project plugins (`.amber/plugins/<id>`) the run
+  enables. The in-process runner activates them with `apply_state` (no persisted
+  choice); the CLI gets one `--enable-plugin <id>` per entry.
+- `provider` / `flavor`: the CLI-tier provider preset and wire protocol. They
+  are written into the journey's `--config`, and a non-OpenAI flavor uses the
+  endpoint root (the versioned dialect adds `/v1` or `/v1beta`). The
+  `request_contract` can assert the path.
+
 - `session`: the `--session NAME` the CLI uses. It persists the conversation in
   the project state so a second process can resume it.
 - `resume`: run each turn as a separate CLI process against `session`; the
@@ -27,6 +40,15 @@ Fields beyond the common scenario schema:
   `compression_cooldown_turns`, `compression_target_pct`, `context_size`: passed
   to the CLI as `--config` and applied to the in-process run, so the gate fires
   at the same point in both tiers.
+
+The surface journeys add two cases each for skills
+(`e2e-skill-activation`, `e2e-skill-missing-recovery`), MCP
+(`e2e-mcp-tool-call`, `e2e-mcp-missing-tool-recovery`) and external plugins
+(`e2e-plugin-tool-call`, `e2e-plugin-failure-recovery`), plus the Anthropic and
+Gemini dialect journeys (`e2e-provider-anthropic`, `e2e-provider-gemini`). The
+failure paths assert that an unknown skill/tool or a plugin failure is a tool
+error the model can recover from, not a crash. The TUI suite covers the same
+skill, MCP, plugin and provider surfaces through the real pty client.
 
 A failed journey keeps its workspace (`--keep-failures`) with `telemetry.json`,
 `requests.json`, `out.txt` and `err.txt`.

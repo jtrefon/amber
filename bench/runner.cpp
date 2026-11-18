@@ -33,6 +33,7 @@
 #include "agent/event_bus.h"
 #include "agent/plugin_runtime.h"
 #include "agent/plugins_bundled.h"
+#include "plugins/mcp/mcp_plugin.h"
 #include "agent/task.h"
 #include "agent/tools.h"
 #include "agent/workspace.h"
@@ -57,24 +58,15 @@ long now_ms() noexcept {
                                  .count());
 }
 
-void write_setup_files(const fs::path& ws, const json& setup) {
-    if (!setup.contains("files") || !setup["files"].is_object())
-        return;
-    for (auto it = setup["files"].begin(); it != setup["files"].end(); ++it) {
-        fs::path p = ws / it.key();
-        fs::create_directories(p.parent_path());
-        std::ofstream f(p);
-        f << (it.value().is_string() ? it.value().get<std::string>() : it.value().dump());
-    }
-}
-
 void run_setup_shell(const fs::path& ws, const json& setup) {
     if (!setup.contains("shell") || !setup["shell"].is_array())
         return;
     for (const auto& c : setup["shell"]) {
         if (!c.is_string())
             continue;
-        const std::string cmd = "cd \"" + ws.string() + "\" && " + c.get<std::string>();
+        const std::string cmd =
+            "cd \"" + ws.string() + "\" && " +
+            expand_setup_text(c.get<std::string>(), fs::current_path().string());
         const int rc = std::system(cmd.c_str());
         (void)rc;
     }
@@ -148,6 +140,9 @@ struct RunHost {
     agent::SubAgentExecutor subagents;
     agent::Workspace workspace;
     agent::HostServices host_services;
+    // The v1 external tier. The runtime's adapters hold this manager, so it is
+    // declared before the runtime and destroyed after it.
+    agent::PluginManager plugin_manager;
     agent::PluginRuntime plugins;
 
     explicit RunHost(agent::Config c)
@@ -209,6 +204,19 @@ void apply_compression_overrides(agent::Config& cfg, const Scenario& s) {
 // The run's configuration. Live mode reads amber.conf and auto-detects the
 // server; hermetic mode pins the fake client's settings, re-asserting them after
 // amber.conf because that file may have clobbered them.
+void apply_hermetic_defaults(agent::Config& cfg, const Scenario& s) {
+    cfg.stream = s.stream;
+    cfg.context_size = s.context_size > 0 ? s.context_size : 4096;
+    cfg.model = "fake";
+    if (!s.provider.empty())
+        cfg.provider_name = s.provider;
+    if (!s.flavor.empty())
+        cfg.flavor = s.flavor;
+    cfg.detection_loop = s.detection_loop;
+    cfg.detection_duplicate = s.detection_duplicate;
+    apply_compression_overrides(cfg, s);
+}
+
 agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
     agent::Config cfg;
     if (opts.live) {
@@ -242,12 +250,7 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
         agent::apply_server_autodetect(cfg);
         return cfg;
     }
-    cfg.stream = s.stream;
-    cfg.context_size = s.context_size > 0 ? s.context_size : 4096;
-    cfg.model = "fake";
-    cfg.detection_loop = s.detection_loop;
-    cfg.detection_duplicate = s.detection_duplicate;
-    apply_compression_overrides(cfg, s);
+    apply_hermetic_defaults(cfg, s);
     cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", nullptr);
     cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", nullptr);
     if (fs::is_regular_file("amber.conf"))
@@ -263,14 +266,19 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
 // record the plugin set on the run meta. Returns false (with `err` set) when a
 // requested plugin does not exist or nothing installed a tool.
 bool setup_plugins(const RunOptions& opts, agent::PluginRuntime& plugins,
-                   const agent::HostServices& host_services, const agent::ToolRegistry& registry,
-                   RunMeta& meta, std::string& err) {
+                   agent::PluginManager& manager, const agent::HostServices& host_services,
+                   const agent::ToolRegistry& registry, std::string& err) {
     // The host services are what the host-bound tools are built from: jobs,
     // todos, sub-agents and the shaping queue. Attaching after activation would
     // leave those plugins with nothing to bind to, which is how the benchmark
     // ran without a `context` tool while every real host had one.
     plugins.attach_host_services(host_services);
+    // Project external plugins are part of the harness a run measures. The
+    // scan is the project directory only: a developer's global plugins must not
+    // change a benchmark result between machines.
+    manager.discover({agent::Workspace::local_dir() + "/plugins"});
     agent::add_bundled_plugins(plugins);
+    plugins.add_external(manager);
     for (const auto& id : opts.disable_plugins) {
         if (!plugins.has(id)) {
             // A typo must not produce a run that quietly measured the default
@@ -291,13 +299,6 @@ bool setup_plugins(const RunOptions& opts, agent::PluginRuntime& plugins,
     if (registry.empty()) {
         err = "no tools were installed - the plugin set is broken";
         return false;
-    }
-    if (meta.plugins.empty()) {
-        // Recorded once per run, because the plugin set follows from the run
-        // options: two scorecards are only comparable when they say which
-        // plugins produced them.
-        for (const auto& status : plugins.list())
-            meta.plugins.push_back({status.id, status.enabled, status.tier});
     }
     return true;
 }
@@ -831,7 +832,7 @@ fs::path make_scenario_workspace(const Scenario& s) {
 // Lay the scenario's files down: setup files, the setup shell, then the template
 // skeleton (which may overwrite them, as it always has).
 void prepare_workspace(const fs::path& ws, const Scenario& s) {
-    write_setup_files(ws, s.setup);
+    materialize_setup_files(ws.string(), s.setup);
     run_setup_shell(ws, s.setup);
     if (!s.template_dir.empty())
         copy_skeleton(template_root() / s.template_dir, ws);
@@ -894,8 +895,27 @@ bool start_scenario_host(const Scenario& s, const RunOptions& opts, RunHost& hos
                          std::string& err) {
     host.plugins.attach_host_services(host.host_services);
     host.plugins.attach_config(host.cfg);
-    if (!setup_plugins(opts, host.plugins, host.host_services, host.registry, meta, err))
+    if (!setup_plugins(opts, host.plugins, host.plugin_manager, host.host_services, host.registry,
+                       err))
         return false;
+    for (const std::string& id : s.enable_plugins) {
+        // apply_state, not set_state: a benchmark run must not persist the
+        // scenario's plugin choice in the developer's global config.
+        if (!host.plugins.apply_state(id, true)) {
+            err = "unknown plugin: " + id;
+            return false;
+        }
+    }
+    if (meta.plugins.empty()) {
+        // Recorded once per run, after the scenario's own plugin choice, so a
+        // scorecard says which plugin set produced it.
+        for (const auto& status : host.plugins.list())
+            meta.plugins.push_back({status.id, status.enabled, status.tier});
+    }
+    // MCP servers connect off the host thread; a scenario that calls one must
+    // see the tool set before its first turn, so wait for the worker here.
+    if (auto* mcp = agent::plugins::mcp_plugin_from(host.plugins))
+        mcp->wait_ready(5000);
     prepare_subagents(s, opts, host);
     return true;
 }

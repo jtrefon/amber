@@ -1,5 +1,7 @@
 #include "mcp_plugin.h"
 
+#include <chrono>
+
 #include "agent/mcp_commands.h"
 #include "agent/mcp_tools.h"
 #include "agent/plugin_runtime.h"
@@ -136,6 +138,13 @@ void McpPlugin::stop() {
         mgr_->shutdown_all();
         mgr_.reset();
     }
+}
+
+bool McpPlugin::wait_ready(int timeout_ms) {
+    if (!auto_connect_.valid())
+        return true;
+    return auto_connect_.wait_for(std::chrono::milliseconds(timeout_ms)) ==
+           std::future_status::ready;
 }
 
 std::string McpPlugin::connect(const std::string& server) {
