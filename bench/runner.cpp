@@ -186,6 +186,25 @@ struct RunComponents {
     }
 };
 
+void apply_compression_overrides(agent::Config& cfg, const Scenario& s) {
+    if (s.compression_threshold >= 0) {
+        cfg.compression_threshold = s.compression_threshold;
+        cfg.compression_threshold_explicit = true;
+    }
+    if (s.compression_min_turns >= 0) {
+        cfg.compression_min_turns = s.compression_min_turns;
+        cfg.compression_min_turns_explicit = true;
+    }
+    if (s.compression_cooldown_turns >= 0) {
+        cfg.compression_cooldown_turns = s.compression_cooldown_turns;
+        cfg.compression_cooldown_turns_explicit = true;
+    }
+    if (s.compression_target_pct >= 0) {
+        cfg.compression_target_pct = s.compression_target_pct;
+        cfg.compression_target_pct_explicit = true;
+    }
+}
+
 // The run's configuration. Live mode reads amber.conf and auto-detects the
 // server; hermetic mode pins the fake client's settings, re-asserting them after
 // amber.conf because that file may have clobbered them.
@@ -227,6 +246,7 @@ agent::Config build_run_config(const Scenario& s, const RunOptions& opts) {
     cfg.model = "fake";
     cfg.detection_loop = s.detection_loop;
     cfg.detection_duplicate = s.detection_duplicate;
+    apply_compression_overrides(cfg, s);
     cfg.system_prompt_path = agent::resolve_data_path("prompts/system.md", nullptr);
     cfg.tools_prompt_path = agent::resolve_data_path("prompts/tools.md", nullptr);
     if (fs::is_regular_file("amber.conf"))

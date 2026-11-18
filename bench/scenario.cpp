@@ -201,12 +201,9 @@ bool take_workspace_diff(const agent::json& value, std::string& err) {
     return true;
 }
 
-bool take_workspace(const agent::json& j, Scenario& s, std::string& err) {
-    if (!j.contains("expected_workspace"))
-        return true;
-    const agent::json& workspace = j["expected_workspace"];
+bool validate_workspace_block(const agent::json& workspace, const char* field, std::string& err) {
     if (!workspace.is_object()) {
-        err = "'expected_workspace' must be an object";
+        err = std::string("'") + field + "' must be an object";
         return false;
     }
     for (auto it = workspace.begin(); it != workspace.end(); ++it) {
@@ -219,11 +216,24 @@ bool take_workspace(const agent::json& j, Scenario& s, std::string& err) {
         else if (key == "diff_contains")
             ok = take_workspace_diff(it.value(), err);
         else
-            err = "unknown expected_workspace field: " + key;
+            err = std::string("unknown ") + field + " field: " + key;
         if (!ok)
             return false;
     }
-    s.expected_workspace = workspace;
+    return true;
+}
+
+bool take_workspace(const agent::json& j, Scenario& s, std::string& err) {
+    if (j.contains("expected_workspace")) {
+        if (!validate_workspace_block(j["expected_workspace"], "expected_workspace", err))
+            return false;
+        s.expected_workspace = j["expected_workspace"];
+    }
+    if (j.contains("cli_expected_workspace")) {
+        if (!validate_workspace_block(j["cli_expected_workspace"], "cli_expected_workspace", err))
+            return false;
+        s.cli_expected_workspace = j["cli_expected_workspace"];
+    }
     return true;
 }
 
@@ -569,6 +579,7 @@ bool take_scenario_body(const agent::json& j, Scenario& s, std::string& err) {
     if (!take_workspace(j, s, err) || !take_request_contract(j, s, err) || !take_faults(j, s, err))
         return false;
     take_bool(j, "stream", s.stream);
+    take_int(j, "context_size", s.context_size);
     std::string approval;
     take_string(j, "approval", approval);
     s.allow_tools = approval == "allow";
@@ -576,6 +587,8 @@ bool take_scenario_body(const agent::json& j, Scenario& s, std::string& err) {
     take_bool(j, "detection_duplicate", s.detection_duplicate);
     return true;
 }
+
+bool take_session(const agent::json& j, Scenario& s, std::string& err);
 
 bool take_scoring(const agent::json& j, Scenario& s, std::string& err) {
     if (!take_oracle(j, s.oracle, err))
@@ -588,7 +601,7 @@ bool take_scoring(const agent::json& j, Scenario& s, std::string& err) {
     take_object(j, "optimal_plan", s.optimal_plan);
     take_clamped_int(j, "difficulty", s.difficulty, 1, 6);
     take_int(j, "expected_steps", s.expected_steps);
-    if (!take_e2e_expectations(j, s, err))
+    if (!take_e2e_expectations(j, s, err) || !take_session(j, s, err))
         return false;
     take_budget(j, s);
     return true;
@@ -604,6 +617,74 @@ std::optional<Scenario> load_scenario(const std::string& path, std::string& err)
     if (!take_scenario_body(j, s, err) || !take_scoring(j, s, err))
         return std::nullopt;
     return s;
+}
+
+bool take_string_list(const agent::json& j, const char* key, std::vector<std::string>& out,
+                      std::string& err) {
+    if (!j.contains(key))
+        return true;
+    if (!j[key].is_array()) {
+        err = std::string("'") + key + "' must be an array of strings";
+        return false;
+    }
+    for (const auto& item : j[key]) {
+        if (!item.is_string()) {
+            err = std::string("'") + key + "' must be an array of strings";
+            return false;
+        }
+        out.push_back(item.get<std::string>());
+    }
+    return true;
+}
+
+bool take_session_identity(const agent::json& j, Scenario& s, std::string& err) {
+    if (j.contains("session")) {
+        if (!j["session"].is_string() || j["session"].get<std::string>().empty()) {
+            err = "'session' must be a non-empty string";
+            return false;
+        }
+        s.session = j["session"].get<std::string>();
+    }
+    if (j.contains("resume") && !j["resume"].is_boolean()) {
+        err = "'resume' must be a boolean";
+        return false;
+    }
+    s.resume = j.value("resume", false);
+    if (s.resume && (s.session.empty() || s.turns.empty())) {
+        err = "'resume' needs a 'session' and at least one turn";
+        return false;
+    }
+    return true;
+}
+
+bool take_journey_assertions(const agent::json& j, Scenario& s, std::string& err) {
+    if (j.contains("cancel_marker") && !j["cancel_marker"].is_string()) {
+        err = "'cancel_marker' must be a string";
+        return false;
+    }
+    s.cancel_marker = j.value("cancel_marker", std::string());
+    take_array(j, "endpoint_replies", s.endpoint_replies);
+    return take_string_list(j, "expected_tools", s.expected_tools, err) &&
+           take_string_list(j, "request_log_contains", s.request_log_contains, err);
+}
+
+void take_compression_overrides(const agent::json& j, Scenario& s) {
+    if (j.contains("compression_threshold") && j["compression_threshold"].is_number())
+        s.compression_threshold = j["compression_threshold"].get<double>();
+    if (j.contains("compression_min_turns") && j["compression_min_turns"].is_number_integer())
+        s.compression_min_turns = j["compression_min_turns"].get<int>();
+    if (j.contains("compression_cooldown_turns") &&
+        j["compression_cooldown_turns"].is_number_integer())
+        s.compression_cooldown_turns = j["compression_cooldown_turns"].get<int>();
+    if (j.contains("compression_target_pct") && j["compression_target_pct"].is_number_integer())
+        s.compression_target_pct = j["compression_target_pct"].get<int>();
+}
+
+bool take_session(const agent::json& j, Scenario& s, std::string& err) {
+    if (!take_session_identity(j, s, err) || !take_journey_assertions(j, s, err))
+        return false;
+    take_compression_overrides(j, s);
+    return true;
 }
 
 bool take_e2e_expectations(const agent::json& j, Scenario& s, std::string& err) {

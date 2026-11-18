@@ -14,6 +14,13 @@ namespace bench {
 std::vector<std::string> check_expected_workspace(const Scenario& scenario,
                                                   const std::filesystem::path& workspace);
 
+// The same checks against an arbitrary expectation block and setup. The binary
+// tier uses it for `cli_expected_workspace`, which the in-process reference run
+// cannot reproduce.
+std::vector<std::string> check_workspace_block(const agent::json& expected,
+                                               const agent::json& setup,
+                                               const std::filesystem::path& workspace);
+
 } // namespace bench
 
 #endif // BENCH_WORKSPACE_CHECK_H

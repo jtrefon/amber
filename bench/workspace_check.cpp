@@ -30,10 +30,10 @@ std::string join(const std::vector<std::string>& lines) {
     return out;
 }
 
-std::string setup_text(const Scenario& scenario, const std::string& path) {
-    if (!scenario.setup.is_object() || !scenario.setup.contains("files"))
+std::string setup_text(const agent::json& setup, const std::string& path) {
+    if (!setup.is_object() || !setup.contains("files"))
         return {};
-    const agent::json& files = scenario.setup["files"];
+    const agent::json& files = setup["files"];
     if (!files.is_object() || !files.contains(path) || !files[path].is_string())
         return {};
     return files[path].get<std::string>();
@@ -85,7 +85,7 @@ void check_absent(const agent::json& expected, const std::filesystem::path& work
     }
 }
 
-void check_diffs(const Scenario& scenario, const agent::json& expected,
+void check_diffs(const agent::json& setup, const agent::json& expected,
                  const std::filesystem::path& workspace, std::vector<std::string>& failures) {
     if (!expected.contains("diff_contains") || !expected["diff_contains"].is_object())
         return;
@@ -96,7 +96,7 @@ void check_diffs(const Scenario& scenario, const agent::json& expected,
             continue;
         }
         const std::string diff =
-            join(agent::render_unified_diff(it.key(), setup_text(scenario, it.key()), after));
+            join(agent::render_unified_diff(it.key(), setup_text(setup, it.key()), after));
         for (const auto& needle : it.value())
             if (diff.find(needle.get<std::string>()) == std::string::npos)
                 failures.push_back("workspace: diff for " + it.key() +
@@ -104,16 +104,21 @@ void check_diffs(const Scenario& scenario, const agent::json& expected,
     }
 }
 
-std::vector<std::string> check_expected_workspace(const Scenario& scenario,
-                                                  const std::filesystem::path& workspace) {
+std::vector<std::string> check_workspace_block(const agent::json& expected,
+                                               const agent::json& setup,
+                                               const std::filesystem::path& workspace) {
     std::vector<std::string> failures;
-    const agent::json& expected = scenario.expected_workspace;
     if (!expected.is_object() || expected.empty())
         return failures;
     check_files(expected, workspace, failures);
     check_absent(expected, workspace, failures);
-    check_diffs(scenario, expected, workspace, failures);
+    check_diffs(setup, expected, workspace, failures);
     return failures;
+}
+
+std::vector<std::string> check_expected_workspace(const Scenario& scenario,
+                                                  const std::filesystem::path& workspace) {
+    return check_workspace_block(scenario.expected_workspace, scenario.setup, workspace);
 }
 
 } // namespace bench
