@@ -38,24 +38,28 @@ public:
     }
 
     json parameters_schema() const override {
-        json p = json::object();
-        p["type"] = "object";
-        json props = json::object();
-        props["action"] = json::object({{"type", "string"},
-                                        {"enum", json::array({"list", "diff", "restore"})},
-                                        {"description", "list | diff | restore"}});
-        props["target"] = json::object(
-            {{"type", "string"},
-             {"description", "Turn number or SHA prefix. Required for restore; diff defaults to "
-                             "the latest checkpoint."}});
-        p["properties"] = props;
-        p["required"] = json::array({"action"});
-        return p;
+        static const json schema = json::parse(R"({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "diff", "restore"],
+                    "description": "list | diff | restore"
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Turn number or SHA prefix. Required for restore; diff defaults to the latest checkpoint."
+                }
+            },
+            "required": ["action"]
+        })");
+        return schema;
     }
 
     bool requires_approval(const json& args) const noexcept override {
-        return args.is_object() && args.contains("action") && args["action"].is_string() &&
-               args["action"].get<std::string>() == "restore";
+        const auto action = args.find("action");
+        return action != args.end() && action->is_string() &&
+               action->get<std::string>() == "restore";
     }
 
     bool is_read_only() const noexcept override { return false; }
@@ -63,10 +67,16 @@ public:
     std::string summarize(const json& args) const override {
         const std::string action = args.value("action", std::string("list"));
         const std::string target = target_of(args);
+        std::string out;
         if (action == "restore")
-            return "restore the working tree to checkpoint " +
-                   (target.empty() ? std::string("(missing target)") : target);
-        return target.empty() ? "checkpoint " + action : "checkpoint " + action + " " + target;
+            out = "restore the working tree to checkpoint";
+        else
+            out = "checkpoint " + action;
+        if (!target.empty())
+            out += " " + target;
+        else if (action == "restore")
+            out += " (missing target)";
+        return out;
     }
 
     ToolResult execute(const json& args) const override {
@@ -121,7 +131,9 @@ private:
         std::string text = service.diff(target, error);
         if (!error.empty())
             return {false, "", "git_checkpoint diff: " + error};
-        const std::string label = target.empty() ? "latest" : target;
+        std::string label = target;
+        if (label.empty())
+            label = "latest";
         if (text.empty())
             return {true, "checkpoint diff " + label + ": no changes", "", {{"target", label}}};
 

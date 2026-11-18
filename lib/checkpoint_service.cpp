@@ -40,9 +40,12 @@ CheckpointChange CheckpointService::before_turn() {
     if (!error.empty())
         return failed(std::move(error));
 
-    const std::size_t turn = list.empty() ? 0 : list.front().turn;
-    const std::string prompt =
-        list.empty() ? "initial state" : "before turn " + std::to_string(turn + 1);
+    std::size_t turn = 0;
+    std::string prompt = "initial state";
+    if (!list.empty()) {
+        turn = list.front().turn;
+        prompt = "before turn " + std::to_string(turn + 1);
+    }
     return record(prompt, turn, CheckpointPhase::Pre);
 }
 
@@ -52,7 +55,9 @@ CheckpointChange CheckpointService::after_turn(const std::string& prompt) {
     if (!error.empty())
         return failed(std::move(error));
 
-    const std::size_t turn = list.empty() ? 1 : list.front().turn + 1;
+    std::size_t turn = 1;
+    if (!list.empty())
+        turn = list.front().turn + 1;
     return record(prompt, turn, CheckpointPhase::Post);
 }
 
@@ -123,7 +128,9 @@ CheckpointChange CheckpointService::restore_to(const Checkpoint& target,
         change.error = "restored, but could not read the history: " + error;
         return change;
     }
-    const std::size_t turn = list.empty() ? 1 : list.front().turn + 1;
+    std::size_t turn = 1;
+    if (!list.empty())
+        turn = list.front().turn + 1;
     const auto created = store_.create(turn, prompt, error, CheckpointPhase::Post);
     if (created)
         change.checkpoint = *created;

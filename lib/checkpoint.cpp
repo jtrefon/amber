@@ -54,16 +54,11 @@ std::size_t count_lines(const std::string& text) {
 // filename with a newline or a quote is one path.
 std::vector<std::string> split_nul(const std::string& text) {
     std::vector<std::string> out;
-    std::size_t start = 0;
-    while (start < text.size()) {
-        const std::size_t end = text.find('\0', start);
-        if (end == std::string::npos) {
-            out.push_back(text.substr(start));
-            break;
-        }
-        if (end > start)
-            out.push_back(text.substr(start, end - start));
-        start = end + 1;
+    std::istringstream in(text);
+    std::string part;
+    while (std::getline(in, part, '\0')) {
+        if (!part.empty())
+            out.push_back(std::move(part));
     }
     return out;
 }
@@ -74,15 +69,14 @@ std::vector<std::string> split_nul(const std::string& text) {
 // content — in one pty run that was 64k files and a full tmpfs.
 std::vector<std::string> excluded_paths(const std::string& root) {
     std::vector<std::string> out;
+    const std::string prefix = root + "/";
     const auto add = [&](const std::string& path) {
-        std::error_code ec;
-        const fs::path rel = fs::relative(path, root, ec);
-        if (ec || rel.empty() || rel == ".")
+        if (path.rfind(prefix, 0) != 0)
             return;
-        const auto first = rel.begin();
-        if (first != rel.end() && *first == fs::path(".."))
+        std::string relative = path.substr(prefix.size());
+        if (relative.empty())
             return;
-        out.push_back(rel.generic_string());
+        out.push_back(std::move(relative));
     };
     add(Workspace::state_dir_for(root));
     add(cache_dir());

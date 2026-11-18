@@ -36,8 +36,9 @@ std::string flatten(const std::string& text) {
 }
 
 std::string turn_label(const Checkpoint& checkpoint) {
-    return checkpoint.pre() ? "before turn " + std::to_string(checkpoint.turn + 1)
-                            : "turn " + std::to_string(checkpoint.turn);
+    if (checkpoint.pre())
+        return "before turn " + std::to_string(checkpoint.turn + 1);
+    return "turn " + std::to_string(checkpoint.turn);
 }
 
 } // namespace

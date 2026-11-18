@@ -9,7 +9,7 @@ namespace agent {
 namespace {
 
 std::string short_id(const std::string& id) {
-    return id.size() > 8 ? id.substr(0, 8) : id;
+    return id.substr(0, 8);
 }
 
 } // namespace
@@ -18,32 +18,22 @@ CheckpointTurn::CheckpointTurn(std::string project_root, std::string session_id,
     : service_(std::move(project_root), std::move(session_id)), report_(std::move(report)) {}
 
 void CheckpointTurn::before() {
-    try {
-        report_change(service_.before_turn());
-    } catch (const std::exception& e) {
-        if (report_)
-            report_(std::string("checkpoint: ") + e.what());
-    } catch (...) {
-        if (report_)
-            report_("checkpoint: unknown failure");
-    }
+    guarded([this] { return service_.before_turn(); });
 }
 
 void CheckpointTurn::after(const std::string& prompt) {
+    guarded([this, &prompt] { return service_.after_turn(prompt); });
+}
+
+void CheckpointTurn::guarded(const std::function<CheckpointChange()>& snapshot) {
     try {
-        report_change(service_.after_turn(prompt));
+        report_change(snapshot());
     } catch (const std::exception& e) {
-        if (report_)
-            report_(std::string("checkpoint: ") + e.what());
-    } catch (...) {
-        if (report_)
-            report_("checkpoint: unknown failure");
+        report_(std::string("checkpoint: ") + e.what());
     }
 }
 
 void CheckpointTurn::report_change(const CheckpointChange& change) {
-    if (!report_)
-        return;
     if (change.kind == CheckpointChangeKind::Failed) {
         report_("checkpoint: " + change.error);
         return;

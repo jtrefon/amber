@@ -22,6 +22,7 @@ public:
     void after(const std::string& prompt);
 
 private:
+    void guarded(const std::function<CheckpointChange()>& snapshot);
     void report_change(const CheckpointChange& change);
 
     CheckpointService service_;
