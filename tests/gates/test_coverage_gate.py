@@ -177,6 +177,7 @@ class DeliberatelyNotMeasured(unittest.TestCase):
 
     def test_deliberately_not_measured_predicate(self):
         self.assertTrue(cg.deliberately_not_measured("tests/x.cpp"))
+        self.assertTrue(cg.deliberately_not_measured("bench/scenarios/repo-long/math/skeleton/math.cpp"))
         self.assertTrue(cg.deliberately_not_measured("bench/main.cpp", (r".*bench/main\.cpp",)))
         self.assertFalse(cg.deliberately_not_measured("bench/oracle.cpp", (r".*bench/main\.cpp",)))
         self.assertFalse(cg.deliberately_not_measured("lib/a.cpp"))

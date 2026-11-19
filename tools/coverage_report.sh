@@ -60,6 +60,7 @@ gcovr --root . \
     --filter 'src/.*' --filter 'bench/.*' --filter 'plugins/.*' \
     --exclude '.*tests/.*' --exclude '.*third_party/.*' \
     --exclude '.*fuzz/.*' \
+    --exclude '.*bench/scenarios/.*' \
     --exclude '.*src/main\.cpp' --exclude '.*src/smoketest\.cpp' \
     --exclude '.*bench/main\.cpp' --exclude '.*tui/tui_main\.cpp' \
     --exclude '.*src/update\.cpp' \
@@ -101,7 +102,7 @@ python3 tools/coverage_gate.py --report coverage.xml --diff-base "$BASE" \
     --absent-ok '.*src/main\.cpp' --absent-ok '.*src/smoketest\.cpp' \
     --absent-ok '.*bench/main\.cpp' --absent-ok '.*tui/tui_main\.cpp' \
     --absent-ok '.*src/update\.cpp' \
-    --absent-ok '.*fuzz/.*'
+    --absent-ok '.*fuzz/.*' --absent-ok '.*bench/scenarios/.*'
 rc=$?
 set -e
 

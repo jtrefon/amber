@@ -176,16 +176,19 @@ TRANSLATION_UNITS = (".cpp", ".c", ".cc")
 # Tests are excluded from the coverage report on purpose -- you do not measure
 # coverage of the thing that measures coverage -- so a PR that adds a test would
 # otherwise fail this gate with "absent from the report". Same exclusion the
-# coverage job's gcovr filters already apply.
-NOT_MEASURED_PREFIXES = ("tests/",)
+# coverage job's gcovr filters already apply. `bench/scenarios/` is benchmark
+# code the agent writes and an oracle scores; it is compiled by the template
+# harness at run time, never by the instrumented unit build.
+NOT_MEASURED_PREFIXES = ("tests/", "bench/scenarios/")
 
 
 def deliberately_not_measured(path, extra_patterns=()):
     """Whether the coverage report intentionally omits this source.
 
     tests/ is excluded because you do not measure coverage of the thing that measures
-    coverage. The `main()` entry points are excluded by the coverage job's gcovr
-    filters: they are process drivers with no surviving source of their own.
+    coverage, and bench/scenarios/ because it is oracle-scored benchmark input. The
+    `main()` entry points are excluded by the coverage job's gcovr filters: they are
+    process drivers with no surviving source of their own.
 
     Both matter for the same reason, and confusing the second with the first is a
     fail-open in the wrong direction: a changed .cpp that is absent from the report is
