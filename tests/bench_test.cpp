@@ -4704,6 +4704,21 @@ TEST(workspace_check_matches_exact_contains_regex_absent_and_diff) {
                      "workspace: answer.txt does not match exact content") != failures.end());
 }
 
+TEST(long_horizon_wrong_edit_is_named_in_the_workspace_diff) {
+    const std::string ws = tmp_dir("long_horizon_wrong");
+    const std::string stub = "std::string upper_text(const std::string& text) { return text; }\n";
+    write_file(ws + "/text.cpp", stub);
+    const auto scenario = [&] {
+        bench::Scenario s;
+        s.setup = {{"files", {{"text.cpp", stub}}}};
+        s.expected_workspace = {{"diff_contains", {{"text.cpp", {"std::toupper"}}}}};
+        return s;
+    }();
+    const std::vector<std::string> failures = bench::check_expected_workspace(scenario, ws);
+    ASSERT(!failures.empty());
+    ASSERT(failures[0].find("text.cpp") != std::string::npos);
+}
+
 TEST(workspace_check_reports_missing_absent_and_diff_failures) {
     const std::string dir = tmp_dir("workspace_failures");
     write_file(dir + "/a.txt", "no match\n");

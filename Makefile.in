@@ -454,7 +454,8 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         trace-check \
         website-bench-data check smoketest test doctor tui-agent-e2e \
         agent-e2e agent-e2e-check agent-e2e-baseline agent-eval \
-        policy-matrix policy-matrix-check policy-matrix-baseline core-only \
+        policy-matrix policy-matrix-check policy-matrix-baseline \
+        long-horizon long-horizon-check long-horizon-baseline core-only \
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick preflight check-compilers \
         coverage coverage-branch-baseline ci-manifest detach \
@@ -1458,8 +1459,29 @@ policy-matrix-baseline: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) run --policy-matrix --scenario zoo \
 		--out bench/results/policy-matrix-baseline.json
 
+# Long-horizon repository journeys: a multi-module template, a real
+# make test, and a per-journey token/call/wall baseline. The scenarios are
+# hermetic (policy or scripted replies), so the numbers are deterministic.
+LONG_HORIZON_REPORT ?= $(BUILD_DIR)/artifacts/long-horizon.json
+LONG_HORIZON_SUMMARY ?= $(BUILD_DIR)/artifacts/long-horizon-summary.md
+long-horizon: $(BUILD_DIR)/$(BENCH_BIN)
+	@mkdir -p $(dir $(LONG_HORIZON_REPORT))
+	$(BUILD_DIR)/$(BENCH_BIN) run --suite repo-long --format json \
+		--out $(LONG_HORIZON_REPORT)
+
+long-horizon-check: long-horizon
+	@mkdir -p $(dir $(LONG_HORIZON_SUMMARY))
+	python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(LONG_HORIZON_REPORT)" \
+		--baseline "$(SRC_DIR)/bench/results/long-horizon-baseline.json" \
+		--min-scenarios 5 --markdown "$(LONG_HORIZON_SUMMARY)"
+
+long-horizon-baseline: long-horizon
+	python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(LONG_HORIZON_REPORT)" \
+		--baseline "$(SRC_DIR)/bench/results/long-horizon-baseline.json" \
+		--min-scenarios 5 --update
+
 # The evaluation tier CI runs in the `agent-e2e` job.
-agent-eval: agent-e2e-check policy-matrix-check trace-check
+agent-eval: agent-e2e-check policy-matrix-check trace-check long-horizon-check
 
 # The agent journeys reuse the pty driver and the shared scripted endpoint, so
 # the real TUI, the real tools and the real plugin runtime all run.
