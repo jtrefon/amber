@@ -93,7 +93,7 @@ std::optional<std::size_t> RenderEngine::tab_close_at(int x, int y) const {
     if (y != 0 || top_rows() <= 0)
         return std::nullopt;
     for (const auto& hit : top_layout_.hits)
-        if (x == hit.close_start)
+        if (x >= hit.close_start && x < hit.close_start + hit.close_width)
             return hit.id;
     return std::nullopt;
 }

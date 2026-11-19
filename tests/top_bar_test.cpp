@@ -96,7 +96,16 @@ TEST(top_bar_records_clickable_tab_hits) {
     ASSERT_EQ(layout.hits[1].id, 2u);
     ASSERT_EQ(layout.hits[0].start, layout.active_start);
     ASSERT_EQ(layout.hits[0].width, layout.active_width);
-    ASSERT_EQ(layout.hits[0].close_start, layout.hits[0].start + layout.hits[0].width - 1);
+    // The close target is the glyph plus the padding on either side, so it
+    // starts two columns before the label ends and the `×` is not flush at the
+    // tab edge.
+    ASSERT_EQ(layout.hits[0].close_start, layout.hits[0].start + layout.hits[0].width - 3);
+    ASSERT_EQ(layout.hits[0].close_width, 3);
+    ASSERT_EQ(layout.hits[0].close_start + layout.hits[0].close_width,
+              layout.hits[0].start + layout.hits[0].width);
+    const auto* active = find_role(layout, Role::ActiveTab);
+    ASSERT(active != nullptr);
+    ASSERT_EQ(active->text.back(), ' ');
     for (const auto& hit : layout.hits) {
         ASSERT(hit.start > 0);
         ASSERT(hit.width > 0);
@@ -154,7 +163,8 @@ TEST(top_bar_truncates_long_titles) {
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
     ASSERT(active->text.find("\u2026") != std::string::npos);
-    ASSERT(tui::text::display_cols(active->text) <= 6 + 1 + tui::top_bar::kTabMaxTitle);
+    ASSERT(tui::text::display_cols(active->text) <=
+           tui::top_bar::tab_width(tui::top_bar::kTabMaxTitle, 1));
 }
 
 TEST(top_bar_shows_running_and_attention_markers) {
