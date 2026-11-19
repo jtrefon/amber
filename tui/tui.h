@@ -85,6 +85,7 @@ class SlashDispatcher;
 class TuiWindowOpsHooks;
 class WindowOps;
 class KeyBinder;
+class CheckpointCommands;
 
 // ncurses-based interactive TUI. Operates an IRC-style multi-window chat
 // interface on top of the agent core. One instance per process; the main
@@ -104,6 +105,7 @@ class Tui {
     friend class SessionController;
     friend class SlashDispatcher;
     friend class LearnSurface;
+    friend class CheckpointCommands;
     friend class LogRetentionController;
     friend class TuiWindowOpsHooks;
 
@@ -248,8 +250,7 @@ private:
     // ---- slash command framework (owned by SlashDispatcher) --------------
     const std::vector<tui::Command>& commands();
     bool handle_slash(const std::string& line);
-    void register_action(const std::string& action,
-                         std::function<void(const std::string&)> handler);
+    void register_action(const std::string& action, std::function<void(const std::string&)> fn);
     bool busy_reject(const std::string& what);
     void refresh_model_list();
     // Cache-first model catalog: detection and forced probes never block the

@@ -23,6 +23,9 @@ struct RunSlot {
     std::atomic<bool> busy{false};
     std::atomic<bool> cancel{false};
     std::deque<std::string> pending;
+    // The prompt as the person typed it. The agent gets the expanded form (at
+    // references resolved); the checkpoint message records this one.
+    std::string display_prompt;
     mutable std::mutex mtx; // guards pending; flags are atomic
 };
 

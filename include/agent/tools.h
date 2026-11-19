@@ -59,6 +59,11 @@ std::unique_ptr<Tool> make_process_start_tool(JobService& jobs, TaskService* tas
 std::unique_ptr<Tool> make_tasks_tool(TaskService& tasks, JobService& jobs,
                                       const CancellationToken& fallback_token = {});
 
+// Amber's per-turn working-tree checkpoints: list, diff and restore. The tool
+// resolves the running agent's workspace root and session through RunScope, so
+// it holds no host state and a restore is recorded as a new checkpoint.
+std::unique_ptr<Tool> make_checkpoint_tool();
+
 // A capability factory returns a list; most tools are one. Empty in, empty out,
 // so a factory that declines still reads as "no tools" rather than a null
 // entry.

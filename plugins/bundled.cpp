@@ -24,6 +24,7 @@
 #include "plugins/search_grep/search_grep_plugin.h"
 #include "plugins/search_semantic/search_semantic_plugin.h"
 #include "plugins/tool_bash/tool_bash_plugin.h"
+#include "plugins/tool_checkpoint/tool_checkpoint_plugin.h"
 #include "plugins/tool_context/tool_context_plugin.h"
 #include "plugins/tool_plan/tool_plan_plugin.h"
 #include "plugins/tool_process/tool_process_plugin.h"
@@ -91,6 +92,7 @@ std::vector<std::shared_ptr<IPlugin>> make_bundled_plugins() {
     plugins.push_back(std::make_shared<plugins::ToolBashPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolProcessPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolTasksPlugin>());
+    plugins.push_back(std::make_shared<plugins::ToolCheckpointPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolContextPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolPlanPlugin>());
     plugins.push_back(std::make_shared<plugins::ToolDelegatePlugin>());

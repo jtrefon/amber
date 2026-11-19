@@ -937,6 +937,21 @@ tests and debugging:
   they write, and `Workspace::adopt_legacy_state()` copies a pre-move artefact
   into the state dir once, never deleting the original.
 
+### Checkpoints (git-integrated undo)
+
+`CheckpointStore` (`include/agent/checkpoint.h`) snapshots a window's working
+tree before and after a file-changing turn as a commit on
+`refs/amber/checkpoints/<session>` (a private bare repo under the state dir for
+a non-git project). It stages through a private index and updates only its own
+ref, so the user's `HEAD`, branch and real index stay put. `CheckpointService`
+owns the turn numbering, the pre/post phase and the rule that an undo restores
+a tree and records the revert as a new checkpoint; `CheckpointTurn` is the
+host adapter the TUI worker and the CLI use. The TUI surface is
+`/session history|undo|rollback|diff` with `/history`, `/undo`, `/rollback` and
+`/diff` as visible aliases, and the agent gets the `git_checkpoint` tool from
+the bundled `tool_checkpoint` plugin (restore is approval-gated). Full
+contract: `docs/spec/checkpoints/store.md`.
+
 ### The local inference service is INVOLATE, never touch it
 
 The OpenAI-compatible endpoint on `:8081` is served by the **`llama-turboq`
@@ -1410,7 +1425,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 329 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 122 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 4829 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 4831 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

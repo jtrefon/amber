@@ -6,6 +6,7 @@
 #include <agent/task_join.h>
 #include <agent/config_paths.h>
 #include <agent/task_store.h>
+#include <agent/checkpoint_turn.h>
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
 #include <agent/global_config.h>
@@ -38,6 +39,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <unistd.h>
 #include "agent/plugins_bundled.h"
@@ -787,9 +789,32 @@ void cancel_from_signal(int) {
         g_cancel_flag->store(true, std::memory_order_relaxed);
 }
 
+// Record the post-turn snapshot on every exit, including a thrown turn: the
+// files the agent changed before failing are exactly what the user needs to
+// undo.
+class CheckpointAfterTurn {
+public:
+    CheckpointAfterTurn(agent::CheckpointTurn* turn, std::string prompt)
+        : turn_(turn), prompt_(std::move(prompt)) {}
+    ~CheckpointAfterTurn() {
+        if (turn_)
+            turn_->after(prompt_);
+    }
+    CheckpointAfterTurn(const CheckpointAfterTurn&) = delete;
+    CheckpointAfterTurn& operator=(const CheckpointAfterTurn&) = delete;
+
+private:
+    agent::CheckpointTurn* turn_;
+    std::string prompt_;
+};
+
 // One turn on the persistent headless agent. Streamed tokens already reached
 // stdout; a buffered reply (or a harness stop) is printed once here.
-std::string run_turn(agent::IAgent& agent, CliHost& host, const std::string& prompt) {
+std::string run_turn(agent::IAgent& agent, CliHost& host, const std::string& prompt,
+                     agent::CheckpointTurn* checkpoints) {
+    if (checkpoints)
+        checkpoints->before();
+    CheckpointAfterTurn after(checkpoints, prompt);
     host.streamed = false;
     const std::string reply = agent.run(prompt);
     if (host.streamed)
@@ -804,7 +829,7 @@ std::string run_turn(agent::IAgent& agent, CliHost& host, const std::string& pro
 // context. Without the wait, completions are printed and a still-running task
 // is a named exit 3, never a silent drop.
 int finish_tasks(agent::Config& cfg, CliHost& host, agent::IAgent& agent, agent::TaskInbox& inbox,
-                 int wait_seconds) {
+                 int wait_seconds, agent::CheckpointTurn* checkpoints) {
     const agent::JoinResult joined = agent::join_tasks(
         host.tasks, host.plugin_runtime.events(), "cli",
         {std::chrono::seconds(wait_seconds > 0 ? wait_seconds : 0), wait_seconds > 0},
@@ -819,7 +844,7 @@ int finish_tasks(agent::Config& cfg, CliHost& host, agent::IAgent& agent, agent:
         if (wait_seconds > 0) {
             std::cerr << "[tasks] " << completions.size()
                       << " completion(s); following up (tasks output <id> for evidence)\n";
-            run_turn(agent, host, digest);
+            run_turn(agent, host, digest, checkpoints);
         } else {
             std::cerr << digest;
         }
@@ -884,9 +909,10 @@ void install_cancel_handlers(agent::Config& cfg) {
 // Stop between turns: a cancel during --script leaves the remaining prompts
 // unsent rather than clearing the token and carrying on.
 bool run_prompts(agent::IAgent& agent, CliHost& host, const std::vector<std::string>& prompts,
-                 const agent::Config& cfg, RunTelemetry* telemetry) {
+                 const agent::Config& cfg, RunTelemetry* telemetry,
+                 agent::CheckpointTurn* checkpoints) {
     for (const auto& prompt : prompts) {
-        const std::string reply = run_turn(agent, host, prompt);
+        const std::string reply = run_turn(agent, host, prompt, checkpoints);
         if (telemetry)
             telemetry->final_text = reply;
         if (cfg.cancel_token.is_requested())
@@ -905,10 +931,12 @@ agent::AgentDeps take_cli_deps(CliHost& host) {
 }
 
 int finish_cli_run(CliHost& host, agent::Config& cfg, agent::Agent& agent, agent::TaskInbox& inbox,
-                   const CliArgs& args, bool cancelled) {
+                   const CliArgs& args, agent::CheckpointTurn* checkpoints) {
     // A cancelled turn skips the task join: the user asked to stop, and a
     // completion that arrives after cancellation must not start another.
-    const int rc = cancelled ? 130 : finish_tasks(cfg, host, agent, inbox, args.wait_tasks_s);
+    const bool cancelled = cfg.cancel_token.is_requested();
+    const int rc =
+        cancelled ? 130 : finish_tasks(cfg, host, agent, inbox, args.wait_tasks_s, checkpoints);
     if (!args.session.empty())
         save_session(agent, args.session, cfg);
     g_cancel_flag = nullptr;
@@ -947,8 +975,12 @@ int run_agent_turn(agent::Config& cfg, CliHost& host, const agent::AgentHooks& h
             return 1;
         }
         install_cancel_handlers(cfg);
-        const bool cancelled = run_prompts(agent, host, prompts, cfg, telemetry);
-        return finish_cli_run(host, cfg, agent, inbox, args, cancelled);
+        const auto snapshot = agent.config_snapshot();
+        agent::CheckpointTurn checkpoints(
+            agent::Workspace::project_root(), snapshot ? snapshot->session_id : std::string(),
+            [](const std::string& line) { std::cerr << line << "\n"; });
+        run_prompts(agent, host, prompts, cfg, telemetry, &checkpoints);
+        return finish_cli_run(host, cfg, agent, inbox, args, &checkpoints);
     } catch (const std::exception& e) {
         host.plugin_runtime.shutdown();
         host.tasks.shutdown();

@@ -357,6 +357,7 @@ private:
         const bool worker_report = request.body.find("WORKER-REPORT") != std::string::npos;
         const bool queue_probe = last_user.find("queue probe") != std::string::npos;
         const bool clear_probe = last_user.find("clear probe") != std::string::npos;
+        const bool checkpoint_probe = last_user.find("checkpoint probe") != std::string::npos;
         const bool command_probe = last_user.find("command probe") != std::string::npos;
         const bool second_prompt = last_user.find("second prompt") != std::string::npos;
         const bool doomed_prompt = last_user.find("doomed prompt") != std::string::npos;
@@ -414,6 +415,12 @@ private:
             }
         } else if (report) {
             message = R"({"role":"assistant","content":"REPORT-ACK"})";
+        } else if (checkpoint_probe && call == 1) {
+            finish = "tool_calls";
+            message =
+                R"({"role":"assistant","content":"","tool_calls":[{"id":"call_checkpoint","type":"function","function":{"name":"write","arguments":"{\"path\":\"checkpoint-e2e.txt\",\"edits\":[{\"old\":\"one\",\"new\":\"two\"}]}"}}]})";
+        } else if (checkpoint_probe) {
+            message = R"({"role":"assistant","content":"CHECKPOINT-DONE"})";
         } else if (first) {
             const std::string args =
                 R"({"action":"start","profile":"process","command":"sh -c 'sleep 8; printf WATCH-DONE'","label":"pty-watch","deadline_s":30})";
@@ -1696,6 +1703,60 @@ TEST(usage_show_and_reset_are_reachable) {
 
     run("/usage reset");
     require(tui.wait_for("session tree reset", 10000), "reset did not report", tui);
+}
+
+// The turn trigger, history, diff and undo against the real TUI and the real
+// write tool. The fixture workspace is not a git checkout, so this also
+// exercises the shadow repository end to end.
+TEST(checkpoint_turn_history_diff_and_undo_round_trip) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"));
+    const std::string file = fixture().workspace + "/checkpoint-e2e.txt";
+    ASSERT(write_file(file, "one\n"));
+
+    Tui tui;
+    tui.name = "checkpoint_turn_history_diff_and_undo_round_trip";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+        tui.pump(300);
+    };
+
+    tui.send("checkpoint probe\r");
+    if (!require(tui.wait_for("CHECKPOINT-DONE", 60000), "the checkpoint turn did not finish", tui))
+        return;
+    if (!require(tui.wait_for("checkpoint: turn 1", 10000),
+                 "the turn did not report its checkpoint", tui))
+        return;
+    ASSERT_EQ(read_text_file(file), std::string("two\n"));
+
+    run("/session history");
+    if (!require(tui.wait_for("checkpoints (newest first", 10000), "history did not open", tui))
+        return;
+    require(tui.text().find("turn 1") != std::string::npos, "history omitted the turn", tui);
+
+    run("/session diff");
+    if (!require(tui.wait_for("checkpoint diff latest:", 10000), "diff did not open", tui))
+        return;
+    require(tui.text().find("+two") != std::string::npos, "diff omitted the turn change", tui);
+
+    run("/session undo");
+    if (!require(tui.wait_for("Undo checkpoint", 5000), "undo confirmation did not open", tui))
+        return;
+    tui.send("y");
+    if (!require(tui.wait_for("checkpoint undo: restored", 15000), "undo did not finish", tui))
+        return;
+    ASSERT_EQ(read_text_file(file), std::string("one\n"));
+    std::filesystem::remove(file);
 }
 
 // A project session is a real window with its own project root, not a path
@@ -4093,6 +4154,7 @@ int main(int argc, char** argv) {
     worktree_manager_round_trip();
     worktree_off_survives_a_restart_and_parks_instead_of_reattaching();
     work_board_resource_viewer_round_trip();
+    checkpoint_turn_history_diff_and_undo_round_trip();
     project_open_creates_a_scoped_session();
     learn_show_inspect_and_forget_the_project_store();
     learn_panel_opens_and_returns_to_the_prompt();

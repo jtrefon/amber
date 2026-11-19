@@ -89,6 +89,9 @@ CORE_OBJS = $(BUILD_DIR)/lib/config.o \
             $(BUILD_DIR)/lib/agent.o \
             $(BUILD_DIR)/lib/git_exec.o \
             $(BUILD_DIR)/lib/checkpoint.o \
+            $(BUILD_DIR)/lib/checkpoint_format.o \
+            $(BUILD_DIR)/lib/checkpoint_service.o \
+            $(BUILD_DIR)/lib/checkpoint_turn.o \
             $(BUILD_DIR)/lib/prompt_assembler.o \
             $(BUILD_DIR)/lib/compression_controller.o \
             $(BUILD_DIR)/lib/loop_guard.o \
@@ -182,6 +185,7 @@ PLUGIN_OBJS = $(BUILD_DIR)/plugins/bundled.o \
               $(BUILD_DIR)/plugins/tool_bash/tool_bash_plugin.o \
               $(BUILD_DIR)/plugins/tool_process/tool_process_plugin.o \
               $(BUILD_DIR)/plugins/tool_tasks/tool_tasks_plugin.o \
+              $(BUILD_DIR)/plugins/tool_checkpoint/tool_checkpoint_plugin.o \
               $(BUILD_DIR)/plugins/tool_context/tool_context_plugin.o \
               $(BUILD_DIR)/plugins/tool_plan/tool_plan_plugin.o \
               $(BUILD_DIR)/plugins/tool_delegate/tool_delegate_plugin.o \
@@ -237,6 +241,7 @@ TOOLS_OBJS = $(BUILD_DIR)/tools/read_tool.o \
              $(BUILD_DIR)/lib/providers_catalog_http.o \
              $(BUILD_DIR)/tools/process_tool.o \
              $(BUILD_DIR)/tools/tasks_tool.o \
+             $(BUILD_DIR)/tools/checkpoint_tool.o \
              $(BUILD_DIR)/tools/skill_tools.o \
              $(BUILD_DIR)/tools/search/grep_backend.o \
              $(BUILD_DIR)/tools/search/semantic_backend.o \
@@ -312,6 +317,7 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/session_controller.o \
              $(BUILD_DIR)/tui/log_retention_controller.o \
              $(BUILD_DIR)/tui/slash_dispatcher.o \
+             $(BUILD_DIR)/tui/checkpoint_commands.o \
              $(BUILD_DIR)/tui/key_binder.o \
              $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o \
              $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o \

@@ -110,7 +110,7 @@
   "session": {
    "action": "core.session",
    "help": "Manage saved sessions.",
-   "man": "The session command manages conversation persistence. Sessions are saved to .amber/sessions/ and store the full conversation history plus metadata. Use '/session new' to start fresh, '/session save' to persist, '/session list' to browse, and '/session remove' to delete.",
+   "man": "The session command manages conversation persistence and this window's working-tree history. Sessions are saved to .amber/sessions/ and store the full conversation history plus metadata. Use '/session new' to start fresh, '/session save' to persist, '/session list' to browse, and '/session remove' to delete. '/session history' lists checkpoints, '/session diff' shows one, '/session undo' restores the previous one, and '/session rollback <turn|sha>' restores an older one; each restore records a new checkpoint.",
    "children": {
     "new": {
      "action": "core.session.reset",
@@ -161,6 +161,30 @@
      "help": "Fork this session into a new window.",
      "man": "Splits the current session: a new window opens with an identical copy of the full conversation history, then both branches continue independently. The shared prefix is preserved so the fork's first request reuses the model's KV cache. Requires the agent to be idle.",
      "short": "fk"
+    },
+    "history": {
+     "action": "core.session.history",
+     "help": "List this window's checkpoints.",
+     "man": "Lists the per-turn working-tree checkpoints for the active window, newest first: turn, short SHA, changed-file count, time and prompt. Checkpoints live on refs/amber/checkpoints/<session>; the user's branch and index never move. A file-changing turn creates one automatically, and a snapshot before the turn captures edits made between turns.",
+     "short": "hi"
+    },
+    "undo": {
+     "action": "core.session.undo",
+     "help": "Restore the checkpoint before the latest one.",
+     "man": "Shows the target checkpoint and asks for confirmation, then puts the working tree back to it. A new checkpoint records the revert, so the undo is itself undoable. The agent must be idle.",
+     "short": "un"
+    },
+    "rollback": {
+     "action": "core.session.rollback",
+     "help": "Restore an older checkpoint by turn or SHA.",
+     "man": "Finds the checkpoint by turn number or SHA prefix, confirms, then restores the working tree and records the revert as a new checkpoint. The agent must be idle. Use /session history to find the target.",
+     "short": "rb"
+    },
+    "diff": {
+     "action": "core.session.diff",
+     "help": "Show what a checkpoint changed.",
+     "man": "Prints the unified diff a checkpoint introduced, against its parent; the latest checkpoint when no turn or SHA is given. The diff is bounded in the scrollback. It never changes the working tree.",
+     "short": "df"
     },
     "stop": {
      "action": "core.stop",
@@ -1302,7 +1326,11 @@
   "save": "session save",
   "sessions": "session list",
   "mcp": "plugin mcp",
-  "job": "tasks"
+  "job": "tasks",
+  "history": "session history",
+  "undo": "session undo",
+  "rollback": "session rollback",
+  "diff": "session diff"
  },
  "legacy": {
   "new": "session new",

@@ -33,6 +33,7 @@
 namespace agent {
 
 class ShapeQueue;
+struct RunScope;
 
 // Coarse activity state for a status-bar connection indicator.
 enum class RunState : std::uint8_t {
@@ -519,6 +520,10 @@ private:
     // changing the environment mid-session is a deliberate prefix reset.
     mutable bool environment_probed_ = false;
     mutable std::string environment_card_;
+    // The per-run scope both run() and run_compression() install: this agent's
+    // cancel token, catalog, roots and identities. Kept in one place so the two
+    // paths cannot drift.
+    RunScope make_run_scope();
     // Publish the display-relevant config for other threads. Copy-on-write:
     // `cfg_` stays the worker's private working copy, readers get an immutable
     // snapshot. Atomic so an idle-window UI write (set_model) can publish too.

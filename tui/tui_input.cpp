@@ -1448,8 +1448,8 @@ void SlashDispatcher::build_commands() {
 }
 
 void SlashDispatcher::register_action(const std::string& action,
-                                      std::function<void(const std::string&)> handler) {
-    action_registry_.register_action(action, std::move(handler));
+                                      std::function<void(const std::string&)> fn) {
+    action_registry_.register_action(action, std::move(fn));
 }
 
 bool SlashDispatcher::run_action(const std::string& action, const std::string& arg) {
@@ -1466,6 +1466,7 @@ bool SlashDispatcher::dispatch_key_action(const std::string& action, const std::
 
 void SlashDispatcher::register_builtin_actions() {
     register_core_actions();
+    checkpoints_.register_actions(*this);
     register_provider_actions();
     register_os_actions();
     register_config_set_actions();
@@ -1654,8 +1655,9 @@ void SlashDispatcher::register_core_task_actions() {
                     [this](const std::string&) { tui_.session_controller_->fork_session(); });
     register_action("core.session", [this](const std::string& a) {
         if (!a.empty())
-            tui_.append_line(P_STATUS,
-                             "usage: /session new|list|save|load|remove|rename|fork|stop");
+            tui_.append_line(P_STATUS, "usage: /session "
+                                       "new|list|save|load|remove|rename|fork|stop|"
+                                       "history|undo|rollback|diff");
         tui_.session_controller_->session_browser();
     });
     register_action("core.quit", [this](const std::string&) { request_quit(); });

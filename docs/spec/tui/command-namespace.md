@@ -32,7 +32,7 @@ not roots.
 
 | Domain | Owns | Canonical verbs |
 |---|---|---|
-| `session` | conversations | `list`, `new`, `load`, `save`, `remove`, `fork`, `rename`, `compress` |
+| `session` | conversations and working-tree checkpoints | `list`, `new`, `load`, `save`, `remove`, `fork`, `rename`, `compress`, `history`, `undo`, `rollback`, `diff` |
 | `window` | screens and attachment | `list`, `new`, `close`, `switch`, `rename`, `attach`, `detach` |
 | `queue` | prompts waiting for a busy window | `recall`, `clear` |
 | `tasks` | background work (commands, watches, workers) | `list`, `start`, `show`, `output`, `cancel`, `wait` |
@@ -198,6 +198,10 @@ either map is refused (it cannot author alias material).
 | `/compress`, `/compact` | `/session compress` |
 | `/sessions`, `/load`, `/open` | `/session list` |
 | `/session delete` | `/session remove` |
+| `/history` | `/session history` (visible) |
+| `/undo` | `/session undo` (visible) |
+| `/rollback` | `/session rollback` (visible) |
+| `/diff` | `/session diff` (visible) |
 | `/job kill` | `/job stop` |
 | `/watch cancel` | `/tasks cancel` (the `/watch` inspect commands are removed) |
 | `/worktree status` | `/worktree show` |
