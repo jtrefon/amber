@@ -2228,18 +2228,28 @@ void SlashDispatcher::cmd_model_set(const std::string& arg) {
                      "model set to " + arg + " (remembered for " + tui_.cfg_.provider_name + ")");
 }
 
+namespace {
+
+std::string context_window_label(const agent::Config& cfg, const agent::ServerInfo& info) {
+    std::string mismatch = agent::context_pin_mismatch(cfg, info);
+    if (!mismatch.empty())
+        return mismatch;
+    if (cfg.context_explicit && cfg.context_size > 0)
+        return std::to_string(cfg.context_size) + " tokens (pinned)";
+    if (cfg.context_size > 0)
+        return "auto (" + std::to_string(cfg.context_size) + " tokens)";
+    return "auto (unknown)";
+}
+
+} // namespace
+
 void SlashDispatcher::show_model_context() {
     const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr;
-    const int ctx = acfg ? acfg->context_size : tui_.cfg_.context_size;
-    const bool pinned = acfg ? acfg->context_explicit : tui_.cfg_.context_explicit;
-    std::string line = "context window: ";
-    if (pinned && ctx > 0)
-        line += std::to_string(ctx) + " tokens (pinned)";
-    else if (ctx > 0)
-        line += "auto (" + std::to_string(ctx) + " tokens)";
-    else
-        line += "auto (unknown)";
-    tui_.append_line(P_STATUS, line);
+    const agent::Config& effective = acfg ? *acfg : tui_.cfg_;
+    agent::ServerInfo advertised = agent::probe_server_cached(effective);
+    if (!advertised.ok)
+        advertised = tui_.last_detected_;
+    tui_.append_line(P_STATUS, "context window: " + context_window_label(effective, advertised));
 }
 
 void SlashDispatcher::clear_model_context() {
@@ -2355,22 +2365,16 @@ void SlashDispatcher::cmd_get_model_list() {
 }
 
 void SlashDispatcher::cmd_get_model_context() {
-    agent::ServerInfo info = agent::probe_server_cached(tui_.cfg_);
-    auto entry = agent::model_catalog_read(tui_.cfg_);
+    const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr;
+    const agent::Config& effective = acfg ? *acfg : tui_.cfg_;
+    agent::ServerInfo info = agent::probe_server_cached(effective);
+    auto entry = agent::model_catalog_read(effective);
     if (!entry || !agent::model_catalog_fresh(*entry))
         tui_.refresh_models_async(false);
-    std::string line = "model: " + tui_.cfg_.model;
-    const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr;
-    if (info.ok && info.context_size > 0) {
-        line += "  ctx: " + std::to_string(info.context_size);
-        if (info.context_train > 0 && info.context_train != info.context_size)
-            line += " (max " + std::to_string(info.context_train) + ")";
-    } else if (const int ctx = acfg ? acfg->context_size : tui_.cfg_.context_size; ctx > 0) {
-        line += "  ctx: " + std::to_string(ctx) + " (cached)";
-    } else {
-        line += "  ctx: unknown";
-    }
-    tui_.append_line(P_STATUS, line);
+    if (!info.ok)
+        info = tui_.last_detected_;
+    tui_.append_line(P_STATUS, "model: " + effective.model +
+                                   "  context: " + context_window_label(effective, info));
 }
 
 void SlashDispatcher::refresh_settings_feed() {
@@ -4117,6 +4121,9 @@ void Tui::detect_server(bool force) {
         if (info.context_train > 0 && info.context_train != cfg_.context_size)
             note += " (max " + std::to_string(info.context_train) + ")";
         append_line(P_STATUS, note);
+        const std::string mismatch = agent::context_pin_mismatch(cfg_, info);
+        if (!mismatch.empty())
+            append_line(P_STATUS, "context: " + mismatch);
         draw();
     }
     if (force || stale)
@@ -4245,6 +4252,9 @@ void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool ann
             if (info.context_train > 0 && info.context_train != cfg_.context_size)
                 note += " (max " + std::to_string(info.context_train) + ")";
             append_line(P_STATUS, note);
+            const std::string mismatch = agent::context_pin_mismatch(cfg_, info);
+            if (!mismatch.empty())
+                append_line(P_STATUS, "context: " + mismatch);
         }
         // Windows opened before the catalog resolved still hold an empty
         // model; adopt the detected one now — but only for idle windows: while a
@@ -4309,6 +4319,9 @@ void Tui::test_connection(bool announce) {
                                " n_ctx=" + std::to_string(cfg_.context_size);
             if (info.context_train > 0 && info.context_train != cfg_.context_size)
                 note += " (max " + std::to_string(info.context_train) + ")";
+            const std::string mismatch = agent::context_pin_mismatch(cfg_, info);
+            if (!mismatch.empty())
+                note += " — " + mismatch;
             append_line(P_STATUS, note);
             refresh_model_list();
             draw();
