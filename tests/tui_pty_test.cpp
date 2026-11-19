@@ -280,13 +280,19 @@ public:
 
     void reset_chat() { server_->reset_chat(); }
     void reject_gemini_key() { reject_gemini_ = true; }
+    void advertise_deepseek_window() { deepseek_window_ = true; }
 
 private:
     bench::EndpointReply respond(const bench::EndpointRequest& request) {
         bench::EndpointReply reply;
         if (request.path == "/v1/models") {
-            reply.body =
-                R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
+            if (deepseek_window_) {
+                reply.body =
+                    R"({"data":[{"id":"deepseek-flash","context_window":1048576,"max_output_tokens":393216}]})";
+            } else {
+                reply.body =
+                    R"({"data":[{"id":"claude-pty-1","type":"model","max_input_tokens":200000}],"has_more":false})";
+            }
             return reply;
         }
         if (request.path == "/v1beta/models") {
@@ -448,6 +454,7 @@ private:
 
     std::unique_ptr<bench::ScriptedEndpoint> server_;
     std::atomic<bool> reject_gemini_{false};
+    std::atomic<bool> deepseek_window_{false};
 };
 
 // A loopback stand-in for skills.sh + GitHub. The explorer talks to three
@@ -2127,6 +2134,39 @@ TEST(picking_a_keyless_providers_model_opens_the_key_form) {
 // in background" and never mention that the fetch had already failed, so a
 // wrong URL or the wrong protocol read as "this provider has no models". The
 // reason now names the endpoint asked and what came back.
+TEST(pinned_context_reports_the_listing_mismatch) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    api.advertise_deepseek_window();
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() +
+                          "/v1\nmodel=deepseek-flash\ncontext_size=256000\nstream=0\n"));
+
+    Tui tui;
+    tui.name = "pinned_context_reports_the_listing_mismatch";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.wait_for("context: pinned 256000, model advertises 1048576", 60000),
+                 "the pin/listing mismatch was not reported", tui))
+        return;
+
+    const auto run = [&tui](const std::string& line) {
+        tui.send(line);
+        tui.pump(300);
+        tui.send("\x07");
+        tui.pump(300);
+    };
+    run("/get model context");
+    if (!require(tui.wait_for("context: pinned 256000", 10000), "the context readout did not open",
+                 tui))
+        return;
+    require(tui.text().find("model advertises 1048576") != std::string::npos,
+            "the context readout hid the advertised window", tui);
+}
+
 TEST(get_model_list_reports_why_the_catalogue_is_empty) {
     Tui tui;
     tui.name = "get_model_list_reports_why_the_catalogue_is_empty";
@@ -2184,7 +2224,8 @@ TEST(context_gauge_stays_visible_when_the_window_is_unknown) {
     // A /get leaves the model drawer closed, so the status bar is the last
     // readable state rather than a command line with a completion open.
     tui.send("/get model context\r");
-    if (!require(tui.wait_for("ctx: 200000", 10000), "the readout did not show the pin", tui))
+    if (!require(tui.wait_for("context: 200000 tokens (pinned)", 10000),
+                 "the readout did not show the pin", tui))
         return;
     if (!require(tui.text().find("200k") != std::string::npos,
                  "the pinned window is not in the gauge", tui))
@@ -2194,7 +2235,8 @@ TEST(context_gauge_stays_visible_when_the_window_is_unknown) {
     if (!require(tui.wait_for("context window: auto", 10000), "the pin was not cleared", tui))
         return;
     tui.send("/get model context\r");
-    if (!require(tui.wait_for("ctx: unknown", 10000), "the cleared window did not re-resolve", tui))
+    if (!require(tui.wait_for("context: auto", 10000), "the cleared window did not re-resolve",
+                 tui))
         return;
     require(tui.text().find("ctx") != std::string::npos,
             "the gauge vanished when the window was cleared", tui);
@@ -2300,7 +2342,7 @@ TEST(get_context_readouts_use_the_active_snapshot) {
         return;
 
     tui.send("/get model context\r");
-    if (!require(tui.wait_for("ctx:", 10000), "/get model context produced no readout", tui))
+    if (!require(tui.wait_for("context:", 10000), "/get model context produced no readout", tui))
         return;
 
     tui.pump(300);
@@ -2357,7 +2399,8 @@ TEST(set_model_context_pins_and_clears_the_window) {
         return;
 
     tui.send("/get model context\r");
-    if (!require(tui.wait_for("ctx: 200000", 10000), "the readout did not show the pin", tui))
+    if (!require(tui.wait_for("context: 200000 tokens (pinned)", 10000),
+                 "the readout did not show the pin", tui))
         return;
 
     std::string body;
@@ -2379,7 +2422,8 @@ TEST(set_model_context_pins_and_clears_the_window) {
         return;
 
     tui.send("/get model context\r");
-    if (!require(tui.wait_for("ctx: unknown", 10000), "the cleared window did not re-resolve", tui))
+    if (!require(tui.wait_for("context: auto", 10000), "the cleared window did not re-resolve",
+                 tui))
         return;
 
     {
@@ -4117,6 +4161,7 @@ int main(int argc, char** argv) {
     settings_activation_switches_the_session_to_the_providers_protocol();
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
+    pinned_context_reports_the_listing_mismatch();
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
     a_restored_draft_is_cleared_on_submit();

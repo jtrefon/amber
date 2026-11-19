@@ -342,9 +342,26 @@ std::vector<ModelInfo> list_model_info_cached(const Config& cfg) {
     return make_dialect(cfg.flavor)->parse_model_list_response(e->body);
 }
 
-void merge_server_info(Config& cfg, const ServerInfo& info) {
-    if (!info.ok)
+std::string context_pin_mismatch(const Config& cfg, const ServerInfo& info) {
+    if (!cfg.context_explicit || cfg.context_size <= 0 || info.context_size <= 0)
+        return {};
+    const long long pinned = cfg.context_size;
+    const long long advertised = info.context_size;
+    const long long difference = pinned > advertised ? pinned - advertised : advertised - pinned;
+    if (difference * 100 <= advertised * 10)
+        return {};
+    return "pinned " + std::to_string(pinned) + ", model advertises " + std::to_string(advertised) +
+           " — /set model context auto follows the listing";
+}
+
+void merge_server_info(Config& cfg, const ServerInfo& info, std::string* note) {
+    if (!info.ok) {
+        if (note)
+            note->clear();
         return;
+    }
+    if (note)
+        *note = context_pin_mismatch(cfg, info);
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
     if (!cfg.context_explicit && info.context_size > 0)

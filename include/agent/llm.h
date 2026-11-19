@@ -555,10 +555,17 @@ private:
     std::vector<std::string> notices_;
 };
 
+// A one-line warning when a user-pinned context window contradicts the model
+// listing by more than 10%. Empty when there is no pin, the listing has no
+// window, or the values agree. The pin is never overridden; the warning makes
+// an informed override possible.
+std::string context_pin_mismatch(const Config& cfg, const ServerInfo& info);
+
 // Merge probed server info into a Config, filling ONLY values the user did not
 // set explicitly (model_explicit / context_explicit). Pure and network-free so
 // the auto-detect policy can be unit-tested. A non-ok / empty info is a no-op.
-void merge_server_info(Config& cfg, const ServerInfo& info);
+// `note` optionally receives `context_pin_mismatch()` for the host to surface.
+void merge_server_info(Config& cfg, const ServerInfo& info, std::string* note = nullptr);
 
 // Fill in any auto-detectable Config values (model, context_size) that were
 // NOT set explicitly by the user, from the model catalog. Returns the

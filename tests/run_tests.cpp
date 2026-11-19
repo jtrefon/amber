@@ -2765,6 +2765,69 @@ TEST(autodetect_fills_only_auto_fields) {
     ASSERT_EQ(c.context_size, 262144);
 }
 
+// A pin wins, but it must be an informed win: a listing that disagrees by more
+// than 10% produces one note, and the pin is not overwritten.
+TEST(merge_server_info_warns_on_pin_listing_mismatch) {
+    agent::ServerInfo info;
+    info.ok = true;
+    info.model = "deepseek-flash";
+    info.context_size = 1048576;
+    info.context_train = 1048576;
+
+    agent::Config pinned;
+    pinned.context_size = 256000;
+    pinned.context_explicit = true;
+    std::string note;
+    agent::merge_server_info(pinned, info, &note);
+    ASSERT_EQ(pinned.context_size, 256000);
+    ASSERT(note.find("256000") != std::string::npos);
+    ASSERT(note.find("1048576") != std::string::npos);
+
+    // Within 10% is close enough; no warning.
+    agent::Config near;
+    near.context_size = 1000000;
+    near.context_explicit = true;
+    std::string near_note;
+    agent::merge_server_info(near, info, &near_note);
+    ASSERT(near_note.empty());
+
+    // Auto is filled, never warned about.
+    agent::Config auto_cfg;
+    std::string auto_note;
+    agent::merge_server_info(auto_cfg, info, &auto_note);
+    ASSERT(auto_note.empty());
+    ASSERT_EQ(auto_cfg.context_size, 1048576);
+
+    // A pin above the listing warns too.
+    agent::Config high;
+    high.context_size = 2000000;
+    high.context_explicit = true;
+    std::string high_note;
+    agent::merge_server_info(high, info, &high_note);
+    ASSERT_FALSE(high_note.empty());
+
+    // No pin value, no listing value: nothing to warn about.
+    agent::Config zero;
+    zero.context_size = 0;
+    zero.context_explicit = true;
+    std::string zero_note;
+    agent::merge_server_info(zero, info, &zero_note);
+    ASSERT(zero_note.empty());
+
+    agent::ServerInfo no_window;
+    no_window.ok = true;
+    no_window.model = "deepseek-flash";
+    std::string no_window_note;
+    agent::merge_server_info(pinned, no_window, &no_window_note);
+    ASSERT(no_window_note.empty());
+
+    // A failed probe clears a stale note rather than leaving it to be read.
+    std::string cleared = "stale";
+    agent::ServerInfo down;
+    agent::merge_server_info(pinned, down, &cleared);
+    ASSERT(cleared.empty());
+}
+
 // An unreachable / not-ok probe must never mutate the config.
 TEST(autodetect_noop_when_server_down) {
     agent::ServerInfo down; // ok defaults to false
