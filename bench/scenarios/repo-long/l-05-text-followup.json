@@ -1,0 +1,121 @@
+{
+  "name": "l-05-text-followup",
+  "suite": "repo-long",
+  "description": "a first attempt fails the visible test; the follow-up fixes it",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "template": "repo-long/text",
+  "prompt": "Read TASK.md. Make a first attempt, run `make test`; if it fails, fix it and reply with the word done.",
+  "approval": "allow",
+  "oracle": [
+    {
+      "tool": "read",
+      "args": {
+        "path": "*TASK.md"
+      }
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "text.cpp"
+      }
+    },
+    {
+      "tool": "bash",
+      "args": {
+        "command": "make test"
+      }
+    },
+    {
+      "tool": "write",
+      "args": {
+        "path": "text.cpp"
+      }
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "done"
+    ]
+  },
+  "expected_workspace": {
+    "files": {
+      "text.cpp": {
+        "contains": "std::toupper"
+      }
+    }
+  },
+  "optimal_plan": {
+    "read": 1,
+    "write": 2,
+    "bash": 1
+  },
+  "difficulty": 4,
+  "expected_steps": 5,
+  "budget": {
+    "max_steps": 12,
+    "max_wall_ms": 180000
+  },
+  "fake_replies": [
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "f1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\": \"TASK.md\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "f2",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\": \"text.cpp\", \"edits\": [{\"old\": \"std::string upper_text(const std::string& text) { return text; }\", \"new\": \"std::string upper_text(const std::string& text) { return text + \\\"!\\\"; }\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "f3",
+          "type": "function",
+          "function": {
+            "name": "bash",
+            "arguments": "{\"command\": \"make test\"}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "",
+      "tool_calls": [
+        {
+          "id": "f4",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\": \"text.cpp\", \"edits\": [{\"old\": \"std::string upper_text(const std::string& text) { return text + \\\"!\\\"; }\", \"new\": \"std::string upper_text(const std::string& text) { std::string out = text; for (char& c : out) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c))); return out; }\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "content": "done"
+    },
+    {
+      "content": "done"
+    }
+  ]
+}

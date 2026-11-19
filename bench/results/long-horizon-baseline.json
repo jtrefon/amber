@@ -1,0 +1,46 @@
+{
+  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling.",
+  "mode": "hermetic",
+  "scenarios": {
+    "l-01-math": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "repo-long",
+      "tool_calls": 4,
+      "wall_ms": 1047
+    },
+    "l-02-text": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "repo-long",
+      "tool_calls": 4,
+      "wall_ms": 1061
+    },
+    "l-03-inventory": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "repo-long",
+      "tool_calls": 4,
+      "wall_ms": 1024
+    },
+    "l-04-report": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "repo-long",
+      "tool_calls": 4,
+      "wall_ms": 976
+    },
+    "l-05-text-followup": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "repo-long",
+      "tool_calls": 4,
+      "wall_ms": 1418
+    }
+  }
+}

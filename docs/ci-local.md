@@ -53,7 +53,7 @@ It runs, in order:
 |---|---|---|
 | `make verify` | static gates (including the gate tests and `library-check`), `make test`, `bench-check`, full `lint`, `analyze`, `smoketest` | `static-gates`, `content-gates`, `build-hygiene`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
 | `make check-compilers` | the whole tree builds under `g++` and `clang++` with `WERROR=1` | `build-and-test (g++)`, `build-and-test (clang++)` |
-| `make agent-eval` | the CLI journeys against the committed token/call/wall baseline, the policy-zoo separation and the trace corpus | `agent-e2e` |
+| `make agent-eval` | the CLI journeys, policy-zoo separation, trace corpus and long-horizon repository journeys, each against its committed baseline | `agent-e2e` |
 | `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `tui-agent-e2e` (Linux) and the macOS repeat |
 
 `make preflight` is deliberately not part of `make test`: it is slow, it cleans
@@ -133,7 +133,7 @@ the newer run, not the cancelled one.
 
 | Check | Why it cannot run locally | Closest local substitute |
 |---|---|---|
-| Coverage project/patch/branch gates | needs a gcov-instrumented rebuild with CI's gcc and gcovr 8.6; destructive | `make coverage BASE=origin/main` on Linux, or the parity container |
+| Coverage project/patch/branch gates | needs a gcov-instrumented rebuild with CI's gcc and gcovr 8.6; destructive. `tests/` and `bench/scenarios/` are declared not measured (the latter is oracle-scored template input, compiled by the benchmark at run time). | `make coverage BASE=origin/main` on Linux, or the parity container |
 | macOS pty suite | needs the macOS ncurses/terminal stack | `make tui-agent-e2e REPEAT=2` on a Mac; the Linux pty suite still runs |
 | Fuzzing | libFuzzer with a clang that ships it; Apple's does not | `make fuzz` on Linux; the seeds are checked in |
 | Website audit | npm advisory database moves between runs | `cd website && npm run audit` |

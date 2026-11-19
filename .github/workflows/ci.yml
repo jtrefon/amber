@@ -617,7 +617,7 @@ jobs:
       - name: Configure
         run: ./configure
       - name: CLI agent journeys, policy matrix and trace replay
-        run: make agent-e2e-check policy-matrix-check trace-check
+        run: make agent-e2e-check policy-matrix-check trace-check long-horizon-check
       - name: Upload the journey report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -626,12 +626,14 @@ jobs:
           path: |
             artifacts/agent-e2e.json
             artifacts/policy-matrix.json
+            artifacts/long-horizon.json
           if-no-files-found: warn
       - name: Append the journey and policy tables
         if: always()
         run: |
           cat artifacts/agent-e2e-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           cat artifacts/policy-matrix-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          cat artifacts/long-horizon-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 
   # The TUI journeys drive the real binary on a pty. They used to be a step
   # inside build-and-test; as their own job a failure is named in the merge
