@@ -95,6 +95,46 @@ std::string body_field(const json& j, const char* key) {
     return sanitize_remote_text(it->get<std::string>());
 }
 
+// Consume one shared slot, or say why the caller must wait. `None` means the
+// request may proceed.
+IndexFailure take_budget(const SkillIndexOptions& opts, long long now) {
+    if (!opts.budget)
+        return {};
+    if (opts.budget->consume(now))
+        return {};
+    IndexFailure f;
+    f.kind = IndexError::RateLimited;
+    f.status = 429;
+    f.retry_after_s = opts.budget->retry_after_s(now);
+    f.detail = "rate limited";
+    return f;
+}
+
+// The v1 metadata wins where it speaks; the GitHub body and its asset paths
+// stay, because the installer fetches bytes from the repository.
+SkillDetail merge_detail(const SkillDetail& base, const SkillDetail& meta) {
+    SkillDetail merged = base;
+    if (!meta.description.empty())
+        merged.description = meta.description;
+    if (!meta.license.empty())
+        merged.license = meta.license;
+    if (!meta.category.empty())
+        merged.category = meta.category;
+    if (!meta.default_branch.empty())
+        merged.default_branch = meta.default_branch;
+    if (!meta.skill_dir.empty())
+        merged.skill_dir = meta.skill_dir;
+    if (!meta.hash.empty())
+        merged.hash = meta.hash;
+    if (!meta.body.empty())
+        merged.body = meta.body;
+    if (meta.audit != AuditVerdict::NotAudited) {
+        merged.audit = meta.audit;
+        merged.audit_note = meta.audit_note;
+    }
+    return merged;
+}
+
 } // namespace
 
 RateBudget::RateBudget(int per_minute) : per_minute_(std::max(1, per_minute)) {}
@@ -206,14 +246,8 @@ IndexResult SkillsShV1Index::page(const std::string& url, int limit,
     if (opts_.token.empty())
         return unsupported("the v1 API needs a token");
     const long long now = opts_.now_ms ? opts_.now_ms() : wall_ms();
-    if (opts_.budget && !opts_.budget->consume(now)) {
-        IndexFailure f;
-        f.kind = IndexError::RateLimited;
-        f.status = 429;
-        f.retry_after_s = opts_.budget->retry_after_s(now);
-        f.detail = "rate limited";
-        return {std::nullopt, f};
-    }
+    if (IndexFailure budget = take_budget(opts_, now); budget.kind != IndexError::None)
+        return {std::nullopt, budget};
     const auto response = get(url, cancel);
     if (cancel.is_requested())
         return cancelled();
@@ -243,6 +277,24 @@ IndexResult SkillsShV1Index::curated(int limit, const CancellationToken& cancel)
     return page(skills_v1_curated_url(opts_.base_url, limit), limit, cancel);
 }
 
+void SkillsShV1Index::enrich_audit(SkillDetail& detail, const SkillRef& ref, long long now,
+                                   IndexFailure& error, const CancellationToken& cancel) const {
+    if (detail.audit != AuditVerdict::NotAudited || cancel.is_requested())
+        return;
+    if (IndexFailure budget = take_budget(opts_, now); budget.kind != IndexError::None) {
+        error = budget;
+        return;
+    }
+    const auto audit = get(skills_v1_audit_url(opts_.base_url, ref.id), cancel);
+    const IndexFailure audit_failure = classify_http(audit);
+    if (audit_failure.kind != IndexError::None) {
+        error = audit_failure;
+        return;
+    }
+    if (audit)
+        error = parse_skills_v1_audit(audit->body, detail);
+}
+
 DetailResult SkillsShV1Index::fetch_detail(const SkillRef& ref,
                                            const CancellationToken& cancel) const {
     if (opts_.base_url.empty())
@@ -250,13 +302,8 @@ DetailResult SkillsShV1Index::fetch_detail(const SkillRef& ref,
     if (opts_.token.empty())
         return {std::nullopt, rejected("the v1 API needs a token")};
     const long long now = opts_.now_ms ? opts_.now_ms() : wall_ms();
-    if (opts_.budget && !opts_.budget->consume(now)) {
-        IndexFailure f;
-        f.kind = IndexError::RateLimited;
-        f.status = 429;
-        f.retry_after_s = opts_.budget->retry_after_s(now);
-        return {std::nullopt, f};
-    }
+    if (IndexFailure budget = take_budget(opts_, now); budget.kind != IndexError::None)
+        return {std::nullopt, budget};
     const auto response = get(skills_v1_detail_url(opts_.base_url, ref.id), cancel);
     if (cancel.is_requested())
         return {std::nullopt, {IndexError::Cancelled, 0, 0, "cancelled"}};
@@ -268,24 +315,7 @@ DetailResult SkillsShV1Index::fetch_detail(const SkillRef& ref,
     DetailResult parsed = parse_skills_v1_detail(response->body, ref);
     if (!parsed.ok())
         return parsed;
-    if (parsed.detail->audit != AuditVerdict::NotAudited || cancel.is_requested())
-        return parsed;
-    // The detail carried no verdict: ask the audit endpoint once. A failed
-    // audit fetch keeps the detail (it is useful on its own) and reports why.
-    if (opts_.budget && !opts_.budget->consume(now)) {
-        IndexFailure f;
-        f.kind = IndexError::RateLimited;
-        f.status = 429;
-        f.retry_after_s = opts_.budget->retry_after_s(now);
-        parsed.error = f;
-        return parsed;
-    }
-    const auto audit = get(skills_v1_audit_url(opts_.base_url, ref.id), cancel);
-    const IndexFailure audit_failure = classify_http(audit);
-    if (audit_failure.kind != IndexError::None)
-        parsed.error = audit_failure;
-    else if (audit)
-        parsed.error = parse_skills_v1_audit(audit->body, *parsed.detail);
+    enrich_audit(*parsed.detail, ref, now, parsed.error, cancel);
     last_fetch_ms_ = now;
     return parsed;
 }
@@ -380,30 +410,7 @@ DetailResult SkillsShTokenIndex::detail(const SkillRef& ref,
     }
     if (!base.ok())
         return enriched;
-    // The v1 metadata wins where it speaks (hash, audit, description); the
-    // GitHub body and its asset paths stay, because the installer fetches bytes
-    // from the repository.
-    SkillDetail merged = *base.detail;
-    const SkillDetail& meta = *enriched.detail;
-    if (!meta.description.empty())
-        merged.description = meta.description;
-    if (!meta.license.empty())
-        merged.license = meta.license;
-    if (!meta.category.empty())
-        merged.category = meta.category;
-    if (!meta.default_branch.empty())
-        merged.default_branch = meta.default_branch;
-    if (!meta.skill_dir.empty())
-        merged.skill_dir = meta.skill_dir;
-    if (!meta.hash.empty())
-        merged.hash = meta.hash;
-    if (!meta.body.empty())
-        merged.body = meta.body;
-    if (meta.audit != AuditVerdict::NotAudited) {
-        merged.audit = meta.audit;
-        merged.audit_note = meta.audit_note;
-    }
-    return {std::move(merged), enriched.error};
+    return {merge_detail(*base.detail, *enriched.detail), enriched.error};
 }
 
 AssetsResult SkillsShTokenIndex::fetch_assets(const SkillDetail& detail,

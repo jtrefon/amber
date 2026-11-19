@@ -283,6 +283,10 @@ public:
 
 private:
     DetailResult fetch_detail(const SkillRef& ref, const CancellationToken& cancel) const;
+    // The detail carried no verdict: ask the audit endpoint once. A failed
+    // audit keeps the detail and reports why in `error`.
+    void enrich_audit(SkillDetail& detail, const SkillRef& ref, long long now, IndexFailure& error,
+                      const CancellationToken& cancel) const;
     // One GET with the bearer, the shared budget and the typed failure map.
     std::optional<HttpResponse> get(const std::string& url, const CancellationToken& cancel) const;
     IndexResult page(const std::string& url, int limit, const CancellationToken& cancel) const;
