@@ -4224,6 +4224,147 @@ TEST(profile_commands_switch_the_connection_and_mask_the_key) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// The lifecycle verbs' edge states: usage, invalid and absent names, the add
+// form's cancel, save, list's active-file-missing fallback, and remove. The
+// happy switch path is the test above; this one pins the answers a mistyped
+// command gets and the states a hand-edited store produces.
+TEST(profile_lifecycle_commands_answer_every_edge) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    const std::string profiles = fixture().workspace + "/xdg/amber/profiles";
+    const std::string work_path = profiles + "/work.json";
+    const std::string spare_path = profiles + "/spare.json";
+    const std::string broken_path = profiles + "/broken.json";
+    std::error_code ec;
+    fs::remove(work_path, ec);
+    fs::remove(spare_path, ec);
+    fs::remove(broken_path, ec);
+
+    Tui tui;
+    tui.name = "profile_lifecycle_commands_answer_every_edge";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    const agent::Profile work = pty_profile("work", "work-gateway", "http://127.0.0.1:9/work/v1",
+                                            "sk-work-1234567890abcd", "work-model");
+    const agent::Profile spare = pty_profile("spare", "work-gateway", "http://127.0.0.1:9/spare/v1",
+                                             "sk-spare-1234567890abcd", "spare-model");
+    if (!require(agent::save_profile(work), "could not seed the work profile", tui))
+        return;
+    if (!require(agent::save_profile(spare), "could not seed the spare profile", tui))
+        return;
+    if (!require(write_file(broken_path, "{not json"), "could not seed a broken profile", tui))
+        return;
+
+    // usage, validation, duplicate refusal, and the add form's cancel.
+    size_t mark = tui.raw.size();
+    tui.send("/profile add\r");
+    if (!require(wait_since(tui, mark, "usage: /profile add <name>", 10000),
+                 "the empty add did not explain its usage", tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile add ../bad\r");
+    if (!require(wait_since(tui, mark, "profile name is letters", 10000),
+                 "an unsafe name was not refused", tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile add work\r");
+    if (!require(wait_since(tui, mark, "already exists", 10000), "an existing name was not refused",
+                 tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile add ghost\r");
+    if (!require(tui.wait_for("New profile ghost", 10000), "the add form did not open", tui))
+        return;
+    tui.send("\x1b"); // cancel the form: nothing is created
+    tui.pump(400);
+
+    // save writes the active connection into the active profile.
+    mark = tui.raw.size();
+    tui.send("/profile save\r");
+    if (!require(wait_since(tui, mark, " saved (", 10000), "save did not report success", tui))
+        return;
+
+    // show resolves a stored profile, a malformed file and an absent name.
+    mark = tui.raw.size();
+    tui.send("/profile show spare\r");
+    if (!require(wait_since(tui, mark, "profile: spare", 10000),
+                 "show did not name the stored profile", tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile show broken\r");
+    if (!require(wait_since(tui, mark, "could not be loaded", 10000),
+                 "a malformed profile did not report why", tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile show nope\r");
+    if (!require(wait_since(tui, mark, "there is no profile named nope", 10000),
+                 "an absent profile was not reported", tui))
+        return;
+
+    // switch and remove refuse the empty, unsafe and absent cases.
+    for (const char* line : {"/profile switch", "/profile switch ../bad", "/profile switch nope",
+                             "/profile remove", "/profile remove ../bad", "/profile remove nope"}) {
+        mark = tui.raw.size();
+        tui.send(std::string(line) + "\r");
+        const bool answered = wait_since(tui, mark, "usage:", 6000) ||
+                              wait_since(tui, mark, "profile name is letters", 6000) ||
+                              wait_since(tui, mark, "there is no profile named", 6000);
+        if (!require(answered, std::string(line) + " was not answered", tui))
+            return;
+    }
+
+    // The completion leaf runs the same handler as the typed verb.
+    mark = tui.raw.size();
+    tui.send("/profile remove w");
+    tui.pump(300);
+    tui.send("\t");
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(wait_since(tui, mark, "profile work removed", 10000),
+                 "the remove completion did not run", tui))
+        return;
+    mark = tui.raw.size();
+    tui.send("/profile show s");
+    tui.pump(300);
+    tui.send("\t");
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(wait_since(tui, mark, "profile: spare", 10000), "the show completion did not run",
+                 tui))
+        return;
+
+    // The active default cannot be removed.
+    mark = tui.raw.size();
+    tui.send("/profile remove default\r");
+    if (!require(wait_since(tui, mark, "active default profile cannot be removed", 10000),
+                 "the active default was removable", tui))
+        return;
+
+    // An active profile whose file is gone is still listed, marked not saved.
+    fs::remove(profiles + "/default.json", ec);
+    mark = tui.raw.size();
+    tui.send("/profile list\r");
+    if (!require(wait_since(tui, mark, "spare", 10000), "list lost the stored profile", tui))
+        return;
+    if (!require(wait_since(tui, mark, "not saved - /profile save", 10000),
+                 "list hid the active profile whose file is gone", tui))
+        return;
+
+    // With no files at all, list still shows the live connection and says how
+    // to create one.
+    fs::remove(spare_path, ec);
+    mark = tui.raw.size();
+    tui.send("/profile list\r");
+    if (!require(wait_since(tui, mark, "no profiles - /profile add <name> creates one", 10000),
+                 "an empty store did not explain how to add one", tui))
+        return;
+
+    fs::remove_all(profiles, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
 // A switch requested mid-turn must not replace the client a worker is using.
 // The turn finishes on its old connection, then the queued switch lands before
 // the next turn; both lines are observable, and the order is the contract.
@@ -4389,6 +4530,7 @@ int main(int argc, char** argv) {
     get_logs_reports_the_policy_and_the_totals();
     profile_commands_switch_the_connection_and_mask_the_key();
     profile_switch_queues_while_a_turn_is_running();
+    profile_lifecycle_commands_answer_every_edge();
     profile_migration_does_not_persist_the_environment();
     project_profile_file_switches_at_startup();
     set_logs_retention_round_trips();

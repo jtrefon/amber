@@ -1,0 +1,587 @@
+        -:    0:Source:/home/jack/Projects/amber-checkpoints/include/agent/llm.h
+        -:    0:Graph:profiles.gcno
+        -:    0:Data:profiles.gcda
+        -:    0:Runs:85
+        -:    1:
+        -:    2:#ifndef AGENT_LLM_H
+        -:    3:#define AGENT_LLM_H
+        -:    4:
+        -:    5:#include <algorithm>
+        -:    6:#include <string>
+        -:    7:#include <vector>
+        -:    8:#include <functional>
+        -:    9:#include <memory>
+        -:   10:#include <mutex>
+        -:   11:#include "agent/config.h"
+        -:   12:#include "agent/tool.h"
+        -:   13:
+        -:   14:namespace agent {
+        -:   15:
+        -:   16:class Dialect;
+        -:   17:
+        -:   18:// A single message in the conversation. role is one of:
+        -:   19://   "system", "user", "assistant", "tool"
+        -:   20:struct Message {
+        -:   21:    std::string role;
+        -:   22:    std::string content;
+        -:   23:    // Assistant thinking. Replayed on later turns when the provider requires it
+        -:   24:    // (DeepSeek's reasoning_content, OpenRouter's reasoning string); otherwise
+        -:   25:    // it stays local to the UI.
+        -:   26:    std::string reasoning;
+        -:   27:    std::string tool_call_id; // for role == "tool"
+        -:   28:    std::string name;         // tool name for tool messages
+        -:   29:    json tool_calls;          // assistant messages may carry calls
+        -:   30:    // True for a notice the harness itself authored ([harness] prefix): a
+        -:   31:    // retry summary, a repair report, a budget note. It rides the user channel
+        -:   32:    // because every dialect hoists system messages into the leading block: a
+        -:   33:    // notice must keep its place in the conversation, and the same rule keeps a
+        -:   34:    // volatile prompt block (the session brief, an activated skill body, a
+        -:   35:    // plugin tail block) out of the cached prefix. The flag is what keeps the
+        -:   36:    // text from being mistaken for the model's own close.
+        -:   37:    bool harness = false;
+        -:   38:    // When the harness authored this notice because a request failed, the raw
+        -:   39:    // failure it reports (transport error, HTTP status). Empty for ordinary
+        -:   40:    // guidance, and deliberately not serialized: it describes the turn, not the
+        -:   41:    // conversation.
+        -:   42:    std::string failure_detail{};
+        -:   43:    // A rate-limit failure is a stop signal, not a retryable turn: the status
+        -:   44:    // and Retry-After let the loop end instead of asking the model to continue.
+        -:   45:    long failure_status = 0;
+        -:   46:    long failure_retry_after_ms = 0;
+        -:   47:    // The assistant turn exactly as a protocol sent it, when the protocol has
+        -:   48:    // content blocks that cannot be reconstructed from text and tool calls.
+        -:   49:    // Anthropic signs thinking blocks and rejects a tool-use turn that replays
+        -:   50:    // them modified or omits them, so the raw blocks travel with the message.
+        -:   51:    // Protocols without such blocks leave this null and never read it.
+        -:   52:    json raw_content{};
+        -:   53:    // The provider's structured reasoning blocks, replayed verbatim when the
+        -:   54:    // listing asks for them (OpenRouter's reasoning_details). Empty when the
+        -:   55:    // protocol has no such shape.
+        -:   56:    json reasoning_details{};
+        -:   57:    // The assistant-message field the reasoning actually arrived in
+        -:   58:    // (reasoning_content, reasoning, ...). A cold catalogue can still replay
+        -:   59:    // the provider's own field instead of guessing one.
+        -:   60:    std::string reasoning_field;
+        -:   61:};
+        -:   62:
+        -:   63:// One parsed Server-Sent-Event delta from a streaming response.
+        -:   64:struct StreamChunk {
+        -:   65:    bool done = false;     // terminal [DONE] marker seen
+        -:   66:    std::string delta;     // incremental answer text (if any)
+        -:   67:    std::string reasoning; // incremental thinking/reasoning text
+        -:   68:    json tool_calls;       // incremental tool_call fragments (if any)
+        -:   69:};
+        -:   70:
+        -:   71:// Capabilities discovered from the server's /v1/models endpoint. Fields are
+        -:   72:// empty / <=0 when the server did not report them.
+        -:   73:struct ServerInfo {
+        -:   74:    bool ok = false;       // a model entry was successfully parsed
+        -:   75:    std::string model;     // model id (e.g. the gguf name / alias)
+        -:   76:    int context_size = 0;  // n_ctx (loaded context window), 0 if unknown
+        -:   77:    int context_train = 0; // n_ctx_train (model's native max), 0 if unknown
+        -:   78:    int max_output = 0;    // max completion tokens, 0 if unknown
+        -:   79:    // How the model accepts reasoning. A listing that names nothing is unknown
+        -:   80:    // and gets no field: unknown is never guessed.
+        -:   81:    ReasoningContract reasoning;
+        -:   82:    std::string line; // provider family line (Anthropic "line"), informational
+        -:   83:    std::vector<std::string> supported_parameters;
+        -:   84:};
+        -:   85:
+        -:   86:// The completion ask the model will actually accept: the configured budget
+        -:   87:// capped by the model's advertised output limit (0 = not advertised).
+        -:   88:inline size_t request_max_tokens(const Config& cfg) {
+        -:   89:    if (cfg.model_max_output <= 0)
+        -:   90:        return cfg.max_tokens;
+        -:   91:    return std::min(cfg.max_tokens, static_cast<size_t>(cfg.model_max_output));
+        -:   92:}
+        -:   93:
+        -:   94:// A non-empty advertised parameter list that omits tools means the model is not
+        -:   95:// a tool caller; an empty list is unknown, so tools are sent. Respecting the
+        -:   96:// listing avoids offering a tool schema the endpoint never advertised.
+        -:   97:inline bool tools_advertised(const Config& cfg) {
+        -:   98:    if (cfg.model_supported_parameters.empty())
+        -:   99:        return true;
+        -:  100:    return std::find(cfg.model_supported_parameters.begin(), cfg.model_supported_parameters.end(),
+        -:  101:                     "tools") != cfg.model_supported_parameters.end();
+        -:  102:}
+        -:  103:
+        -:  104:// One entry of a provider's model listing, as parsed by a Dialect. `context`
+        -:  105:// is 0 when the protocol does not report a window and no known-family fallback
+        -:  106:// applies. The capability fields are 0/empty/false when the listing is silent:
+        -:  107:// unknown is never guessed.
+        -:  108:struct ModelInfo {
+        -:  109:    std::string id;
+        -:  110:    int context = 0;       // input context window
+        -:  111:    int context_train = 0; // native max
+        -:  112:    int max_output = 0;    // max completion/output tokens
+        -:  113:    ReasoningContract reasoning;
+        -:  114:    std::string line;
+        -:  115:    std::vector<std::string> input_modalities;
+        -:  116:    std::vector<std::string> output_modalities;
+        -:  117:    std::vector<std::string> supported_parameters;
+        -:  118:};
+        -:  119:
+        -:  120:// The capability set a model hand-off carries. A struct rather than another
+        -:  121:// five parameters: the request shape and the picker read the same fields, and
+        -:  122:// a positional signature this wide is how two of them silently swapped.
+        -:  123:struct ModelCapabilities {
+        -:  124:    int context = 0;
+        -:  125:    int max_output = 0;
+        -:  126:    ReasoningContract reasoning;
+        -:  127:    std::string line;
+        -:  128:    std::vector<std::string> supported_parameters;
+        -:  129:};
+        -:  130:
+        -:  131:inline ModelCapabilities capabilities_of(const ModelInfo& m) {
+        -:  132:    return {m.context, m.max_output, m.reasoning, m.line, m.supported_parameters};
+        -:  133:}
+        -:  134:
+        -:  135:inline ModelCapabilities capabilities_of(const ServerInfo& s) {
+        -:  136:    return {s.context_size, s.max_output, s.reasoning, s.line, s.supported_parameters};
+        -:  137:}
+        -:  138:
+        -:  139:inline ModelCapabilities capabilities_of(const Config& c) {
+        -:  140:    return {c.context_size, c.model_max_output, c.model_reasoning, c.model_line,
+        -:  141:            c.model_supported_parameters};
+        -:  142:}
+        -:  143:
+        -:  144:inline bool has_capabilities(const ModelCapabilities& c) {
+        -:  145:    return c.context > 0 || c.max_output > 0 || c.reasoning.supported || !c.line.empty() ||
+        -:  146:           !c.supported_parameters.empty();
+        -:  147:}
+        -:  148:
+        -:  149:// Documented Claude family defaults. A listing is authoritative; these fill
+        -:  150:// only the fields it omitted, which is how a proxy that returns bare ids still
+        -:  151:// yields a usable window and request shape. Prefixes are matched longest-first
+        -:  152:// so `claude-opus-4-5` never resolves as `claude-opus-4`.
+        -:  153:struct ClaudeFamily {
+        -:  154:    const char* prefix;
+        -:  155:    int context;
+        -:  156:    int max_output;
+        -:  157:    bool reasoning;
+        -:  158:    bool adaptive;              // thinking.type=adaptive + output_config.effort
+        -:  159:    bool legacy;                // thinking.type=enabled + budget_tokens
+        -:  160:    bool always_on;             // cannot be disabled
+        -:  161:    const char* const* efforts; // nullptr-terminated; nullptr = no effort control
+        -:  162:    const char* default_effort;
+        -:  163:    // The provider's documented minimum cacheable prefix, in tokens. A shorter
+        -:  164:    // prompt is accepted and cached *not at all* -- no error, both counters 0 --
+        -:  165:    // which is indistinguishable from a client that sent no breakpoint. Kept
+        -:  166:    // beside the family because it is a per-model vendor constant, and a stale
+        -:  167:    // value only ever produces a wrong diagnostic sentence, never a wrong
+        -:  168:    // request.
+        -:  169:    int min_cacheable;
+        -:  170:};
+        -:  171:
+        -:  172:inline constexpr const char* kClaudeEffortsAll[] = {"low",   "medium", "high",
+        -:  173:                                                    "xhigh", "max",    nullptr};
+        -:  174:inline constexpr const char* kClaudeEffortsNoXhigh[] = {"low", "medium", "high", "max", nullptr};
+        -:  175:inline constexpr const char* kClaudeEffortsLowMediumHigh[] = {"low", "medium", "high", nullptr};
+        -:  176:
+        -:  177:inline constexpr ClaudeFamily kClaudeFamilies[] = {
+        -:  178:    // 5.x: 1M input, 128K output, adaptive thinking. The Opus/Fable/Haiku
+        -:  179:    // flagships are always-on; the Sonnet pair can still be disabled.
+        -:  180:    {"claude-fable-5-1", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+        -:  181:    {"claude-fable-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+        -:  182:    {"claude-opus-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium", 512},
+        -:  183:    {"claude-opus-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "high", 512},
+        -:  184:    {"claude-sonnet-5-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high",
+        -:  185:     512},
+        -:  186:    {"claude-sonnet-5", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 1024},
+        -:  187:    {"claude-haiku-5-5", 1000000, 128000, true, true, false, true, kClaudeEffortsAll, "medium",
+        -:  188:     512},
+        -:  189:    // 4.8/4.7: 1M, adaptive, xhigh available.
+        -:  190:    {"claude-opus-4-8", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 1024},
+        -:  191:    {"claude-opus-4-7", 1000000, 128000, true, true, false, false, kClaudeEffortsAll, "high", 2048},
+        -:  192:    // 4.6: 1M, adaptive, max available but not xhigh.
+        -:  193:    {"claude-opus-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high",
+        -:  194:     4096},
+        -:  195:    {"claude-sonnet-4-6", 1000000, 128000, true, true, false, false, kClaudeEffortsNoXhigh, "high",
+        -:  196:     1024},
+        -:  197:    // 4.5: 200K, legacy thinking budget. Opus 4.5 additionally has effort
+        -:  198:    // control; Sonnet/Haiku 4.5 do not.
+        -:  199:    {"claude-opus-4-5", 200000, 64000, true, false, true, false, kClaudeEffortsLowMediumHigh,
+        -:  200:     "high", 4096},
+        -:  201:    {"claude-sonnet-4-5", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+        -:  202:    {"claude-haiku-4-5", 200000, 64000, true, false, true, false, nullptr, "", 4096},
+        -:  203:    // 4.1/4.0: 200K, legacy thinking budget.
+        -:  204:    {"claude-opus-4-1", 200000, 32000, true, false, true, false, nullptr, "", 1024},
+        -:  205:    {"claude-sonnet-4", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+        -:  206:    {"claude-opus-4", 200000, 32000, true, false, true, false, nullptr, "", 1024},
+        -:  207:    {"claude-haiku-4", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+        -:  208:    // 3.x.
+        -:  209:    {"claude-3-7", 200000, 64000, true, false, true, false, nullptr, "", 1024},
+        -:  210:    {"claude-3-5", 200000, 8192, false, false, false, false, nullptr, "", 1024},
+        -:  211:    {"claude-3-opus", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+        -:  212:    {"claude-3-sonnet", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+        -:  213:    {"claude-3-haiku", 200000, 4096, false, false, false, false, nullptr, "", 2048},
+        -:  214:    {"claude-2.1", 200000, 4096, false, false, false, false, nullptr, "", 1024},
+        -:  215:    {"claude-2", 100000, 4096, false, false, false, false, nullptr, "", 1024},
+        -:  216:    {"claude-instant", 100000, 4096, false, false, false, false, nullptr, "", 1024},
+        -:  217:};
+        -:  218:
+        -:  219:// The vendor prefix some gateways put in front of the model id
+        -:  220:// (`anthropic/claude-sonnet-5`) and the `:free`/`:batch` variants OpenRouter
+        -:  221:// appends. Family matching looks at the basename, strips the variant suffix,
+        -:  222:// and treats a dotted version (`claude-opus-5.5`) like the hyphenated native
+        -:  223:// id (`claude-opus-5-5`) so one table serves both listings.
+        -:  224:inline std::string model_basename(const std::string& id) {
+        -:  225:    const std::size_t slash = id.rfind('/');
+        -:  226:    std::string name = slash == std::string::npos ? id : id.substr(slash + 1);
+        -:  227:    const std::size_t colon = name.find(':');
+        -:  228:    if (colon != std::string::npos)
+        -:  229:        name.erase(colon);
+        -:  230:    return name;
+        -:  231:}
+        -:  232:
+        -:  233:inline std::string family_name(const std::string& id) {
+        -:  234:    std::string name = model_basename(id);
+        -:  235:    std::replace(name.begin(), name.end(), '.', '-');
+        -:  236:    return name;
+        -:  237:}
+        -:  238:
+        -:  239:inline const ClaudeFamily* claude_family_for(const std::string& id) {
+        -:  240:    const std::string name = family_name(id);
+        -:  241:    const ClaudeFamily* best = nullptr;
+        -:  242:    std::size_t best_len = 0;
+        -:  243:    for (const auto& family : kClaudeFamilies) {
+        -:  244:        std::string prefix(family.prefix);
+        -:  245:        std::replace(prefix.begin(), prefix.end(), '.', '-');
+        -:  246:        if (name.rfind(prefix, 0) != 0 || prefix.size() <= best_len)
+        -:  247:            continue;
+        -:  248:        best = &family;
+        -:  249:        best_len = prefix.size();
+        -:  250:    }
+        -:  251:    return best;
+        -:  252:}
+        -:  253:
+        -:  254:// The provider's minimum cacheable prefix for `id`, or 0 when the model is not
+        -:  255:// a documented Claude family. A request below it is cached not at all: the API
+        -:  256:// accepts the breakpoint, returns no error, and reports 0/0 -- the state a
+        -:  257:// provider dashboard shows as "unknown", and the one thing a client cannot
+        -:  258:// otherwise tell apart from having sent no breakpoint.
+        -:  259:inline int min_cacheable_tokens(const std::string& id) {
+        -:  260:    const ClaudeFamily* family = claude_family_for(id);
+        -:  261:    return family ? family->min_cacheable : 0;
+        -:  262:}
+        -:  263:
+        -:  264:inline void apply_claude_family_reasoning(ReasoningContract& r, const ClaudeFamily& f) {
+        -:  265:    r.supported = r.supported || f.reasoning;
+        -:  266:    if (f.reasoning && (f.adaptive || f.always_on))
+        -:  267:        r.default_enabled = true;
+        -:  268:    if (f.adaptive || f.legacy || f.efforts)
+        -:  269:        r.effort_levels = true;
+        -:  270:    if (!r.adaptive && !r.legacy && !r.mandatory) {
+        -:  271:        r.adaptive = f.adaptive;
+        -:  272:        r.legacy = f.legacy;
+        -:  273:        r.mandatory = f.always_on;
+        -:  274:    }
+        -:  275:    if (r.efforts.empty() && f.efforts)
+        -:  276:        for (const char* const* p = f.efforts; *p; ++p)
+        -:  277:            r.efforts.emplace_back(*p);
+        -:  278:    if (r.default_effort.empty() && f.default_effort)
+        -:  279:        r.default_effort = f.default_effort;
+        -:  280:    if (r.adaptive)
+        -:  281:        r.between_tools_ok = true;
+        -:  282:    if (r.adaptive && !r.mandatory)
+        -:  283:        r.disabled_ok = true;
+        -:  284:    if (r.mandatory)
+        -:  285:        r.off = ReasoningOff::Unsupported;
+        -:  286:    else if (r.disabled_ok || r.between_tools_ok)
+        -:  287:        r.off = ReasoningOff::ReasoningDisabled;
+        -:  288:}
+        -:  289:
+        -:  290:inline void apply_claude_family(ModelInfo& m) {
+        -:  291:    const ClaudeFamily* f = claude_family_for(m.id);
+        -:  292:    if (!f)
+        -:  293:        return;
+        -:  294:    if (m.context == 0)
+        -:  295:        m.context = f->context;
+        -:  296:    if (m.max_output == 0)
+        -:  297:        m.max_output = f->max_output;
+        -:  298:    apply_claude_family_reasoning(m.reasoning, *f);
+        -:  299:}
+        -:  300:
+        -:  301:inline void apply_claude_family(ServerInfo& s) {
+        -:  302:    const ClaudeFamily* f = claude_family_for(s.model);
+        -:  303:    if (!f)
+        -:  304:        return;
+        -:  305:    if (s.context_size == 0)
+        -:  306:        s.context_size = f->context;
+        -:  307:    if (s.max_output == 0)
+        -:  308:        s.max_output = f->max_output;
+        -:  309:    apply_claude_family_reasoning(s.reasoning, *f);
+        -:  310:}
+        -:  311:
+        -:  312:// Documented OpenAI families. Their /v1/models listing is deliberately bare,
+        -:  313:// so the family table is the only catalogue source for the request shape. It
+        -:  314:// fills only a contract the listing did not provide, and the request builder
+        -:  315:// never reads a model id. Levels stay empty: the listing named none, so the
+        -:  316:// configured level is sent without a clamp.
+        -:  317:struct OpenAIFamily {
+        -:  318:    const char* prefix;
+        -:  319:};
+        -:  320:
+        -:  321:inline constexpr OpenAIFamily kOpenAIFamilies[] = {
+        -:  322:    {"o1"},
+        -:  323:    {"o3"},
+        -:  324:    {"o4"},
+        -:  325:    {"gpt-5"},
+        -:  326:};
+        -:  327:
+        -:  328:inline void apply_openai_family_reasoning(ReasoningContract& r) {
+        -:  329:    if (r.supported)
+        -:  330:        return;
+        -:  331:    r.supported = true;
+        -:  332:    r.effort_levels = true;
+        -:  333:    r.wire = ReasoningWire::Effort;
+        -:  334:    r.mandatory = true;       // no documented off shape on the bare listing
+        -:  335:    r.default_enabled = true; // reasoning is on unless the request says otherwise
+        -:  336:    r.off = ReasoningOff::Omit;
+        -:  337:}
+        -:  338:
+        -:  339:inline void apply_openai_family(ModelInfo& m) {
+        -:  340:    const std::string name = family_name(m.id);
+        -:  341:    for (const auto& family : kOpenAIFamilies)
+        -:  342:        if (name.rfind(family.prefix, 0) == 0) {
+        -:  343:            apply_openai_family_reasoning(m.reasoning);
+        -:  344:            return;
+        -:  345:        }
+        -:  346:}
+        -:  347:
+function _ZN5agent24apply_model_capabilitiesERNS_6ConfigERKNS_17ModelCapabilitiesE called 5 returned 100% blocks executed 100%
+        5:  348:inline void apply_model_capabilities(Config& cfg, const ModelCapabilities& c) {
+        5:  349:    cfg.model_max_output = c.max_output;
+        5:  350:    cfg.model_supported_parameters = c.supported_parameters;
+call    0 returned 5
+        5:  351:    cfg.model_line = c.line;
+call    0 returned 5
+        5:  352:    cfg.model_reasoning = c.reasoning;
+call    0 returned 5
+        5:  353:}
+        -:  354:
+        -:  355:// The reasoning levels the protocol understands. A listing narrows this set;
+        -:  356:// it does not invent a new spelling.
+        -:  357:inline constexpr const char* kReasoningEfforts[] = {"off",  "minimal", "low", "medium",
+        -:  358:                                                    "high", "xhigh",   "max", nullptr};
+        -:  359:
+        -:  360:inline bool is_reasoning_effort(const std::string& effort) {
+        -:  361:    for (const char* const* p = kReasoningEfforts; *p; ++p)
+        -:  362:        if (effort == *p)
+        -:  363:            return true;
+        -:  364:    return false;
+        -:  365:}
+        -:  366:
+        -:  367:// Whether the active dialect has a field it can actually send for this model.
+        -:  368:// An OpenAI-compatible request needs a wire shape; the Messages dialect speaks
+        -:  369:// the adaptive/legacy shapes even though it has no `reasoning_effort` field.
+        -:  370:inline bool reasoning_control_available(const Config& cfg) {
+        -:  371:    const ReasoningContract& r = cfg.model_reasoning;
+        -:  372:    if (!r.supported)
+        -:  373:        return false;
+        -:  374:    if (r.wire != ReasoningWire::None)
+        -:  375:        return true;
+        -:  376:    return cfg.flavor == "anthropic" && (r.adaptive || r.legacy);
+        -:  377:}
+        -:  378:
+        -:  379:// The level the next request will actually send. Empty means "send no field":
+        -:  380:// the model cannot disable reasoning, the listing named no level, or the
+        -:  381:// configured value is not selectable. "on" means the model reasons at its
+        -:  382:// default and the request cannot turn it off.
+        -:  383:inline std::string effective_reasoning_effort(const ReasoningContract& r,
+        -:  384:                                              const std::string& configured) {
+        -:  385:    if (!r.supported)
+        -:  386:        return {};
+        -:  387:    if (configured.empty() || configured == "off") {
+        -:  388:        if (r.mandatory || r.off == ReasoningOff::Unsupported)
+        -:  389:            return "on";
+        -:  390:        if (r.off == ReasoningOff::Omit)
+        -:  391:            return r.legacy ? "off" : (r.default_enabled ? "on" : "");
+        -:  392:        return "off";
+        -:  393:    }
+        -:  394:    if (!r.effort_levels)
+        -:  395:        return {};
+        -:  396:    if (r.efforts.empty())
+        -:  397:        return configured;
+        -:  398:    if (std::find(r.efforts.begin(), r.efforts.end(), configured) != r.efforts.end())
+        -:  399:        return configured;
+        -:  400:    // The listing named levels but no default: an unlisted configured value is
+        -:  401:    // not sent. Omitting is the conservative answer; inventing one of the
+        -:  402:    // listed levels could silently disable reasoning (OpenCode's first level is
+        -:  403:    // often "none").
+        -:  404:    return r.default_effort;
+        -:  405:}
+        -:  406:
+        -:  407:inline std::string effective_reasoning_effort(const Config& cfg) {
+        -:  408:    if (!reasoning_control_available(cfg))
+        -:  409:        return cfg.model_reasoning.supported ? "on" : "";
+        -:  410:    return effective_reasoning_effort(cfg.model_reasoning, cfg.reasoning_effort);
+        -:  411:}
+        -:  412:
+        -:  413:// Whether the model can be asked for this level. `off` is selectable when the
+        -:  414:// model advertises a way to disable reasoning; a level is selectable when the
+        -:  415:// listing named it (or named no levels, in which case the configured value is
+        -:  416:// sent as-is).
+        -:  417:inline bool reasoning_effort_allowed(const Config& cfg, const std::string& effort) {
+        -:  418:    const ReasoningContract& r = cfg.model_reasoning;
+        -:  419:    if (!is_reasoning_effort(effort))
+        -:  420:        return false;
+        -:  421:    if (!reasoning_control_available(cfg))
+        -:  422:        return effort == "off";
+        -:  423:    if (effort == "off")
+        -:  424:        return !r.mandatory && r.off != ReasoningOff::Unsupported;
+        -:  425:    if (!r.effort_levels)
+        -:  426:        return false;
+        -:  427:    if (r.efforts.empty())
+        -:  428:        return true;
+        -:  429:    return std::find(r.efforts.begin(), r.efforts.end(), effort) != r.efforts.end();
+        -:  430:}
+        -:  431:
+        -:  432:// Per-request telemetry, surfaced to UIs for the status bar. Filled in after a
+        -:  433:// chat/chat_stream call completes. Fields are -1/0 when unknown.
+        -:  434:struct Stats {
+        -:  435:    double latency_ms = -1;      // time-to-first-byte (server "lag")
+        -:  436:    double tps = -1;             // completion tokens / generation time
+        -:  437:    long prompt_tokens = -1;     // usage.prompt_tokens (context used)
+        -:  438:    long completion_tokens = -1; // usage.completion_tokens
+        -:  439:    // Prompt-cache counters (-1 when the provider did not report them).
+        -:  440:    // `cache_read_tokens` is the part of the prompt served from cache; a
+        -:  441:    // stable prefix should make it grow with the conversation instead of
+        -:  442:    // sitting at 0.
+        -:  443:    long cache_read_tokens = -1;
+        -:  444:    long cache_write_tokens = -1;
+        -:  445:    // The provider's own id for the response, and its explanation when the
+        -:  446:    // cache prefix diverged from the previous request.
+        -:  447:    std::string response_id;
+        -:  448:    std::string cache_miss_reason;
+        -:  449:    bool valid = false; // true once a request populated it
+        -:  450:};
+        -:  451:
+        -:  452:// Port: a chat backend over an OpenAI-compatible endpoint. The library does
+        -:  453:// not own conversation state; callers pass the full message list each turn.
+        -:  454:// Implementations: HttpLLMClient (libcurl) and FakeLLMClient (tests).
+        -:  455:// A typed transport failure for the retry policy: `retryable` errors (curl
+        -:  456:// failures, timeouts, empty bodies, HTTP 429/5xx) may be retried with
+        -:  457:// backoff; non-retryable ones (auth/misconfig 4xx) must fail fast.
+        -:  458:// Thrown when the caller's CancellationToken fires mid-request. Distinct
+        -:  459:// from ApiError so cancellation is never classified as a retryable failure
+        -:  460:// and never degrades into a fabricated assistant message.
+        -:  461:struct CancelledError : std::runtime_error {
+        -:  462:    using std::runtime_error::runtime_error;
+        -:  463:};
+        -:  464:
+        -:  465:struct ApiError : std::runtime_error {
+        -:  466:    long status = 0;
+        -:  467:    bool retryable = true;
+        -:  468:    long retry_after_ms = 0; // Retry-After header, 0 when absent
+        -:  469:    ApiError(long s, bool r, const std::string& msg, long retry_after = 0)
+        -:  470:        : std::runtime_error(msg), status(s), retryable(r), retry_after_ms(retry_after) {}
+        -:  471:};
+        -:  472:
+        -:  473:class LLMClient {
+        -:  474:public:
+        -:  475:    virtual ~LLMClient() = default;
+        -:  476:
+        -:  477:    // Query the server's GET /v1/models endpoint and report the first model's
+        -:  478:    // id and context window (n_ctx). Never throws: on any transport/parse
+        -:  479:    // failure it returns a ServerInfo with ok == false.
+        -:  480:    virtual ServerInfo probe_server() const = 0;
+        -:  481:
+        -:  482:    // Buffered request: returns the full assistant message (may include
+        -:  483:    // tool_calls). Throws std::runtime_error on transport/API failure. When
+        -:  484:    // `stats` is non-null it is filled with per-request telemetry.
+        -:  485:    virtual Message chat(const std::vector<Message>& messages,
+        -:  486:                         const std::vector<std::shared_ptr<Tool>>& tools,
+        -:  487:                         Stats* stats = nullptr) = 0;
+        -:  488:
+        -:  489:    // Streaming request: invokes `on_chunk` for every parsed SSE event and
+        -:  490:    // returns the assembled assistant message. The callback receives partial
+        -:  491:    // text as it arrives, enabling live TUI rendering. When `stats` is non-null
+        -:  492:    // it is filled with per-request telemetry after completion.
+        -:  493:    virtual Message chat_stream(const std::vector<Message>& messages,
+        -:  494:                                const std::vector<std::shared_ptr<Tool>>& tools,
+        -:  495:                                const std::function<void(const StreamChunk&)>& on_chunk,
+        -:  496:                                Stats* stats = nullptr) = 0;
+        -:  497:
+        -:  498:    // Context window the server taught us via a 400 overflow rejection
+        -:  499:    // (parse_context_size_from_error), or 0 when none was learned yet.
+        -:  500:    // The learned limit is the runtime truth: it clamps any configured or
+        -:  501:    // probed window so the gate and gauge never overshoot.
+        -:  502:    virtual int learned_context_size() const { return 0; }
+        -:  503:
+        -:  504:    // Facts the client accumulated while working that the model has a right to
+        -:  505:    // know — a window the server clamped, tool calls it had to drop. The agent
+        -:  506:    // drains these into [harness] notices, so nothing about a request changes
+        -:  507:    // behind the model's back. Draining empties the list.
+        -:  508:    virtual std::vector<std::string> take_notices() { return {}; }
+        -:  509:
+        -:  510:    // The conversation id a provider may ask for in a request header. The host
+        -:  511:    // calls this when its window/session identity changes; a client that does
+        -:  512:    // not speak HTTP ignores it, and the default keeps injected test clients
+        -:  513:    // untouched.
+        -:  514:    virtual void set_session_id(const std::string& id) { (void)id; }
+        -:  515:};
+        -:  516:
+        -:  517:// Real libcurl implementation. The wire protocol (URLs, auth, request body,
+        -:  518:// response parsing, streaming, model listing, error classification) is the
+        -:  519:// injected Dialect's; this class owns the transport and the assembled
+        -:  520:// conversation view. Supports both buffered (chat) and streamed (chat_stream)
+        -:  521:// modes.
+        -:  522:class HttpLLMClient : public LLMClient {
+        -:  523:public:
+        -:  524:    explicit HttpLLMClient(Config cfg);
+        -:  525:    // `dialect` drives the wire protocol; the one-argument form resolves
+        -:  526:    // make_dialect(cfg.flavor). Pass one explicitly in tests or for future
+        -:  527:    // plugin providers.
+        -:  528:    HttpLLMClient(Config cfg, std::unique_ptr<Dialect> dialect);
+        -:  529:    ~HttpLLMClient() override;
+        -:  530:
+        -:  531:    ServerInfo probe_server() const override;
+        -:  532:    Message chat(const std::vector<Message>& messages,
+        -:  533:                 const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats = nullptr) override;
+        -:  534:    Message chat_stream(const std::vector<Message>& messages,
+        -:  535:                        const std::vector<std::shared_ptr<Tool>>& tools,
+        -:  536:                        const std::function<void(const StreamChunk&)>& on_chunk,
+        -:  537:                        Stats* stats = nullptr) override;
+        -:  538:    int learned_context_size() const override { return learned_; }
+        -:  539:    std::vector<std::string> take_notices() override;
+        -:  540:    // Carried into every subsequent request, so a host that assigns the
+        -:  541:    // window's identity after construction still sends it.
+        -:  542:    void set_session_id(const std::string& id) override { cfg_.session_id = id; }
+        -:  543:
+        -:  544:private:
+        -:  545:    void add_notice(std::string text);
+        -:  546:    // A 400 that names a cache field means the provider (or a proxy) will not
+        -:  547:    // take that field. Turn the narrowest one off, leave a notice, and let the
+        -:  548:    // caller retry once. False means the error was not about the cache shape.
+        -:  549:    bool degrade_cache_for(const ApiError& error);
+        -:  550:
+        -:  551:    Config cfg_;
+        -:  552:    std::unique_ptr<Dialect> dialect_;
+        -:  553:    int learned_ = 0; // window taught by a 400 overflow rejection
+        -:  554:    std::mutex notices_mtx_;
+        -:  555:    std::vector<std::string> notices_;
+        -:  556:};
+        -:  557:
+        -:  558:// A one-line warning when a user-pinned context window contradicts the model
+        -:  559:// listing by more than 10%. Empty when there is no pin, the listing has no
+        -:  560:// window, or the values agree. The pin is never overridden; the warning makes
+        -:  561:// an informed override possible.
+        -:  562:std::string context_pin_mismatch(const Config& cfg, const ServerInfo& info);
+        -:  563:
+        -:  564:// Merge probed server info into a Config, filling ONLY values the user did not
+        -:  565:// set explicitly (model_explicit / context_explicit). Pure and network-free so
+        -:  566:// the auto-detect policy can be unit-tested. A non-ok / empty info is a no-op.
+        -:  567:// `note` optionally receives `context_pin_mismatch()` for the host to surface.
+        -:  568:void merge_server_info(Config& cfg, const ServerInfo& info, std::string* note = nullptr);
+        -:  569:
+        -:  570:// Fill in any auto-detectable Config values (model, context_size) that were
+        -:  571:// NOT set explicitly by the user, from the model catalog. Returns the
+        -:  572:// ServerInfo parsed (ok == false when no catalog entry parses). Blocking
+        -:  573:// (cache-through, single-flight); force=true always revalidates over the
+        -:  574:// network — see model_probe.h for the cache and the non-blocking variants.
+        -:  575:ServerInfo apply_server_autodetect(Config& cfg, bool force = false);
+        -:  576:
+        -:  577:} // namespace agent
+        -:  578:
+        -:  579:#endif // AGENT_LLM_H

@@ -61,7 +61,9 @@ agent::Profile sample(const std::string& name) {
 TEST(profile_name_validation_rejects_a_path) {
     std::string why;
     ASSERT_TRUE(agent::valid_profile_name("work", &why));
+    ASSERT_TRUE(agent::valid_profile_name("work-prod", &why));
     ASSERT_TRUE(agent::valid_profile_name("consulting.acme_2", &why));
+    ASSERT_TRUE(agent::valid_profile_name(std::string(64, 'a'), &why));
     ASSERT_FALSE(agent::valid_profile_name("", &why));
     ASSERT_FALSE(agent::valid_profile_name(".", &why));
     ASSERT_FALSE(agent::valid_profile_name("..", &why));
@@ -137,6 +139,30 @@ TEST(profile_save_rejects_a_path_and_missing_profile_removal_is_reported) {
     ASSERT(error.find("ghost") != std::string::npos);
     ASSERT_FALSE(agent::remove_profile("../escape", &error));
     ASSERT(error.find("'.'") != std::string::npos || error.find("letters") != std::string::npos);
+    // The error pointer is optional on every failure path.
+    ASSERT_FALSE(agent::save_profile(bad));
+    ASSERT_FALSE(agent::remove_profile("ghost"));
+    ASSERT_FALSE(agent::remove_profile("../escape"));
+}
+
+// Long connection fields and an explicitly enabled thinking flag exercise the
+// full-value copies; the values are opaque strings, so their length is legal.
+TEST(profile_apply_carries_long_values_and_thinking_on) {
+    agent::Profile profile;
+    profile.name = "consulting-acme-eu-west-1";
+    profile.provider_name = "consulting-gateway-eu-west-1";
+    profile.flavor = "anthropic-compatible-gateway";
+    profile.api_base = "https://gateway.example/very/long/path/to/the/v1/endpoint";
+    profile.model = "anthropic/claude-sonnet-4-20260101";
+    profile.thinking = "on";
+    agent::Config cfg;
+    agent::apply_profile(cfg, profile);
+    ASSERT_EQ(cfg.profile_name, profile.name);
+    ASSERT_EQ(cfg.provider_name, profile.provider_name);
+    ASSERT_EQ(cfg.flavor, profile.flavor);
+    ASSERT_EQ(cfg.api_base, profile.api_base);
+    ASSERT_EQ(cfg.model, profile.model);
+    ASSERT_EQ(cfg.thinking, std::string("on"));
 }
 
 TEST(profile_apply_replaces_the_connection_and_clears_the_pin) {
@@ -204,6 +230,33 @@ TEST(profile_load_rejects_absent_invalid_and_malformed_files) {
     ASSERT_TRUE(agent::load_profiles().empty());
 }
 
+TEST(profile_missing_keys_use_defaults) {
+    agent::test::XdgGuard guard("profiles_missing_keys");
+    ASSERT_TRUE(write_text(agent::profile_path("bare"), "{}"));
+    const auto bare = agent::load_profile("bare");
+    ASSERT(bare.has_value());
+    ASSERT_EQ(bare->provider_name, std::string("custom"));
+    ASSERT_EQ(bare->flavor, std::string("openai"));
+    ASSERT(bare->api_base.empty());
+    ASSERT(bare->model.empty());
+    ASSERT_EQ(bare->temperature, 0.2);
+    ASSERT_EQ(bare->max_tokens, static_cast<size_t>(16384));
+    ASSERT_EQ(bare->thinking, std::string("auto"));
+}
+
+TEST(profile_json_thinking_on_and_a_bad_number_fall_back_safely) {
+    agent::test::XdgGuard guard("profiles_thinking");
+    ASSERT_TRUE(write_text(agent::profile_path("on"), R"({"thinking":"on","max_tokens":-5})"));
+    const auto on = agent::load_profile("on");
+    ASSERT(on.has_value());
+    ASSERT_EQ(on->thinking, std::string("on"));
+    ASSERT_EQ(on->max_tokens, static_cast<size_t>(16384));
+    ASSERT_TRUE(write_text(agent::profile_path("badnum"), R"({"max_tokens":"many"})"));
+    const auto badnum = agent::load_profile("badnum");
+    ASSERT(badnum.has_value());
+    ASSERT_EQ(badnum->max_tokens, static_cast<size_t>(16384));
+}
+
 TEST(profile_malformed_fields_fall_back_to_defaults) {
     agent::test::XdgGuard guard("profiles_fields");
     ASSERT_TRUE(write_text(agent::profile_path("odd"),
@@ -240,6 +293,7 @@ TEST(profile_store_failures_are_reported_not_thrown) {
     std::string error;
     ASSERT_FALSE(agent::save_profile(sample("work"), &error));
     ASSERT(error.find("cannot create") != std::string::npos);
+    ASSERT_FALSE(agent::save_profile(sample("work")));
 
     // A non-empty directory named like a profile cannot be removed by the
     // file-store primitive; the command gets an error rather than a crash.
@@ -263,6 +317,8 @@ TEST(profile_write_failure_is_reported) {
     std::string error;
     ASSERT_FALSE(agent::save_profile(sample("stuck"), &error));
     ASSERT(error.find("cannot write") != std::string::npos);
+    ASSERT_FALSE(agent::save_profile(sample("stuck")));
+    ASSERT_FALSE(agent::remove_profile("stuck"));
 }
 
 TEST(profile_default_migrates_from_the_current_config_once) {
