@@ -149,6 +149,18 @@ JOBS = {
         "gating": True,
         "local": "make bench-e2e",
     },
+    "agent-e2e": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make agent-eval",
+    },
+    "tui-agent-e2e": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make tui-agent-e2e",
+    },
     "fuzz": {
         "dimension": "cpp",
         "events": ALL_EVENTS,
