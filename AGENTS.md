@@ -593,6 +593,13 @@ below, so nobody re-derives them:
   (`*.d` is gitignored). If you change a struct layout or any header, rebuild,
   stale `.o` from missing `.d` entries silently causes ABI/heap-corruption bugs
   at runtime (called out in the Makefile). When in doubt, `make clean && make`.
+  **The include list itself is gated**: `build-hygiene` **P19** fails when a
+  `*_TEST_OBJ` list or `PLUGIN_OBJS` has no `-include`. A `.d` file that exists
+  but is never read cannot cause a rebuild, and both cases were measured on
+  2026-11-19: `core_only_test.o` hung on a futex and `plugins/default_tools.o`
+  freed a `Config` with the wrong destructor (double free) after a member was
+  added to the struct. The plugin wildcard also covers `plugins/*.d` now, not
+  only `plugins/<id>/*.d`.
 - `include/agent/version.h` is **generated** by `./configure` from
   `version.h.in`; do not hand-edit it, and don't commit a stale one.
 - On macOS, `./configure` needs Homebrew ncurses on `PKG_CONFIG_PATH` or the
@@ -921,9 +928,9 @@ bug came back after it had been fixed in the context layer.
 for the layout; `/get config paths` prints it and the bundled `amber-config`
 skill renders its body from it, so the two cannot disagree. The shape, per the
 XDG base directories: global config in `$XDG_CONFIG_HOME/amber` (providers,
-skills, MCP, plugin state), **shareable** project config in
-`<project>/.amber` (skills, MCP, plugins -- created only when something is
-added), **private per-project state** in
+profiles, skills, MCP, plugin state), **shareable** project config in
+`<project>/.amber` (skills, MCP, plugins, the `.amber/profile` pin -- created
+only when something is added), **private per-project state** in
 `$XDG_STATE_HOME/amber/projects/<slug>` (sessions, settings, logs, experience,
 policy), and regenerable catalogues in `$XDG_CACHE_HOME/amber`. `$HOME` is not
 special-cased: running amber there creates no project dir. Two consequences for
@@ -1425,7 +1432,7 @@ claim 0-debt conformance. Line counts below are enforced by
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 329 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
 | `tui/tui_render.cpp` | 122 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
-| `tui/tui_input.cpp` | 4844 | Method implementations (not a class); exempt from class-size rule. |
+| `tui/tui_input.cpp` | 4810 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved
 - `lib/llm.cpp` (511 → 84): split into `stream_decoder` (formerly `sse_parser`),

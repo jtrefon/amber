@@ -12,7 +12,8 @@
 
 namespace tui {
 
-SlashDispatcher::SlashDispatcher(Tui& tui) : LearnSurface(tui), tui_(tui), checkpoints_(tui) {}
+SlashDispatcher::SlashDispatcher(Tui& tui)
+    : LearnSurface(tui), tui_(tui), checkpoints_(tui), profile_surface_(tui) {}
 
 double SlashDispatcher::compression_threshold_effective() const {
     return agent::load_compression_config(tui_.cfg_).threshold;
@@ -79,11 +80,16 @@ void SlashDispatcher::refresh_completions() {
     refresh_policy_feed();
     refresh_task_feed();
     refresh_provider_feed();
+    profile_surface_.refresh_feed();
     if (tui_.feed_manager_) {
         tui_.feed_manager_->refresh_plugin_feed();
         tui_.feed_manager_->refresh_worktree_feed();
     }
     refresh_settings_feed();
+}
+
+void SlashDispatcher::apply_pending_profile_switch() {
+    profile_surface_.apply_pending();
 }
 
 void SlashDispatcher::request_quit() {

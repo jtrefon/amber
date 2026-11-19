@@ -478,6 +478,11 @@ void Tui::send_async_to(Window& w, const std::string& raw_prompt, bool harness) 
 // UI thread each idle tick; a window only dequeues when its own slot is
 // free, so queued prompts never jump the line onto a running window.
 void Tui::drain_pending_prompts(bool input_empty) {
+    // A profile switch queued mid-turn lands here first: the slot is idle, so
+    // no worker holds the client being replaced, and the prompt below (if any)
+    // already runs on the new connection.
+    if (slash_dispatcher_)
+        slash_dispatcher_->apply_pending_profile_switch();
     for (auto& w : window_manager_->all()) {
         if (!w || !w->agent || runs_.busy(w->id))
             continue;

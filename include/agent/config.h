@@ -80,6 +80,10 @@ struct ReasoningContract {
 // The library layer is intentionally free of any UI concerns.
 struct Config {
     std::string provider_name = "custom";
+    // The named connection (/profile) this config was resolved from. "default"
+    // is the implicit profile every existing install migrates into; the name is
+    // metadata, and the connection fields below are the truth.
+    std::string profile_name = "default";
     // Wire-protocol selector: resolves to a Dialect implementation
     // (make_dialect). Set from the provider's capabilities on selection;
     // "openai" covers every OpenAI-compatible endpoint.

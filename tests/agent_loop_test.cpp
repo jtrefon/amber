@@ -629,6 +629,40 @@ TEST(agent_set_provider_and_context_window_adopt_the_resolution) {
     ASSERT_EQ(snapshot->context_size, 262144);
 }
 
+// A profile carries the sampling knobs with the connection. The provider-switch
+// callers pass the live values, so this is a no-op there; a profile switch is
+// the case that changes them.
+TEST(agent_set_provider_adopts_the_profile_connection) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
+
+    agent::Config resolved = cfg;
+    resolved.profile_name = "work";
+    resolved.temperature = 0.7;
+    resolved.max_tokens = 1234;
+    resolved.thinking = "off";
+    ag.set_provider(resolved, "work-model");
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->profile_name, std::string("work"));
+    ASSERT_EQ(snapshot->model, std::string("work-model"));
+    ASSERT_EQ(snapshot->temperature, 0.7);
+    ASSERT_EQ(snapshot->max_tokens, static_cast<size_t>(1234));
+    ASSERT_EQ(snapshot->thinking, std::string("off"));
+
+    // A profile may say "auto": the agent adopts the empty model instead of
+    // sending the outgoing connection's model to the new endpoint.
+    resolved.model = "";
+    ag.set_provider(resolved, "");
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT(snapshot->model.empty());
+    ASSERT_FALSE(snapshot->model_explicit);
+}
+
 // A user pin is independent of the catalogue: it survives a model switch, and
 // clearing it resolves the CURRENT model's known window (0 when unknown), not
 // the pin it replaced.

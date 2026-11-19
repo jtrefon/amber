@@ -11,6 +11,9 @@ namespace agent {
 struct GlobalConfig {
     Config cfg;
     bool loaded = false;
+    // A named profile supplied the connection. The profile owns its model, so
+    // the later global-model step must not overwrite it with a stale value.
+    bool profile_applied = false;
 };
 
 // Apply the selection the user made in the global config: the provider endpoint

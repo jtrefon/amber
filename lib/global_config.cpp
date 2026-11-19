@@ -3,6 +3,7 @@
 #include <fstream>
 
 #include "agent/config_paths.h"
+#include "agent/profiles.h"
 #include "agent/providers.h"
 
 namespace agent {
@@ -34,11 +35,28 @@ GlobalConfig apply_global_selection(Config& cfg) {
         if (selection.ok())
             apply_selection(cfg, selection);
     }
+    // A named profile is the user's account, endpoint and model as one value:
+    // it overrides the provider selection, which can only carry the definition's
+    // defaults. The global config also carries the profile's connection (a
+    // switch writes both), so the two agree in the normal case.
+    const std::string profile =
+        global.cfg.profile_name.empty() ? "default" : global.cfg.profile_name;
+    if (profile == "default") {
+        cfg.profile_name = "default";
+    } else if (auto selected = load_profile(profile)) {
+        apply_profile(cfg, *selected);
+        global.profile_applied = true;
+    } else {
+        cfg.profile_name = "default";
+        cfg.warnings.push_back("profile '" + profile +
+                               "' does not exist; using the default connection");
+    }
     return global;
 }
 
 void apply_global_model(Config& cfg, const GlobalConfig& global) {
-    if (!global.loaded || global.cfg.model.empty() || !global.cfg.model_explicit)
+    if (!global.loaded || global.profile_applied || global.cfg.model.empty() ||
+        !global.cfg.model_explicit)
         return;
     cfg.model = global.cfg.model;
     cfg.model_explicit = true;

@@ -32,6 +32,10 @@ sources (file, env, flags, auto-detect) contribute to the final `Config` state.
    config, `/set provider`) owns the endpoint and survives the load
    (`Config::load_workspace_defaults`), so a checkout that pins a local server
    cannot redirect a selected provider's traffic.
+7. A named profile (`profile=` in the global config, or `<project>/.amber/profile`
+   in the TUI) supplies the connection after the provider selection. The
+   profile's model is authoritative over a stale global `model=`; the TUI applies
+   the project pin after settings and before env. See `config/profiles.md`.
 
 ---
 

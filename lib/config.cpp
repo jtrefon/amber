@@ -86,6 +86,8 @@ void apply_connection_keys(Config& c, const std::string& key, const std::string&
         c.kilo_balance_token = val;
     else if (key == "provider")
         c.provider_name = val;
+    else if (key == "profile")
+        c.profile_name = val.empty() ? "default" : val;
     else if (key == "flavor")
         c.flavor = val;
     else if (key == "model") {
@@ -375,6 +377,10 @@ void Config::load_workspace_defaults(const std::string& path) {
     // selection says requests go. Snapshot it across the load.
     const bool from_provider = api_base_from_provider;
     const std::string endpoint = api_base;
+    // A profile is selected by the global config or by <project>/.amber/profile,
+    // and only those paths also apply its connection. Letting amber.conf set the
+    // name alone would leave the name and the connection disagreeing.
+    const std::string selected_profile = profile_name;
     // Diagnostic OUTPUT paths are the operator's, not a repository's: a cloned
     // workspace's amber.conf must not be able to point the transcript or the
     // HTTP dump at a file amber would then append to or truncate (debug_log
@@ -385,6 +391,7 @@ void Config::load_workspace_defaults(const std::string& path) {
     load(path);
     log_path = operator_log_path;
     debug_log = operator_debug_log;
+    profile_name = selected_profile;
     if (from_provider)
         api_base = endpoint;
 }
@@ -469,6 +476,10 @@ bool Config::save_global(const std::string& path) const {
     std::ostringstream f;
     f << "# amber global settings (LLM provider)\n";
     f << "provider=" << provider_name << "\n";
+    // The implicit default is not written: an absent key means "default", so a
+    // future change to the migration policy does not have to unpick it.
+    if (!profile_name.empty() && profile_name != "default")
+        f << "profile=" << profile_name << "\n";
     f << "api_base=" << api_base << "\n";
     f << "api_key=" << api_key << "\n";
     if (!kilo_balance_token.empty())

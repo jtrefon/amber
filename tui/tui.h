@@ -105,6 +105,7 @@ class Tui {
     friend class SessionController;
     friend class SlashDispatcher;
     friend class LearnSurface;
+    friend class ProfileSurface;
     friend class CheckpointCommands;
     friend class LogRetentionController;
     friend class TuiWindowOpsHooks;
@@ -196,7 +197,6 @@ private:
     // Mouse reporting is on by default (wheel scrolls the chat log). Off lets
     // the terminal select and copy with a plain drag.
     bool mouse_on_ = true, quit_ = false;
-
     // Per-window run slots: each window's agent has its own worker thread,
     // busy/cancel flags, and pending-prompt queue (see run_registry.h).
     RunRegistry runs_;
@@ -223,8 +223,7 @@ private:
     void append_rich(const rich::Line& l);
     void append_markdown(Window& w, const std::string& md);
     size_t append_rich_to(Window& w, const rich::Line& l);
-    void banner(const std::string& text);
-    void trim_lines(Window& w);
+    void banner(const std::string& text), trim_lines(Window& w);
     void fold_reasoning(Window& w);
     void flush_stream(Window& w);
     void flush();

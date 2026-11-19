@@ -114,6 +114,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `config/cli-config.md` | CLI flags: `--model`, `--yes`, `--no-stream`, priority |
 | `config/ui-config.md` | Runtime config via TUI commands, save/load |
 | `config/merge-semantics.md` | Priority: CLI > UI > file, partial override, unknown-key handling |
+| `config/profiles.md` | Named provider connections: storage, migration, precedence, switching, project pin and key masking |
 
 ## LLM Client
 

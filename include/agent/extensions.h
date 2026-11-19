@@ -171,6 +171,9 @@ struct StatusSnapshot {
     // model id ("kilo-auto/free") reads as if the vendor were the provider, and
     // "kilo-auto" never was.
     std::string provider;
+    // The named connection (/profile) serving the model. Empty is the implicit
+    // default; a real name is shown because two profiles can share a provider.
+    std::string profile;
     std::string reasoning_effort;
     AgentMode mode = AgentMode::Read;
     bool scroll_mode = false;

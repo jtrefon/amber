@@ -190,6 +190,9 @@ void secure_private_state() {
         const std::string providers = config_dir + "/providers";
         secure_existing_dir(providers);
         secure_files_in(providers, ".conf");
+        const std::string profiles = config_dir + "/profiles";
+        secure_existing_dir(profiles);
+        secure_files_in(profiles, ".json");
 
         const std::string state = Workspace::state_dir();
         secure_existing_dir(state);

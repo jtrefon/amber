@@ -45,6 +45,7 @@
 #include "agent/config.h"
 #include "agent/exit_ready.h"
 #include "agent/model_probe.h"
+#include "agent/profiles.h"
 #include "agent/session.h"
 #include "agent/workspace.h"
 #include "agent/worktree.h"
@@ -362,6 +363,7 @@ private:
         const bool worker_probe = last_user.find("worker approval probe") != std::string::npos;
         const bool worker_report = request.body.find("WORKER-REPORT") != std::string::npos;
         const bool queue_probe = last_user.find("queue probe") != std::string::npos;
+        const bool profile_probe = last_user.find("profile probe") != std::string::npos;
         const bool clear_probe = last_user.find("clear probe") != std::string::npos;
         const bool checkpoint_probe = last_user.find("checkpoint probe") != std::string::npos;
         const bool command_probe = last_user.find("command probe") != std::string::npos;
@@ -378,6 +380,9 @@ private:
                 R"({"role":"assistant","content":"","tool_calls":[{"id":"call_command","type":"function","function":{"name":"process_start","arguments":"{\"command\":\"sh -c 'sleep 8; echo COMMAND-DONE'\",\"label\":\"pty-command\"}"}}]})";
         } else if (command_probe) {
             message = R"({"role":"assistant","content":"COMMAND-STARTED"})";
+        } else if (profile_probe) {
+            reply.delay_ms = 2500;
+            message = R"({"role":"assistant","content":"PROFILE-TURN-DONE"})";
         } else if (queue_probe && call == 1) {
             reply.delay_ms = 2500;
             message = R"({"role":"assistant","content":"QUEUE-DONE"})";
@@ -4110,6 +4115,220 @@ TEST(multiline_composer_off_flattens_a_paste_to_one_line) {
     require(flattened, "a multiline paste was not flattened with the composer off", tui);
 }
 
+namespace {
+
+agent::Profile pty_profile(const std::string& name, const std::string& provider,
+                           const std::string& base, const std::string& key,
+                           const std::string& model) {
+    agent::Profile profile;
+    profile.name = name;
+    profile.provider_name = provider;
+    profile.flavor = "openai";
+    profile.api_base = base;
+    profile.api_key = key;
+    profile.model = model;
+    return profile;
+}
+
+} // namespace
+
+// /profile is the multi-account surface: the list is the inventory, the switch
+// lands a different connection without a restart, and the key is always masked.
+// The bar renders from the agent's published config, so seeing @work there also
+// proves the running window adopted the profile, not just the TUI template.
+TEST(profile_commands_switch_the_connection_and_mask_the_key) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    const std::string profiles = fixture().workspace + "/xdg/amber/profiles";
+    const std::string def_path = profiles + "/default.json";
+    const std::string work_path = profiles + "/work.json";
+    std::error_code ec;
+    fs::remove(def_path, ec);
+    fs::remove(work_path, ec);
+
+    const agent::Profile def = pty_profile("default", "custom", "http://127.0.0.1:9/v1",
+                                           "sk-default-0000000000", "pty-test");
+    const agent::Profile work = pty_profile("work", "work-gateway", "http://127.0.0.1:9/work/v1",
+                                            "sk-work-1234567890abcd", "work-model");
+
+    Tui tui;
+    tui.name = "profile_commands_switch_the_connection_and_mask_the_key";
+    if (!require(agent::save_profile(def), "could not seed the default profile", tui))
+        return;
+    if (!require(agent::save_profile(work), "could not seed the work profile", tui))
+        return;
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/profile list\r");
+    // The transcript renderer collapses runs of spaces, so assert the fields
+    // rather than the column padding.
+    if (!require(tui.wait_for("work-gateway / work-model", 10000),
+                 "/profile list did not show the work profile", tui))
+        return;
+    if (!require(tui.wait_for("sk-...abcd", 10000), "/profile list did not mask the key", tui))
+        return;
+    if (!require(tui.wait_for("> default", 10000), "/profile list did not mark the active profile",
+                 tui))
+        return;
+
+    // Completion: the switch drawer offers the stored names, and accepting the
+    // row runs the same parent action a typed name would.
+    tui.send("/profile switch w");
+    if (!require(tui.wait_for("switch to work-model on work-gateway", 10000),
+                 "the switch drawer did not offer the profile", tui))
+        return;
+    tui.send("\t");
+    tui.pump(400);
+    tui.send("\r");
+    if (!require(tui.wait_for("profile: work (work-gateway, work-model)", 10000),
+                 "the accepted completion did not switch profiles", tui))
+        return;
+    if (!require(tui.wait_for("@work", 10000), "the status bar did not name the active profile",
+                 tui))
+        return;
+
+    // Ctrl-G sends the line as typed, bypassing the completion drawer: that is
+    // how a namespace's own action is reached when it also has children
+    // (Enter would accept the highlighted row).
+    const size_t bare_mark = tui.raw.size();
+    tui.send("/profile\x07");
+    if (!require(wait_since(tui, bare_mark, "profile: work (active)", 10000),
+                 "the bare /profile readout did not name the profile", tui))
+        return;
+    if (!require(wait_since(tui, bare_mark, "key: sk-...abcd", 10000),
+                 "the bare /profile readout did not mask the key", tui))
+        return;
+
+    const size_t mark = tui.raw.size();
+    // The name is explicit: '/profile show' alone opens the name drawer, whose
+    // first Enter accepts a row (the same rule /get model has). A named target
+    // is unambiguous and is what a user types to inspect another account.
+    tui.send("/profile show work\r");
+    if (!require(wait_since(tui, mark, "profile: work (active)", 10000),
+                 "the readout did not name the profile", tui))
+        return;
+    if (!require(wait_since(tui, mark, "key: sk-...abcd", 10000),
+                 "the readout did not mask the key", tui))
+        return;
+    require(text_since(tui, mark).find("sk-work-1234567890abcd") == std::string::npos,
+            "the readout printed the full API key", tui);
+
+    tui.send("/profile switch default\r");
+    if (!require(tui.wait_for("profile: default", 10000), "the switch back did not land", tui))
+        return;
+
+    fs::remove(def_path, ec);
+    fs::remove(work_path, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// A switch requested mid-turn must not replace the client a worker is using.
+// The turn finishes on its old connection, then the queued switch lands before
+// the next turn; both lines are observable, and the order is the contract.
+TEST(profile_switch_queues_while_a_turn_is_running) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    const std::string profiles = fixture().workspace + "/xdg/amber/profiles";
+    const std::string work_path = profiles + "/work.json";
+    std::error_code ec;
+    fs::remove(work_path, ec);
+    const agent::Profile work = pty_profile("work", "work-gateway", "http://127.0.0.1:9/work/v1",
+                                            "sk-work-1234567890abcd", "work-model");
+
+    Tui tui;
+    tui.name = "profile_switch_queues_while_a_turn_is_running";
+    FakeModelsEndpoint api;
+    if (!require(api.start(), "the fake endpoint did not start", tui))
+        return;
+    if (!require(agent::save_profile(work), "could not seed the busy-switch profile", tui))
+        return;
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"),
+                 "could not point the fixture at the fake endpoint", tui))
+        return;
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("profile probe\r");
+    // The transcript echo is written after the run slot is claimed, so its
+    // arrival is the deterministic "the turn is running" signal.
+    if (!require(tui.wait_for("> profile probe", 10000), "the turn was not submitted", tui))
+        return;
+    tui.send("/profile switch work\r");
+    if (!require(tui.wait_for("profile: switch to work queued", 10000),
+                 "the busy switch was not queued", tui))
+        return;
+    if (!require(tui.wait_for("PROFILE-TURN-DONE", 20000),
+                 "the running turn did not finish on its own connection", tui))
+        return;
+    if (!require(tui.wait_for("profile: work (work-gateway, work-model)", 20000),
+                 "the queued switch never landed", tui))
+        return;
+
+    fs::remove(work_path, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
+// Migration captures the connection the config files resolved, not the
+// environment: an AMBER_API_KEY is a per-invocation override, and writing it to
+// the profile store would persist a credential the user kept out of a file.
+TEST(profile_migration_does_not_persist_the_environment) {
+    const std::string profiles = fixture().workspace + "/xdg/amber/profiles";
+    std::error_code ec;
+    fs::remove_all(profiles, ec);
+    const std::string env_key = "sk-env-only-77c1e2";
+    setenv("AMBER_API_KEY", env_key.c_str(), 1);
+
+    Tui tui;
+    tui.name = "profile_migration_does_not_persist_the_environment";
+    const bool started = tui.start(fixture().binary, fixture().workspace) && wait_ready(tui);
+    unsetenv("AMBER_API_KEY");
+    if (!require(started, "the TUI did not start", tui))
+        return;
+    if (!require(fs::exists(profiles + "/default.json", ec),
+                 "startup did not migrate a default profile", tui))
+        return;
+    const std::string body = read_text_file(profiles + "/default.json");
+    require(body.find(env_key) == std::string::npos,
+            "the environment API key was written to the profile store", tui);
+    fs::remove_all(profiles, ec);
+}
+
+// A project pins its account with one line. The switch has to happen before the
+// restored window's first turn: the bar and the model both come from that
+// connection, not from the settings file the fixture wrote.
+TEST(project_profile_file_switches_at_startup) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    RestoreFile restore_project(fixture().workspace + "/.amber/profile");
+    const std::string profiles = fixture().workspace + "/xdg/amber/profiles";
+    const std::string work_path = profiles + "/work.json";
+    std::error_code ec;
+    fs::remove(work_path, ec);
+    const agent::Profile work = pty_profile("work", "work-gateway", "http://127.0.0.1:9/work/v1",
+                                            "sk-work-1234567890abcd", "work-model");
+
+    Tui tui;
+    tui.name = "project_profile_file_switches_at_startup";
+    if (!require(agent::save_profile(work), "could not seed the project profile", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/.amber/profile", "work\n"),
+                 "could not pin the project profile", tui))
+        return;
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(tui.wait_for("@work", 20000), "the project profile did not reach the status bar",
+                 tui))
+        return;
+    require(tui.text().find("work-model") != std::string::npos,
+            "the restored window did not start on the project profile's model", tui);
+
+    fs::remove(work_path, ec);
+    fs::remove(fixture().workspace + "/xdg/amber/config", ec);
+}
+
 int main(int argc, char** argv) {
     std::string binary_arg = "./amber";
     std::string self_arg = argc > 0 ? argv[0] : "tui_pty_test";
@@ -4168,6 +4387,10 @@ int main(int argc, char** argv) {
     multiline_composer_grows_and_falls_back_to_single_line();
     get_config_paths_prints_the_resolved_layout();
     get_logs_reports_the_policy_and_the_totals();
+    profile_commands_switch_the_connection_and_mask_the_key();
+    profile_switch_queues_while_a_turn_is_running();
+    profile_migration_does_not_persist_the_environment();
+    project_profile_file_switches_at_startup();
     set_logs_retention_round_trips();
     set_logs_prune_removes_an_out_of_bounds_transcript();
     context_gauge_stays_visible_when_the_window_is_unknown();
