@@ -1016,9 +1016,14 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
         tui.pump(250);
         tui.send("\x07");
         tui.pump(300);
+        const size_t close_mark = tui.raw.size();
         tui.send("/window close");
         tui.pump(250);
         tui.send("\x07");
+        if (!require(wait_since(tui, close_mark, "Close ", 4000),
+                     "closing a leftover tab did not ask for confirmation", tui))
+            return;
+        tui.send("y");
         tui.pump(500);
         const int next = count - 1;
         if (!require(wait_for_window_list(tui, 0, next), "a leftover tab did not close", tui))

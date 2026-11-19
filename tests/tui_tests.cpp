@@ -2340,6 +2340,46 @@ TEST(windowops_switch_allowed_while_busy) {
     ASSERT_EQ(port.on_switch_calls, 1);
 }
 
+TEST(windowops_can_close_rejects_the_last_window) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    MockWindowOpsPort port;
+    tui::WindowOps ops(wm, port);
+    const auto r = ops.can_close();
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(r.msg, std::string("cannot close the last window"));
+}
+
+TEST(windowops_can_close_rejects_a_busy_active_window) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    wm.open_welcome_window(); // active = 1
+    MockWindowOpsPort port;
+    port.busy = {1};
+    tui::WindowOps ops(wm, port);
+    const auto r = ops.can_close();
+    ASSERT_FALSE(r.ok);
+    ASSERT_EQ(r.msg, std::string("cannot close window while its agent is running"));
+}
+
+TEST(windowops_can_close_accepts_an_idle_second_window) {
+    agent::Config cfg;
+    agent::ToolRegistry reg;
+    tui::WindowManager wm(cfg, reg);
+    wm.open_welcome_window();
+    wm.open_welcome_window();
+    MockWindowOpsPort port;
+    tui::WindowOps ops(wm, port);
+    const auto r = ops.can_close();
+    ASSERT_TRUE(r.ok);
+    ASSERT_EQ(wm.count(), (size_t)2);
+    ASSERT_EQ(port.on_close_calls, 0);
+}
+
 TEST(windowops_close_busy_window_rejected) {
     // Closing the window whose agent is mid-run is rejected; sibling
     // windows running must not matter — only the target's busy flag.

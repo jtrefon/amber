@@ -26,6 +26,10 @@ public:
     WindowOps(WindowManager& wm, WindowOpsPort& port);
     WindowOpResult switch_to(size_t idx);
     WindowOpResult new_window(const std::string& title);
+    // Whether the active window can close now: a second window exists and its
+    // agent is idle. The host asks before prompting, so a rejected close does
+    // not show a confirmation for an action that cannot happen.
+    WindowOpResult can_close() const;
     WindowOpResult close_window();
     std::string list_windows() const;
     WindowOpResult rename_window(const std::string& name);

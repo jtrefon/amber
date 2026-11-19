@@ -46,12 +46,15 @@ struct Span {
 
 // One clickable tab in the painted rail. `start` is the column of the opening
 // cap; `width` covers the whole capped label, so a click anywhere on the tab
-// selects it.
+// selects it. `close_start`/`close_width` cover the padded close control: the
+// space on either side of the `×` is part of the target, not a dead column at
+// the tab edge.
 struct TabHit {
     std::size_t id = 0;
     int start = 0;
     int width = 0;
     int close_start = 0;
+    int close_width = 0;
 };
 
 struct Layout {
