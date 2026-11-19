@@ -311,6 +311,60 @@ void journey_background_tab_keeps_its_result(const std::string& binary) {
     journey.finish("background-tab");
 }
 
+// #621: switching tabs while an agent is still working must leave the UI
+// live. No mouse input is sent anywhere in this journey: if a wheel tick is
+// what restarts rendering, the prompt echo below never arrives.
+void journey_tab_switch_stays_live(const std::string& binary) {
+    Journey journey;
+    bench::EndpointReply slow = answer("SWITCH-TAB-DONE");
+    slow.delay_ms = 4000;
+    if (!require(journey.start(binary, "tab-switch-live", {slow}), "the TUI did not start",
+                 journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+
+    journey.tui.send("\x0e"); // Ctrl+N: a second session tab, no drawer left open
+    if (!require(journey.tui.wait_for(" 2 chat   \u00d7", 8000), "Ctrl+N did not add a tab",
+                 journey.tui))
+        return;
+    journey.tui.send("Run the slow task. SWITCH-TAB\r");
+    if (!require(journey.tui.wait_for("> Run the slow task", 8000), "the prompt was not submitted",
+                 journey.tui))
+        return;
+
+    // The endpoint is still sleeping: switch away by clicking the first tab,
+    // exactly the path in the report. xterm's SGR mouse mode is enabled by the
+    // app; a press and a release are both required.
+    if (!require(journey.tui.raw.find("\x1b[?1006") != std::string::npos,
+                 "the app never enabled SGR mouse reporting", journey.tui))
+        return;
+    journey.tui.send("\x1b[<0;5;1M"); // SGR columns are 1-based: x=4
+    journey.tui.send("\x1b[<0;5;1m");
+    journey.tui.pump(500);
+    const size_t list_mark = journey.tui.raw.size();
+    journey.tui.send("/window list");
+    journey.tui.pump(250);
+    journey.tui.send("\x07");
+    journey.tui.pump(500);
+    if (!require(agent::test::pty::text_since(journey.tui, list_mark).find("1:amber*") !=
+                     std::string::npos,
+                 "clicking the tab did not switch sessions", journey.tui))
+        return;
+    journey.tui.send("liveness-probe");
+    if (!require(journey.tui.wait_for("liveness-probe", 6000),
+                 "the UI stopped accepting input after the tab switch", journey.tui))
+        return;
+    journey.tui.send("\x07"); // drop the probe before issuing another command
+
+    journey.tui.send("/window set 2\r");
+    if (!require(journey.tui.wait_for("SWITCH-TAB-DONE", 10000),
+                 "the in-flight result was lost across the switch", journey.tui))
+        return;
+    journey.finish("tab-switch-live");
+}
+
 void journey_restart_resumes_session(const std::string& binary) {
     const std::string root = agent::test::pty::make_isolated_root();
     if (!require_setup(!root.empty(), "the isolated root was not created"))
@@ -765,6 +819,8 @@ int main(int argc, char** argv) {
         journey_cancel_slow_tool(binary);
     if (!only || std::string(only) == "tab")
         journey_background_tab_keeps_its_result(binary);
+    if (!only || std::string(only) == "switch")
+        journey_tab_switch_stays_live(binary);
     if (!only || std::string(only) == "restart")
         journey_restart_resumes_session(binary);
     if (!only || std::string(only) == "subagent")

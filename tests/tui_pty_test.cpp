@@ -2343,8 +2343,8 @@ TEST(shift_tab_cycles_the_agent_mode) {
         return;
 
     tui.send("/get policy mode\r");
-    require(tui.wait_for("policy mode: write", 8000),
-            "the cycled mode did not reach the agent", tui);
+    require(tui.wait_for("policy mode: write", 8000), "the cycled mode did not reach the agent",
+            tui);
 }
 
 // ── diagnostics are opt-in, and toggling them shows where they land ──
