@@ -285,7 +285,7 @@ const std::vector<SkillKeyDoc>& skill_key_table() {
 }
 
 std::string source_state(bool answered, bool cached, long long fetched_at_ms,
-                         const agent::IndexFailure& error, long long now_ms) {
+                         const agent::IndexFailure& error, long long now_ms, bool authenticated) {
     if (!answered)
         return "idle";
     const std::string age = fetched_at_ms > 0 && now_ms > fetched_at_ms
@@ -300,7 +300,7 @@ std::string source_state(bool answered, bool cached, long long fetched_at_ms,
     }
     switch (error.kind) {
     case agent::IndexError::None:
-        return "live";
+        return authenticated ? "live+" : "live";
     case agent::IndexError::Disabled:
         return "disabled";
     case agent::IndexError::Offline:

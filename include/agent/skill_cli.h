@@ -66,6 +66,8 @@ struct InstalledPackage {
 // verb and the explorer's `/skills sources`.
 struct SkillSources {
     std::string index_base;
+    bool index_authenticated = false;
+    std::string token_env;
     std::string github_api;
     std::string github_raw;
     std::string cache_dir;

@@ -192,6 +192,11 @@ public:
                                       const CancellationToken& cancel) const;
 
     virtual std::vector<SourceStatus> sources() const = 0;
+
+    // One line about a degraded source that still answers (a rejected token
+    // falling back to the anonymous search). Empty when there is nothing to
+    // say. The UI shows it once, not per keystroke.
+    virtual std::string status_note() const { return {}; }
 };
 
 // RFC 3986 component encoding, uppercase hex. Shared by the adapters so the
@@ -293,7 +298,8 @@ private:
 class SkillsShTokenIndex final : public SkillIndex {
 public:
     SkillsShTokenIndex(std::shared_ptr<SkillIndex> anonymous, std::shared_ptr<SkillIndex> v1,
-                       std::shared_ptr<SkillIndex> body);
+                       std::shared_ptr<SkillIndex> body,
+                       std::string token_label = "SKILLS_SH_TOKEN");
 
     IndexResult search(const std::string& query, int limit,
                        const CancellationToken& cancel) const override;
@@ -307,13 +313,14 @@ public:
     // otherwise. Reading it does not clear the state: the UI shows the note
     // when it changes, and every later search still knows the token is dead.
     std::string rejection_note() const;
+    std::string status_note() const override { return rejection_note(); }
 
 private:
     bool token_rejected() const;
     std::shared_ptr<SkillIndex> anonymous_;
     std::shared_ptr<SkillIndex> v1_;
     std::shared_ptr<SkillIndex> body_;
-    SkillIndexOptions opts_;
+    std::string token_label_;
     mutable std::mutex note_mutex_;
     mutable bool rejected_ = false;
 };

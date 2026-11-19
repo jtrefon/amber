@@ -821,7 +821,8 @@ TEST(skill_v1_detail_prefers_hash_and_audit_keeps_body) {
     ASSERT_EQ(res.detail->description, std::string("v1 description"));
     ASSERT(res.detail->audit == agent::AuditVerdict::Pass);
 
-    // A v1 detail without an audit asks the audit endpoint once.
+    // A v1 metadata source that supplies no verdict leaves the body's
+    // NotAudited in place (the adapter's own audit fetch is covered below).
     auto plain = std::make_shared<StubIndex>();
     plain->on_detail = [](const agent::SkillRef& ref) {
         agent::SkillDetail d;
@@ -870,6 +871,7 @@ TEST(skill_v1_rate_budget_is_shared_with_search) {
     opts.budget = std::make_shared<agent::RateBudget>(1);
     opts.now_ms = [] { return 1000LL; };
     opts.retry_delay_ms = 0;
+    opts.cache_root = "/tmp/amber_skill_v1_budget";
     opts.http = http.fn();
     const auto index = agent::make_skills_sh_index(opts);
     const auto res = index->search("tdd", 20, {});

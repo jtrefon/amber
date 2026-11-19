@@ -787,7 +787,9 @@ namespace {
 
 std::vector<std::string> skill_sources_lines() {
     const agent::SkillSources sources = agent::skill_sources(false);
-    return {"index       " + sources.index_base + " (unauthenticated search)",
+    return {"index       " + sources.index_base +
+                (sources.index_authenticated ? " (v1 via " + sources.token_env + ")"
+                                             : " (unauthenticated search)"),
             "github api  " + sources.github_api, "github raw  " + sources.github_raw,
             "cache       " + sources.cache_dir + " (" + sources.cache_summary + ")"};
 }
