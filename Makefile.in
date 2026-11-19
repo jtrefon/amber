@@ -373,6 +373,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/compression_controller_test.o \
                $(BUILD_DIR)/tests/loop_guard_test.o \
                $(BUILD_DIR)/tests/checkpoint_test.o \
+               $(BUILD_DIR)/tests/profiles_test.o \
                $(BUILD_DIR)/tests/agent_ports_test.o \
                $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
