@@ -252,6 +252,19 @@ TEST(profile_store_failures_are_reported_not_thrown) {
     ASSERT(error.find("could not remove") != std::string::npos);
 }
 
+TEST(profile_write_failure_is_reported) {
+    agent::test::XdgGuard guard("profiles_write_fail");
+    ASSERT_TRUE(agent::save_profile(sample("first"))); // creates the profiles directory
+    // A non-empty directory where the profile file belongs makes the atomic
+    // rename fail; the command reports it instead of throwing.
+    std::error_code ec;
+    fs::create_directories(agent::profile_path("stuck"), ec);
+    ASSERT_TRUE(write_text(agent::profile_path("stuck") + "/keep", "x"));
+    std::string error;
+    ASSERT_FALSE(agent::save_profile(sample("stuck"), &error));
+    ASSERT(error.find("cannot write") != std::string::npos);
+}
+
 TEST(profile_default_migrates_from_the_current_config_once) {
     agent::test::XdgGuard guard("profiles_migrate");
     agent::Config cfg;
