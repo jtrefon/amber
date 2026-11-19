@@ -4275,7 +4275,8 @@ TEST(profile_lifecycle_commands_answer_every_edge) {
         return;
     mark = tui.raw.size();
     tui.send("/profile add ghost\r");
-    if (!require(tui.wait_for("New profile ghost", 10000), "the add form did not open", tui))
+    if (!require(wait_since(tui, mark, "New profile ghost", 10000), "the add form did not open",
+                 tui))
         return;
     tui.send("\x1b"); // cancel the form: nothing is created
     tui.pump(400);
