@@ -43,6 +43,32 @@ CI runs the same steps on `g++` and `clang++`. `make verify-quick` is the
 command that catches the size, hygiene, format, lint, complexity and
 documentation gates before a push; `make verify` is the full local mirror.
 
+## Deterministic evaluation
+
+Correctness is gated without a live model. The layers and their specs:
+
+| Layer | Spec | Local command |
+|---|---|---|
+| Hermetic scenarios | [`docs/spec/benchmark/corpus.md`](docs/spec/benchmark/corpus.md) | `make bench-check` |
+| Policy simulation | [`agent-simulation.md`](docs/spec/benchmark/agent-simulation.md) | `make policy-matrix-check` |
+| Trace replay | [`trace-replay.md`](docs/spec/benchmark/trace-replay.md) | `make trace-check` |
+| CLI journeys | [`tui/e2e-testing.md`](docs/spec/tui/e2e-testing.md) | `make agent-e2e-check` |
+| TUI journeys | [`tui/e2e-testing.md`](docs/spec/tui/e2e-testing.md) | `make tui-agent-e2e` |
+| Long-horizon repositories | [`bench/scenarios/repo-long/README.md`](bench/scenarios/repo-long/README.md) | `make long-horizon-check` |
+| Faults / seeded fuzz | [`agent-simulation.md`](docs/spec/benchmark/agent-simulation.md) | `./bench_test agent_`, `make fuzz-run` |
+
+`make agent-eval` runs the CLI, policy, trace and long-horizon baselines;
+`make preflight` adds the TUI journeys and the `WERROR=1` build under both
+compilers. The committed baselines live in `bench/results/`; a token, call or
+wall regression is a red gate, so regenerate a baseline only after review and
+say why in the PR.
+
+**Red first.** A new scenario, policy, trace or journey starts by failing for
+the missing behaviour; the red commit is the evidence. Then implement the
+smallest harness/engine change, make it green, and refactor. A journey that
+cannot be written is a harness gap, not a reason to skip the test. The specs
+carry a "how to add" section with the file layout and the commands.
+
 ## Coding style
 
 - Follow the existing style; a `.clang-format` is provided. Run

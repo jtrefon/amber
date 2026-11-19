@@ -3,9 +3,10 @@
 **What this is**: a KPI record of the *amber harness* — how well the agent
 loop, tool schemas and prompts drive each model to the correct solution. This
 is a harness score, not a model leaderboard: every scenario runs through the
-same engine, and the score measures the harness+model pair over 31 scenarios
-across 6 suites (agent failures, terminal work, tool selection, prompt
-adherence, coding, refactoring).
+same engine. The current corpus is described in
+`docs/spec/benchmark/corpus.md`; the deterministic layers and their gates are
+below. The live-model numbers in the historical sections are from the corpus
+sizes stated with them, not the current corpus.
 
 **Model loading (single GPU — one model at a time).** The machine has one
 GPU; never run two servers, never test with reasoning off (MoE models need
@@ -54,6 +55,38 @@ is reaped with `make bench-reap` (dry run) or `make bench-reap-apply`.
 > land in a ~900-910 band — differences within it are single-run variance,
 > not model ranking; use `--repeat N` for statistically meaningful deltas.
 
+## Deterministic evaluation (current)
+
+CI never calls a live model for correctness. The deterministic layers are the
+regression gates; the live profile runs stay manual:
+
+| Layer | Gate | What it pins |
+|---|---|---|
+| Hermetic scenarios | `make bench-check` | the harness's tokens, tool calls and wall ceiling on every scenario with a script or policy; a new failing scenario is red |
+| Policy simulation | `make policy-matrix-check` | the policy zoo's point expectations and the best-vs-worst score gap |
+| Trace replay | `make trace-check` | every committed provider fixture through `TraceResponder`, plus one real-client scenario |
+| CLI journeys | `make agent-e2e-check` | 18 journeys through `amber-cli`: final answer, exit, workspace, usage, tool statuses, request contract |
+| TUI journeys | `make tui-agent-e2e` | 13 journeys through the real binary on a pty |
+| Long-horizon repositories | `make long-horizon-check` | five multi-module changes with hidden tests and a real `make test` |
+| Faults and fuzzing | `./bench_test agent_fault_matrix_*`, `make fuzz-run` | the endpoint/loop fault matrix, the 1,000-sequence policy fuzz and the libFuzzer targets |
+
+`make agent-eval` runs the CLI, policy, trace and long-horizon baselines: the
+same four targets the `agent-e2e` CI job runs. `make preflight` adds the TUI journeys and
+the dual-compiler build. The committed baselines are
+`bench/results/agent-e2e-baseline.json`,
+`bench/results/policy-matrix-baseline.json`,
+`bench/results/long-horizon-baseline.json` and the trace corpus under
+`bench/traces/`. At the time of writing the corpus is 86 scenario files in 22
+suites; 68 carry a hermetic script, policy or trace; the remaining live-only
+scenarios (headroom, loop-live, repo, shaping and part of the review suites)
+need a live model and are not correctness gates.
+
+The policy/fake clients produce deterministic prompts, so a token or call
+change is a harness change. A live-model prompt or model change is proved by a
+manual run (`make bench-release-check VERSION=<x.y.z>` for a release, or the
+profile commands above); a green hermetic run is not evidence about model
+behaviour.
+
 ## Release gate (0.8+): a committed live baseline, or no release
 
 `make bench-release-check VERSION=<x.y.z>` requires a live artifact under
@@ -66,8 +99,8 @@ skip via `CHANGED_PATHS`; the release workflow computes that list from the
 previous tag. The gate tests live in `tests/gates/test_bench_release_check.py`.
 
 **Status 2026-11-09: 0.8.9 is green on the cloud minimum.**
-`bench/results/releases/0.8.9/cloud-deepseek-chat-r3.json` is a live, repeat-3,
-51-scenario run on `deepseek-chat`: **675.9/1000** (95% CI ±11.3), 37 passed,
+`bench/results/releases/0.8.9/cloud-deepseek-chat-r3.json` is a historical
+live, repeat-3, 51-scenario run (the then-current corpus) on `deepseek-chat`: **675.9/1000** (95% CI ±11.3), 37 passed,
 **+18.0** against 0.8.8 (657.9/1000, ±16.1). The fixed local `llama-turboq`
 service was inactive and is inviolate, so the release records one configured
 cloud profile as its live minimum; the local fixed profile remains the
@@ -82,8 +115,8 @@ the sections below; they are not claimed as validated live.
 
 ## Baseline review (2026-08-11): the first live v2 calibration run
 
-First real run under v2 scoring (difficulty-weighted aggregate over 43
-scenarios / 10 suites, incl. the quality-perception and headroom tiers).
+First real run under v2 scoring (a historical 43-scenario / 10-suite corpus,
+including the quality-perception and headroom tiers).
 Records: `bench/results/qwen36-27b-baseline.json` (3× repeats, CI ±19.2),
 `/tmp/opencode/baseline-fixed.json`. The run earned its keep immediately —
 it surfaced three harness defects (all fixed, PR #52) and two model
@@ -133,7 +166,7 @@ the discrimination weights need a 2-model population to become live.
 
 | metric | value |
 |---|---|
-| model score (v2, 43 scenarios) | 769.1/1000 |
+| model score (v2, historical 43-scenario corpus) | 769.1/1000 |
 | pass rate | 39/43 |
 | 95% CI (3 repeats) | ±19.2 |
 | anchor deviation | +269 (vs 500) |
@@ -175,13 +208,13 @@ Record: `bench/results/qwopus-baseline-v3.json`.
 
 | metric | value |
 |---|---|
-| model score (v2, 43 scenarios) | 821.6/1000 |
+| model score (v2, historical 43-scenario corpus) | 821.6/1000 |
 | pass rate | 41/43 |
 | anchor deviation | +321 (vs 500) |
 | headroom | 178 |
 
 **vs the v2 baseline: +52.5 pts, +2 scenarios** (769.1 → 821.6, 39/43 →
-41/43). Biggest gains: h-02 +42 (stale-oracle artifact resolved — the 27B
+41/43, historical corpus). Biggest gains: h-02 +42 (stale-oracle artifact resolved — the 27B
 renamed correctly all along), p-05 +40 (blank-line adherence now exact),
 c-04 +33, c-02 +22. The only remaining failures are the two clean-code
 controls (arch-02, clean-02) — the over-criticism precision flaw is now the
@@ -193,16 +226,21 @@ The record carries the full new telemetry per scenario: `tool_details`
 `replan_adapted`, `dependency_violation`, `breakout_latency`,
 `steer_effective`, `calls_per_step_mean/p95`.
 
-**Harness floor (hermetic)**: `bench/results/harness-baseline-v1.json` —
-34/34 probes, integrity 1.0 across 12 families. This is the regression
-gate: any harness change that dips a family below 1.0 is a red build.
+**Harness floor (hermetic)**: the current probe set is **42/42**, integrity
+1.0 across its families; `make bench-check` prints the count. The historical
+`bench/results/harness-baseline-v1.json` records the earlier 34/34 set. This
+is the regression gate: any harness change that dips a family below 1.0 is a
+red build.
 
 ## Hermetic efficiency gate (CI)
 
-`make bench-check` runs the 43 scenarios that carry a `fake_replies` script
-and their declared variant cells (46 cells today) with
+`make bench-check` runs every scenario that carries a `fake_replies` script or
+a `policy` (and their declared variant cells) with
 `amber-bench run --cat both --matrix`, then compares every cell with
-`bench/results/harness-efficiency-baseline.json`:
+`bench/results/harness-efficiency-baseline.json`. The committed baseline holds
+46 cells; the current corpus adds 25 additive cells, reported separately (a new
+scenario that fails is already a regression; its token/call/wall axes become
+gating in a reviewed baseline update):
 
 - **prompt + completion tokens**: fail above +10%;
 - **executed tool calls**: fail above +10%;
@@ -210,9 +248,9 @@ and their declared variant cells (46 cells today) with
   regression; a new scenario that fails is also a regression, not a note;
 - **corpus floor**: a report below 30 scenarios fails closed, because a gate
   that measured less than it claims must not report a pass;
-- **wall time**: reported, and failed above a 2x + 500 ms ceiling. Wall time is
-  machine- and load-dependent even with a fake LLM, so this is a pathology
-  ceiling, not a precise budget; tokens and calls are the real gate.
+- **wall time**: reported, and failed above `max(2x + 500 ms, baseline + 2000 ms)`.
+  Wall time is machine- and load-dependent even with a fake LLM, so this is a
+  pathology ceiling, not a precise budget; tokens and calls are the real gate.
 
 The report is uploaded as the `bench-efficiency` CI artefact and the table is
 appended to the run page. A regression can be allowed for one PR with

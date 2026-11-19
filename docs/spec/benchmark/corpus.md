@@ -1,6 +1,6 @@
 # Spec: Benchmark Corpus (scenario taxonomy)
 
-Status: **Full-scope proposal — awaiting approval**
+Status: **implemented (#628); the deterministic layers are gated.**
 Companion: `benchmark/kpi-framework.md` (harness), `benchmark/kpi-catalog.md`
 (KPIs), `benchmark/hermetic-corpus.md` (hermetic corpus and publishing).
 
@@ -14,34 +14,50 @@ model-library strategy.
 
 ## Suites
 
-19 scenario suites on disk: agent-failures, coding, compression, delegate,
-headroom, loop-live, multi-turn, prompt, refactor, repo, shaping, terminal,
-tools plus the six review-* suites (quality perception: arch, refactor, quality,
-datastructures, patterns, clean). 61 scenarios total at the time of writing, 43
-hermetic and 18 live-only; the review suites are phased (Phase A = 2 per
-category, Phase B target = 5 per category). `skills` and `mcp` remain planned
-suites with no scenarios yet. The hermetic corpus and its publishing contract
-are specified in `benchmark/hermetic-corpus.md`.
+Status: implemented (#628). The corpus has **22 suites / 86 scenario files**;
+68 carry a deterministic script, policy or trace and 18 are live-only
+(`headroom`, `loop-live`, `repo`, `shaping` and the
+`review-datastructures`/`patterns`/`quality` suites). The deterministic layers
+are specified in `benchmark/agent-simulation.md`, `benchmark/trace-replay.md`
+and `../tui/e2e-testing.md`; the gates print their own counts.
 
-## Suites
+```sh
+find bench/scenarios -mindepth 2 -maxdepth 2 -name '*.json' | wc -l  # 86
+make bench-check        # the hermetic cells; the baseline + additive counts
+make agent-e2e-check    # 18 CLI journeys against the committed baseline
+make long-horizon-check # 5 repository journeys
+```
 
-| Suite | Measures | Mode | Starter (P1) |
-|-------|----------|------|--------------|
-| `agent-failures` | Robustness vs typical agent failure modes: redundant calls, mistakes, dropouts, repeated executions | hermetic + live | 4 |
-| `terminal` | Real shell work with predefined outcomes; cross-platform (linux + darwin) commands | hermetic + live | 3 |
-| `tools` | Right tool for the job — prompt strength for advertised tools | hermetic + live | 4 |
-| `prompt` | System-prompt adherence: envelope format, banned-tool refusal, verify-after-action | hermetic + live | 3 |
-| `multi-turn` | Follow-ups, context carry and recovery across two user requests | hermetic | 3 |
-| `coding` | Algorithm/interview tasks via static templates (hidden tests) | hermetic + live (template engine) | 2 |
-| `refactor` | Design-quality tasks: polymorphism, decoupling, adapter/proxy, complexity reduction — behavior-equivalence + structure checks | hermetic + live (template engine) | 2 |
-| `skills` | Skills catalog selection + step adherence | live | 2 (P2) |
-| `mcp` | MCP stub server: tool args, tool correctness | live (stub infra) | 2 (P2) |
-| `compression` | Long-context correctness under the compression gate | hermetic | 2 (P2) |
+| Suite | Measures | Mode | Files |
+|-------|----------|------|------:|
+| `agent-failures` | robustness against typical agent failure modes | deterministic | 6 |
+| `terminal` | real shell work with predefined outcomes | deterministic | 6 |
+| `tools` | the right tool for the job | deterministic | 6 |
+| `prompt` | system-prompt adherence | deterministic | 5 |
+| `multi-turn` | follow-ups and context carry across user turns | deterministic (turn scripts) | 3 |
+| `coding` | algorithm/interview tasks via static templates | deterministic | 5 |
+| `refactor` | design quality via behavior-equivalence + structure checks | deterministic | 4 |
+| `compression` | long-context correctness under the compression gate | deterministic | 1 |
+| `delegate` | sub-agent delegation and owner reports | deterministic | 1 |
+| `policy` | policy-zoo discrimination on the `zoo` scenario | deterministic | 2 |
+| `e2e` | CLI journeys: approval, cancel, session, subagent, skill, MCP, plugin, provider, compression | deterministic + real binary | 18 |
+| `repo-long` | multi-module repository changes with hidden tests | deterministic | 5 |
+| `review-arch`, `review-clean`, `review-refactor` | quality perception controls | deterministic | 2 each |
+| `review-datastructures`, `review-patterns`, `review-quality` | quality perception tiers | live-only | 2 each |
+| `headroom`, `loop-live`, `repo`, `shaping` | live headroom/loop/repository/shaping | live-only | 2 / 6 / 2 / 2 |
 
 Platform rule: every scenario declares `platforms` (`linux`, `darwin`, or
-both). Runner skips unsupported hosts — terminal scenarios must only use
-commands present on both OSes (POSIX coreutils + `g++`/`clang++` where noted);
-OS-specific facts are expressed as expectations, not hardcoded outputs.
+both). The runner skips unsupported hosts; terminal scenarios use commands
+present on both.
+
+The per-suite tables below name the families and their intent; the current file
+set is `bench/scenarios/<suite>`, and the count in the table above is the
+source of truth.
+
+The skills, MCP, plugin and provider surfaces are covered by the `e2e`
+journeys (`e2e-skill-*`, `e2e-mcp-*`, `e2e-plugin-*`,
+`e2e-provider-*`) and the TUI journeys rather than separate P2 suites; the
+scenario workspace supplies the skill/MCP/plugin fixtures.
 
 ---
 
@@ -119,26 +135,25 @@ agent's artifact with byte-identical outputs — the refactor must change
 | r-05 | `complexity-reduction` | Reduce cyclomatic complexity of a nested branch maze | `static_analysis_findings` (cppcheck/clang-tidy on artifact) + behavior-equivalence |
 | r-06 | `interface-decoupling` | Replace concrete dependency with an abstraction (DIP) | must_contain interface; hidden tests inject a fake impl |
 
-## `skills`, `mcp`, `compression` (P2)
+## Reproducing the counts
 
-- `skills`: s-01 catalog selection (right skill picked), s-02 step adherence
-  (skill's steps followed in order). Needs the skills environment set up in
-  the scenario workspace.
-- `mcp`: m-01 stub-server tool called with correct args, m-02 stub failure
-  surfaces as tool error and agent recovers. Needs a stub MCP server binary in
-  the test harness (P2 infra).
-- `compression`: k-01 correctness survives the compression gate mid-task,
-  k-02 compression does not fire too early (cooldown respected). Hermetic only
-  (needs scripted context growth).
-
-## P1 scope (first PR)
-
-Suites seeded: `agent-failures` (f-01, f-02, f-03, f-04, f-06, f-07),
-`terminal` (t-01..t-06), `tools` (t-01..t-04, t-06), `prompt` (p-01..p-03,
-p-05, p-06), `coding` (c-01..c-05: fizzbuzz, sorting, ring-buffer, lcs, bfs),
-`refactor` (r-01..r-04: extract-method, polymorphism, adapter, strategy).
-31 scenarios + 9 template dirs, each with difficulty (1-5) and expected_steps.
+`find bench/scenarios -mindepth 2 -maxdepth 2 -name '*.json'` counts scenario
+files (template `checks.json` and the long-horizon template dirs are not
+scenarios). `make bench-check` prints the hermetic cell count and its additive
+cells; `make agent-e2e-check` prints the CLI journey count; `make
+long-horizon-check` prints the repository journey count; `make trace-check`
+prints the trace corpus test count; `make policy-matrix-check` prints the zoo
+scenario count. A healthy change updates the **gate baselines**, not this table;
+the table is the taxonomy, and the commands above are the source of truth.
 
 Growth rule: new scenarios must score on objective oracles/templates only —
 if a metric needs human judgment, it does not get a scenario until a template
-makes it objective.
+makes it objective. A new deterministic scenario is additive in `bench-check`;
+a new CLI journey is red until the baseline is regenerated after review.
+
+## Historical P1 scope
+
+The original P1 scope seeded `agent-failures` (f-01..f-07), `terminal`
+(t-01..t-06), `tools` (t-01..t-06), `prompt` (p-01..p-06), `coding` (c-01..c-05)
+and `refactor` (r-01..r-06). Those counts are history; the table above is the
+current corpus.

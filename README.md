@@ -91,6 +91,11 @@ Run:
   ./amber-cli --help
   ./amber-bench run        # hermetic benchmark corpus (no model needed)
   ./amber-bench run --live # benchmark against your configured model
+  make agent-eval          # CLI journeys, policy matrix, trace and long-horizon baselines
+  make tui-agent-e2e       # the TUI agent journeys (real binary on a pty)
+  make trace-check         # replay every committed provider trace
+  make long-horizon-check  # multi-module repository journeys with hidden tests
+  make fuzz-run            # libFuzzer targets (needs a clang with libFuzzer)
   ./amber-bench report bench/results/*.json --format markdown
                            # render the published KPI report (see BENCHMARK.md)
 
@@ -100,6 +105,19 @@ Run:
   --wait-tasks N to wait up to N seconds for background commands and watches;
   a completion brings one follow-up turn, and a task still running at the
   deadline exits 3 with its record persisted.
+
+Deterministic evaluation (no live model):
+  Correctness is gated by hermetic scenarios (`make bench-check`), the policy
+  zoo (`make policy-matrix-check`), provider trace replay (`make trace-check`),
+  CLI journeys (`make agent-e2e-check`), the TUI pty journeys
+  (`make tui-agent-e2e`), long-horizon repository changes
+  (`make long-horizon-check`), and the fault/seeded-fuzz matrix. `make
+  agent-eval` is the local umbrella for the same four targets the `agent-e2e`
+  CI job runs; `make preflight` adds the TUI journeys and the
+  dual-compiler build. Contracts: docs/spec/benchmark/corpus.md,
+  docs/spec/benchmark/agent-simulation.md,
+  docs/spec/benchmark/trace-replay.md, docs/spec/tui/e2e-testing.md. The
+  live-model runs in BENCHMARK.md are manual; CI never calls a model.
 
 Streaming:
   The LLM client supports OpenAI-compatible SSE streaming; token deltas are

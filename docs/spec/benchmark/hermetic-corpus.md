@@ -1,13 +1,39 @@
 # Spec: Hermetic benchmark corpus and publishing
 
-Status: **proposal — awaiting approval on the spec PR.**
+Status: **implemented; the deterministic layers are gated (#628).** The
+historical #596/#597 sections remain below as the record of how the corpus got
+here; they are not the current contract.
 
-Tracking: #596 (epic) and #597–#601 (children).
+Tracking: #596 (the corpus epic), #597–#601 (its children), #628 (deterministic
+agent evaluation).
 
 Companions: `benchmark/MISSION.md` (purpose and definitions of done),
 `benchmark/corpus.md` (scenario taxonomy), `benchmark/harness.md` (probe axis),
 `benchmark/kpi-framework.md` (runner and scoring), `benchmark/kpi-catalog.md`
 (the indicators).
+
+## Current contract (deterministic evaluation, #628)
+
+The corpus is no longer a proposal: the deterministic layers are the CI
+correctness gates and the live-model runs are manual.
+
+| Layer | Gate | Count at the time of writing |
+|---|---|---|
+| Hermetic scenarios | `make bench-check` | 68 deterministic scenario files; 46 baseline cells + 25 additive cells in the last report |
+| CLI journeys | `make agent-e2e-check` | 18 journeys |
+| TUI journeys | `make tui-agent-e2e` | 13 journeys |
+| Long-horizon repositories | `make long-horizon-check` | 5 journeys |
+| Policy matrix | `make policy-matrix-check` | 7 zoo policies on `zoo` |
+| Trace replay | `make trace-check` | 23 provider fixtures + one real-client scenario |
+| Faults/fuzz | `./bench_test agent_fault_matrix_*`, `make fuzz-run` | 20+ fault cases, 1,000 policy sequences, 5 fuzz targets |
+
+The current scenario-file and gate counts are printed by the commands; the
+table records the state of the #628 delivery. The live-only scenarios
+(`headroom`, `loop-live`, `repo`, `shaping`, and the
+`review-datastructures`/`patterns`/`quality` suites) need a live model and are
+not correctness gates. `docs/spec/benchmark/corpus.md` is the suite taxonomy;
+`../tui/e2e-testing.md` and `benchmark/trace-replay.md`/`agent-simulation.md` are
+the layer contracts.
 
 ## 1. Why this exists
 
@@ -46,7 +72,7 @@ add a second benchmark harness and does not change the engine.
 
 ## 2. Coverage
 
-### Before #597 (the gap)
+### Before #597 (the gap; historical)
 
 The eight hermetic scenarios were the recovery, compression and delegation
 cases. Everything else was live-only.
@@ -73,7 +99,7 @@ cases. Everything else was live-only.
 | loop-live | 6 | 0 | 6 |
 | **total** | **58** | **8** | **50** |
 
-### After #597 and #598
+### After #597 and #598 (historical)
 
 The deterministic suites now carry a scripted plan, and the multi-turn suite
 replays two user requests on one agent. The 18 remaining live-only scenarios

@@ -81,6 +81,7 @@ all layers (spec, implementation, strategy), prioritised by phase.
 | `tui/screen-host.md` | Full-window screens: `ScreenView`/`ScreenHost`, the shared frame + rows + search + footer painter, sessions, the Work board and plugin panels |
 | `tui/themes.md` | Four palettes (Amber, Modern, High contrast, Monochrome), glyph modes, reduced motion, `NO_COLOR`/colour-depth fallbacks and the gallery |
 | `tui/terminal-matrix.md` | Tested terminals, `make pty-matrix`, key caveats (Ctrl/Alt/F-keys), flicker and frame budget |
+| `tui/e2e-testing.md` | The pty harness (isolated roots, exit-ready, no SIGKILL), the TUI and CLI agent journeys, their baselines, and how to add either |
 | `tui/cache-gauge.md` | Prompt-cache reuse gauge: rolling window bounded by the provider TTL, token-weighting, cold/warm states, states, rounding and core telemetry seam |
 | `tui/chat-surface.md` | Chat surface: `TextCanvas` with cached wrapping, the full-frame `FramePainter`, one `doupdate()` and the final ncurses ratchet (only the terminal adapter) |
 | `tui/render-foundation.md` | Cell grid (`Cell`/`Surface`), a compositor with wide-glyph-safe clipping, semantic theme roles with 8/16/256/ASCII fallbacks, the glyph sets, component/focus/hit primitives, the gallery dev screen and the ncurses include ratchet |
@@ -220,5 +221,8 @@ all layers (spec, implementation, strategy), prioritised by phase.
 |------|--------|
 | `benchmark/MISSION.md` | The benchmark's mission and vision: why it exists, the dimensions map, the model-library strategy, definitions of done, the reference and baseline for the harness |
 | `benchmark/kpi-framework.md` | Harness architecture: scenario schema, runner lifecycle, static-template engine, hermetic fake, phasing |
-| `benchmark/corpus.md` | Scenario taxonomy: 9 suites, scenario ladder (agent failures, terminal, tools, prompt, coding, refactor, skills, mcp, compression), P1 scope |
+| `benchmark/corpus.md` | Scenario taxonomy: the 22 suites, the deterministic vs live-only split, the reproduction commands and the growth rule |
+| `benchmark/hermetic-corpus.md` | The hermetic corpus and its publishing contract; the historical #596 sections are labelled as history |
+| `benchmark/agent-simulation.md` | `Policy`/`PolicyClient`, the state-machine schema (`call`/`final`/`fail`, `when`, `on_error`), the policy zoo, the score-separation baseline, and how to add a policy |
+| `benchmark/trace-replay.md` | The provider trace schema, strict vs shape replay, `TraceResponder`'s fail-closed contract, the recorder's redaction/refusal rule, and how to add a fixture |
 | `benchmark/kpi-catalog.md` | Every measurable indicator: correctness, efficiency, robustness, resources, judgment-metric proxies |
