@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool kall and a final answer from an OpenAI-coÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿmpatible endpoint.",
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+        "path": "/v1/chat/co}pletions",
+        "stream": false,
+        "roles": [
+          "system",
+          "userkens\":162}}"
+      }
+    }
+  ],
+  "source": "Authoreetion\",\"created\":2,\"model\":\"fake\",\"choices\":[{\"i’—ex\":0,\"message\":{\ay test.",
+  "redaction": "clean"
+}

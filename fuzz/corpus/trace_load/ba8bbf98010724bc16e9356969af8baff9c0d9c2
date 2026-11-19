@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatible endpoint.",
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Yourame\":\"read\",\"arguments\":\"{\\R"path\\\":\\\"a.txt\\\"}\"}}]},\"finish_reasmn\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":12,\"total_tokens\":132}}"
+      }
+    },
+    {
+      "id": "final",
+      "match": {
+        "path": "/v0/chat/completions",
+        "stream": false,
+        "roles": [
+          "{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "ope{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final anlean","exchanges":[{"match":{"path"swer from an OpenAI-compatibl:"/v1/chat/completisyons","stream":true},"response":{"content_systetystem",
+ pe":"

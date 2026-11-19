@@ -174,6 +174,10 @@ void FaultClient::throw_fault(const Fault& fault) {
         throw agent::ApiError(429, true, "scripted 429");
     if (fault.kind == "http_500")
         throw agent::ApiError(500, true, "scripted 500");
+    if (fault.kind == "http_400")
+        throw agent::ApiError(400, false, "scripted 400");
+    if (fault.kind == "timeout")
+        throw agent::ApiError(0, true, "scripted timeout");
     if (fault.kind == "disconnect")
         throw agent::ApiError(0, true, "scripted disconnect");
     if (fault.kind == "malformed_json")

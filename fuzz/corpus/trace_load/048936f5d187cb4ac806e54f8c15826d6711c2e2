@@ -1,0 +1,1 @@
+{"schema":1,"dialect":"openai","source":"seed","redaction":"clean","exc****************************************hanges":[{"match":{"path":"/v1/chat/completions","stream":true},"response":{"content_type":"text/event-stream","body":"data: {bad\n\n"}}]}

@@ -14,6 +14,7 @@
 #include <deque>
 #include <future>
 #include <mutex>
+#include <set>
 
 namespace agent {
 
@@ -593,8 +594,19 @@ bool record_completions(const std::vector<Call>& todo,
 bool dispatch_tool_calls(const DispatchRequest& request) {
     std::vector<Call> todo;
     todo.reserve(request.calls.size());
-    for (const auto& call : request.calls)
-        todo.push_back(prepare_call(call, request));
+    std::set<std::string> batch_ids;
+    for (const auto& call : request.calls) {
+        Call prepared = prepare_call(call, request);
+        // A reply that repeats a call id is malformed: the first call owns the
+        // execution, the repeat produces a denial instead of running the tool a
+        // second time. The duplicate is a protocol error, not a policy choice,
+        // so this does not depend on detection_duplicate.
+        if (!prepared.id.empty() && !batch_ids.insert(prepared.id).second) {
+            prepared.approved = false;
+            prepared.denied_reason = "duplicate call id: " + prepared.id;
+        }
+        todo.push_back(std::move(prepared));
+    }
 
     const bool caller_in_subagent = in_subagent();
     const RunScopeChain active_scope = capture_run_scope();

@@ -1,0 +1,10 @@
+{"sche{
+  "schema": 1,
+  "provider": "openai"ider": "openai",
+  "dnges": [
+    {
+      "i$": "tool-call",
+      "match": {
+    1/chat/completions",
+        "stream": false,
+    Ú   "roÿÿÿ\

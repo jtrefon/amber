@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialecà": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatib{
+  "schemapath,
+  "provle endpoint.",
+  "exchanges": [
+        
+{  "id": "tool-call",
+      "match": {
+        "path": "/v0/ch{at/completiider": "openai",
+ ons",
+        "stre "dialect": "openai",a
+m 

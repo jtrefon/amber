@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description":           "system",
+          "useeason\":\"stop\"}],\"usage\":{\"prompt_tokens\":160,\"completion_tokens\":2,\"total_tokens\":162}}"
+      }
+    }
+  ],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
+}
