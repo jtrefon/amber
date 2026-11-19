@@ -1021,9 +1021,14 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
         tui.pump(250);
         tui.send("\x07");
         tui.pump(300);
+        const size_t close_mark = tui.raw.size();
         tui.send("/window close");
         tui.pump(250);
         tui.send("\x07");
+        if (!require(wait_since(tui, close_mark, "Close ", 4000),
+                     "closing a leftover tab did not ask for confirmation", tui))
+            return;
+        tui.send("y");
         tui.pump(500);
         const int next = count - 1;
         if (!require(wait_for_window_list(tui, 0, next), "a leftover tab did not close", tui))
@@ -1041,13 +1046,31 @@ TEST(shell_tab_click_switches_and_the_close_cell_closes) {
         return;
 
     // The rail is one row with no caps: margin, mark, two spaces, then
-    // " 1 pty-beta   ×" (15 columns from x=4). Tab 2 ("chat") starts at 19 and is
-    // 11 wide, so its close cell is at 19 + 11 - 1 = 29.
+    // " 1 pty-beta   × " (16 columns from x=4, now with a trailing pad). Tab 2
+    // ("chat") starts at 20 and is 12 wide: its close target spans the left
+    // pad (29), the glyph (30) and the right pad (31).
     send_click(tui, sgr, 22, 0);
     if (!require(wait_for_window_list(tui, 2, 2), "clicking the second tab did not switch", tui))
         return;
+
+    // The right pad is part of the close target, and the click asks first.
+    size_t close_mark = tui.raw.size();
+    send_click(tui, sgr, 31, 0);
+    if (!require(wait_since(tui, close_mark, "Close session", 4000),
+                 "clicking the close pad did not ask for confirmation", tui))
+        return;
+    tui.send("\x1b"); // Cancel: the session stays open.
+    if (!require(wait_for_window_list(tui, 2, 2), "Esc closed the session anyway", tui))
+        return;
+
+    // The left pad is part of the same target; Yes closes it.
+    close_mark = tui.raw.size();
     send_click(tui, sgr, 29, 0);
-    require(wait_for_window_list(tui, 0, 1), "clicking the tab close cell did not close it", tui);
+    if (!require(wait_since(tui, close_mark, "Close session", 4000),
+                 "the left pad is not part of the close target", tui))
+        return;
+    tui.send("y");
+    require(wait_for_window_list(tui, 1, 1), "Yes did not close the session", tui);
 }
 
 // ── Down moves the selection; it must not cancel the browser ──

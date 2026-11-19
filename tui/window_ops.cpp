@@ -27,13 +27,20 @@ WindowOpResult WindowOps::new_window(const std::string& title) {
     return {true, ""};
 }
 
-WindowOpResult WindowOps::close_window() {
+WindowOpResult WindowOps::can_close() const {
     if (wm_.count() <= 1)
         return {false, "cannot close the last window"};
     // Only the window being closed gates the close: a running sibling's
     // agent keeps running regardless.
     if (port_.is_busy(wm_.active()))
         return {false, "cannot close window while its agent is running"};
+    return {true, ""};
+}
+
+WindowOpResult WindowOps::close_window() {
+    WindowOpResult ready = can_close();
+    if (!ready.ok)
+        return ready;
     port_.on_close();
     wm_.all().erase(wm_.all().begin() + wm_.active());
     if (wm_.active() >= wm_.count())

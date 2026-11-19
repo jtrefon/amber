@@ -12,6 +12,9 @@ namespace tui::top_bar {
 namespace {
 
 constexpr int kOverflowReserve = 6; // "‹+99›" with a margin
+// The close control: the space left of the glyph, the glyph, and the trailing
+// pad. A one-cell target at the tab edge was nearly impossible to hit.
+constexpr int kCloseTargetWidth = 3;
 
 std::string close_glyph(bool utf8) {
     return utf8 ? "\u00d7" : "x";
@@ -46,8 +49,9 @@ std::string tab_label(const Tab& tab, int index, int title_cols, bool utf8) {
         truncate_cols(tab.title.empty() ? "chat" : tab.title, title_cols, utf8);
     const std::string marker = attention_glyph(tab.running, tab.attention, utf8);
     // No caps on the sides: the leading space separates one tab from the next and
-    // the reverse-video block is what marks the active one.
-    return " " + std::to_string(index) + " " + title + " " + marker + " " + close_glyph(utf8);
+    // the reverse-video block is what marks the active one. The trailing space
+    // keeps the close glyph off the tab edge and is part of its hit target.
+    return " " + std::to_string(index) + " " + title + " " + marker + " " + close_glyph(utf8) + " ";
 }
 
 Role tab_role(const Tab& tab) {
@@ -114,7 +118,8 @@ void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels,
     int x = used;
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         out.spans.push_back({labels.text[i], tab_role(tabs[i])});
-        out.hits.push_back({tabs[i].id, x, labels.width[i], x + labels.width[i] - 1});
+        out.hits.push_back({tabs[i].id, x, labels.width[i], x + labels.width[i] - kCloseTargetWidth,
+                            kCloseTargetWidth});
         if (tabs[i].active) {
             out.active_start = x;
             out.active_width = labels.width[i];
@@ -202,7 +207,8 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
     int x = used;
     for (std::size_t idx : shown) {
         out.spans.push_back({labels.text[idx], tab_role(tabs[idx])});
-        out.hits.push_back({tabs[idx].id, x, labels.width[idx], x + labels.width[idx] - 1});
+        out.hits.push_back({tabs[idx].id, x, labels.width[idx],
+                            x + labels.width[idx] - kCloseTargetWidth, kCloseTargetWidth});
         if (idx == active) {
             out.active_start = x;
             out.active_width = labels.width[idx];
@@ -218,7 +224,7 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
 } // namespace
 
 int tab_width(int title_cols, int index) {
-    return 6 + index_digits(index) + std::max(0, title_cols);
+    return 7 + index_digits(index) + std::max(0, title_cols);
 }
 
 std::string app_mark(bool utf8) {

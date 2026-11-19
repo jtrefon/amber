@@ -455,14 +455,18 @@ void Tui::switch_to(size_t idx) {
 }
 
 void Tui::close_window() {
-    // A close while the agent is running is rejected by WindowOps and the queue
-    // survives; when the window is idle but still owns queued prompts (a narrow
-    // race after a cancel), confirm before the slot erase drops them.
-    const size_t queued = runs_.pending_count(win().id);
-    if (queued > 0 && !runs_.busy(win().id)) {
-        tui::ConfirmPanel confirm("Close window", std::to_string(queued) +
-                                                      " queued prompt(s) will be discarded. "
-                                                      "Close anyway?");
+    // A close is destructive: the window's session, its scrollback and any
+    // queued prompts go with it. Ask only when the close can happen, so a
+    // running agent or the last window reports its reason without a dialog.
+    // Resource viewers are read-only projections; closing one loses nothing.
+    const WindowOpResult ready = window_ops_->can_close();
+    if (ready.ok && win().kind == Window::Kind::Chat) {
+        const size_t queued = runs_.pending_count(win().id);
+        std::string message =
+            win().title.empty() ? "Close this session?" : "Close \"" + win().title + "\"?";
+        if (queued > 0)
+            message += " " + std::to_string(queued) + " queued prompt(s) will be discarded.";
+        tui::ConfirmPanel confirm("Close session", message);
         if (!confirm.run())
             return;
     }
