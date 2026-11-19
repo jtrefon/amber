@@ -254,8 +254,6 @@ IndexResult SkillsShV1Index::page(const std::string& url, int limit,
     const IndexFailure live = classify_http(response);
     if (live.kind != IndexError::None)
         return {std::nullopt, live};
-    if (!response)
-        return {std::nullopt, rejected("no response")};
     IndexResult parsed = parse_skills_v1_page(response->body, limit, false);
     if (parsed.ok())
         last_fetch_ms_ = now;
@@ -310,8 +308,6 @@ DetailResult SkillsShV1Index::fetch_detail(const SkillRef& ref,
     const IndexFailure live = classify_http(response);
     if (live.kind != IndexError::None)
         return {std::nullopt, live};
-    if (!response)
-        return {std::nullopt, rejected("no response")};
     DetailResult parsed = parse_skills_v1_detail(response->body, ref);
     if (!parsed.ok())
         return parsed;
