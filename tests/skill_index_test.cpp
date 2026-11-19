@@ -572,3 +572,347 @@ TEST(skill_index_429_carries_retry_after) {
     ASSERT_EQ(res.error.retry_after_s, 7);
     ASSERT_EQ(calls, 1); // a 429 is not retried inside the adapter
 }
+
+// --- Optional v1 half: the contract below is a fixture shape, because the
+// live v1 API answers 401 without a bearer a native client can mint. The body
+// shapes are the update point if the published schema changes.
+
+namespace {
+
+// Records every request and answers from a queue. A test that runs out of
+// answers gets a 500 with an empty body, which every parser rejects loudly.
+struct RecordingHttp {
+    std::vector<std::string> urls;
+    std::vector<std::string> bearers;
+    std::vector<agent::HttpResponse> answers;
+
+    agent::HttpGet fn() {
+        return [this](const std::string& url, const std::string& bearer, long,
+                      const agent::CancellationToken&) -> std::optional<agent::HttpResponse> {
+            urls.push_back(url);
+            bearers.push_back(bearer);
+            if (answers.empty()) {
+                agent::HttpResponse r;
+                r.status = 500;
+                return r;
+            }
+            agent::HttpResponse r = answers.front();
+            answers.erase(answers.begin());
+            return r;
+        };
+    }
+
+    static agent::HttpResponse ok(std::string body) {
+        agent::HttpResponse r;
+        r.status = 200;
+        r.body = std::move(body);
+        return r;
+    }
+    static agent::HttpResponse status(long code) {
+        agent::HttpResponse r;
+        r.status = code;
+        return r;
+    }
+};
+
+const char* kV1Page = R"({
+  "skills": [
+    {"id": "acme/skills/tdd", "source": "acme/skills", "name": "tdd", "installs": 42},
+    {"id": "bad", "source": "", "name": "x", "installs": 1}
+  ],
+  "count": 2
+})";
+
+const char* kV1Detail = R"({
+  "description": "test-driven development, end to end",
+  "license": "MIT",
+  "category": "testing",
+  "default_branch": "main",
+  "skill_dir": "skills/tdd",
+  "hash": "sha256:v1-stable-hash",
+  "body": "# TDD\nWrite the test first.",
+  "files": [{"path": "SKILL.md", "bytes": 12, "sha": "abc"}],
+  "audit": {"verdict": "pass", "note": "no network, no exec"}
+})";
+
+const char* kV1Audit = R"({"verdict": "warn", "note": "writes outside the skill dir"})";
+
+agent::SkillRef tdd_ref() {
+    agent::SkillRef ref;
+    ref.id = "acme/skills/tdd";
+    ref.source = "acme/skills";
+    ref.name = "tdd";
+    ref.installs = 42;
+    return ref;
+}
+
+// A port that answers from a fixed lambda and counts calls, so a composite's
+// fallback decision is observable without a socket.
+struct StubIndex final : public agent::SkillIndex {
+    std::function<agent::IndexResult(const std::string&, int)> on_search;
+    std::function<agent::IndexResult(int)> on_curated;
+    std::function<agent::DetailResult(const agent::SkillRef&)> on_detail;
+    mutable int searches = 0;
+    mutable int curates = 0;
+    mutable int details = 0;
+
+    agent::IndexResult search(const std::string& q, int limit,
+                              const agent::CancellationToken&) const override {
+        ++searches;
+        return on_search ? on_search(q, limit)
+                         : agent::IndexResult{std::nullopt,
+                                              {agent::IndexError::Unsupported, 0, 0, "no search"}};
+    }
+    agent::IndexResult curated(int limit, const agent::CancellationToken&) const override {
+        ++curates;
+        return on_curated ? on_curated(limit)
+                          : agent::IndexResult{
+                                std::nullopt, {agent::IndexError::Unsupported, 0, 0, "no curated"}};
+    }
+    agent::DetailResult detail(const agent::SkillRef& ref,
+                               const agent::CancellationToken&) const override {
+        ++details;
+        return on_detail ? on_detail(ref)
+                         : agent::DetailResult{std::nullopt,
+                                               {agent::IndexError::Unsupported, 0, 0, "no detail"}};
+    }
+    std::vector<agent::SourceStatus> sources() const override { return {}; }
+};
+
+} // namespace
+
+TEST(skill_v1_urls_encode_and_clamp) {
+    ASSERT_EQ(agent::skills_v1_search_url("https://r/", "a b", 0),
+              std::string("https://r/api/v1/skills/search?q=a%20b&limit=20"));
+    ASSERT_EQ(agent::skills_v1_curated_url("https://r", 500),
+              std::string("https://r/api/v1/skills/curated?limit=200"));
+    ASSERT_EQ(agent::skills_v1_detail_url("https://r", "acme/skills/tdd"),
+              std::string("https://r/api/v1/skills/acme/skills/tdd"));
+    ASSERT_EQ(agent::skills_v1_detail_url("https://r", "a b/c"),
+              std::string("https://r/api/v1/skills/a%20b/c"));
+    ASSERT_EQ(agent::skills_v1_audit_url("https://r", "acme/skills/tdd"),
+              std::string("https://r/api/v1/skills/audit/acme/skills/tdd"));
+}
+
+TEST(skill_v1_page_maps_the_bulk_shape) {
+    const auto res = agent::parse_skills_v1_page(kV1Page, 20, false);
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.page->skills.size(), static_cast<size_t>(1));
+    ASSERT_EQ(res.page->skills[0].id, std::string("acme/skills/tdd"));
+    ASSERT_EQ(res.page->skills[0].installs, 42);
+    ASSERT_EQ(res.page->total, 2);
+    ASSERT_FALSE(agent::parse_skills_v1_page("[1,2]", 20, false).ok());
+}
+
+TEST(skill_v1_detail_carries_hash_audit_and_files) {
+    const auto res = agent::parse_skills_v1_detail(kV1Detail, tdd_ref());
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.detail->ref.id, std::string("acme/skills/tdd"));
+    ASSERT_EQ(res.detail->description, std::string("test-driven development, end to end"));
+    ASSERT_EQ(res.detail->hash, std::string("sha256:v1-stable-hash"));
+    ASSERT_EQ(res.detail->skill_dir, std::string("skills/tdd"));
+    ASSERT_EQ(res.detail->assets.size(), static_cast<size_t>(1));
+    ASSERT(res.detail->audit == agent::AuditVerdict::Pass);
+    ASSERT_EQ(res.detail->audit_note, std::string("no network, no exec"));
+    ASSERT(res.detail->body.find("Write the test first") != std::string::npos);
+}
+
+TEST(skill_v1_request_sends_the_bearer_and_never_echoes_it) {
+    const std::string token = "sk-live-SECRET-0001";
+    RecordingHttp http;
+    // The rejection body deliberately repeats the credential: the failure text
+    // must still never carry it.
+    agent::HttpResponse rejected = RecordingHttp::status(401);
+    rejected.body = R"({"error":"bad token sk-live-SECRET-0001"})";
+    http.answers = {rejected};
+    agent::SkillIndexOptions opts;
+    opts.token = token;
+    opts.http = http.fn();
+    const auto res = agent::SkillsShV1Index(opts).search("tdd", 20, {});
+    ASSERT_FALSE(res.ok());
+    ASSERT_EQ(res.error.status, 401L);
+    ASSERT_EQ(http.bearers.size(), static_cast<size_t>(1));
+    ASSERT_EQ(http.bearers[0], token);
+    ASSERT(res.error.detail.find(token) == std::string::npos);
+    ASSERT(res.error.detail.find("SECRET") == std::string::npos);
+}
+
+TEST(skill_v1_rejected_token_falls_back_and_notes_once) {
+    RecordingHttp http;
+    http.answers = {RecordingHttp::status(403)};
+    auto v1 = std::make_shared<agent::SkillsShV1Index>(agent::SkillIndexOptions{});
+    // A stub v1 with a real rejection is what the composite sees; the adapter's
+    // own 403 mapping is covered above, so this test only needs the decision.
+    (void)v1;
+    auto rejects = std::make_shared<StubIndex>();
+    rejects->on_search = [&http](const std::string&, int) {
+        agent::IndexFailure f;
+        f.kind = agent::IndexError::Http;
+        f.status = 403;
+        f.detail = "registry returned HTTP 403";
+        return agent::IndexResult{std::nullopt, f};
+    };
+    auto anonymous = std::make_shared<StubIndex>();
+    anonymous->on_search = [](const std::string&, int) {
+        agent::SkillPage page;
+        page.skills.push_back(tdd_ref());
+        return agent::IndexResult{page, {}};
+    };
+    agent::SkillIndexOptions opts;
+    opts.token = "sk-live-SECRET-0002";
+    opts.token_label = "SKILLS_SH_TOKEN";
+    const agent::SkillsShTokenIndex index(anonymous, rejects, nullptr);
+
+    const auto first = index.search("tdd", 20, {});
+    ASSERT_TRUE(first.ok());
+    ASSERT_EQ(rejects->searches, 1);
+    ASSERT_EQ(anonymous->searches, 1);
+    const std::string note = index.rejection_note();
+    ASSERT(note.find("SKILLS_SH_TOKEN") != std::string::npos);
+    ASSERT(note.find(opts.token) == std::string::npos);
+
+    // The decision is remembered: the dead token is not tried again.
+    const auto second = index.search("tdd", 20, {});
+    ASSERT_TRUE(second.ok());
+    ASSERT_EQ(rejects->searches, 1);
+    ASSERT_EQ(anonymous->searches, 2);
+    ASSERT_EQ(index.rejection_note(), note);
+}
+
+TEST(skill_v1_curated_uses_the_curated_endpoint) {
+    RecordingHttp http;
+    http.answers = {RecordingHttp::ok(kV1Page)};
+    agent::SkillIndexOptions opts;
+    opts.token = "tk";
+    opts.http = http.fn();
+    const auto res = agent::SkillsShV1Index(opts).curated(10, {});
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.page->skills.size(), static_cast<size_t>(1));
+    ASSERT_EQ(http.urls.size(), static_cast<size_t>(1));
+    ASSERT(http.urls[0].find("/api/v1/skills/curated?limit=10") != std::string::npos);
+    ASSERT_EQ(http.bearers[0], std::string("tk"));
+}
+
+TEST(skill_v1_detail_prefers_hash_and_audit_keeps_body) {
+    auto v1 = std::make_shared<StubIndex>();
+    v1->on_detail = [](const agent::SkillRef& ref) {
+        agent::SkillDetail d;
+        d.ref = ref;
+        d.hash = "sha256:v1-stable-hash";
+        d.description = "v1 description";
+        d.audit = agent::AuditVerdict::Pass;
+        d.audit_note = "clean";
+        return agent::DetailResult{d, {}};
+    };
+    auto body = std::make_shared<StubIndex>();
+    body->on_detail = [](const agent::SkillRef& ref) {
+        agent::SkillDetail d;
+        d.ref = ref;
+        d.hash = "git-blob-sha";
+        d.body = "# TDD\nbody";
+        d.assets = {{"SKILL.md", 9, "abc"}};
+        return agent::DetailResult{d, {}};
+    };
+    const agent::SkillsShTokenIndex index(nullptr, v1, body);
+    const auto res = index.detail(tdd_ref(), {});
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.detail->hash, std::string("sha256:v1-stable-hash"));
+    ASSERT_EQ(res.detail->body, std::string("# TDD\nbody"));
+    ASSERT_EQ(res.detail->description, std::string("v1 description"));
+    ASSERT(res.detail->audit == agent::AuditVerdict::Pass);
+
+    // A v1 detail without an audit asks the audit endpoint once.
+    auto plain = std::make_shared<StubIndex>();
+    plain->on_detail = [](const agent::SkillRef& ref) {
+        agent::SkillDetail d;
+        d.ref = ref;
+        d.hash = "v1-hash";
+        return agent::DetailResult{d, {}};
+    };
+    const agent::SkillsShTokenIndex no_audit(nullptr, plain, body);
+    const auto bare = no_audit.detail(tdd_ref(), {});
+    ASSERT_TRUE(bare.ok());
+    ASSERT(bare.detail->audit == agent::AuditVerdict::NotAudited);
+}
+
+TEST(skill_v1_detail_falls_back_when_the_token_is_dead) {
+    auto v1 = std::make_shared<StubIndex>();
+    v1->on_detail = [](const agent::SkillRef&) {
+        agent::IndexFailure f;
+        f.kind = agent::IndexError::Http;
+        f.status = 401;
+        return agent::DetailResult{std::nullopt, f};
+    };
+    auto body = std::make_shared<StubIndex>();
+    body->on_detail = [](const agent::SkillRef& ref) {
+        agent::SkillDetail d;
+        d.ref = ref;
+        d.hash = "git-blob-sha";
+        return agent::DetailResult{d, {}};
+    };
+    agent::SkillIndexOptions opts;
+    opts.token_label = "SKILLS_SH_TOKEN";
+    const agent::SkillsShTokenIndex index(nullptr, v1, body);
+    const auto res = index.detail(tdd_ref(), {});
+    ASSERT_TRUE(res.ok());
+    ASSERT_EQ(res.detail->hash, std::string("git-blob-sha"));
+    ASSERT(index.rejection_note().find("SKILLS_SH_TOKEN") != std::string::npos);
+}
+
+TEST(skill_v1_rate_budget_is_shared_with_search) {
+    // One slot: the v1 attempt spends it, so the anonymous fallback that the
+    // 401 triggers is refused by the same budget. A second budget inside the
+    // anonymous adapter would let it through.
+    RecordingHttp http;
+    http.answers = {RecordingHttp::status(401)};
+    agent::SkillIndexOptions opts;
+    opts.token = "tk";
+    opts.budget = std::make_shared<agent::RateBudget>(1);
+    opts.now_ms = [] { return 1000LL; };
+    opts.retry_delay_ms = 0;
+    opts.http = http.fn();
+    const auto index = agent::make_skills_sh_index(opts);
+    const auto res = index->search("tdd", 20, {});
+    ASSERT_FALSE(res.ok());
+    ASSERT(res.error.kind == agent::IndexError::RateLimited);
+    ASSERT_EQ(http.urls.size(), static_cast<size_t>(1)); // only the v1 attempt was sent
+    ASSERT(http.urls[0].find("/api/v1/skills/search") != std::string::npos);
+}
+
+TEST(skill_v1_absent_without_a_token_and_used_with_one) {
+    RecordingHttp http;
+    http.answers = {RecordingHttp::ok(kSearchBody), RecordingHttp::ok(kV1Page)};
+    agent::SkillIndexOptions opts;
+    opts.http = http.fn();
+    opts.cache_root = "/tmp/amber_skill_v1_factory"; // keep the developer's cache out
+    const auto plain = agent::make_skills_sh_index(opts);
+    const auto page = plain->search("tdd", 20, {});
+    ASSERT_TRUE(page.ok());
+    ASSERT_EQ(http.urls.size(), static_cast<size_t>(1));
+    ASSERT(http.urls[0].find("/api/search") != std::string::npos);
+    ASSERT(http.urls[0].find("/api/v1") == std::string::npos);
+
+    agent::SkillIndexOptions with_token = opts;
+    with_token.token = "tk";
+    with_token.budget = std::make_shared<agent::RateBudget>(600);
+    const auto enhanced = agent::make_skills_sh_index(with_token);
+    const auto v1_page = enhanced->search("tdd", 20, {});
+    ASSERT_TRUE(v1_page.ok());
+    ASSERT_EQ(http.urls.size(), static_cast<size_t>(2));
+    ASSERT(http.urls[1].find("/api/v1/skills/search") != std::string::npos);
+}
+
+TEST(skill_v1_detail_fetches_the_audit_when_the_detail_omits_it) {
+    RecordingHttp http;
+    http.answers = {RecordingHttp::ok(R"({"hash":"h1","description":"d"})"),
+                    RecordingHttp::ok(kV1Audit)};
+    agent::SkillIndexOptions opts;
+    opts.token = "tk";
+    opts.http = http.fn();
+    const auto res = agent::SkillsShV1Index(opts).detail(tdd_ref(), {});
+    ASSERT_TRUE(res.ok());
+    ASSERT(res.detail->audit == agent::AuditVerdict::Warn);
+    ASSERT_EQ(res.detail->audit_note, std::string("writes outside the skill dir"));
+    ASSERT_EQ(http.urls.size(), static_cast<size_t>(2));
+    ASSERT(http.urls[1].find("/audit/acme/skills/tdd") != std::string::npos);
+}
