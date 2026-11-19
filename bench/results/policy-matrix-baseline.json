@@ -1,0 +1,78 @@
+{
+  "mode": "policy-matrix",
+  "rows": [
+    {
+      "failures": [],
+      "policy": "planner",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 100.0,
+      "success": true,
+      "tool_failures": 0
+    },
+    {
+      "failures": [
+        "oracle not matched: 0/1 steps (bullseye 0)"
+      ],
+      "policy": "lazy",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 60.0,
+      "success": false,
+      "tool_failures": 0
+    },
+    {
+      "failures": [],
+      "policy": "wrong_tool",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 93.0,
+      "success": true,
+      "tool_failures": 0
+    },
+    {
+      "failures": [
+        "oracle not matched: 0/1 steps (bullseye 0)",
+        "final answer failed scenario checks"
+      ],
+      "policy": "hallucinator",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 58.0,
+      "success": false,
+      "tool_failures": 0
+    },
+    {
+      "failures": [
+        "oracle not matched: 0/1 steps (bullseye 0)",
+        "final answer failed scenario checks"
+      ],
+      "policy": "quitter",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 52.5,
+      "success": false,
+      "tool_failures": 1
+    },
+    {
+      "failures": [
+        "oracle not matched: 0/1 steps (bullseye 0)"
+      ],
+      "policy": "over_eager",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 60.0,
+      "success": false,
+      "tool_failures": 0
+    },
+    {
+      "failures": [],
+      "policy": "retrier",
+      "recoveries": 0,
+      "scenario": "zoo",
+      "score": 88.0,
+      "success": true,
+      "tool_failures": 1
+    }
+  ]
+}

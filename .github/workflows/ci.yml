@@ -602,6 +602,53 @@ jobs:
       - name: Installed-tree binary tier
         run: make -j"$(nproc)" bench-e2e
 
+  # The CLI journeys are a gate, not a dashboard: a journey that passed in the
+  # committed baseline and regresses fails ci-gate. Tokens and calls are
+  # deterministic (the loopback endpoint scripts the model); wall time is a
+  # pathology ceiling, not a tight budget.
+  agent-e2e:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/install-deps
+      - name: Configure
+        run: ./configure
+      - name: CLI agent journeys, policy matrix and trace replay
+        run: make agent-e2e-check policy-matrix-check trace-check
+      - name: Upload the journey report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: agent-e2e
+          path: |
+            artifacts/agent-e2e.json
+            artifacts/policy-matrix.json
+          if-no-files-found: warn
+      - name: Append the journey and policy tables
+        if: always()
+        run: |
+          cat artifacts/agent-e2e-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          cat artifacts/policy-matrix-summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+  # The TUI journeys drive the real binary on a pty. They used to be a step
+  # inside build-and-test; as their own job a failure is named in the merge
+  # gate instead of hiding behind a larger job's log.
+  tui-agent-e2e:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/install-deps
+      - name: Configure
+        run: ./configure
+      - name: TUI agent journeys
+        run: make tui-agent-e2e
+
   coverage:
     needs: [changes]
     runs-on: ubuntu-24.04
@@ -734,16 +781,6 @@ jobs:
 
       - name: Test
         run: make test
-
-      - name: TUI agent journeys
-        # The real binary, a pty and a loopback provider: prompt -> tool -> edit
-        # -> answer. Distinct from the pty regression suite, which pins the UI.
-        run: make tui-agent-e2e
-
-      - name: CLI agent journeys
-        # The final answer, workspace, exit code, usage, tool statuses and the
-        # request contract, through amber-cli rather than an in-process agent.
-        run: make agent-e2e
 
   # ---------------------------------------------------------------------------
   # macOS build-and-test — verifies the portable link lines (no --start-group)
@@ -1042,7 +1079,7 @@ jobs:
   # gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [pr-readiness, changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, bench-efficiency, bench-e2e, coverage, website-build, website-smoke]
+    needs: [pr-readiness, changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, bench-efficiency, bench-e2e, agent-e2e, tui-agent-e2e, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15

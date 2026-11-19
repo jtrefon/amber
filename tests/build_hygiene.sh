@@ -400,6 +400,17 @@ for t in format-check-changed lint-changed test-presence class-size nesting debt
         warn "P15: verify-quick does not run $t (a gating check is missing locally)"
     fi
 done
+# The journey jobs are gated in CI and mirrored by `make preflight`: a local
+# loop that never runs them cannot catch a journey regression before the push.
+preflight_out=$(make -n preflight 2>/dev/null)
+for t in agent-eval tui-agent-e2e check-compilers; do
+    if echo "$preflight_out" | grep -q -- "$t"; then
+        ok "P15: preflight runs $t"
+    else
+        warn "P15: preflight does not run $t (a gating journey is missing locally)"
+    fi
+done
+
 verify_full_out=$(make -n verify 2>/dev/null)
 for t in smoketest '--no-print-directory test' '--no-print-directory lint$' \
          '--no-print-directory analyze'; do
