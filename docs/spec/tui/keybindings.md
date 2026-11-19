@@ -51,7 +51,7 @@ guess keys.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `key` | yes | terminal-level spelling: `ctrl+<a-z>`, `alt+<0-9>`, `alt+<a-z>`, `esc+<a-z>`, `esc+<1-9>`, or `esc` |
+| `key` | yes | terminal-level spelling: `ctrl+<a-z>`, `alt+<0-9>`, `alt+<a-z>`, `esc+<a-z>`, `esc+<1-9>`, `shift+tab`, or `esc` |
 | `action` | yes | an action ID present in the command tree, or a `ui.*` handler |
 | `arg` | no | argument passed to the handler unchanged |
 | `scope` | no | `global` (default), `input`, `menu`, `dialog`, `list` |

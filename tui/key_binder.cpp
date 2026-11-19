@@ -1,5 +1,7 @@
 #include "tui/key_binder.h"
 
+#include "tui/keys.h"
+
 #include <utility>
 
 namespace tui {
@@ -205,6 +207,8 @@ agent::KeyBinding KeyBinder::dispatch(const KeyRead& key, const InputState& stat
         const char letter = static_cast<char>('a' + (key.key - 1));
         return find("ctrl+" + std::string(1, letter), state);
     }
+    if (key.key == keys::kBtab)
+        return find("shift+tab", state);
     return {};
 }
 

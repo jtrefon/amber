@@ -12,6 +12,7 @@
     {"key": "alt+8", "action": "core.window.set", "arg": "8", "scope": "global"},
     {"key": "alt+9", "action": "core.window.set", "arg": "9", "scope": "global"},
     {"key": "ctrl+n", "action": "core.window.new", "scope": "global"},
+    {"key": "shift+tab", "action": "ui.mode.cycle", "scope": "global"},
     {"key": "ctrl+c", "action": "ui.cancel_or_quit", "scope": "global"},
     {"key": "esc+q", "action": "ui.queue.recall", "scope": "global"},
     {"key": "esc+x", "action": "ui.queue.clear", "scope": "global"},

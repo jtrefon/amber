@@ -5,6 +5,7 @@
 // test binary has no dependency on tui/ headers.
 
 #include "agent.h"
+#include "agent/config.h"
 #include "agent/context_shape.h"
 #include "agent/plugin_runtime.h"
 #include "agent/workspace.h"
@@ -1561,6 +1562,13 @@ nlohmann::json load_test_keybindings() {
 } // namespace
 
 // --- KeyBinder tests (v2 action IDs) ---
+
+TEST(agent_mode_cycles_read_write_yolo_and_wraps) {
+    using agent::AgentMode;
+    ASSERT(agent::next_mode(AgentMode::Read) == AgentMode::Write);
+    ASSERT(agent::next_mode(AgentMode::Write) == AgentMode::Yolo);
+    ASSERT(agent::next_mode(AgentMode::Yolo) == AgentMode::Read);
+}
 
 // #612: terminals send Shift+Tab as KEY_BTAB. It is a distinct key in the L1
 // vocabulary, and the shipped binding table must route it to the mode cycle so
