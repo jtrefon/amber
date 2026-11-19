@@ -53,8 +53,8 @@ It runs, in order:
 |---|---|---|
 | `make verify` | static gates (including the gate tests and `library-check`), `make test`, `bench-check`, full `lint`, `analyze`, `smoketest` | `static-gates`, `content-gates`, `build-hygiene`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
 | `make check-compilers` | the whole tree builds under `g++` and `clang++` with `WERROR=1` | `build-and-test (g++)`, `build-and-test (clang++)` |
-| `make agent-e2e` | five CLI journeys through the real binary | `build-and-test` (Linux) |
-| `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `build-and-test` (Linux) |
+| `make agent-eval` | the CLI journeys against the committed token/call/wall baseline, the policy-zoo separation and the trace corpus | `agent-e2e` |
+| `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `tui-agent-e2e` (Linux) and the macOS repeat |
 
 `make preflight` is deliberately not part of `make test`: it is slow, it cleans
 the tree twice, and it is a pre-push ritual, not a per-commit one. Before each
@@ -163,6 +163,8 @@ Two of these are easy to misread as code failures:
 - [ ] `make coverage BASE=origin/main` (or the container) is clean for a
       change in `lib/`, `tools/` or `plugins/`; new decision branches are
       exercised on both paths.
+- [ ] `make agent-eval` for a harness/journey change; the journey report and
+      the policy separation must be regression-free against their baselines.
 - [ ] `make tui-agent-e2e REPEAT=2` for a TUI change; the pty suite was run
       twice, not once.
 - [ ] `cd website && npm run audit` if the site or its dependencies changed.
@@ -179,6 +181,8 @@ Two of these are easy to misread as code failures:
 | `coverage` | patch line/branch bar, or the per-file branch ratchet? |
 | `build-and-test (clang++)` / `(g++)` | did `make check-compilers` pass locally? |
 | `build-and-test-macos` | is the failing test pty/UI timing? Re-run with `--repeat`. |
+| `agent-e2e` | a journey regressed: tokens/calls above +10%, a baseline journey missing or failing, or wall above the 2x + 500 ms ceiling. The table is on the run page. |
+| `tui-agent-e2e` | did the pty journeys fail, or was a session force-killed? Re-run `make tui-agent-e2e REPEAT=2` on a Mac. |
 | `ci-gate` | were any gating jobs *skipped* or *cancelled*? Read the run, not the summary. |
 | `CodeQL` | did the diff move a path read? A moved sink is a new alert; restore the shape or dismiss it with the confinement measured. |
 | `Mutation (advisory)` | is the report complete, and what is the score? A stderr message reddens the runner; the check is not a gate. |
