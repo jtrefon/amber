@@ -84,7 +84,8 @@ bool valid_profile_name(const std::string& name, std::string* why) {
     if (name == "." || name == "..")
         return refuse("a profile name cannot be '.' or '..'");
     for (unsigned char c : name) {
-        if (!(std::isalnum(c) || c == '.' || c == '_' || c == '-'))
+        const bool allowed = std::isalnum(c) || c == '.' || c == '_' || c == '-';
+        if (!allowed)
             return refuse("a profile name is letters, digits, '.', '_' and '-'");
     }
     return true;
