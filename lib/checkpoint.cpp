@@ -442,9 +442,12 @@ std::optional<Checkpoint> CheckpointStore::find(const std::string& turn_or_sha,
     const bool numeric =
         !turn_or_sha.empty() && std::all_of(turn_or_sha.begin(), turn_or_sha.end(),
                                             [](unsigned char c) { return std::isdigit(c) != 0; });
-    // A turn number wins when it exists. A SHA prefix may also be all digits
-    // (roughly one in forty), so a numeric selector falls through to the SHA
-    // match rather than deciding the selector's kind by its characters alone.
+    // The selector's kind is its characters (docs/spec/checkpoints/store.md): all
+    // digits is a turn number, anything else is a SHA prefix. A numeric selector
+    // must not fall through to the SHA match when no turn has that number — an
+    // all-digit prefix is ambiguous with a turn, and a restore that silently
+    // picked a random commit would be data loss. (Measured: a checkpoint whose
+    // random SHA started with "99" made `restore 99` succeed in CI.)
     if (numeric) {
         const std::size_t turn = std::strtoul(turn_or_sha.c_str(), nullptr, 10);
         // The post snapshot is the turn's result; a pre snapshot that shares
@@ -456,6 +459,7 @@ std::optional<Checkpoint> CheckpointStore::find(const std::string& turn_or_sha,
         for (const auto& checkpoint : checkpoints)
             if (checkpoint.turn == turn)
                 return checkpoint;
+        return std::nullopt;
     }
     if (!turn_or_sha.empty()) {
         for (const auto& checkpoint : checkpoints)
