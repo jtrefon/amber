@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatibleschLLLLnt.",
+  "exchanges": [
+    693457enai",
+  "dialect": "openai",
+  "description": "A tool call and a fienai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatibleschLLLLn
+        "path": "*v1/chat/completions",
+    s",
+        "stream": false,
+        "roles": [
+ {
+  "schema": 0,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A to         "system"ol call and a final answe,r f
+ro

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "descriptin": "A tool call and a final answer from an OpenAI-compatible endpoint.",
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+        "path": "/v1/chat/completions",
+        "{
+  "schema": 1,
+  "provider": "openai",
+ lls\":[{\"id\":\"trace-call-1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\s\"}],\"usage\provideráááááááááááááááááááááááááááááááááááááááááááááááááááááááááááááá":{\"prompt_tokens\":120,\"completion_tokens\":12,\"total_tokens\":132}}"
+      }
+    },
+    {
+      "id": "final",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "userean"
+}
+"trace-call-1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":120,\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":12,\"total_tokens\":132}}"
+      }
+    },
+    {
+      "id": "final",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "user",
+          "assistant",
+          "tool"
+        ],
+       ":0,\"message\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":160,\"completion_tokens\":2,\"total_tokens\":162}}"
+      }
+    }
+  ],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
+}

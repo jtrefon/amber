@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatible endpoint.",
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+        "path": "/v1/chat/co}pletions",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your na false,
+        "roles": [
+          "system",
+         
+      },
+      "response": {
+        "status": 200,
+        "content_type*Amber",\"object\":\"chat.completion\",\"created\":2,\"model\":\"fake\",\"choices\":[{\"i’—ex\":0,\"message\":{\"role\":\"assistant\",],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
+}

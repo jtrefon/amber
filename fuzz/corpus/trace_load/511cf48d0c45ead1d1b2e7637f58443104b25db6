@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "ope{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final anlean","exchanges":[{"match":{"path"swer from an OpenAI-compatibl:"/v1/chat/completions","stream":true},"response":{"content_systetype":"text/event-stream","body":"data: {{"schema":0,"licdet"a

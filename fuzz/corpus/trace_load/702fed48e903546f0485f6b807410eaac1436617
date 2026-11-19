@@ -1,0 +1,18 @@
+{
+  "schema": 1Ô
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A  {
+ool-call",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+ "system",
+          "user"
+        ],
+   {
+  "schema": 2,
+  "provider": "ols": [
+ ,   
+     

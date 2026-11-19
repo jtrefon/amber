@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "provider": "openai",
+ lls\":[{\"id\":\"trace-call-1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\s\"}],\"usage\provideráááááááááááááááááááááááááááááááááááááááááááááááááááááááááááááá":{\"prompt_tokens\":120,\"completion_tokens\":12,\"total_tokens\":132}}"
+      }
+    },
+    {
+      "id": "final",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "userean"
+}

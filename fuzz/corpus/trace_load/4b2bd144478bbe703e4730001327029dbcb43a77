@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatible endpoint.",
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "ma~ch": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your \"chat.completion\",\"created\":1,\"model\":\"热热热热热热热热热热热热热热热热热热热热热热热热热热热热热热热萬ake\",\"choices\":[{\"index\":0,\"message\":{\"path\":\"assistandialectontent\":\"\",\"tool_calpath:[{\"id\":\"trace-call-1\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":12,\"total_tokens\":132}}"
+      }
+    },
+    {
+      "id": "final",
+      "match": {
+        "path": "/v1/chat/completions",
+        "stream": false,
+        "roles": [
+          "system",
+       !  "user",
+   ion_tokens\":1ant",
+          "tool"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your name is **Amber**"
+      },
+    h":{"path":"/v1/chat/completions","stream":true},"response":{"content_type":"text/event-s}stem","body":"data: {{"schema":1,"licdet"a:"openai","source":"seed","redaction":"clean","exchanges":[{"match":{"path":"/v1/chat/commessage\":{\"role\":\"assistant\",\"content\":\"done\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":160,\"completion_tokens\":2,\"total_tokens\":162}}"
+      }
+    }
+  ],
+  "source": "Authored from the provider's wire format and checked by the replay test.",
+  "redaction": "clean"
+}

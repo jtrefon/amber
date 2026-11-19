@@ -425,7 +425,7 @@ TUI_AGENT_E2E_OBJ = $(BUILD_DIR)/tests/tui_agent_e2e_test.o
 E2E_TEST_OBJ = $(BUILD_DIR)/tests/e2e_test.o
 COMP_TEST_OBJ = $(BUILD_DIR)/tests/completions_test.o
 PLUGIN_TEST_OBJ = $(BUILD_DIR)/tests/plugin_test.o
-BENCH_TEST_OBJ = $(BUILD_DIR)/tests/bench_test.o
+BENCH_TEST_OBJ = $(BUILD_DIR)/tests/bench_test.o $(BUILD_DIR)/tests/agent_e2e_faults_test.o
 CORE_ONLY_TEST_OBJ = $(BUILD_DIR)/tests/core_only_test.o
 
 # The copy-me template (tests/example_plugin_test.cpp compiles and exercises
@@ -619,7 +619,8 @@ FUZZ_MD_OBJS  = $(FUZZ_BIN)/markdown_md4c.o $(FUZZ_BIN)/markdown.o \
                 $(FUZZ_BIN)/markdown_normalize.o $(FUZZ_BIN)/rich.o \
                 $(FUZZ_BIN)/textutil.o $(FUZZ_BIN)/ansi_sgr.o
 FUZZ_OBJS     = $(FUZZ_BIN)/md4c.o $(FUZZ_BIN)/mcp_jsonrpc.o $(FUZZ_BIN)/stream_decoder.o \
-                $(FUZZ_BIN)/plugin_protocol.o $(FUZZ_MD_OBJS)
+                $(FUZZ_BIN)/plugin_protocol.o $(FUZZ_BIN)/trace_store.o \
+                $(FUZZ_BIN)/scripted_endpoint.o $(FUZZ_MD_OBJS)
 
 # Apple's clang ships no libFuzzer runtime, so this fails closed rather than looking like
 # a pass on a machine that cannot actually fuzz. A stamp rather than a phony target, so a
@@ -647,6 +648,12 @@ $(FUZZ_BIN):
 $(FUZZ_BIN)/%.o: $(SRC_DIR)/lib/%.cpp $(FUZZ_CAPABILITY) | $(FUZZ_BIN)
 	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
 
+# Bench sources are not under lib/, so they get their own fuzz compile rules.
+$(FUZZ_BIN)/trace_store.o: $(SRC_DIR)/bench/trace_store.cpp $(FUZZ_CAPABILITY) | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+$(FUZZ_BIN)/scripted_endpoint.o: $(SRC_DIR)/bench/scripted_endpoint.cpp $(FUZZ_CAPABILITY) | $(FUZZ_BIN)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
+
 $(FUZZ_BIN)/md4c.o: $(SRC_DIR)/third_party/md4c/md4c.c | $(FUZZ_BIN)
 	$(FUZZ_CC) -x c -g -O1 -MMD -MP -fno-omit-frame-pointer $(FUZZ_NOLINK) \
 	  $(FUZZ_MD4C_DEFS) -c $< -o $@
@@ -664,7 +671,7 @@ $(FUZZ_BIN)/textutil.o: $(SRC_DIR)/tui/textutil.cpp | $(FUZZ_BIN)
 $(FUZZ_BIN)/ansi_sgr.o: $(SRC_DIR)/tui/ansi_sgr.cpp | $(FUZZ_BIN)
 	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_NOLINK) -c $< -o $@
 
-FUZZ_TARGETS = mcp_jsonrpc stream_decoder markdown plugin_protocol
+FUZZ_TARGETS = mcp_jsonrpc stream_decoder markdown plugin_protocol trace_load
 
 $(FUZZ_BIN)/fuzz_mcp_jsonrpc: $(FUZZ_SRC)/mcp_jsonrpc.cpp $(FUZZ_BIN)/mcp_jsonrpc.o \
                              $(FUZZ_CAPABILITY) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
@@ -676,6 +683,13 @@ $(FUZZ_BIN)/fuzz_plugin_protocol: $(FUZZ_SRC)/plugin_protocol.cpp \
                                $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/plugin_protocol.cpp \
 	  $(FUZZ_BIN)/plugin_protocol.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
+	  $(CURL_LIBS) -o $@
+
+$(FUZZ_BIN)/fuzz_trace_load: $(FUZZ_SRC)/trace_load.cpp $(FUZZ_BIN)/trace_store.o \
+                             $(FUZZ_BIN)/scripted_endpoint.o $(FUZZ_CAPABILITY) \
+                             $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
+	$(FUZZ_CC) $(FUZZ_CXXFLAGS) $(FUZZ_SRC)/trace_load.cpp $(FUZZ_BIN)/trace_store.o \
+	  $(FUZZ_BIN)/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB) \
 	  $(CURL_LIBS) -o $@
 
 $(FUZZ_BIN)/fuzz_stream_decoder: $(FUZZ_SRC)/stream_decoder.cpp $(FUZZ_BIN)/stream_decoder.o \

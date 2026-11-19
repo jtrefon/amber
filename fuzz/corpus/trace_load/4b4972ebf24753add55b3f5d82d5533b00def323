@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenA"exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+   {
+  "sch   e  "path": "/v1/chat/complmaetions",
+      ":  

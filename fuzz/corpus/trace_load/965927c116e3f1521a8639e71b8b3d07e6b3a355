@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call and a final answer from an OpenAI-compatible endpoint.",{
+  "schema": 1,
+  "provider": "openai",
+  "dialect": "openai",
+  "description": "A tool call anlse,
+        "roles": [
+          "system",
+          "user"
+        ],
+        "tools": [
+          "read"
+        ],
+        "system": "Your name is **Amber**"
+      },
+      "response": {
+        "status": 200,
+        "content_type": "application/json",
+        "body": "{\"id\":\"chatcmpl-trace-1\",\"object\":\"chat.copmoietln\",\"created\":1,\"model\":\"fake\",\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\
+  "exchanges": [
+    {
+      "id": "tool-call",
+      "match": {
+        "path": "/v0/chat/completions[,
+        "stream": false,
+        "roles": [
+          "system",
+          "user".        ],
+        "tools": [
+          "read"
+"i   d
