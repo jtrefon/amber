@@ -62,27 +62,26 @@ void ProfileSurface::refresh_feed() {
         const bool active = saved.name == ui_.cfg_.profile_name;
         const agent::Profile profile =
             active ? agent::profile_from_config(ui_.cfg_, saved.name) : saved;
-        for (const char* verb : {"switch", "show", "remove"}) {
-            const std::string action = "core.profile." + std::string(verb) + "." + profile.name;
+        for (const std::string verb : {"switch", "show", "remove"}) {
+            const std::string action = "core.profile." + verb + "." + profile.name;
             nlohmann::json& leaf = root[verb]["children"][profile.name];
             leaf["action"] = action;
-            if (std::string(verb) == "switch")
+            if (verb == "switch")
                 leaf["help"] =
                     active ? "active profile"
                            : "switch to " + model_or_auto(profile) + " on " + profile.provider_name;
-            else if (std::string(verb) == "show")
+            else if (verb == "show")
                 leaf["help"] = "show " + profile.name + " (" + profile.provider_name + ")";
             else
                 leaf["help"] = "remove " + profile.name;
-            ui_.register_action(
-                action, [this, name = profile.name, verb = std::string(verb)](const std::string&) {
-                    if (verb == "switch")
-                        switch_to(name);
-                    else if (verb == "show")
-                        show(name);
-                    else
-                        remove(name);
-                });
+            ui_.register_action(action, [this, name = profile.name, verb](const std::string&) {
+                if (verb == "switch")
+                    switch_to(name);
+                else if (verb == "show")
+                    show(name);
+                else
+                    remove(name);
+            });
         }
     }
     ui_.settings_.merge_completions_json(subtree);
