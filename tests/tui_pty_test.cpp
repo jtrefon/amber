@@ -2321,6 +2321,32 @@ TEST(set_policy_mode_reaches_the_agent_and_the_bar) {
         return;
 }
 
+// #612: Shift+Tab arrives as KEY_BTAB (ESC [ Z in xterm). The main prompt used
+// to drop it, so the mode segment never moved. Each press must take the next
+// mode in read -> write -> yolo -> read order and the readout must agree with
+// the mode the agent enforces.
+TEST(shift_tab_cycles_the_agent_mode) {
+    Tui tui;
+    tui.name = "shift_tab_cycles_the_agent_mode";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("\x1b[Z"); // write -> yolo
+    if (!require(tui.wait_for(" yolo ", 10000), "Shift+Tab did not move to yolo", tui))
+        return;
+    tui.send("\x1b[Z"); // yolo -> read (wraparound)
+    if (!require(tui.wait_for(" read ", 10000), "Shift+Tab did not wrap to read", tui))
+        return;
+    tui.send("\x1b[Z"); // read -> write
+    if (!require(tui.wait_for(" write ", 10000), "Shift+Tab did not move to write", tui))
+        return;
+
+    tui.send("/get policy mode\r");
+    require(tui.wait_for("policy mode: write", 8000),
+            "the cycled mode did not reach the agent", tui);
+}
+
 // ── diagnostics are opt-in, and toggling them shows where they land ──
 //
 // /set debug on is not just a config write: the journal has to exist so it can
@@ -4283,6 +4309,7 @@ int main(int argc, char** argv) {
     set_logs_prune_removes_an_out_of_bounds_transcript();
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
+    shift_tab_cycles_the_agent_mode();
     set_debug_toggles_the_error_journal();
     esc_does_not_swallow_the_key_queued_behind_it();
     skills_explorer_opens_switches_tabs_and_closes();

@@ -1562,6 +1562,16 @@ nlohmann::json load_test_keybindings() {
 
 // --- KeyBinder tests (v2 action IDs) ---
 
+// #612: terminals send Shift+Tab as KEY_BTAB. It is a distinct key in the L1
+// vocabulary, and the shipped binding table must route it to the mode cycle so
+// the main prompt does not swallow it.
+TEST(keybinder_shift_tab_selects_the_mode_cycle_action) {
+    auto kb = tui::KeyBinder(load_test_keybindings());
+    tui::InputState state;
+    const auto binding = kb.dispatch({tui::keys::kBtab, std::nullopt}, state);
+    ASSERT_EQ(binding.action, std::string("ui.mode.cycle"));
+}
+
 TEST(keybinder_meta_digit_maps_to_window_set) {
     auto kb = tui::KeyBinder(load_test_keybindings());
     tui::InputState state;
