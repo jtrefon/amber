@@ -52,6 +52,13 @@ struct Scenario {
     std::string name;
     std::string suite;
     std::string description;
+    // CLI-tier provider selection: a dialect scenario names the provider preset
+    // and flavor its requests must use. Empty leaves the host configuration.
+    std::string provider;
+    std::string flavor;
+    // External project plugins the scenario relies on. A freshly discovered v1
+    // plugin is off by default; a headless host enables exactly these.
+    std::vector<std::string> enable_plugins;
     std::vector<std::string> platforms; // "linux" | "darwin"; empty = all
     bool hermetic_only = false;
     std::vector<std::string> model_profiles;
@@ -133,6 +140,16 @@ struct Scenario {
 
 // Parse and validate a scenario file. Returns nullopt with a message on error.
 std::optional<Scenario> load_scenario(const std::string& path, std::string& err);
+
+// Lay a scenario's `setup.files` down under `workspace`. `@ROOT@` in a file
+// body (or an `executables` entry) expands to the checkout root, and every
+// `setup.executables` path becomes owner/group/other executable. Both the
+// in-process runner and the CLI driver use this, so a scenario's MCP server or
+// external plugin behaves the same in each tier.
+void materialize_setup_files(const std::string& workspace, const agent::json& setup);
+
+// Expand the `@ROOT@` placeholder in a setup shell command or test assertion.
+std::string expand_setup_text(std::string text, const std::string& root);
 
 // Whether the scenario can run on the current host (platforms gate).
 bool platform_supported(const Scenario& s);

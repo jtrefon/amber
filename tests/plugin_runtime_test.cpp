@@ -915,6 +915,9 @@ TEST(mcp_feature_arrives_and_leaves_as_one_plugin) {
     ASSERT_TRUE(runtime.has("mcp"));
     ASSERT_TRUE(runtime.status("mcp").enabled);
     ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_echo_echo_tool"); }));
+    // A headless host joins the same worker before its first turn; the tool set
+    // is already there, so the bounded wait returns immediately.
+    ASSERT_TRUE(agent::plugins::mcp_plugin_from(runtime)->wait_ready(1000));
 
     // Surfaces: the prompt block, the status segment and the command namespace.
     const std::string mcp_prompt = "# MCP (Model Context Protocol)";
@@ -965,7 +968,15 @@ TEST(mcp_activation_returns_before_a_slow_server_answers) {
     ASSERT(elapsed.count() < 500); // flake-allow: the fixture handshake takes 2 s; 500 ms still
                                    // fails a synchronous start by 4x
     ASSERT_FALSE((bool)f.tools.find("mcp_slow_echo_tool"));
+    // The host-side join is bounded: a 1 ms wait cannot outlast the 2 s
+    // handshake, and the tool arrives later without a second activation.
+    ASSERT_FALSE(agent::plugins::mcp_plugin_from(runtime)->wait_ready(1));
     ASSERT_TRUE(wait_until([&] { return (bool)f.tools.find("mcp_slow_echo_tool"); }));
+}
+
+TEST(mcp_wait_ready_is_true_with_no_activation_worker) {
+    plugins::McpPlugin plugin;
+    ASSERT_TRUE(plugin.wait_ready(0));
 }
 
 // One unreachable server is a row on the status snapshot, not a failed

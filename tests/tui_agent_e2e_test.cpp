@@ -3,6 +3,7 @@
 // the thing a person does with it — prompt, tool, edit, answer — through main(),
 // the plugin runtime and the tool registry.
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -75,24 +76,24 @@ struct Journey {
 
     bool start(const std::string& binary, const std::string& journey_name,
                std::deque<bench::EndpointReply> script, const std::string& extra_settings = "",
-               const Prepare& prepare = {}) {
+               const Prepare& prepare = {}, bool root_api_base = false) {
         return start(binary, journey_name,
                      std::make_unique<bench::ScriptedEndpoint>(std::move(script)), extra_settings,
-                     prepare);
+                     prepare, root_api_base);
     }
 
     bool start(const std::string& binary, const std::string& journey_name,
                bench::EndpointResponder responder, const std::string& extra_settings = "",
-               const Prepare& prepare = {}) {
+               const Prepare& prepare = {}, bool root_api_base = false) {
         return start(binary, journey_name,
                      std::make_unique<bench::ScriptedEndpoint>(std::move(responder)),
-                     extra_settings, prepare);
+                     extra_settings, prepare, root_api_base);
     }
 
 private:
     bool start(const std::string& binary, const std::string& journey_name,
                std::unique_ptr<bench::ScriptedEndpoint> server, const std::string& extra_settings,
-               const Prepare& prepare) {
+               const Prepare& prepare, bool root_api_base) {
         name = journey_name;
         root = agent::test::pty::make_isolated_root();
         if (root.empty())
@@ -102,8 +103,11 @@ private:
         endpoint = std::move(server);
         if (!endpoint->start())
             return false;
-        const std::string settings = "api_base=" + endpoint->base_url() +
-                                     "\nmodel=journey-test\nstream=0\n" + extra_settings;
+        // The versioned dialects (Anthropic, Gemini) add their own /v1./v1beta
+        // segment, so their api_base is the bare root.
+        const std::string base = root_api_base ? endpoint->root_url() : endpoint->base_url();
+        const std::string settings =
+            "api_base=" + base + "\nmodel=journey-test\nstream=0\n" + extra_settings;
         if (!agent::test::pty::write_file(agent::Workspace::settings_path(), settings))
             return false;
         tui.name = name;
@@ -617,6 +621,79 @@ void journey_compression_keeps_ui_responsive(const std::string& binary) {
     journey.finish("compression-responsive");
 }
 
+void journey_plugin_tool(const std::string& binary) {
+    Journey journey;
+    if (!require(journey.start(binary, "plugin-tool",
+                               {tool_call("c1", "plugin_fake_echo", R"({"text":"TUI-PLUGIN"})"),
+                                answer("TUI-PLUGIN-DONE")},
+                               "",
+                               [](const std::string& root) {
+                                   const std::string dir = root + "/.amber/plugins/fake";
+                                   std::error_code ec;
+                                   fs::create_directories(dir, ec);
+                                   fs::copy_file("tests/plugins/fake_manifest.json",
+                                                 dir + "/manifest.json",
+                                                 fs::copy_options::overwrite_existing, ec);
+                                   fs::copy_file("tests/plugins/fake_plugin.py",
+                                                 dir + "/fake_plugin.py",
+                                                 fs::copy_options::overwrite_existing, ec);
+                                   chmod((dir + "/fake_plugin.py").c_str(), 0755);
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("/set plugin on fake\r");
+    if (!require(journey.tui.wait_for("plugin fake on", 8000),
+                 "the external plugin never activated", journey.tui))
+        return;
+    journey.tui.send("Call the plugin tool. TUI-PLUGIN\r");
+    if (!require(journey.tui.wait_for("Approve action?", 15000),
+                 "the plugin tool's approval never opened", journey.tui))
+        return;
+    journey.tui.send("1"); // Allow once
+    if (!require(journey.tui.wait_for("TUI-PLUGIN-DONE", 30000),
+                 "the plugin tool did not complete the turn", journey.tui))
+        return;
+    require(journey.tui.text().find("echo:TUI-PLUGIN") != std::string::npos,
+            "the plugin's output did not reach the transcript", journey.tui);
+    journey.finish("plugin-tool");
+}
+
+void journey_provider_dialect(const std::string& binary) {
+    Journey journey;
+    if (!require(
+            journey.start(
+                binary, "provider-anthropic",
+                [](const bench::EndpointRequest& request) {
+                    bench::EndpointReply reply;
+                    if (request.path != "/v1/messages") {
+                        reply.handled = false; // the endpoint's own /v1/models
+                        return reply;
+                    }
+                    reply.content_type = "application/json";
+                    reply.body =
+                        R"({"id":"msg_tui_1","type":"message","role":"assistant","model":"journey-test","content":[{"type":"text","text":"TUI-ANTHROPIC-DONE"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":2}})";
+                    return reply;
+                },
+                "flavor=anthropic\n", {}, true),
+            "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Reply done. TUI-ANTHROPIC\r");
+    if (!require(journey.tui.wait_for("TUI-ANTHROPIC-DONE", 30000),
+                 "the Anthropic dialect answer never arrived", journey.tui))
+        return;
+    bool saw_messages = false;
+    for (const std::string& path : journey.endpoint->paths())
+        saw_messages = saw_messages || path == "/v1/messages";
+    require(saw_messages, "the client did not use the Messages API path", journey.tui);
+    journey.finish("provider-anthropic");
+}
+
 // Re-run the journeys in fresh processes. Each journey already owns an
 // isolated root, but a fresh process also resets the plugin runtime, the model
 // cache and every static the TUI touches.
@@ -696,6 +773,10 @@ int main(int argc, char** argv) {
         journey_skill_activation(binary);
     if (!only || std::string(only) == "mcp")
         journey_mcp_tool_call(binary);
+    if (!only || std::string(only) == "plugin")
+        journey_plugin_tool(binary);
+    if (!only || std::string(only) == "provider")
+        journey_provider_dialect(binary);
     if (!only || std::string(only) == "compression")
         journey_compression_keeps_ui_responsive(binary);
     if (!only)

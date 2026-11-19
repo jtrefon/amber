@@ -86,6 +86,8 @@ void apply_connection_keys(Config& c, const std::string& key, const std::string&
         c.kilo_balance_token = val;
     else if (key == "provider")
         c.provider_name = val;
+    else if (key == "flavor")
+        c.flavor = val;
     else if (key == "model") {
         // An empty model in the config means "auto-detect from the server";
         // do not treat it as an explicit choice (that would disable probing).

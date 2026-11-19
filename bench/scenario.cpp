@@ -256,6 +256,13 @@ bool valid_contract_field(const std::string& key, const agent::json& value, std:
             err = "request_contract '" + key + "' values must be strings";
         return valid;
     }
+    if (key == "path") {
+        if (!value.is_string() || value.get<std::string>().empty()) {
+            err = "request_contract 'path' must be a non-empty string";
+            return false;
+        }
+        return true;
+    }
     if (key == "cache_breakpoints") {
         if (!value.is_number_integer() || value.get<int>() < 0) {
             err = "request_contract 'cache_breakpoints' must be a non-negative integer";
@@ -568,6 +575,9 @@ bool take_e2e_expectations(const agent::json& j, Scenario& s, std::string& err);
 bool take_scenario_body(const agent::json& j, Scenario& s, std::string& err) {
     take_string(j, "prompt", s.prompt);
     take_string(j, "description", s.description);
+    take_string(j, "provider", s.provider);
+    take_string(j, "flavor", s.flavor);
+    take_string_array(j, "enable_plugins", s.enable_plugins);
     take_string_array(j, "platforms", s.platforms);
     take_bool(j, "hermetic_only", s.hermetic_only);
     take_string_array(j, "model_profiles", s.model_profiles);
@@ -788,6 +798,41 @@ std::vector<Scenario> expand_variants(const Scenario& s, bool matrix, const std:
     if (!matrix)
         return {s};
     return matrix_cells(s, err);
+}
+
+std::string expand_setup_text(std::string text, const std::string& root) {
+    const std::string marker = "@ROOT@";
+    for (std::size_t at; (at = text.find(marker)) != std::string::npos;)
+        text.replace(at, marker.size(), root);
+    return text;
+}
+
+void materialize_setup_files(const std::string& workspace, const agent::json& setup) {
+    if (!setup.is_object() || !setup.contains("files") || !setup["files"].is_object())
+        return;
+    const std::string root = std::filesystem::current_path().string();
+    for (auto it = setup["files"].begin(); it != setup["files"].end(); ++it) {
+        const std::filesystem::path path = std::filesystem::path(workspace) / it.key();
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream out(path);
+        const std::string body =
+            it.value().is_string() ? it.value().get<std::string>() : it.value().dump();
+        out << expand_setup_text(body, root);
+    }
+    if (!setup.contains("executables") || !setup["executables"].is_array())
+        return;
+    for (const auto& item : setup["executables"]) {
+        if (!item.is_string())
+            continue;
+        const std::filesystem::path path =
+            std::filesystem::path(workspace) / expand_setup_text(item.get<std::string>(), root);
+        std::error_code ec;
+        std::filesystem::permissions(path,
+                                     std::filesystem::perms::owner_exec |
+                                         std::filesystem::perms::group_exec |
+                                         std::filesystem::perms::others_exec,
+                                     std::filesystem::perm_options::add, ec);
+    }
 }
 
 bool checks_pass(const Checks& c, const std::string& text) noexcept {

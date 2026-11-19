@@ -1362,7 +1362,7 @@ $(BUILD_DIR)/plugin_test: $(PLUGIN_TEST_OBJ) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DI
 $(BUILD_DIR)/bench_test: $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(BUILD_DIR)/$(CLI_BIN) $(BUILD_DIR)/$(PLUGIN_LIB) $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(BENCH_TEST_OBJ) $(BENCH_OBJS) $(FULL_LIBS) $(DUP_LIB_FLAG) $(CURL_LIBS)
 
-bench: $(BUILD_DIR)/$(BENCH_BIN)
+bench: $(BUILD_DIR)/$(BENCH_BIN) $(MCP_FIXTURES)
 
 # The hermetic efficiency gate: tokens, tool calls, success and a wall-time
 # ceiling against the committed baseline. The fake LLM makes tokens and calls
@@ -1370,7 +1370,7 @@ bench: $(BUILD_DIR)/$(BENCH_BIN)
 BENCH_REPORT ?= bench-efficiency.json
 BENCH_ALLOW ?=
 BENCH_MARKDOWN ?=
-bench-check: $(BUILD_DIR)/$(BENCH_BIN)
+bench-check: $(BUILD_DIR)/$(BENCH_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/$(BENCH_BIN) run --cat both --matrix --format json --out $(BENCH_REPORT)
 	@BENCH_ALLOW="$${BENCH_ALLOW:-}" BENCH_MARKDOWN="$${BENCH_MARKDOWN:-}" \
 	    python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" \
@@ -1401,14 +1401,14 @@ trace-check: $(BUILD_DIR)/bench_test $(BUILD_DIR)/$(BENCH_BIN)
 # and checks the request contract at the wire. A failed journey keeps its
 # workspace and request log.
 AGENT_E2E_REPORT ?= $(BUILD_DIR)/artifacts/agent-e2e.json
-agent-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+agent-e2e: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN) $(MCP_FIXTURES)
 	@mkdir -p $(dir $(AGENT_E2E_REPORT))
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e --keep-failures \
 		--out $(AGENT_E2E_REPORT)
 
 # Record the committed baseline (tokens, tool calls, wall time). It is data, not
 # a gate: machine-dependent wall time cannot fail a build.
-agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN)
+agent-e2e-baseline: $(BUILD_DIR)/$(BENCH_BIN) $(BUILD_DIR)/$(CLI_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/$(BENCH_BIN) run --driver binary --suite e2e \
 		--out bench/results/agent-e2e-baseline.json
 

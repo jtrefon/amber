@@ -55,6 +55,12 @@ public:
     std::string prompt_text(const std::string& server, const std::string& name,
                             const json& arguments, std::string& out_text) const;
 
+    // Join the auto-connect worker: true when every enabled server has finished
+    // connecting (success or error), false on timeout. A host that must see the
+    // server's tools before its first turn uses this instead of racing the
+    // activation worker; the TUI deliberately does not wait.
+    bool wait_ready(int timeout_ms);
+
     // Null while the plugin is inactive.
     const ServerManager* manager() const noexcept { return mgr_.get(); }
 
