@@ -234,7 +234,10 @@ std::string post_completion(Config& cfg, const Dialect& dialect, const std::stri
             int learned = dialect.context_overflow_hint(response);
             if (learned > 0) {
                 cfg.context_size = learned;
-                cfg.context_explicit = true;
+                // Runtime fact, not a user override. LearnedWindowCapture reads
+                // the changed size, and the host clamps with it via
+                // learned_context_size(); marking it explicit here would let a
+                // later save_global() freeze the server's n_ctx as a pin.
             }
         }
         bool retryable = dialect.is_retryable(out.status, response);
@@ -259,7 +262,10 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
             int learned = dialect.context_overflow_hint(decoder.raw_body());
             if (learned > 0) {
                 cfg.context_size = learned;
-                cfg.context_explicit = true;
+                // Runtime fact, not a user override. LearnedWindowCapture reads
+                // the changed size, and the host clamps with it via
+                // learned_context_size(); marking it explicit here would let a
+                // later save_global() freeze the server's n_ctx as a pin.
             }
         }
         bool retryable = dialect.is_retryable(status_out, decoder.raw_body());
