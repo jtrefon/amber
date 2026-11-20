@@ -197,6 +197,7 @@ agent::LlmResponseEvent | long cache_read_tokens = -1;
 agent::LlmResponseEvent | long cache_write_tokens = -1;
 agent::LlmResponseEvent | long completion_tokens = -1;
 agent::LlmResponseEvent | long prompt_tokens = -1;
+agent::LlmResponseEvent | long reasoning_tokens = -1;
 agent::LlmResponseEvent | long status = 0;
 agent::LlmResponseEvent | std::string cache_miss_reason;
 agent::LlmResponseEvent | std::string model;
@@ -448,11 +449,13 @@ agent::TurnEndedEvent | bool cancelled = false;
 agent::TurnStartedEvent | std::string prompt;
 agent::UsageTotals | bool measured = false;
 agent::UsageTotals | bool measured_cache = false;
+agent::UsageTotals | bool measured_reasoning = false;
 agent::UsageTotals | long cache_read_tokens = 0;
 agent::UsageTotals | long cache_write_tokens = 0;
 agent::UsageTotals | long completion_tokens = 0;
 agent::UsageTotals | long prompt_tokens = 0;
-agent::UsageTotals | void add(long prompt, long completion, long cache_read = -1, long cache_write = -1) noexcept
+agent::UsageTotals | long reasoning_tokens = 0;
+agent::UsageTotals | void add(long prompt, long completion, long cache_read = -1, long cache_write = -1, long reasoning = -1) noexcept
 agent::WalletCapability | CapabilityKind kind() const override
 agent::WalletCapability | InstallResult install(PluginServices& services) override;
 agent::WalletCapability | explicit WalletCapability(WalletRegistry::Fetch fetch);

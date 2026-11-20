@@ -21,6 +21,10 @@ inline std::string count_label(const agent::UsageTotals& usage) {
     if (usage.measured_cache)
         out += " · cache " + agent::compact::count(usage.cache_read_tokens) + " read / " +
                agent::compact::count(usage.cache_write_tokens) + " write";
+    // Reasoning is already inside `down`; show it only as a breakdown when the
+    // provider actually reported one. "thinking 0" would be a lie.
+    if (usage.measured_reasoning)
+        out += " (thinking " + agent::compact::count(usage.reasoning_tokens) + ")";
     return out;
 }
 

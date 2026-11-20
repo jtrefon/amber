@@ -294,6 +294,16 @@ long read_cached_tokens(const json& usage) {
     return read_usage_token(*it, "cached_tokens");
 }
 
+// Reasoning tokens are billed as output and are INCLUDED in completion_tokens.
+// They are a breakdown, never an addition: -1 means the provider did not
+// publish the split.
+long read_reasoning_tokens(const json& usage) {
+    auto it = usage.find("completion_tokens_details");
+    if (it == usage.end() || !it->is_object())
+        return -1;
+    return read_usage_token(*it, "reasoning_tokens");
+}
+
 void append_strings(const json& j, const char* key, std::vector<std::string>& out) {
     if (!j.contains(key) || !j[key].is_array())
         return;
@@ -584,6 +594,7 @@ protected:
         if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
             completion_tokens_ = u["completion_tokens"].get<long>();
         cache_read_tokens_ = read_cached_tokens(u);
+        reasoning_tokens_ = read_reasoning_tokens(u);
     }
 
     void decode_reasoning(const json& delta, StreamChunk& chunk) {
@@ -805,6 +816,7 @@ public:
             usage.prompt = read_usage_token(u, "prompt_tokens");
             usage.completion = read_usage_token(u, "completion_tokens");
             usage.cache_read = read_cached_tokens(u);
+            usage.reasoning_tokens = read_reasoning_tokens(u);
         }
         return usage;
     }

@@ -2634,6 +2634,36 @@ TEST(openai_usage_reads_cached_tokens) {
     ASSERT_EQ(usage.cache_write, -1L);
 }
 
+TEST(openai_usage_reads_reasoning_tokens) {
+    auto d = agent::make_dialect("openai");
+    const std::string body = R"({"usage":{"prompt_tokens":32,"completion_tokens":8,)"
+                             R"("prompt_tokens_details":{"cached_tokens":0},)"
+                             R"("completion_tokens_details":{"reasoning_tokens":8}}})";
+    const agent::TokenUsage usage = d->parse_usage(body);
+    ASSERT_EQ(usage.prompt, 32L);
+    ASSERT_EQ(usage.completion, 8L);
+    ASSERT_EQ(usage.reasoning_tokens, 8L);
+
+    // A provider that does not report the field leaves it unknown, not zero.
+    const agent::TokenUsage quiet =
+        d->parse_usage(R"({"usage":{"prompt_tokens":10,"completion_tokens":2}})");
+    ASSERT_EQ(quiet.reasoning_tokens, -1L);
+}
+
+TEST(openai_streaming_usage_reads_reasoning_tokens) {
+    auto d = agent::make_dialect("openai");
+    agent::Message msg;
+    auto decoder = d->make_decoder(msg, [](const agent::StreamChunk&) {}, "");
+    const std::string sse =
+        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":32,\"completion_tokens\":8,"
+        "\"completion_tokens_details\":{\"reasoning_tokens\":6}}}\n\n"
+        "data: [DONE]\n\n";
+    decoder->on_write(sse.data(), sse.size(), 1);
+    decoder->finalize();
+    ASSERT_EQ(decoder->prompt_tokens(), 32L);
+    ASSERT_EQ(decoder->reasoning_tokens(), 6L);
+}
+
 TEST(gemini_usage_reads_cached_tokens) {
     auto d = agent::make_gemini_dialect();
     const std::string body = R"({"usageMetadata":{"promptTokenCount":1000,)"
@@ -2907,6 +2937,16 @@ TEST(usage_totals_sum_reported_and_ignore_unknown) {
     ASSERT_EQ(u.prompt_tokens, 100L);
     ASSERT_EQ(u.completion_tokens, 25L);
     ASSERT_TRUE(u.measured);
+}
+
+TEST(usage_totals_keeps_reasoning_unmeasured_when_absent) {
+    agent::UsageTotals u;
+    u.add(100, 20); // no reasoning reported: stay unknown, never zero
+    ASSERT_FALSE(u.measured_reasoning);
+    ASSERT_EQ(u.reasoning_tokens, 0L);
+    u.add(50, 10, -1, -1, 7);
+    ASSERT_TRUE(u.measured_reasoning);
+    ASSERT_EQ(u.reasoning_tokens, 7L);
 }
 
 TEST(statusbar_pressure_thresholds) {

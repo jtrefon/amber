@@ -41,6 +41,8 @@ public:
     long completion_tokens() const noexcept { return completion_tokens_; }
     long cache_read_tokens() const noexcept { return cache_read_tokens_; }
     long cache_write_tokens() const noexcept { return cache_write_tokens_; }
+    // Reasoning tokens billed inside completion_tokens, -1 when unreported.
+    long reasoning_tokens() const noexcept { return reasoning_tokens_; }
     // The provider's response id, and its cache-miss reason when the prefix
     // diverged. Empty when the protocol or the response carries neither.
     const std::string& response_id() const noexcept { return response_id_; }
@@ -69,6 +71,7 @@ protected:
     long completion_tokens_ = -1;
     long cache_read_tokens_ = -1;   // prompt-cache read counter, -1 when absent
     long cache_write_tokens_ = -1;  // prompt-cache write counter, -1 when absent
+    long reasoning_tokens_ = -1;    // reasoning part of completion, -1 when absent
     std::string response_id_;       // provider response id (`msg_...`)
     std::string cache_miss_reason_; // provider's first-divergence reason
 

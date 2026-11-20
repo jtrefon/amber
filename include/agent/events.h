@@ -64,6 +64,8 @@ struct LlmResponseEvent {
     // nothing publishes per token.
     long cache_read_tokens = -1;
     long cache_write_tokens = -1;
+    // Reasoning billed inside completion_tokens, -1 when the provider omits it.
+    long reasoning_tokens = -1;
     std::string cache_miss_reason;
     // The session/window the exchange belongs to, plus the model and provider
     // that served it: a gauge must not mix reuse across sessions or vendors.

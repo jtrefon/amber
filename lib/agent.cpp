@@ -498,7 +498,8 @@ void Agent::record_stats(const Stats& stats) {
                          stats.cache_read_tokens,
                          stats.cache_write_tokens,
                          {},
-                         {}});
+                         {},
+                         stats.reasoning_tokens});
     if (!stats.cache_miss_reason.empty())
         log_.event("cache_miss", {{"reason", stats.cache_miss_reason}});
     if (stats.prompt_tokens > 0)
@@ -516,6 +517,7 @@ void Agent::publish_llm_response(const Stats& stats) {
     }
     response.cache_read_tokens = stats.cache_read_tokens;
     response.cache_write_tokens = stats.cache_write_tokens;
+    response.reasoning_tokens = stats.reasoning_tokens;
     response.cache_miss_reason = stats.cache_miss_reason;
     response.owner_id = owner_id_;
     response.model = cfg_.model;
