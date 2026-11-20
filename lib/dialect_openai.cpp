@@ -15,11 +15,6 @@ namespace agent {
 
 namespace {
 
-auto read_int = [](const json& o, const char* k) -> int {
-    auto it = o.find(k);
-    return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
-};
-
 void sanitize_node(json& node) {
     if (!node.is_object()) {
         node = json{{"type", "object"}};
@@ -312,18 +307,6 @@ void append_strings(const json& j, const char* key, std::vector<std::string>& ou
             out.push_back(v.get<std::string>());
 }
 
-void append_unique_strings(const json& j, const char* key, std::vector<std::string>& out) {
-    if (!j.contains(key) || !j[key].is_array())
-        return;
-    for (const auto& v : j[key]) {
-        if (!v.is_string())
-            continue;
-        const std::string text = v.get<std::string>();
-        if (std::find(out.begin(), out.end(), text) == out.end())
-            out.push_back(text);
-    }
-}
-
 bool has_parameter(const std::vector<std::string>& params, const char* name) {
     return std::find(params.begin(), params.end(), name) != params.end();
 }
@@ -463,52 +446,80 @@ void parse_reasoning(const json& e, ModelInfo& m) {
     parse_reasoning_echo(e, m.reasoning);
 }
 
-void parse_limits(const json& e, ModelInfo& m) {
-    if (m.context == 0 && e.contains("limit") && e["limit"].is_object()) {
-        m.context = read_int(e["limit"], "context");
-        m.context_train = m.context;
-        if (m.max_output == 0)
-            m.max_output = read_int(e["limit"], "output");
+// One reader per capability concept. An alias is a dotted path, and the first
+// positive value in priority order wins. A model's own field outranks a
+// gateway's generic wrapper: the scattered per-provider readers used to apply
+// `context_window`/`max_output_tokens` only after `top_provider`, so a body
+// carrying both silently resolved to the smaller wrapper value.
+const char* const kContextAliases[] = {
+    "meta.n_ctx",   "n_ctx", "context_window", "context_length", "top_provider.context_length",
+    "limit.context"};
+const char* const kContextTrainAliases[] = {"meta.n_ctx_train", "n_ctx_train", "context_window",
+                                            "context_length"};
+const char* const kOutputAliases[] = {"max_output_tokens", "max_completion_tokens",
+                                      "top_provider.max_completion_tokens", "limit.output"};
+const char* const kInputModalityAliases[] = {"input_modalities", "architecture.input_modalities",
+                                             "modalities.input"};
+const char* const kOutputModalityAliases[] = {"output_modalities", "architecture.output_modalities",
+                                              "modalities.output"};
+
+const json* resolve_path(const json& root, const char* path) {
+    const json* cur = &root;
+    std::string key;
+    for (const char* p = path;; ++p) {
+        if (*p == '.' || *p == '\0') {
+            if (!cur->is_object())
+                return nullptr;
+            const auto it = cur->find(key);
+            if (it == cur->end())
+                return nullptr;
+            cur = &*it;
+            key.clear();
+            if (*p == '\0')
+                return cur;
+        } else {
+            key += *p;
+        }
     }
-    if (m.context == 0)
-        m.context = read_int(e, "context_window");
-    if (m.context_train == 0)
-        m.context_train = m.context;
-    if (m.max_output == 0)
-        m.max_output = read_int(e, "max_output_tokens");
 }
 
-void parse_modalities(const json& e, ModelInfo& m) {
-    append_unique_strings(e, "input_modalities", m.input_modalities);
-    append_unique_strings(e, "output_modalities", m.output_modalities);
-    if (e.contains("architecture") && e["architecture"].is_object()) {
-        append_unique_strings(e["architecture"], "input_modalities", m.input_modalities);
-        append_unique_strings(e["architecture"], "output_modalities", m.output_modalities);
+int read_alias_int(const json& root, const char* const* aliases, std::size_t n) {
+    for (std::size_t i = 0; i < n; ++i) {
+        const json* v = resolve_path(root, aliases[i]);
+        if (v && v->is_number_integer() && v->get<int>() > 0)
+            return v->get<int>();
     }
-    if (e.contains("modalities") && e["modalities"].is_object()) {
-        append_unique_strings(e["modalities"], "input", m.input_modalities);
-        append_unique_strings(e["modalities"], "output", m.output_modalities);
-    }
+    return 0;
 }
 
-void parse_top_provider(const json& e, ModelInfo& m) {
-    if (!e.contains("top_provider") || !e["top_provider"].is_object())
-        return;
-    const json& top = e["top_provider"];
-    if (m.context == 0)
-        m.context = read_int(top, "context_length");
-    if (m.context_train == 0)
-        m.context_train = read_int(top, "context_length");
-    m.max_output = read_int(top, "max_completion_tokens");
+void append_alias_strings(const json& root, const char* const* aliases, std::size_t n,
+                          std::vector<std::string>& out) {
+    for (std::size_t i = 0; i < n; ++i) {
+        const json* v = resolve_path(root, aliases[i]);
+        if (!v || !v->is_array())
+            continue;
+        for (const auto& entry : *v) {
+            if (!entry.is_string())
+                continue;
+            const std::string text = entry.get<std::string>();
+            if (std::find(out.begin(), out.end(), text) == out.end())
+                out.push_back(text);
+        }
+    }
 }
 
 void parse_capabilities(const json& e, ModelInfo& m) {
-    if (m.max_output == 0)
-        m.max_output = read_int(e, "max_completion_tokens");
+    m.context = read_alias_int(e, kContextAliases, std::size(kContextAliases));
+    m.context_train = read_alias_int(e, kContextTrainAliases, std::size(kContextTrainAliases));
+    if (m.context_train == 0)
+        m.context_train = m.context;
+    m.max_output = read_alias_int(e, kOutputAliases, std::size(kOutputAliases));
+    append_alias_strings(e, kInputModalityAliases, std::size(kInputModalityAliases),
+                         m.input_modalities);
+    append_alias_strings(e, kOutputModalityAliases, std::size(kOutputModalityAliases),
+                         m.output_modalities);
     append_strings(e, "supported_parameters", m.supported_parameters);
     parse_reasoning(e, m);
-    parse_limits(e, m);
-    parse_modalities(e, m);
 }
 
 // Parse a single model entry into a ModelInfo. The id may come from any of
@@ -521,23 +532,8 @@ ModelInfo parse_entry(const json& e) {
         m.id = e["model"].get<std::string>();
     else if (e.contains("name") && e["name"].is_string())
         m.id = e["name"].get<std::string>();
-    // Context window: llama.cpp reports it under meta.n_ctx; OpenAI-compatible
-    // gateways (kilocode, OpenRouter, ...) advertise context_length at the top
-    // level with meta absent. Prefer the llama.cpp shape when both exist.
-    if (e.contains("meta") && e["meta"].is_object()) {
-        const json& meta = e["meta"];
-        m.context = read_int(meta, "n_ctx");
-        m.context_train = read_int(meta, "n_ctx_train");
-    }
-    if (m.context == 0)
-        m.context = read_int(e, "n_ctx");
-    if (m.context == 0)
-        m.context = read_int(e, "context_length");
-    if (m.context_train == 0)
-        m.context_train = read_int(e, "n_ctx_train");
-    if (m.context_train == 0)
-        m.context_train = read_int(e, "context_length");
-    parse_top_provider(e, m);
+    // Every capability concept is read by its alias table in parse_capabilities,
+    // so a new provider spelling is a table entry, not a parser edit.
     parse_capabilities(e, m);
     // A gateway that lists `anthropic/claude-*` often reports only the id. The
     // documented family fills the limits and the reasoning contract; anything
