@@ -18,6 +18,9 @@ enum class Role {
     DoneTab,
     AttentionTab,
     ErrorTab,
+    // The padded ` × ` control, painted separately from the tab body so the
+    // clickable area is a visible button and not a bare glyph at the tab edge.
+    CloseButton,
     Overflow,
     Separator,
 };

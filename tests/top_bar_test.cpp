@@ -63,7 +63,8 @@ TEST(top_bar_marks_the_app_and_the_active_tab) {
     ASSERT(active != nullptr);
     ASSERT(active->text.find("amber-agent") != std::string::npos);
     ASSERT(layout.active_start > 0);
-    ASSERT(layout.active_width == tui::text::display_cols(active->text));
+    // The tab owns a body span and a separate padded close-control span.
+    ASSERT(layout.active_width == tui::text::display_cols(active->text) + 3);
 }
 
 TEST(top_bar_records_the_amber_marks_clickable_cell) {
@@ -276,5 +277,5 @@ TEST(top_bar_tab_width_matches_the_painted_label) {
     const Layout layout = tui::top_bar::layout(tabs, 80, true);
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
-    ASSERT_EQ(tui::text::display_cols(active->text), tui::top_bar::tab_width(3, 1));
+    ASSERT_EQ(tui::text::display_cols(active->text) + 3, tui::top_bar::tab_width(3, 1));
 }
