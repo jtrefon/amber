@@ -10,6 +10,7 @@
 #include <agent/compressor.h>
 #include <agent/context_shape.h>
 #include <agent/global_config.h>
+#include <agent/profiles.h>
 #include <agent/experience.h>
 #include <agent/data_path.h>
 #include <agent/plugin_runtime.h>
@@ -679,8 +680,18 @@ void load_run_config(agent::Config& cfg, const CliArgs& args, const agent::Globa
     if (def)
         cfg.load_workspace_defaults("amber.conf");
     agent::apply_global_model(cfg, global);
+    // An explicit --config may edit the connection, but a profile name alone
+    // would desync the name from the connection; the global config and the
+    // project pin are the two paths that select a profile.
+    const std::string selected_profile = cfg.profile_name;
     if (!args.config_file.empty())
         cfg.load(args.config_file);
+    cfg.profile_name = selected_profile;
+    // Existing installs migrate into a `default` profile on first run, from the
+    // config files. The environment is applied after: an AMBER_API_KEY is a
+    // per-invocation override, not a credential to persist. The CLI does not
+    // apply a project's .amber/profile: that is a window/host concern.
+    (void)agent::ensure_default_profile(cfg);
     cfg.apply_environment();
 }
 

@@ -105,6 +105,11 @@ StatusText render_model(const StatusSnapshot& s) {
     cell += s.model;
     if (!s.reasoning_effort.empty())
         cell += bar::reasoning_badge(s.reasoning_effort);
+    // The profile qualifies the connection the way the provider qualifies the
+    // model. The implicit default is omitted: on a single-account install it
+    // would take bar width to say nothing, and /profile always answers.
+    if (!s.profile.empty() && s.profile != "default")
+        cell += " @" + s.profile;
     return StatusText{" [" + cell + "]", StatusTone::Warn};
 }
 

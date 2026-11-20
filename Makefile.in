@@ -65,6 +65,7 @@ SRC_DIR   = @srcdir@
 BUILD_DIR = @builddir@
 
 CORE_OBJS = $(BUILD_DIR)/lib/config.o \
+            $(BUILD_DIR)/lib/profiles.o \
             $(BUILD_DIR)/lib/text_diff.o \
             $(BUILD_DIR)/lib/skill_update_review.o \
             $(BUILD_DIR)/lib/skill_shelves.o \
@@ -319,6 +320,8 @@ TUI_OBJS  = $(BUILD_DIR)/tui/tui_ui_services.o \
              $(BUILD_DIR)/tui/log_retention_controller.o \
              $(BUILD_DIR)/tui/slash_dispatcher.o \
              $(BUILD_DIR)/tui/checkpoint_commands.o \
+             $(BUILD_DIR)/tui/profile_commands.o \
+             $(BUILD_DIR)/tui/provider_form.o \
              $(BUILD_DIR)/tui/key_binder.o \
              $(BUILD_DIR)/tui/theme.o $(BUILD_DIR)/tui/glyphs.o \
              $(BUILD_DIR)/tui/surface.o $(BUILD_DIR)/tui/compositor.o \
@@ -374,6 +377,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/compression_controller_test.o \
                $(BUILD_DIR)/tests/loop_guard_test.o \
                $(BUILD_DIR)/tests/checkpoint_test.o \
+               $(BUILD_DIR)/tests/profiles_test.o \
                $(BUILD_DIR)/tests/agent_ports_test.o \
                $(BUILD_DIR)/tests/rate_governor_test.o \
                $(BUILD_DIR)/tests/agent_events_test.o \
@@ -1637,11 +1641,22 @@ $(BUILD_DIR)/tests/fixtures/%: $(SRC_DIR)/tests/fixtures/%.cpp
 -include $(COMP_TEST_OBJ:.o=.d)
 -include $(TUI_TEST_OBJ:.o=.d)
 -include $(PLUGIN_TEST_OBJ:.o=.d)
+# core_only_test.o links the core archive, so a Config layout change makes a
+# stale object link an ABI that no longer matches: it hung on a futex instead of
+# failing. Every test object list is dependency-included (P19).
+-include $(CORE_ONLY_TEST_OBJ:.o=.d)
 -include $(BUILD_DIR)/third_party/md4c/md4c.d
 # Bundled plugin objects generate .d files (the pattern rule uses DEPFLAGS) but
 # were missing from this list, so a change to a header they include — including
 # IPlugin itself — silently left them stale. With IPlugin's vtable that is not a
 # warning, it is a jump through the wrong slot.
+-include $(PLUGIN_OBJS:.o=.d)
+# The composition roots (bundled.o, default_tools.o) live one level ABOVE the
+# per-plugin directories, and the wildcard covered only plugins/*/. Their .d
+# files existed but were never read, so editing Config left default_tools.o
+# holding the old layout: the tool registry then freed a Config with the wrong
+# destructor (double free, measured 2026-11-19).
+-include $(wildcard $(BUILD_DIR)/plugins/*.d)
 -include $(wildcard $(BUILD_DIR)/plugins/*/*.d)
 -include $(WS_TEST_OBJ:.o=.d)
 -include $(CDP_WS_OBJ:.o=.d)

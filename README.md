@@ -10,7 +10,8 @@ amber: a native C++ AI agent runtime and CLI harness
 
 Amber is an open-source C++17 AI agent runtime and CLI harness with an
 extensible plugin architecture, multi-provider support, MCP, sub-agents and
-terminal clients for Linux and macOS.
+terminal clients for Linux and macOS. Named profiles switch between accounts
+without editing config or restarting ([spec](docs/spec/config/profiles.md)).
 
 The core is deliberately extensible: providers, tools and UI capabilities
 use the same plugin architecture, allowing Amber to grow without hardcoding

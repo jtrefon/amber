@@ -497,6 +497,29 @@ for job in cd cd-macos; do
     fi
 done
 
+# P19
+# Every test object list must be dependency-included. The lists are hand-written
+# and one was missing: core_only_test.o linked the core archive with a Config
+# layout from before a header change, and the mismatch did not fail the link —
+# it hung the test on a futex. A .d file that exists but is never included cannot
+# cause a rebuild, so the invariant is on the include line, not the file.
+for test_obj_var in $(grep -oE '^[A-Z0-9_]+_TEST_OBJ' Makefile.in | sort -u); do
+    if grep -qF -- "-include \$($test_obj_var:.o=.d)" Makefile.in; then
+        ok "P19: $test_obj_var is dependency-included"
+    else
+        warn "P19: $test_obj_var has no -include; a stale object can link an ABI-mismatched header"
+    fi
+done
+# Plugin objects are listed twice by directory depth: per-plugin sources under
+# plugins/<id>/ and the composition roots directly under plugins/. The wildcard
+# covered only the first, so the roots kept a Config layout from before a header
+# change (default_tools.o) and the registry freed it with the wrong destructor.
+if grep -qF -- '-include $(PLUGIN_OBJS:.o=.d)' Makefile.in; then
+    ok "P19: PLUGIN_OBJS is dependency-included"
+else
+    warn "P19: PLUGIN_OBJS has no -include; the plugin composition roots can go stale"
+fi
+
 if [ "$failures" -gt 0 ]; then
     echo "build-hygiene: $failures invariant(s) FAILED"
     exit 1

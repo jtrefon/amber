@@ -6,6 +6,7 @@
 #include "agent/config_paths.h"
 #include "agent/workspace.h"
 #include "agent/model_probe.h"
+#include "agent/profiles.h"
 #include "agent/context_shape.h"
 #include "agent/global_config.h"
 #include "agent/plugin_runtime.h"
@@ -129,6 +130,12 @@ void apply_global_config(agent::Config& cfg) {
     std::ifstream sf2("amber.conf");
     if (sf2)
         cfg.load_workspace_defaults("amber.conf");
+    // First run with no profiles directory: capture the user's configured
+    // connection as `default`. The environment and the project pin are not the
+    // source: an AMBER_API_KEY belongs to this process (writing it to disk is
+    // not what it asked for), and a project pin selects an account for that
+    // project rather than naming the user's default.
+    (void)agent::ensure_default_profile(cfg);
 }
 
 // Project-local overrides (non-LLM settings) live in the per-project state dir
@@ -136,9 +143,21 @@ void apply_global_config(agent::Config& cfg) {
 void apply_local_settings(agent::Config& cfg) {
     const std::string path = agent::Workspace::settings_path();
     std::ifstream sf(path);
+    // The settings file carries non-LLM project overrides; a profile name there
+    // would select a profile without applying its connection. The one-line
+    // <project>/.amber/profile is the project mechanism.
+    const std::string selected_profile = cfg.profile_name;
     if (sf)
         cfg.load(path);
+    cfg.profile_name = selected_profile;
+    // A project pins its account in one line (.amber/profile). It applies after
+    // the global profile and before the environment, so an explicit AMBER_*
+    // override still wins for this process.
+    std::string profile_note;
+    (void)agent::apply_project_profile(cfg, agent::Workspace::project_root(), &profile_note);
     cfg.apply_environment();
+    if (!profile_note.empty())
+        std::fprintf(stderr, "profile: %s\n", profile_note.c_str());
 }
 
 // The TUI tolerates an unresolved model — the background catalog refresh or

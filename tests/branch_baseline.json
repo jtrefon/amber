@@ -62,6 +62,7 @@
     "lib/policy_engine.cpp": 7,
     "lib/private_file.cpp": 43,
     "lib/process.cpp": 30,
+    "lib/profiles.cpp": 17,
     "lib/prompt.cpp": 5,
     "lib/provider_health.cpp": 5,
     "lib/providers_catalog_http.cpp": 3,

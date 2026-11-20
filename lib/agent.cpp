@@ -224,19 +224,30 @@ void Agent::set_connection(const std::string& api_base, const std::string& api_k
 
 void Agent::set_provider(const Config& resolved, const std::string& model) {
     cfg_.provider_name = resolved.provider_name;
+    cfg_.profile_name = resolved.profile_name;
     cfg_.api_base = resolved.api_base;
     cfg_.api_key = resolved.api_key;
     cfg_.flavor = resolved.flavor;
+    // Sampling belongs to the connection: a profile carries it, and the
+    // provider-switch callers pass the live values, so this is a no-op there.
+    cfg_.temperature = resolved.temperature;
+    cfg_.max_tokens = resolved.max_tokens;
+    cfg_.thinking = resolved.thinking;
     // The window belongs to the endpoint/model pair that was just selected.
     // A user pin survives; an unpinned agent adopts the resolved default (0
     // when the provider has none) instead of keeping the previous provider's.
     if (!cfg_.context_explicit)
         cfg_.context_size = resolved.context_size;
     apply_model_capabilities(cfg_, capabilities_of(resolved));
-    if (!model.empty()) {
-        cfg_.model = model;
-        cfg_.model_explicit = true;
-    }
+    // The host resolved this model for the connection, so it is adopted even
+    // when it is empty ("auto-detect"): a profile whose model is auto must not
+    // keep sending the outgoing connection's model to the new endpoint.
+    cfg_.model = model;
+    cfg_.model_explicit = !model.empty();
+    // A response id and a prompt count belong to the connection that produced
+    // them; replaying either against a new one is a stale-cache request.
+    cfg_.previous_response_id.clear();
+    cfg_.prompt_tokens_used = -1;
     client_ = make_client(cfg_, client_factory_);
     publish_config();
 }

@@ -21,6 +21,8 @@ void add_global_paths(std::vector<ConfigPath>& out, const std::string& config) {
     out.push_back(row("providers", config + "/providers",
                       "one <name>.conf per provider, keyed by provider name; /provider "
                       "<name> writes these"));
+    out.push_back(row("profiles", config + "/profiles",
+                      "named provider connections (/profile); one <name>.json each, owner-only"));
     out.push_back(
         row("global-skills", config + "/skills", "SKILL.md packages available in every project"));
     out.push_back(row("global-mcp", config + "/mcp", "MCP servers available in every project"));

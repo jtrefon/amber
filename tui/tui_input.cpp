@@ -9,6 +9,7 @@
 #include "tui/model_picker.h"
 #include "tui/confirm_panel.h"
 #include "tui/path_confine.h"
+#include "tui/provider_form.h"
 #include "tui/toggle_value.h"
 #include "tui/window_ops.h"
 #include "tui/widgets.h"
@@ -51,11 +52,6 @@
 #include <agent/worktree.h>
 
 namespace tui {
-// Provider edit form (Server URL / API Key / Model). Returns true when the
-// user saved, false on cancel. The context window is a deliberate pin, set
-// with /set model context, not a provider-form field (a provider default that
-// an existing pin outranks was the bug in #290).
-static bool edit_provider_form(agent::Config& cfg, const std::string& title);
 
 namespace {
 
@@ -1469,6 +1465,7 @@ bool SlashDispatcher::dispatch_key_action(const std::string& action, const std::
 void SlashDispatcher::register_builtin_actions() {
     register_core_actions();
     checkpoints_.register_actions(*this);
+    profile_surface_.register_actions(*this);
     register_provider_actions();
     register_os_actions();
     register_config_set_actions();
@@ -3475,6 +3472,9 @@ void SlashDispatcher::cmd_project_open(const std::string& args) {
     }
     Window& w = tui_.new_window("project", prepare_workspace, worktree_name, root);
     w.title = std::filesystem::path(root).filename().string();
+    // The project may pin a profile in one line; the new window is active, so
+    // the switch lands on the connection its first turn uses.
+    profile_surface_.switch_project(root);
     tui_.append_line(P_STATUS, "project opened: " + root);
     tui_.draw();
 }
@@ -4339,40 +4339,6 @@ void Tui::test_connection(bool announce) {
             draw();
         });
     (void)announce;
-}
-
-static bool edit_provider_form(agent::Config& cfg, const std::string& title) {
-    std::string model_field = cfg.model_explicit ? cfg.model : "";
-    std::vector<FieldSpec> fields = {
-        {"Server URL", cfg.api_base, false},
-        {"API Key", cfg.api_key, true},
-        {"Model (blank = auto)", model_field, false},
-    };
-    std::string notice;
-    for (;;) {
-        if (!form_edit(title, fields, notice))
-            return false;
-        cfg.api_base = fields[0].value;
-        while (!cfg.api_base.empty() && cfg.api_base.back() == '/')
-            cfg.api_base.pop_back();
-        cfg.api_key = fields[1].value;
-        if (fields[2].value.empty()) {
-            cfg.model_explicit = false;
-        } else {
-            cfg.model = fields[2].value;
-            cfg.model_explicit = true;
-        }
-        // An empty key has nothing to verify (a keyless local endpoint is a
-        // valid configuration). Anything else is checked before it is saved:
-        // a rejected key keeps the form open with the reason, so it can never
-        // be written to disk and discovered later as "no answer".
-        if (cfg.api_key.empty())
-            return true;
-        const agent::ConnectionCheck check = agent::validate_connection(cfg);
-        if (!check.auth_rejected)
-            return true;
-        notice = "Rejected: " + check.reason + " - fix the key or press Esc";
-    }
 }
 
 std::string Tui::prompt_api_key(const std::string& reason) {

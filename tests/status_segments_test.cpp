@@ -65,6 +65,20 @@ std::string text_of(const std::vector<StatusSegment>& segments, const std::strin
 
 } // namespace
 
+// The profile qualifies the connection like the provider qualifies the model.
+// The implicit default is omitted so a single-account install pays no width for
+// saying nothing.
+TEST(core_model_segment_names_a_non_default_profile) {
+    auto registry = core_registry();
+    StatusSnapshot s = base_snapshot();
+    s.reasoning_effort.clear();
+    s.profile = "work";
+    ASSERT_EQ(text_of(registry.render(s), "model"), std::string(" [kilocode|qwen3 @work]"));
+
+    s.profile = "default";
+    ASSERT_EQ(text_of(registry.render(s), "model"), std::string(" [kilocode|qwen3]"));
+}
+
 TEST(status_registry_orders_by_priority_then_registration) {
     StatusRegistry registry;
     registry.add("plug", "late", 300, 0,

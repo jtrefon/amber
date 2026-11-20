@@ -1188,6 +1188,43 @@
    ],
    "short": "p"
   },
+  "profile": {
+   "action": "core.profile",
+   "help": "Show or switch named provider profiles.",
+   "man": "A profile is a named provider connection: provider, wire flavor, endpoint, API key, model, temperature, max tokens and thinking. Profiles live in ~/.config/amber/profiles/<name>.json, are written owner-only, and a key is never printed in full. '/profile' shows the active connection (press Ctrl-G to send the bare line, since Enter accepts the drawer's highlighted profile), '/profile list' names every profile with its masked key, '/profile add <name>' opens the connection form and saves a new profile, '/profile save' updates the active profile from the current connection, '/profile switch <name>' lands a profile without restarting (a running turn keeps its connection; the switch applies when the window is idle), '/profile show [name]' reports one profile, and '/profile remove <name>' deletes one. A project can pin a profile with a one-line .amber/profile file, applied when that project is opened. Profile names complete on switch, show and remove.",
+   "children": {
+    "list": {
+     "action": "core.profile.list",
+     "help": "List every profile with its provider, model and masked key.",
+     "man": "Prints one row per profile, sorted by name, with the active profile marked '>'. The key is shown only as its first three and last four characters; an absent key reads '(unset)'. A profile that exists on disk but is not active is reported from its file, so the list is also an inventory."
+    },
+    "add": {
+     "action": "core.profile.add",
+     "help": "Create a profile from the current connection.",
+     "man": "Opens the connection form (server URL, API key, model) seeded from the active connection, then writes the named profile. The wire flavor and provider name come from the connection the form started from: select a different provider first when the new profile belongs to a different gateway. An existing name is refused; use '/profile switch <name>' then '/profile save' to update it."
+    },
+    "save": {
+     "action": "core.profile.save",
+     "help": "Update the active profile from the current connection.",
+     "man": "Captures the provider, endpoint, key, model, temperature, max tokens and thinking that are active now and writes them to the active profile's file. This is how a model set with '/set model' becomes part of the profile; without it the switch would land on the old saved model."
+    },
+    "switch": {
+     "action": "core.profile.switch",
+     "help": "Switch to a named profile without restarting.",
+     "man": "Applies the profile's connection to the active window: provider, wire flavor, endpoint, key and model. A context window pinned against the previous model is cleared, because it described that model. A turn that is already running keeps its own client and is not interrupted; the switch lands before the next turn. Status and completion refresh, and the choice is persisted in the global config."
+    },
+    "show": {
+     "action": "core.profile.show",
+     "help": "Show one profile's connection details.",
+     "man": "Reports the named profile (the active one when the name is omitted): provider and flavor, endpoint, model, masked key, temperature, max tokens and thinking. The key is never printed in full, and the readout comes from the live connection for the active profile and from its file for the others."
+    },
+    "remove": {
+     "action": "core.profile.remove",
+     "help": "Delete a named profile.",
+     "man": "Removes the profile's file. Removing the active profile asks first and switches to 'default' (a running turn is untouched, since it already holds its connection). The implicit default profile cannot be removed while it is active; switch to another profile first."
+    }
+   }
+  },
   "queue": {
    "action": "ui.queue.recall",
    "help": "Manage prompts queued for the running agent.",

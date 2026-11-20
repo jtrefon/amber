@@ -91,6 +91,7 @@ experience store (spec: `docs/spec/memory/`). `experience_*` keys already exist;
 | `experience_enabled` | `true` | Master switch for learned memory/skills |
 | `experience_max_memories` | `20` | Top-K memories injected |
 | `experience_max_skills` | `10` | Top-K learned skills injected (authored skills budget separately via `skills_max_discovery`) |
+| `profile` | `default` | The named connection (`/profile`) this config resolves from. Written only when it is not `default`; see `config/profiles.md` for the store, precedence and switching rules. |
 
 #### [FC-07] skills_interop defaults off
 

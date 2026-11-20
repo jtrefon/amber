@@ -16,6 +16,7 @@
 #include "command_line.h"
 #include "input_state.h"
 #include "palette.h"
+#include "profile_commands.h"
 #include "setting_registry.h"
 
 namespace tui {
@@ -84,6 +85,9 @@ public:
     // provider and a /set model pick from another provider end here, so a
     // switch cannot mean two different things depending on how it was typed.
     void land_provider_switch();
+    // A profile switch queued while the active window was busy. Called on the
+    // UI thread each tick; it lands only when the run slot is idle.
+    void apply_pending_profile_switch();
     // Adopt a provider definition the settings screen just wrote. The provider
     // form has no protocol field, so what the session speaks has to be
     // re-resolved from the definition through the provider domain: assigning
@@ -185,12 +189,10 @@ public:
     void cmd_plugin_state_usage(const std::string& verb);
     std::string usage(const palette::Command& c) const;
     void cmd_help(const std::string& arg);
-    void cmd_session_reset();
-    void cmd_work_board();
+    void cmd_session_reset(), cmd_work_board();
     void cmd_project_list();
     void cmd_project_open(const std::string& args);
-    void cmd_project_show();
-    void cmd_project_close();
+    void cmd_project_show(), cmd_project_close();
     void open_resource(const std::string& kind, const std::string& id);
     void apply_work_item(const std::string& kind, const std::string& id, std::size_t window_index);
     void cmd_tasks(const std::string& rest), cmd_compress(const std::string& arg);
@@ -271,6 +273,7 @@ private:
 
     Tui& tui_;
     CheckpointCommands checkpoints_;
+    ProfileSurface profile_surface_;
     std::vector<palette::Command> commands_;
     tui::ActionRegistry action_registry_;
     std::vector<agent::ModelInfo> model_info_;

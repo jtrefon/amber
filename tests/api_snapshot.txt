@@ -317,6 +317,7 @@ agent::ProviderCapability::Preset | bool requires_key = true;
 agent::ProviderCapability::Preset | std::string api_base;
 agent::ProviderCapability::Preset | std::string default_model;
 agent::ProviderCapability::Preset | std::string name;
+agent::ProviderCapability::Preset | std::string session_header;
 agent::SearchBackendCapability | CapabilityKind kind() const override
 agent::SearchBackendCapability | InstallResult install(PluginServices& services) override;
 agent::SearchBackendCapability | SearchBackendCapability(std::string mode, Factory factory);
@@ -385,6 +386,7 @@ agent::StatusSnapshot | int window_index = 0;
 agent::StatusSnapshot | long latency_ms = -1;
 agent::StatusSnapshot | std::string model;
 agent::StatusSnapshot | std::string owner_id;
+agent::StatusSnapshot | std::string profile;
 agent::StatusSnapshot | std::string provider;
 agent::StatusSnapshot | std::string reasoning_effort;
 agent::StatusSnapshot | std::string running_tool;
