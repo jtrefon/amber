@@ -481,6 +481,9 @@ below, so nobody re-derives them:
   Codecov GitHub App is not installed), hidden behind `fail_ci_if_error: false`,
   so **no Codecov status check is ever created** and the `patch: target: 80%` in
   `.codecov.yml` has never actually been evaluated. Rather than depend on it:
+  `*.gcov` files are generated beside the sources and are gitignored and gated
+  (`build-hygiene` **P20**); they are not part of the measurement or the tree —
+  a coverage run that leaves a tracked `.gcov` behind fails the gate.
   - the **project** floor stays `gcovr --fail-under-line 80` over `lib/`,
     `tools/`, `plugins/` (measured 84.3% lines / 91.2% functions);
   - the **patch** rule the docs actually state ("new code paths must have ≥80%
