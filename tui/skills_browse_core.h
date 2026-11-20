@@ -223,7 +223,8 @@ const std::vector<SkillKeyDoc>& skill_key_table();
 // What the header may claim about where the rows came from. Never "live" for a
 // page that came from the cache, and never "live" after a failed request.
 std::string source_state(bool answered, bool cached, long long fetched_at_ms,
-                         const agent::IndexFailure& error, long long now_ms);
+                         const agent::IndexFailure& error, long long now_ms,
+                         bool authenticated = false);
 
 // "in 12s" while a rate-limit window is open, empty once it has passed.
 std::string retry_countdown(int retry_after_s, long long error_at_ms, long long now_ms);
@@ -320,6 +321,10 @@ public:
     SkillsUiState ui_state() const;
     void apply_ui_state(const SkillsUiState& state);
     void set_live_query(bool live) noexcept { query_live_ = live; }
+    // The source answered with the authenticated (v1) adapter: "live+" rather
+    // than "live". A rejected token drops it back to the anonymous marker.
+    void set_index_authenticated(bool on) noexcept { index_authenticated_ = on; }
+    bool index_authenticated() const noexcept { return index_authenticated_; }
 
     bool marked(const std::string& id) const { return marked_.count(id) != 0; }
     const std::set<std::string>& marks() const noexcept { return marked_; }
@@ -381,6 +386,7 @@ private:
     void move_facet_cursor(int delta);
     void toggle_facet_at_cursor();
     bool query_live_ = false;
+    bool index_authenticated_ = false;
     SkillTab tab_ = SkillTab::Top;
     SkillSort sort_ = SkillSort::Installs;
     SkillPane pane_ = SkillPane::List;

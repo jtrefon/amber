@@ -334,6 +334,16 @@ IndexResult SkillsShIndex::search(const std::string& query, int limit,
 
 IndexResult SkillsShIndex::fetch(const std::string& query, int limit, long long now,
                                  const CancellationToken& cancel) const {
+    // The budget is shared with the authenticated adapter, so turning v1 on
+    // cannot double the allowance this host gets.
+    if (opts_.budget && !opts_.budget->consume(now)) {
+        IndexFailure f;
+        f.kind = IndexError::RateLimited;
+        f.status = 429;
+        f.retry_after_s = opts_.budget->retry_after_s(now);
+        f.detail = "rate limited";
+        return failed(std::move(f));
+    }
     const HttpGet get = opts_.http ? opts_.http : HttpGet(http_get);
     std::optional<HttpResponse> response;
     try {

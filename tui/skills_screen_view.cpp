@@ -150,7 +150,7 @@ SkillsScreenView build_skills_screen(const SkillsBrowseCore& core, const SkillsS
     view.show_detail = layout.show_detail;
     view.search_field = input.query.empty() ? "type to search (2+ chars)" : input.query;
     view.search_state = source_state(core.answered(), core.cached(), core.fetched_at_ms(),
-                                     core.error(), input.now_ms);
+                                     core.error(), input.now_ms, core.index_authenticated());
     view.sort_label = std::string("sort: ") + sort_name(core.sort());
     if (!input.budget.empty() &&
         (core.tab() == SkillTab::Installed || core.tab() == SkillTab::Updates))

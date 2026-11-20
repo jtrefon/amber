@@ -22,15 +22,20 @@ namespace tui {
 struct SkillsBackends {
     std::function<agent::IndexResult(const std::string&, int, const agent::CancellationToken&)>
         search;
+    // The editorial set, when the source publishes one (the v1 adapter).
+    std::function<agent::IndexResult(int, const agent::CancellationToken&)> curated;
     std::function<agent::DetailResult(const agent::SkillRef&, const agent::CancellationToken&)>
         detail;
     std::function<agent::AssetsResult(const agent::SkillDetail&, const agent::CancellationToken&)>
         assets;
     std::function<agent::SkillInstallResult(const agent::SkillInstallRequest&)> install;
+    // The current degraded-source line (a rejected token falling back to the
+    // anonymous search). Optional; empty when there is nothing to say.
+    std::function<std::string()> note;
 };
 
 struct SkillsEvent {
-    enum class Kind : unsigned char { SearchDone, DetailDone, FilesDone, InstallDone };
+    enum class Kind : unsigned char { SearchDone, CuratedDone, DetailDone, FilesDone, InstallDone };
 
     Kind kind = Kind::SearchDone;
     std::string query;
@@ -43,6 +48,7 @@ struct SkillsEvent {
     agent::AssetsResult files;
     std::string detail_id;
     std::string name;
+    std::string note;
     bool ledger_saved = false;
 };
 
@@ -59,6 +65,10 @@ public:
     SkillsService& operator=(const SkillsService&) = delete;
 
     void search(std::string query, int limit = 30);
+    // Load the editorial set for the Official shelf. Answers as CuratedDone.
+    void curated(int limit = 40);
+    // True when a curated source is wired; the Official shelf prefers it.
+    bool has_curated() const { return static_cast<bool>(backends_.curated); }
     void detail(agent::SkillRef ref);
     // Every file's bytes for one skill, on demand (a preview of a file other
     // than SKILL.md).
@@ -74,7 +84,7 @@ public:
 
 private:
     struct Job {
-        enum class Kind : unsigned char { Search, Detail, Files, Install };
+        enum class Kind : unsigned char { Search, Curated, Detail, Files, Install };
 
         Kind kind = Kind::Search;
         std::string text;
@@ -92,6 +102,7 @@ private:
     void work();
     void run(const Job& job);
     void run_search(const Job& job);
+    void run_curated(const Job& job);
     void run_detail(const Job& job);
     void run_files(const Job& job);
     void run_install_job(const Job& job);
@@ -113,7 +124,7 @@ private:
 
 // Production wiring: one skills.sh adapter and one GitHub adapter captured by
 // the backends. `index_opts`/`github_opts` are copied into the service.
-SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,
+SkillsBackends make_skills_backends(const agent::SkillIndexOptions& index_opts,
                                     agent::GithubOptions github_opts);
 
 } // namespace tui

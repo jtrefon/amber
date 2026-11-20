@@ -152,6 +152,7 @@ public:
         if (!options.github_raw_base.empty())
             github_opts.raw_base = options.github_raw_base;
         service_ = std::make_unique<SkillsService>(make_skills_backends(index_opts, github_opts));
+        core_.set_index_authenticated(!options.token.empty() && !options.index_disabled);
         life_ = std::make_unique<SkillsLifecycle>(
             SkillsLifecycleOptions{options.project_root, options.global_root, options.ledger,
                                    options.set_state},
@@ -236,6 +237,7 @@ private:
     void apply_tab(SkillTab tab);
     void tick();
     void on_search(const SkillsEvent& event);
+    void on_curated(const SkillsEvent& event);
     void run_shelf(SkillTab tab);
     void run_collection(const std::string& name);
     bool open_detail(const std::string& id);
@@ -310,6 +312,7 @@ private:
     // Shelf runner: queries are asked one at a time (the service takes one at a
     // time) and their pages merge when the last lands.
     bool shelf_running_ = false;
+    bool shelf_curated_ = false; // the Official shelf is waiting on v1
     std::deque<std::string> shelf_queue_;
     // Rows a collection supplies directly by id; appended after its queries so
     // an editorial set works offline.
@@ -794,6 +797,18 @@ bool SkillsExplorer::shelf_collections() {
 }
 
 bool SkillsExplorer::shelf_official() {
+    // The authenticated adapter knows the editorial set itself. When it is
+    // wired, ask it; a failed answer falls back to the curated owners below in
+    // on_curated, so a rejected token does not empty the shelf.
+    if (service_->has_curated() && !options_.index_disabled) {
+        shelf_tab_ = SkillTab::Official;
+        shelf_running_ = true;
+        shelf_curated_ = true;
+        shelf_reason_ = "curated";
+        last_status_ = "loading curated...";
+        service_->curated();
+        return false;
+    }
     for (const auto& owner : options_.owners)
         shelf_queue_.push_back(owner);
     shelf_reason_ = "curated owners";
@@ -1057,6 +1072,8 @@ void SkillsExplorer::tick() {
     for (auto& event : service_->drain()) {
         if (event.kind == SkillsEvent::Kind::SearchDone)
             on_search(event);
+        else if (event.kind == SkillsEvent::Kind::CuratedDone)
+            on_curated(event);
         else if (event.kind == SkillsEvent::Kind::DetailDone)
             on_detail(event);
         else if (event.kind == SkillsEvent::Kind::FilesDone)
@@ -1066,7 +1083,47 @@ void SkillsExplorer::tick() {
     }
 }
 
+void SkillsExplorer::on_curated(const SkillsEvent& event) {
+    if (!shelf_curated_ || event.search.error.kind == agent::IndexError::Cancelled)
+        return;
+    if (!event.note.empty()) {
+        core_.set_index_authenticated(false);
+        last_status_ = event.note;
+    }
+    shelf_running_ = false;
+    shelf_curated_ = false;
+    if (!event.note.empty())
+        last_status_ = event.note;
+    if (event.search.page) {
+        std::vector<SkillRow> rows;
+        for (const auto& ref : event.search.page->skills) {
+            SkillRow row = decorate(ref);
+            row.official = true;
+            rows.push_back(std::move(row));
+        }
+        core_.set_rows(std::move(rows), false, {}, false);
+        last_status_ = "curated";
+        return;
+    }
+    // The curated answer failed (a dead token, an outage): the owners the user
+    // configured are still a usable Official shelf.
+    if (!options_.owners.empty()) {
+        shelf_reason_ = "curated owners (v1 unavailable)";
+        for (const auto& owner : options_.owners)
+            shelf_queue_.push_back(owner);
+        shelf_running_ = true;
+        shelf_next();
+        return;
+    }
+    core_.set_rows({}, false, event.search.error);
+    last_status_ = failure_text(event.search.error);
+}
+
 void SkillsExplorer::on_search(const SkillsEvent& event) {
+    if (!event.note.empty()) {
+        core_.set_index_authenticated(false);
+        last_status_ = event.note;
+    }
     if (shelf_running_) {
         ShelfPage page;
         if (event.search.page) {
