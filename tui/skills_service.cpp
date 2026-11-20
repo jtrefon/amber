@@ -242,7 +242,7 @@ SkillsService::entry_for(const Job& job, const agent::SkillInstallResult& result
     return agent::ledger_entry_for(job.detail, job.name, files, result, job.enabled);
 }
 
-SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,
+SkillsBackends make_skills_backends(const agent::SkillIndexOptions& index_opts,
                                     agent::GithubOptions github_opts) {
     const bool authenticated = !index_opts.token.empty();
     auto github = std::make_shared<agent::GitHubIndex>(std::move(github_opts));

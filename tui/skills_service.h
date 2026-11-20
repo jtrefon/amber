@@ -124,7 +124,7 @@ private:
 
 // Production wiring: one skills.sh adapter and one GitHub adapter captured by
 // the backends. `index_opts`/`github_opts` are copied into the service.
-SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,
+SkillsBackends make_skills_backends(const agent::SkillIndexOptions& index_opts,
                                     agent::GithubOptions github_opts);
 
 } // namespace tui

@@ -254,6 +254,8 @@ IndexResult SkillsShV1Index::page(const std::string& url, int limit,
     const IndexFailure live = classify_http(response);
     if (live.kind != IndexError::None)
         return {std::nullopt, live};
+    if (!response)
+        return {std::nullopt, rejected("no response")};
     IndexResult parsed = parse_skills_v1_page(response->body, limit, false);
     if (parsed.ok())
         last_fetch_ms_ = now;
@@ -308,8 +310,10 @@ DetailResult SkillsShV1Index::fetch_detail(const SkillRef& ref,
     const IndexFailure live = classify_http(response);
     if (live.kind != IndexError::None)
         return {std::nullopt, live};
+    if (!response)
+        return {std::nullopt, rejected("no response")};
     DetailResult parsed = parse_skills_v1_detail(response->body, ref);
-    if (!parsed.ok())
+    if (!parsed.ok() || !parsed.detail)
         return parsed;
     enrich_audit(*parsed.detail, ref, now, parsed.error, cancel);
     last_fetch_ms_ = now;
@@ -397,14 +401,14 @@ DetailResult SkillsShTokenIndex::detail(const SkillRef& ref,
     if (!v1_)
         return base;
     DetailResult enriched = v1_->detail(ref, cancel);
-    if (!enriched.ok()) {
+    if (!enriched.ok() || !enriched.detail) {
         if (auth_failure(enriched.error)) {
             std::lock_guard<std::mutex> lock(note_mutex_);
             rejected_ = true;
         }
-        return base.ok() ? base : enriched;
+        return base.ok() && base.detail ? base : enriched;
     }
-    if (!base.ok())
+    if (!base.ok() || !base.detail)
         return enriched;
     return {merge_detail(*base.detail, *enriched.detail), enriched.error};
 }
