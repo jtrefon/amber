@@ -63,7 +63,8 @@ TEST(top_bar_marks_the_app_and_the_active_tab) {
     ASSERT(active != nullptr);
     ASSERT(active->text.find("amber-agent") != std::string::npos);
     ASSERT(layout.active_start > 0);
-    ASSERT(layout.active_width == tui::text::display_cols(active->text));
+    // The tab owns a body span and a separate padded close-control span.
+    ASSERT(layout.active_width == tui::text::display_cols(active->text) + 3);
 }
 
 TEST(top_bar_records_the_amber_marks_clickable_cell) {
@@ -110,6 +111,34 @@ TEST(top_bar_records_clickable_tab_hits) {
         ASSERT(hit.start > 0);
         ASSERT(hit.width > 0);
     }
+}
+
+// The padding around × was added to the hit geometry only: the glyph stayed
+// inside the reverse-video tab span, so it still read as hanging off the tab
+// edge, with no visible button around it. The painted close control must be its
+// own span, with the same padded text and extent the mouse hit tests.
+TEST(top_bar_close_control_is_its_own_painted_button) {
+    const Layout layout = tui::top_bar::layout(two_tabs(), 80);
+
+    int x = 0;
+    std::size_t hit = 0;
+    std::size_t closes = 0;
+    for (const auto& span : layout.spans) {
+        if (span.text == " \u00d7 ") {
+            ++closes;
+            ASSERT(hit < layout.hits.size());
+            // The hit region is the painted button, not a guess at the tab edge.
+            ASSERT_EQ(layout.hits[hit].close_start, x);
+            ASSERT_EQ(layout.hits[hit].close_width, 3);
+            ++hit;
+        }
+        x += tui::text::display_cols(span.text);
+    }
+    ASSERT_EQ(closes, 2u);
+
+    // No tab span still carries the glyph inside its reverse-video body.
+    for (const auto& span : layout.spans)
+        ASSERT(span.text.find("\u00d7") == std::string::npos || span.text == " \u00d7 ");
 }
 
 TEST(top_bar_tabs_carry_no_caps) {
@@ -248,5 +277,5 @@ TEST(top_bar_tab_width_matches_the_painted_label) {
     const Layout layout = tui::top_bar::layout(tabs, 80, true);
     const auto* active = find_role(layout, Role::ActiveTab);
     ASSERT(active != nullptr);
-    ASSERT_EQ(tui::text::display_cols(active->text), tui::top_bar::tab_width(3, 1));
+    ASSERT_EQ(tui::text::display_cols(active->text) + 3, tui::top_bar::tab_width(3, 1));
 }
