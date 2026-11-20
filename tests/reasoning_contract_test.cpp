@@ -99,6 +99,33 @@ TEST(openai_model_list_reads_deepseek_effort_metadata) {
            m.input_modalities.end());
 }
 
+// One alias table per concept: a model's own field outranks a gateway's
+// generic wrapper no matter which provider shape the body uses. The scattered
+// readers used to apply `context_window`/`max_output_tokens` only after the
+// top_provider wrapper, so a body carrying both resolved to the wrapper's
+// smaller limit.
+TEST(openai_model_list_aliases_resolve_in_concept_priority_order) {
+    const std::string body = R"({"data":[{
+      "id":"mixed",
+      "context_window":200000,
+      "max_output_tokens":50000,
+      "input_modalities":["text","image"],
+      "top_provider":{"context_length":100000,"max_completion_tokens":4000},
+      "limit":{"context":8000,"output":1000},
+      "architecture":{"output_modalities":["text"]}
+    }]})";
+    const auto models = parse(body);
+    const auto m = only(models);
+    ASSERT_EQ(m.context, 200000);
+    ASSERT_EQ(m.context_train, 200000);
+    ASSERT_EQ(m.max_output, 50000);
+    ASSERT_EQ(m.input_modalities.size(), 2u);
+    ASSERT(std::find(m.input_modalities.begin(), m.input_modalities.end(), "image") !=
+           m.input_modalities.end());
+    ASSERT_EQ(m.output_modalities.size(), 1u);
+    ASSERT_EQ(m.output_modalities.front(), std::string("text"));
+}
+
 TEST(openai_model_list_tolerates_malformed_capability_shapes) {
     // Every field is untrusted JSON. A wrong type is "not advertised", never a
     // crash and never a guess.
