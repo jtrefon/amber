@@ -1843,12 +1843,15 @@ TEST(usage_ledger_round_trips_session_meta) {
     before.compression.add(3000, 300);
     before.watch.add(4000, 400);
     before.inherited.add(5000, 500);
+    before.main.add(0, 0, -1, -1, 9);
     agent::json meta = agent::json::object();
     tui::save_usage(meta, before);
     tui::UsageLedger after;
     tui::load_usage(meta, after);
     ASSERT_EQ(after.tree().prompt_tokens, 15000L);
     ASSERT_EQ(after.tree().completion_tokens, 1500L);
+    ASSERT_EQ(after.tree().reasoning_tokens, 9L);
+    ASSERT_TRUE(after.tree().measured_reasoning);
     ASSERT_EQ(after.subagents.prompt_tokens, 2000L);
     ASSERT_EQ(after.watch.completion_tokens, 400L);
     ASSERT_EQ(after.inherited.prompt_tokens, 5000L);
@@ -1856,10 +1859,10 @@ TEST(usage_ledger_round_trips_session_meta) {
 
 TEST(usage_ledger_apply_tags_each_source) {
     tui::UsageLedger ledger;
-    tui::apply_usage(ledger, {agent::UsageSource::Main, 10, 1, 8, 0, {}, {}});
-    tui::apply_usage(ledger, {agent::UsageSource::Subagent, 20, 2, -1, -1, "task-1", "owner"});
-    tui::apply_usage(ledger, {agent::UsageSource::Compression, 30, 3, 25, 5, {}, {}});
-    tui::apply_usage(ledger, {agent::UsageSource::Watch, 40, 4, -1, -1, {}, {}});
+    tui::apply_usage(ledger, {agent::UsageSource::Main, 10, 1, 8, 0, {}, {}, 4});
+    tui::apply_usage(ledger, {agent::UsageSource::Subagent, 20, 2, -1, -1, "task-1", "owner", -1});
+    tui::apply_usage(ledger, {agent::UsageSource::Compression, 30, 3, 25, 5, {}, {}, 2});
+    tui::apply_usage(ledger, {agent::UsageSource::Watch, 40, 4, -1, -1, {}, {}, -1});
     ASSERT_EQ(ledger.main.prompt_tokens, 10L);
     ASSERT_EQ(ledger.subagents.prompt_tokens, 20L);
     ASSERT_EQ(ledger.compression.prompt_tokens, 30L);
@@ -1870,7 +1873,24 @@ TEST(usage_ledger_apply_tags_each_source) {
     // they explain; a source the protocol did not report stays out of it.
     ASSERT_EQ(ledger.tree().cache_read_tokens, 33L);
     ASSERT_EQ(ledger.tree().cache_write_tokens, 5L);
+    ASSERT(ledger.tree().reasoning_tokens, 6L);
     ASSERT(ledger.tree().measured_cache);
+    ASSERT(ledger.tree().measured_reasoning);
+}
+
+TEST(usage_report_shows_thinking_only_when_reported) {
+    tui::UsageLedger ledger;
+    ledger.main.add(100, 20, -1, -1, 7);
+    const auto with = tui::usage_report_lines(ledger, {}, {});
+    ASSERT(!with.empty());
+    ASSERT(with[0].find("thinking 7") != std::string::npos);
+    ASSERT(with[1].find("thinking 7") != std::string::npos);
+
+    tui::UsageLedger quiet;
+    quiet.main.add(100, 20);
+    const auto without = tui::usage_report_lines(quiet, {}, {});
+    ASSERT(!without.empty());
+    ASSERT(without[0].find("thinking") == std::string::npos);
 }
 
 TEST(usage_report_lists_measured_sources_tasks_and_windows) {
