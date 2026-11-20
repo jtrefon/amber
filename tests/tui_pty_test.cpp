@@ -4674,7 +4674,6 @@ TEST(usage_reports_thinking_tokens_from_the_wire) {
     tui.send("reasoning probe\r");
     if (!require(tui.wait_for("REASONING-DONE", 10000), "the reply did not arrive", tui))
         return;
-    const size_t mark = tui.raw.size();
     tui.send("/usage");
     tui.pump(250);
     tui.send("\x07");
