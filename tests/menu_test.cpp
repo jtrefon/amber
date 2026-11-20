@@ -719,7 +719,7 @@ TEST(menu_actions_resolve_against_the_command_tree) {
     collect_actions(completions_json, known);
     for (const char* ui :
          {"ui.tab.next", "ui.tab.prev", "ui.view.reasoning", "ui.mouse.toggle", "ui.scroll.toggle",
-          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit"})
+          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit", "ui.mode.cycle"})
         known.insert(ui);
 
     std::function<void(const std::vector<Item>&)> check = [&](const std::vector<Item>& items) {
@@ -753,7 +753,7 @@ TEST(keybindings_resolve_and_have_no_collisions) {
     collect_actions(completions_json, known);
     for (const char* ui :
          {"ui.tab.next", "ui.tab.prev", "ui.view.reasoning", "ui.mouse.toggle", "ui.scroll.toggle",
-          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit"})
+          "ui.input.delete_word", "ui.escape", "ui.cancel_or_quit", "ui.mode.cycle"})
         known.insert(ui);
 
     const tui::KeyBinder binder(bindings_json);
