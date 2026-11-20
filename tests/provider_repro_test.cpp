@@ -350,6 +350,26 @@ TEST(provider_edit_seed_uses_the_live_connection_for_the_active_provider) {
     ASSERT(seed.model_explicit);
 }
 
+// A provider's default_context_size is an auto value, exactly like the
+// context_size key in config.cpp: it must not become an explicit pin. The edit
+// form used to seed context_explicit=true from the provider default, so saving
+// the form could freeze the endpoint's n_ctx into the global config and stop a
+// later model pick from resizing the gauge.
+TEST(provider_edit_seed_never_turns_a_provider_default_into_a_pin) {
+    agent::Config active;
+    active.provider_name = "kilocode";
+    active.api_base = "https://api.kilo.ai/api/gateway";
+
+    agent::Provider custom;
+    custom.name = "custom";
+    custom.flavor = "openai";
+    custom.default_context_size = 262144;
+
+    const agent::Config seed = agent::provider_edit_seed(active, custom);
+    ASSERT_EQ(seed.context_size, 262144); // the default is still shown
+    ASSERT_FALSE(seed.context_explicit);  // but it is not a user override
+}
+
 TEST(provider_edit_seed_inherits_the_active_endpoint_only_when_the_definition_has_none) {
     agent::Config active;
     active.provider_name = "kilocode";
