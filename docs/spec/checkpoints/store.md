@@ -70,7 +70,10 @@ is one line; `list()` unescapes it, so the prompt round-trips exactly.
 - `list()`: newest first, parsed from the commit chain on the ref. A missing ref
   is an empty history, not an error.
 - `find(turn_or_sha)`: a turn number when the selector is all digits, otherwise
-  a commit SHA prefix.
+  a commit SHA prefix. The two kinds never fall through into each other: an
+  all-digit selector that names no turn is a miss, not a SHA prefix. A prefix
+  that happens to be all digits is selected by typing enough of it to include a
+  hex letter (a full SHA always does).
 - `diff(checkpoint)`: the unified diff the checkpoint introduced, against its
   parent commit; the first checkpoint is diffed against the empty tree.
 
