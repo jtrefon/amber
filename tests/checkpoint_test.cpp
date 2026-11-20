@@ -242,12 +242,54 @@ TEST(checkpoint_list_is_newest_first_and_find_by_turn_or_sha) {
     ASSERT_EQ(by_turn->turn, 2u);
     ASSERT_EQ(by_turn->prompt, std::string("two"));
 
-    const auto by_sha = store.find(list[1].id.substr(0, 8), error);
+    // An id prefix is only a SHA selector while it carries a hex letter: an
+    // all-digit string is a turn number, never a SHA prefix.
+    std::string sha_prefix;
+    std::string sha_owner;
+    for (const auto& checkpoint : list) {
+        const std::size_t letter = checkpoint.id.find_first_of("abcdef");
+        if (letter != std::string::npos) {
+            sha_prefix = checkpoint.id.substr(0, letter + 1);
+            sha_owner = checkpoint.id;
+            break;
+        }
+    }
+    ASSERT_FALSE(sha_prefix.empty());
+    const auto by_sha = store.find(sha_prefix, error);
     ASSERT(by_sha.has_value());
-    ASSERT_EQ(by_sha->id, list[1].id);
+    ASSERT_EQ(by_sha->id, sha_owner);
 
     ASSERT_FALSE(store.find("99", error).has_value());
     ASSERT_TRUE(error.empty());
+
+    // The same rule holds when a random checkpoint id starts with the digits:
+    // measure the collision instead of relying on the hashes not to contain
+    // one. A 3-digit prefix is > any turn this test created, so only the old
+    // SHA fall-through could answer it.
+    std::string numeric_prefix;
+    std::size_t turn = 3;
+    for (std::size_t extra = 0; extra < 40 && numeric_prefix.empty(); ++extra) {
+        ++turn;
+        project.write("filler.txt", "filler " + std::to_string(turn) + "\n");
+        ASSERT_TRUE(store.create(turn, "filler " + std::to_string(turn), error).has_value());
+        for (const auto& checkpoint : store.list(error)) {
+            if (checkpoint.id.size() < 3 || !std::isdigit(checkpoint.id[0]) ||
+                !std::isdigit(checkpoint.id[1]) || !std::isdigit(checkpoint.id[2]))
+                continue;
+            const unsigned value =
+                static_cast<unsigned>((checkpoint.id[0] - '0') * 100 +
+                                      (checkpoint.id[1] - '0') * 10 + (checkpoint.id[2] - '0'));
+            if (value > turn) {
+                numeric_prefix = checkpoint.id.substr(0, 3);
+                break;
+            }
+        }
+    }
+    ASSERT_FALSE(numeric_prefix.empty());
+    if (!numeric_prefix.empty()) {
+        ASSERT_FALSE(store.find(numeric_prefix, error).has_value());
+        ASSERT_TRUE(error.empty());
+    }
 }
 
 // The diff a checkpoint introduced, against its parent; the first checkpoint is
