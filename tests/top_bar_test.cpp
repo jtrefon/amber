@@ -112,6 +112,34 @@ TEST(top_bar_records_clickable_tab_hits) {
     }
 }
 
+// The padding around × was added to the hit geometry only: the glyph stayed
+// inside the reverse-video tab span, so it still read as hanging off the tab
+// edge, with no visible button around it. The painted close control must be its
+// own span, with the same padded text and extent the mouse hit tests.
+TEST(top_bar_close_control_is_its_own_painted_button) {
+    const Layout layout = tui::top_bar::layout(two_tabs(), 80);
+
+    int x = 0;
+    std::size_t hit = 0;
+    std::size_t closes = 0;
+    for (const auto& span : layout.spans) {
+        if (span.text == " \u00d7 ") {
+            ++closes;
+            ASSERT(hit < layout.hits.size());
+            // The hit region is the painted button, not a guess at the tab edge.
+            ASSERT_EQ(layout.hits[hit].close_start, x);
+            ASSERT_EQ(layout.hits[hit].close_width, 3);
+            ++hit;
+        }
+        x += tui::text::display_cols(span.text);
+    }
+    ASSERT_EQ(closes, 2u);
+
+    // No tab span still carries the glyph inside its reverse-video body.
+    for (const auto& span : layout.spans)
+        ASSERT(span.text.find("\u00d7") == std::string::npos || span.text == " \u00d7 ");
+}
+
 TEST(top_bar_tabs_carry_no_caps) {
     const Layout layout = tui::top_bar::layout(two_tabs(), 80);
     const auto* inactive = find_role(layout, Role::InactiveTab);
