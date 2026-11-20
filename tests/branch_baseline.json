@@ -80,6 +80,7 @@
     "lib/skill_commands.cpp": 55,
     "lib/skill_file.cpp": 33,
     "lib/skill_index.cpp": 69,
+    "lib/skill_index_v1.cpp": 23,
     "lib/skill_install.cpp": 27,
     "lib/skill_ledger.cpp": 15,
     "lib/skill_shelves.cpp": 46,

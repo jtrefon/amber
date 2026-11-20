@@ -783,7 +783,9 @@ namespace {
 
 std::vector<std::string> skill_sources_lines() {
     const agent::SkillSources sources = agent::skill_sources(false);
-    return {"index       " + sources.index_base + " (unauthenticated search)",
+    return {"index       " + sources.index_base +
+                (sources.index_authenticated ? " (v1 via " + sources.token_env + ")"
+                                             : " (unauthenticated search)"),
             "github api  " + sources.github_api, "github raw  " + sources.github_raw,
             "cache       " + sources.cache_dir + " (" + sources.cache_summary + ")"};
 }
@@ -1470,6 +1472,7 @@ void SlashDispatcher::register_builtin_actions() {
     register_config_get_actions();
     register_actions(*this);
     register_tab_actions();
+    register_mode_actions();
     register_view_actions();
     register_input_actions();
 }
@@ -1491,6 +1494,15 @@ void SlashDispatcher::register_tab_actions() {
     };
     register_action("ui.tab.next", [cycle](const std::string&) { cycle(1); });
     register_action("ui.tab.prev", [cycle](const std::string&) { cycle(-1); });
+}
+
+void SlashDispatcher::register_mode_actions() {
+    register_action("ui.mode.cycle", [this](const std::string&) {
+        const auto& w = tui_.win();
+        const auto acfg = w.agent ? w.agent->config_snapshot() : nullptr;
+        const auto current = acfg ? acfg->mode : tui_.cfg_.mode;
+        apply_policy_mode(mode_name(agent::next_mode(current)));
+    });
 }
 
 void SlashDispatcher::register_view_actions() {

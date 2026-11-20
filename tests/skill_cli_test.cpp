@@ -478,3 +478,19 @@ TEST(skill_cli_update_keeps_a_disabled_skill_disabled) {
     ASSERT_FALSE(updated->enabled); // an update never re-enables a skill
     ASSERT_EQ(updated->hash, std::string("sha-2"));
 }
+
+TEST(skill_sources_reports_the_authenticated_mode) {
+    CliSandbox sandbox;
+    setenv("SKILLS_SH_TOKEN", "sk-sources-probe", 1);
+    const agent::SkillSources sources = agent::skill_sources(false);
+    ASSERT_TRUE(sources.index_authenticated);
+    ASSERT_EQ(sources.token_env, std::string("SKILLS_SH_TOKEN"));
+
+    std::ostringstream out;
+    std::ostringstream err;
+    ASSERT_EQ(agent::run_skill_cli({"sources"}, out, err, agent::SkillCliBackends{}), 0);
+    unsetenv("SKILLS_SH_TOKEN");
+    // The env name is the disclosure; the credential is not.
+    ASSERT(out.str().find("v1 via SKILLS_SH_TOKEN") != std::string::npos);
+    ASSERT(out.str().find("sk-sources-probe") == std::string::npos);
+}

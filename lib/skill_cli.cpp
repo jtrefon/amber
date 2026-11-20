@@ -196,6 +196,7 @@ SkillIndexOptions index_options(const Config& cfg) {
     if (const char* base = std::getenv("AMBER_SKILLS_INDEX_URL"); base && *base)
         options.base_url = base;
     options.token = env_or(cfg.skills_index_token_env, "SKILLS_SH_TOKEN");
+    options.token_label = cfg.skills_index_token_env;
     return options;
 }
 
@@ -616,6 +617,8 @@ int run_sources(const SkillCliCommand& cmd, std::ostream& out) {
     const SkillSources sources = skill_sources(cmd.refresh);
     if (cmd.json) {
         out << json{{"index", sources.index_base},
+                    {"index_authenticated", sources.index_authenticated},
+                    {"token_env", sources.token_env},
                     {"github_api", sources.github_api},
                     {"github_raw", sources.github_raw},
                     {"cache", sources.cache_dir},
@@ -624,7 +627,10 @@ int run_sources(const SkillCliCommand& cmd, std::ostream& out) {
             << "\n";
         return 0;
     }
-    out << "index       " << sources.index_base << " (unauthenticated search)\n";
+    out << "index       " << sources.index_base
+        << (sources.index_authenticated ? " (v1 via " + sources.token_env + ")"
+                                        : " (unauthenticated search)")
+        << "\n";
     out << "github api  " << sources.github_api << "\n";
     out << "github raw  " << sources.github_raw << "\n";
     out << "cache       " << sources.cache_dir << " (" << sources.cache_summary << ")\n";
@@ -641,7 +647,10 @@ SkillSources skill_sources(bool refresh) {
     }
     long long bytes = 0;
     SkillSources sources;
-    sources.index_base = index_options(cfg).base_url;
+    const SkillIndexOptions index = index_options(cfg);
+    sources.index_base = index.base_url;
+    sources.index_authenticated = !index.token.empty();
+    sources.token_env = cfg.skills_index_token_env;
     sources.github_api = github_options(cfg).api_base;
     sources.github_raw = github_options(cfg).raw_base;
     sources.cache_dir = skills_index_cache_dir();

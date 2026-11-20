@@ -219,10 +219,9 @@ private:
     void register_config_get_actions();
     // The core and config groups are themselves facades over these, so one
     // domain's actions are registered in one place.
-    void register_core_session_actions();
-    void register_window_actions();
-    void register_core_task_actions();
-    void register_tab_actions(), register_view_actions(), register_input_actions();
+    void register_core_session_actions(), register_window_actions();
+    void register_core_task_actions(), register_tab_actions(), register_mode_actions();
+    void register_view_actions(), register_input_actions();
     void register_queue_actions();
     void register_set_engine_actions();
     void register_set_input_actions();

@@ -553,6 +553,15 @@ private:
         if (path == "/api/search")
             return R"({"skills":[{"id":"acme/skills/tdd","name":"tdd",)"
                    R"("source":"acme/skills","installs":1234}],"count":1})";
+        if (path == "/api/v1/skills/curated" || path == "/api/v1/skills/search")
+            return R"({"skills":[{"id":"acme/skills/tdd","name":"tdd",)"
+                   R"("source":"acme/skills","installs":1234}],"count":1})";
+        if (path == "/api/v1/skills/acme/skills/tdd")
+            return R"({"description":"Test-driven development, audited.",)"
+                   R"("license":"MIT","category":"engineering","default_branch":"main",)"
+                   R"("hash":"v1-stable-hash","audit":{"verdict":"pass","note":"no exec"}})";
+        if (path == "/api/v1/skills/audit/acme/skills/tdd")
+            return R"({"verdict":"pass","note":"no exec"})";
         if (path == "/repos/acme/skills")
             return R"({"default_branch":"main","license":{"spdx_id":"MIT"}})";
         if (path == "/repos/acme/skills/git/trees/main") {
@@ -615,6 +624,27 @@ private:
 
 // Point the app at the mirror for the duration of one scenario. Restored on
 // scope exit so a later test cannot accidentally talk to a dead endpoint.
+// A scoped environment variable: the child inherits it, and the test process
+// does not leak it into the next test if this one returns early.
+struct ScopedEnv {
+    ScopedEnv(const char* name, const char* value) : name_(name) {
+        if (const char* old = std::getenv(name))
+            saved_ = old;
+        setenv(name, value, 1);
+    }
+    ~ScopedEnv() {
+        if (saved_)
+            setenv(name_.c_str(), saved_->c_str(), 1);
+        else
+            unsetenv(name_.c_str());
+    }
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+
+    std::string name_;
+    std::optional<std::string> saved_;
+};
+
 struct MirrorEnv {
     explicit MirrorEnv(const std::string& base) {
         setenv("AMBER_SKILLS_INDEX_URL", base.c_str(), 1);
@@ -2296,6 +2326,32 @@ TEST(set_policy_mode_reaches_the_agent_and_the_bar) {
         return;
 }
 
+// #612: Shift+Tab arrives as KEY_BTAB (ESC [ Z in xterm). The main prompt used
+// to drop it, so the mode segment never moved. Each press must take the next
+// mode in read -> write -> yolo -> read order and the readout must agree with
+// the mode the agent enforces.
+TEST(shift_tab_cycles_the_agent_mode) {
+    Tui tui;
+    tui.name = "shift_tab_cycles_the_agent_mode";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("\x1b[Z"); // write -> yolo
+    if (!require(tui.wait_for(" yolo ", 10000), "Shift+Tab did not move to yolo", tui))
+        return;
+    tui.send("\x1b[Z"); // yolo -> read (wraparound)
+    if (!require(tui.wait_for(" read ", 10000), "Shift+Tab did not wrap to read", tui))
+        return;
+    tui.send("\x1b[Z"); // read -> write
+    if (!require(tui.wait_for(" write ", 10000), "Shift+Tab did not move to write", tui))
+        return;
+
+    tui.send("/get policy mode\r");
+    require(tui.wait_for("policy mode: write", 8000), "the cycled mode did not reach the agent",
+            tui);
+}
+
 // ── diagnostics are opt-in, and toggling them shows where they land ──
 //
 // /set debug on is not just a config write: the journal has to exist so it can
@@ -3545,6 +3601,64 @@ TEST(skills_explorer_restores_the_last_shelf_and_lets_a_command_override_it) {
     require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
 }
 
+// The authenticated half end to end: the token turns the Official shelf into
+// the curated endpoint, and the v1 detail supplies the audit and the stable
+// hash while the GitHub adapter still supplies the body.
+TEST(skills_v1_curated_owns_the_official_shelf_and_audits_detail) {
+    SkillsMirrorEndpoint mirror;
+    if (!mirror.start()) {
+        std::cerr << "FAIL: the skills mirror did not start\n";
+        failed++;
+        return;
+    }
+    MirrorEnv env(mirror.base());
+    ScopedEnv token("SKILLS_SH_TOKEN", "mirror-v1-token");
+
+    Tui tui;
+    tui.name = "skills_v1_curated_owns_the_official_shelf_and_audits_detail";
+    ASSERT(tui.start(fixture().binary, fixture().workspace, "", 40, 140, {}));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/skills\r");
+    if (!require(tui.wait_for("type to search", 10000), "the explorer did not paint", tui))
+        return;
+    tui.send("4"); // Official
+    if (!require(tui.wait_for("curated", 15000), "the curated shelf did not load", tui)) {
+        std::cerr << "mirror saw:";
+        for (const auto& p : mirror.paths())
+            std::cerr << " " << p;
+        std::cerr << "\n";
+        return;
+    }
+
+    tui.send("\r"); // leave the search field
+    tui.pump(100);
+    tui.send("\r"); // open the selected detail
+    // The pane is diff-painted, so assert the fields that can only come from
+    // v1: its stable hash (the GitHub tree serves sha-tdd-1) and the audit.
+    if (!require(tui.wait_for("v1-stable-ha", 15000), "the v1 hash did not win the merge", tui)) {
+        std::cerr << "mirror saw:";
+        for (const auto& p : mirror.paths())
+            std::cerr << " " << p;
+        std::cerr << "\n";
+        return;
+    }
+    if (!require(tui.wait_for("pass · no exec", 5000),
+                 "the v1 audit verdict did not reach the detail pane", tui))
+        return;
+    const std::vector<std::string> paths = mirror.paths();
+    const bool curated =
+        std::find(paths.begin(), paths.end(), "/api/v1/skills/curated") != paths.end();
+    const bool detail =
+        std::find(paths.begin(), paths.end(), "/api/v1/skills/acme/skills/tdd") != paths.end();
+    require(curated, "the Official shelf never asked the curated endpoint", tui);
+    require(detail, "the detail never asked the v1 endpoint", tui);
+
+    tui.send("q");
+    require(tui.wait_for("skills closed", 10000), "q did not close the explorer", tui);
+}
+
 // The three breakpoints, at the sizes the issue names: 120x40 gets facets,
 // list and detail; 80x24 gets list and detail with no facet column.
 TEST(skills_explorer_paints_both_wide_breakpoints) {
@@ -4561,10 +4675,12 @@ int main(int argc, char** argv) {
     set_logs_prune_removes_an_out_of_bounds_transcript();
     context_gauge_stays_visible_when_the_window_is_unknown();
     set_policy_mode_reaches_the_agent_and_the_bar();
+    shift_tab_cycles_the_agent_mode();
     set_debug_toggles_the_error_journal();
     esc_does_not_swallow_the_key_queued_behind_it();
     skills_explorer_opens_switches_tabs_and_closes();
     skills_explorer_installs_updates_and_removes_a_mirrored_skill();
+    skills_v1_curated_owns_the_official_shelf_and_audits_detail();
     skills_facet_sheet_opens_on_a_narrow_layout();
     system_commands_do_not_freeze_the_ui();
     display_settings_switch_palette_glyphs_and_motion();

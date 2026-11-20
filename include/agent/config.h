@@ -16,6 +16,21 @@ namespace agent {
 // orchestration depth. Switchable at runtime via /mode.
 enum class AgentMode : std::uint8_t { Read, Write, Yolo };
 
+// The single cycle used by shortcuts and UI affordances. The permission engine
+// keeps reading the mode from Config; callers publish the result through the
+// agent so the approval gate and the status snapshot change together.
+constexpr AgentMode next_mode(AgentMode mode) noexcept {
+    switch (mode) {
+    case AgentMode::Read:
+        return AgentMode::Write;
+    case AgentMode::Write:
+        return AgentMode::Yolo;
+    case AgentMode::Yolo:
+        return AgentMode::Read;
+    }
+    return AgentMode::Write;
+}
+
 // How an OpenAI-compatible provider accepts a reasoning level. The listing (or
 // a documented family fallback) names the shape; the request builder never
 // guesses it from a model id.

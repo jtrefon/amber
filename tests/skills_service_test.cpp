@@ -93,6 +93,29 @@ TEST(skills_service_search_reports_rows) {
     ASSERT_EQ(static_cast<int>(event->search.page->skills.size()), 1);
 }
 
+TEST(skills_service_curated_is_its_own_answer) {
+    tui::SkillsBackends b = backends();
+    b.curated = [](int limit, const agent::CancellationToken&) {
+        agent::SkillPage page;
+        page.skills.push_back(tdd_ref());
+        page.total = 1;
+        (void)limit;
+        return agent::IndexResult{page, {}};
+    };
+    b.note = [] {
+        return std::string("SKILLS_SH_TOKEN was rejected; using unauthenticated search");
+    };
+    tui::SkillsService service(std::move(b));
+    ASSERT_TRUE(service.has_curated());
+    service.curated(7);
+    const auto event = wait_for(service, tui::SkillsEvent::Kind::CuratedDone);
+    ASSERT_TRUE(event.has_value());
+    ASSERT_TRUE(event->search.ok());
+    ASSERT_EQ(static_cast<int>(event->search.page->skills.size()), 1);
+    ASSERT_EQ(event->note,
+              std::string("SKILLS_SH_TOKEN was rejected; using unauthenticated search"));
+}
+
 TEST(skills_service_detail_reports_the_skill) {
     tui::SkillsService service(backends());
     service.detail(tdd_ref());

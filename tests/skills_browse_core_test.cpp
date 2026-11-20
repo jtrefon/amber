@@ -703,6 +703,7 @@ TEST(skills_header_never_claims_live_without_a_successful_request) {
     const agent::IndexFailure none;
     ASSERT_EQ(tui::source_state(false, false, 0, none, 1000000), std::string("idle"));
     ASSERT_EQ(tui::source_state(true, false, 0, none, 1000000), std::string("live"));
+    ASSERT_EQ(tui::source_state(true, false, 0, none, 1000000, true), std::string("live+"));
     ASSERT_EQ(tui::source_state(true, true, 760000, none, 1000000), std::string("cached 4m"));
     ASSERT_EQ(tui::source_state(true, true, 988000, none, 1000000), std::string("cached 12s"));
     ASSERT_EQ(tui::source_state(true, true, 0, none, 1000000), std::string("cached"));

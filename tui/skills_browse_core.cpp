@@ -284,8 +284,17 @@ const std::vector<SkillKeyDoc>& skill_key_table() {
     return kKeys;
 }
 
+namespace {
+
+std::string cached_state(const std::string& age, bool unreachable) {
+    const std::string data = age.empty() ? "cached" : "cached " + age;
+    return unreachable ? "offline · " + data : data;
+}
+
+} // namespace
+
 std::string source_state(bool answered, bool cached, long long fetched_at_ms,
-                         const agent::IndexFailure& error, long long now_ms) {
+                         const agent::IndexFailure& error, long long now_ms, bool authenticated) {
     if (!answered)
         return "idle";
     const std::string age = fetched_at_ms > 0 && now_ms > fetched_at_ms
@@ -294,13 +303,11 @@ std::string source_state(bool answered, bool cached, long long fetched_at_ms,
     const bool unreachable = error.kind == agent::IndexError::Offline ||
                              error.kind == agent::IndexError::Timeout ||
                              error.kind == agent::IndexError::Cancelled;
-    if (cached) {
-        const std::string data = age.empty() ? "cached" : "cached " + age;
-        return unreachable ? "offline · " + data : data;
-    }
+    if (cached)
+        return cached_state(age, unreachable);
     switch (error.kind) {
     case agent::IndexError::None:
-        return "live";
+        return authenticated ? "live+" : "live";
     case agent::IndexError::Disabled:
         return "disabled";
     case agent::IndexError::Offline:

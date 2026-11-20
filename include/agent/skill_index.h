@@ -1,8 +1,11 @@
 #ifndef AGENT_SKILL_INDEX_H
 #define AGENT_SKILL_INDEX_H
 
+#include <deque>
 #include <functional>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -120,6 +123,24 @@ struct AssetsResult {
     bool ok() const noexcept { return files.has_value(); }
 };
 
+// A sliding-window request budget shared by every adapter that talks to one
+// host. Enabling the authenticated v1 API must not double the anonymous
+// adapter's allowance, so both consume from the same instance.
+class RateBudget {
+public:
+    explicit RateBudget(int per_minute = 600);
+
+    // Consume one request when the window has room.
+    bool consume(long long now_ms) const;
+    // Whole seconds until the oldest request leaves the window.
+    int retry_after_s(long long now_ms) const;
+
+private:
+    int per_minute_;
+    mutable std::mutex mutex_;
+    mutable std::deque<long long> hits_;
+};
+
 struct SkillIndexOptions {
     // Empty disables the adapter entirely (skills_index = none).
     std::string base_url = "https://skills.sh";
@@ -127,6 +148,11 @@ struct SkillIndexOptions {
     std::string cache_root;
     // Optional bearer for the v1 API; the unauthenticated search ignores it.
     std::string token;
+    // The variable the token came from, named in the one-line rejection note.
+    // Never the token itself.
+    std::string token_label = "SKILLS_SH_TOKEN";
+    // Shared by every adapter over this host; null means unlimited.
+    std::shared_ptr<RateBudget> budget;
     long timeout_s = 15;
     long long cache_ttl_ms = 60LL * 1000;
     // One backoff retry after a 5xx or a timeout. Zero retries immediately
@@ -151,6 +177,10 @@ public:
     virtual IndexResult search(const std::string& query, int limit,
                                const CancellationToken& cancel) const = 0;
 
+    // The editorial set a source publishes. The anonymous search has none, so
+    // the default says so rather than inventing one.
+    virtual IndexResult curated(int limit, const CancellationToken& cancel) const;
+
     // Detail is adapter-specific: search returns id/source/name/installs, and
     // only an adapter that can read the source repository can answer the rest.
     // The default says so rather than pretending an empty detail.
@@ -162,6 +192,11 @@ public:
                                       const CancellationToken& cancel) const;
 
     virtual std::vector<SourceStatus> sources() const = 0;
+
+    // One line about a degraded source that still answers (a rejected token
+    // falling back to the anonymous search). Empty when there is nothing to
+    // say. The UI shows it once, not per keystroke.
+    virtual std::string status_note() const { return {}; }
 };
 
 // RFC 3986 component encoding, uppercase hex. Shared by the adapters so the
@@ -206,6 +241,99 @@ private:
     SkillIndexOptions opts_;
     mutable long long last_fetch_ms_ = 0;
 };
+
+// --- Optional v1 half -----------------------------------------------------
+//
+// The v1 API is a different half of the same registry: bulk pages, the curated
+// set, stable hashes and audit verdicts. It needs a bearer the anonymous
+// adapter does not, so it is a separate adapter behind the same port and is
+// only constructed when a token exists.
+
+// "https://<base>/api/v1/skills/search?q=<q>&limit=<n>"
+std::string skills_v1_search_url(const std::string& base_url, const std::string& query, int limit);
+// "https://<base>/api/v1/skills/curated?limit=<n>"
+std::string skills_v1_curated_url(const std::string& base_url, int limit);
+// "https://<base>/api/v1/skills/<id>" (each id segment encoded, '/' kept)
+std::string skills_v1_detail_url(const std::string& base_url, const std::string& id);
+// "https://<base>/api/v1/skills/audit/<id>"
+std::string skills_v1_audit_url(const std::string& base_url, const std::string& id);
+
+// The page shape shared by the v1 bulk endpoints: `{skills:[...], count}` with
+// the same required fields as the anonymous search. Extra fields (description,
+// hash, audit) are carried into the detail, not the row.
+IndexResult parse_skills_v1_page(const std::string& body, int limit, bool cached);
+
+// One skill's v1 detail. `body` and `files` are optional; a response without
+// them still yields description/hash/audit.
+DetailResult parse_skills_v1_detail(const std::string& body, const SkillRef& ref);
+
+// Fill `detail.audit`/`audit_note` from the `/audit/<id>` shape. Returns the
+// failure when the body is not that shape.
+IndexFailure parse_skills_v1_audit(const std::string& body, SkillDetail& detail);
+
+class SkillsShV1Index final : public SkillIndex {
+public:
+    explicit SkillsShV1Index(SkillIndexOptions opts);
+
+    IndexResult search(const std::string& query, int limit,
+                       const CancellationToken& cancel) const override;
+    IndexResult curated(int limit, const CancellationToken& cancel) const override;
+    DetailResult detail(const SkillRef& ref, const CancellationToken& cancel) const override;
+    std::vector<SourceStatus> sources() const override;
+
+private:
+    DetailResult fetch_detail(const SkillRef& ref, const CancellationToken& cancel) const;
+    // The detail carried no verdict: ask the audit endpoint once. A failed
+    // audit keeps the detail and reports why in `error`.
+    void enrich_audit(SkillDetail& detail, const SkillRef& ref, long long now, IndexFailure& error,
+                      const CancellationToken& cancel) const;
+    // One GET with the bearer, the shared budget and the typed failure map.
+    std::optional<HttpResponse> get(const std::string& url, const CancellationToken& cancel) const;
+    IndexResult page(const std::string& url, int limit, const CancellationToken& cancel) const;
+
+    SkillIndexOptions opts_;
+    mutable long long last_fetch_ms_ = 0;
+};
+
+// The authenticated adapter in front of the anonymous one. A rejected token is
+// not an outage: it is remembered once, reported in one line, and every search
+// is answered by the anonymous adapter instead. Detail prefers the v1 metadata
+// (hash, audit) and takes the body from the GitHub adapter when one is wired.
+class SkillsShTokenIndex final : public SkillIndex {
+public:
+    SkillsShTokenIndex(std::shared_ptr<SkillIndex> anonymous, std::shared_ptr<SkillIndex> v1,
+                       std::shared_ptr<SkillIndex> body,
+                       std::string token_label = "SKILLS_SH_TOKEN");
+
+    IndexResult search(const std::string& query, int limit,
+                       const CancellationToken& cancel) const override;
+    IndexResult curated(int limit, const CancellationToken& cancel) const override;
+    DetailResult detail(const SkillRef& ref, const CancellationToken& cancel) const override;
+    AssetsResult fetch_assets(const SkillDetail& detail,
+                              const CancellationToken& cancel) const override;
+    std::vector<SourceStatus> sources() const override;
+
+    // One line naming the variable when the token was rejected, empty
+    // otherwise. Reading it does not clear the state: the UI shows the note
+    // when it changes, and every later search still knows the token is dead.
+    std::string rejection_note() const;
+    std::string status_note() const override { return rejection_note(); }
+
+private:
+    bool token_rejected() const;
+    std::shared_ptr<SkillIndex> anonymous_;
+    std::shared_ptr<SkillIndex> v1_;
+    std::shared_ptr<SkillIndex> body_;
+    std::string token_label_;
+    mutable std::mutex note_mutex_;
+    mutable bool rejected_ = false;
+};
+
+// The adapter the host should hold: the anonymous one when no token is set,
+// otherwise the token-fronted composite. `body` supplies detail bodies and
+// assets (the GitHub adapter in production) and may be null.
+std::shared_ptr<SkillIndex> make_skills_sh_index(const SkillIndexOptions& opts,
+                                                 std::shared_ptr<SkillIndex> body = nullptr);
 
 } // namespace agent
 

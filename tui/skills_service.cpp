@@ -49,6 +49,21 @@ void SkillsService::search(std::string query, int limit) {
     post(std::move(job), true);
 }
 
+void SkillsService::curated(int limit) {
+    search_cancel_.request();
+    search_cancel_ = agent::CancellationToken{};
+
+    Job job;
+    job.kind = Job::Kind::Curated;
+    job.limit = limit;
+    job.cancel = search_cancel_;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        jobs_.push_back(std::move(job));
+    }
+    cv_.notify_one();
+}
+
 void SkillsService::detail(agent::SkillRef ref) {
     Job job;
     job.kind = Job::Kind::Detail;
@@ -117,6 +132,9 @@ void SkillsService::run(const Job& job) {
     case Job::Kind::Search:
         run_search(job);
         return;
+    case Job::Kind::Curated:
+        run_curated(job);
+        return;
     case Job::Kind::Detail:
         run_detail(job);
         return;
@@ -138,6 +156,19 @@ void SkillsService::run_search(const Job& job) {
             ? backends_.search(job.text, job.limit, job.cancel)
             : agent::IndexResult{std::nullopt,
                                  {agent::IndexError::Unsupported, 0, 0, "no search backend"}};
+    event.note = backends_.note ? backends_.note() : std::string{};
+    emit(std::move(event));
+}
+
+void SkillsService::run_curated(const Job& job) {
+    SkillsEvent event;
+    event.kind = SkillsEvent::Kind::CuratedDone;
+    event.search =
+        backends_.curated
+            ? backends_.curated(job.limit, job.cancel)
+            : agent::IndexResult{std::nullopt,
+                                 {agent::IndexError::Unsupported, 0, 0, "no curated backend"}};
+    event.note = backends_.note ? backends_.note() : std::string{};
     emit(std::move(event));
 }
 
@@ -211,19 +242,27 @@ SkillsService::entry_for(const Job& job, const agent::SkillInstallResult& result
     return agent::ledger_entry_for(job.detail, job.name, files, result, job.enabled);
 }
 
-SkillsBackends make_skills_backends(agent::SkillIndexOptions index_opts,
+SkillsBackends make_skills_backends(const agent::SkillIndexOptions& index_opts,
                                     agent::GithubOptions github_opts) {
-    auto index = std::make_shared<agent::SkillsShIndex>(std::move(index_opts));
+    const bool authenticated = !index_opts.token.empty();
     auto github = std::make_shared<agent::GitHubIndex>(std::move(github_opts));
+    // No token: the anonymous adapter, exactly as before. A token: the v1
+    // half in front of it, with GitHub supplying the detail body and assets.
+    auto index = agent::make_skills_sh_index(index_opts, github);
 
     SkillsBackends backends;
     backends.search = [index](const std::string& query, int limit,
                               const agent::CancellationToken& cancel) {
         return index->search(query, limit, cancel);
     };
-    backends.detail = [github](const agent::SkillRef& ref, const agent::CancellationToken& cancel) {
-        return github->detail(ref, cancel);
+    backends.curated = [index](int limit, const agent::CancellationToken& cancel) {
+        return index->curated(limit, cancel);
     };
+    backends.detail = [index, github, authenticated](const agent::SkillRef& ref,
+                                                     const agent::CancellationToken& cancel) {
+        return authenticated ? index->detail(ref, cancel) : github->detail(ref, cancel);
+    };
+    backends.note = [index] { return index->status_note(); };
     backends.assets = [github](const agent::SkillDetail& detail,
                                const agent::CancellationToken& cancel) {
         return github->fetch_assets(detail, cancel);
