@@ -2225,6 +2225,35 @@ TEST(pinned_context_reports_the_listing_mismatch) {
             "the context readout hid the advertised window", tui);
 }
 
+// The catalogue is regenerated on a schedule and on demand. When a stale pin is
+// cleared, that regen must be able to resize the window immediately: the user
+// should not have to restart amber to see the listing's number. Before the fix,
+// the readout stayed "auto (unknown)" until a fresh process probed again.
+TEST(context_auto_regen_reloads_the_advertised_window) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    api.advertise_deepseek_window();
+    ASSERT(api.start());
+    ASSERT(write_file(agent::Workspace::settings_path(),
+                      "api_base=" + api.base() +
+                          "/v1\nmodel=deepseek-flash\ncontext_size=256000\nstream=0\n"));
+
+    Tui tui;
+    tui.name = "context_auto_regen_reloads_the_advertised_window";
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.wait_for("context: pinned 256000, model advertises 1048576", 60000),
+                 "the pin/listing mismatch was not reported", tui))
+        return;
+
+    tui.send("/set model context auto\r");
+    tui.pump(500);
+    require(tui.wait_for("context window: auto (1048576 tokens)", 10000),
+            "clearing the pin did not re-read the cached listing", tui);
+}
+
 TEST(get_model_list_reports_why_the_catalogue_is_empty) {
     Tui tui;
     tui.name = "get_model_list_reports_why_the_catalogue_is_empty";
@@ -4660,6 +4689,7 @@ int main(int argc, char** argv) {
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     pinned_context_reports_the_listing_mismatch();
+    context_auto_regen_reloads_the_advertised_window();
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
     a_restored_draft_is_cleared_on_submit();
