@@ -20,6 +20,8 @@
 #   P16 coverage is one recipe: make coverage and CI both call the script.
 #   P17 the parity image pins the analyzers CI pins and is wired to a target.
 #   P18 a delivery job that needs the always() aggregator must use always().
+#   P19 the dependency includes survive (AGENTS.md stale-object ABI gotcha).
+#   P20 generated .gcov files are neither tracked nor unignored.
 
 cd "$(dirname "$0")/.." || exit 1
 failures=0
@@ -518,6 +520,25 @@ if grep -qF -- '-include $(PLUGIN_OBJS:.o=.d)' Makefile.in; then
     ok "P19: PLUGIN_OBJS is dependency-included"
 else
     warn "P19: PLUGIN_OBJS has no -include; the plugin composition roots can go stale"
+fi
+
+# P20
+# gcov writes one <source>.gcov beside each instrumented source. The coverage
+# job regenerates them, so a tracked one is stale the moment it lands: #677
+# shipped 103 of them (10 MB, including a 33k-line json.hpp.gcov) because
+# .gitignore covered *.gcno/*.gcda but not *.gcov. Check both the tree and the
+# ignore rule, so a plain `git add -A` after a coverage run cannot repeat it.
+tracked_gcov=$(git ls-files '*.gcov')
+if [ -z "$tracked_gcov" ]; then
+    ok "no .gcov file is tracked"
+else
+    count=$(printf '%s\n' "$tracked_gcov" | wc -l | tr -d ' ')
+    warn "P20: $count generated .gcov file(s) are tracked"
+fi
+if grep -qxF '*.gcov' .gitignore; then
+    ok "*.gcov is gitignored"
+else
+    warn "P20: *.gcov is not gitignored; a coverage run dirties the tree"
 fi
 
 if [ "$failures" -gt 0 ]; then
