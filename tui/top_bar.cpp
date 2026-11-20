@@ -44,14 +44,18 @@ std::string truncate_cols(const std::string& s, int max_cols, bool utf8) {
     return s.substr(0, end) + tail;
 }
 
-std::string tab_label(const Tab& tab, int index, int title_cols, bool utf8) {
+std::string tab_body(const Tab& tab, int index, int title_cols, bool utf8) {
     const std::string title =
         truncate_cols(tab.title.empty() ? "chat" : tab.title, title_cols, utf8);
     const std::string marker = attention_glyph(tab.running, tab.attention, utf8);
     // No caps on the sides: the leading space separates one tab from the next and
-    // the reverse-video block is what marks the active one. The trailing space
-    // keeps the close glyph off the tab edge and is part of its hit target.
-    return " " + std::to_string(index) + " " + title + " " + marker + " " + close_glyph(utf8) + " ";
+    // the reverse-video block is what marks the active one. The close control is
+    // painted as its own span so its padding is visible, not just hit-testable.
+    return " " + std::to_string(index) + " " + title + " " + marker;
+}
+
+std::string close_label(bool utf8) {
+    return " " + close_glyph(utf8) + " ";
 }
 
 Role tab_role(const Tab& tab) {
@@ -84,8 +88,8 @@ Labels build_labels(const std::vector<Tab>& tabs, int title_cols, bool utf8) {
     labels.text.reserve(tabs.size());
     labels.width.reserve(tabs.size());
     for (std::size_t i = 0; i < tabs.size(); ++i) {
-        labels.text.push_back(tab_label(tabs[i], static_cast<int>(i) + 1, title_cols, utf8));
-        labels.width.push_back(text::display_cols(labels.text.back()));
+        labels.text.push_back(tab_body(tabs[i], static_cast<int>(i) + 1, title_cols, utf8));
+        labels.width.push_back(text::display_cols(labels.text.back()) + kCloseTargetWidth);
     }
     return labels;
 }
@@ -114,10 +118,12 @@ std::size_t active_index(const std::vector<Tab>& tabs) {
     return 0;
 }
 
-void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels, int used) {
+void append_all(Layout& out, const std::vector<Tab>& tabs, const Labels& labels, int used,
+                bool utf8) {
     int x = used;
     for (std::size_t i = 0; i < tabs.size(); ++i) {
         out.spans.push_back({labels.text[i], tab_role(tabs[i])});
+        out.spans.push_back({close_label(utf8), Role::CloseButton});
         out.hits.push_back({tabs[i].id, x, labels.width[i], x + labels.width[i] - kCloseTargetWidth,
                             kCloseTargetWidth});
         if (tabs[i].active) {
@@ -134,8 +140,8 @@ void expand_active(Labels& labels, const std::vector<Tab>& tabs, std::size_t act
     if (available < 6 + digits)
         return;
     const int title_cols = std::clamp(available - 6 - digits, kTabMinTitle, kTabMaxTitle);
-    labels.text[active] = tab_label(tabs[active], static_cast<int>(active) + 1, title_cols, utf8);
-    labels.width[active] = text::display_cols(labels.text[active]);
+    labels.text[active] = tab_body(tabs[active], static_cast<int>(active) + 1, title_cols, utf8);
+    labels.width[active] = text::display_cols(labels.text[active]) + kCloseTargetWidth;
 }
 
 std::vector<std::size_t> choose_shown(const std::vector<Tab>& tabs, const Labels& labels,
@@ -170,8 +176,8 @@ void shrink_active(Labels& labels, const std::vector<Tab>& tabs, std::size_t act
     if (labels.width[active] <= available)
         return;
     const int title_cols = std::max(0, available - 9 - index_digits(static_cast<int>(active) + 1));
-    labels.text[active] = tab_label(tabs[active], static_cast<int>(active) + 1, title_cols, utf8);
-    labels.width[active] = text::display_cols(labels.text[active]);
+    labels.text[active] = tab_body(tabs[active], static_cast<int>(active) + 1, title_cols, utf8);
+    labels.width[active] = text::display_cols(labels.text[active]) + kCloseTargetWidth;
 }
 
 bool active_fits(const Labels& labels, std::size_t active, int available) {
@@ -207,6 +213,7 @@ Layout layout_overflow(const std::vector<Tab>& tabs, Labels labels, int width, i
     int x = used;
     for (std::size_t idx : shown) {
         out.spans.push_back({labels.text[idx], tab_role(tabs[idx])});
+        out.spans.push_back({close_label(utf8), Role::CloseButton});
         out.hits.push_back({tabs[idx].id, x, labels.width[idx],
                             x + labels.width[idx] - kCloseTargetWidth, kCloseTargetWidth});
         if (idx == active) {
@@ -294,7 +301,7 @@ Layout layout(const std::vector<Tab>& tabs, int width, bool utf8) {
 
     Labels labels = fit_all_titles(tabs, width, used, utf8);
     if (used + total_width(labels.width) <= width) {
-        append_all(out, tabs, labels, used);
+        append_all(out, tabs, labels, used, utf8);
         return out;
     }
     return layout_overflow(tabs, std::move(labels), width, used, utf8, std::move(out));

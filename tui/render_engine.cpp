@@ -717,6 +717,12 @@ void top_role_style(top_bar::Role role, int& pair, int& attrs) {
         pair = P_GAUGE_CRIT;
         attrs = paint::bold;
         break;
+    case top_bar::Role::CloseButton:
+        // A button of its own, not a bare glyph swallowed by the tab's reverse
+        // video: its padding reads as part of the control the mouse hits.
+        pair = P_BUTTON_ACT;
+        attrs = paint::bold;
+        break;
     case top_bar::Role::Overflow:
         pair = P_BAR_DIM;
         break;
