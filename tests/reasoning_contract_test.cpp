@@ -175,6 +175,55 @@ TEST(openai_model_list_tolerates_malformed_capability_shapes) {
     ASSERT(models[20].reasoning.echo_field.empty());
 }
 
+// The capability reader is a concept table, not a branch per provider. A body
+// using any documented spelling resolves through the same table, and an
+// unrecognized field stays "not advertised".
+TEST(catalogue_alias_table_reads_documented_spellings) {
+    const auto models = parse(R"({"data":[{
+      "id":"alias-body",
+      "context_window":131072,
+      "max_output_tokens":32768,
+      "modalities":{"input":["text","image"],"output":["text"]},
+      "verbosity":{"supported_levels":["low","medium","high"],"default_level":"medium"}
+    }]})");
+    const auto& m = only(models);
+    ASSERT_EQ(m.context, 131072);
+    ASSERT_EQ(m.max_output, 32768);
+    ASSERT_EQ(m.input_modalities.size(), 2u);
+    ASSERT_EQ(m.input_modalities[1], std::string("image"));
+    ASSERT_EQ(m.verbosity_levels.size(), 3u);
+    ASSERT_EQ(m.verbosity, std::string("medium"));
+}
+
+TEST(openai_model_list_reads_a_top_level_verbosity_array) {
+    const auto& m = only(parse(R"({"data":[{
+      "id":"verbose","verbosity":["minimal","low","high"]
+    }]})"));
+    ASSERT_EQ(m.verbosity_levels.size(), 3u);
+    ASSERT_EQ(m.verbosity_levels[0], std::string("minimal"));
+    ASSERT(m.verbosity.empty()); // no default was advertised
+}
+
+TEST(capabilities_carry_verbosity_and_a_provider_switch_clears_it) {
+    Config cfg;
+    ModelInfo m;
+    m.id = "verbose";
+    m.verbosity = "high";
+    m.verbosity_levels = {"low", "high"};
+    agent::apply_model_capabilities(cfg, agent::capabilities_of(m));
+    ASSERT_EQ(cfg.model_verbosity, std::string("high"));
+    ASSERT_EQ(cfg.model_verbosity_levels.size(), 2u);
+
+    cfg.model_verbosity = "high";
+    cfg.model_verbosity_levels = {"low", "high"};
+    // The switch reset is the same set of fields apply_model_capabilities
+    // writes, so a silent listing cannot inherit the old provider's levels.
+    cfg.model_verbosity.clear();
+    cfg.model_verbosity_levels.clear();
+    ASSERT(cfg.model_verbosity.empty());
+    ASSERT(cfg.model_verbosity_levels.empty());
+}
+
 TEST(openai_model_list_accepts_the_models_key_and_skips_an_empty_id) {
     const auto models = parse(R"({"models":[{"id":"ok","context_length":4096},{}]})");
     ASSERT_EQ(models.size(), 1u);
