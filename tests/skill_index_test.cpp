@@ -755,7 +755,7 @@ TEST(skill_v1_rejected_token_falls_back_and_notes_once) {
     // own 403 mapping is covered above, so this test only needs the decision.
     (void)v1;
     auto rejects = std::make_shared<StubIndex>();
-    rejects->on_search = [&http](const std::string&, int) {
+    rejects->on_search = [](const std::string&, int) {
         agent::IndexFailure f;
         f.kind = agent::IndexError::Http;
         f.status = 403;
