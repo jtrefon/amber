@@ -1873,7 +1873,7 @@ TEST(usage_ledger_apply_tags_each_source) {
     // they explain; a source the protocol did not report stays out of it.
     ASSERT_EQ(ledger.tree().cache_read_tokens, 33L);
     ASSERT_EQ(ledger.tree().cache_write_tokens, 5L);
-    ASSERT(ledger.tree().reasoning_tokens, 6L);
+    ASSERT_EQ(ledger.tree().reasoning_tokens, 6L);
     ASSERT(ledger.tree().measured_cache);
     ASSERT(ledger.tree().measured_reasoning);
 }

@@ -42,7 +42,8 @@ void CompressionReporter::on_llm_usage(const Stats& stats) {
                          stats.cache_read_tokens,
                          stats.cache_write_tokens,
                          {},
-                         {}});
+                         {},
+                         stats.reasoning_tokens});
 }
 
 void CompressionReporter::on_llm_reply_received(long sec) {

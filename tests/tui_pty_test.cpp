@@ -282,6 +282,7 @@ public:
     void reset_chat() { server_->reset_chat(); }
     void reject_gemini_key() { reject_gemini_ = true; }
     void advertise_deepseek_window() { deepseek_window_ = true; }
+    void report_reasoning_tokens() { reasoning_tokens_ = true; }
 
 private:
     bench::EndpointReply respond(const bench::EndpointRequest& request) {
@@ -364,6 +365,7 @@ private:
         const bool worker_report = request.body.find("WORKER-REPORT") != std::string::npos;
         const bool queue_probe = last_user.find("queue probe") != std::string::npos;
         const bool profile_probe = last_user.find("profile probe") != std::string::npos;
+        const bool reasoning_probe = last_user.find("reasoning probe") != std::string::npos;
         const bool clear_probe = last_user.find("clear probe") != std::string::npos;
         const bool checkpoint_probe = last_user.find("checkpoint probe") != std::string::npos;
         const bool command_probe = last_user.find("command probe") != std::string::npos;
@@ -383,6 +385,8 @@ private:
         } else if (profile_probe) {
             reply.delay_ms = 2500;
             message = R"({"role":"assistant","content":"PROFILE-TURN-DONE"})";
+        } else if (reasoning_probe) {
+            message = R"({"role":"assistant","content":"REASONING-DONE"})";
         } else if (queue_probe && call == 1) {
             reply.delay_ms = 2500;
             message = R"({"role":"assistant","content":"QUEUE-DONE"})";
@@ -450,16 +454,21 @@ private:
         }
         reply.prompt_tokens = 1;
         reply.completion_tokens = 1;
+        const std::string reasoning = reasoning_tokens_ && reasoning_probe
+                                          ? R"(,"completion_tokens_details":{"reasoning_tokens":8})"
+                                          : std::string();
         reply.body =
             R"({"id":"chatcmpl-pty","object":"chat.completion","created":1,"model":"pty-test","choices":[{"index":0,"message":)" +
             message + R"(,"finish_reason":")" + finish +
-            R"("}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
+            R"("}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2)" + reasoning +
+            R"(}})";
         return reply;
     }
 
     std::unique_ptr<bench::ScriptedEndpoint> server_;
     std::atomic<bool> reject_gemini_{false};
     std::atomic<bool> deepseek_window_{false};
+    std::atomic<bool> reasoning_tokens_{false};
 };
 
 // A loopback stand-in for skills.sh + GitHub. The explorer talks to three
@@ -4608,6 +4617,36 @@ TEST(project_profile_file_switches_at_startup) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// #618: a provider that splits out reasoning tokens must show them in /usage.
+// The field is a breakdown of `down`, so the readout is owned by the usage
+// pipeline rather than parsed again in the client.
+TEST(usage_reports_thinking_tokens_from_the_wire) {
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    api.report_reasoning_tokens();
+    Tui tui;
+    tui.name = "usage-thinking";
+    if (!require(api.start(), "the fake endpoint did not start", tui))
+        return;
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + api.base() + "/v1\nmodel=pty-test\nstream=0\n"),
+                 "could not point the fixture at the fake endpoint", tui))
+        return;
+
+    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    tui.send("reasoning probe\r");
+    if (!require(tui.wait_for("REASONING-DONE", 10000), "the reply did not arrive", tui))
+        return;
+    const size_t mark = tui.raw.size();
+    tui.send("/usage");
+    tui.pump(250);
+    tui.send("\x07");
+    require(tui.wait_for("thinking 8", 8000), "/usage did not report 8 thinking tokens", tui);
+}
+
 int main(int argc, char** argv) {
     std::string binary_arg = "./amber";
     std::string self_arg = argc > 0 ? argv[0] : "tui_pty_test";
@@ -4712,6 +4751,7 @@ int main(int argc, char** argv) {
     watch_cli_does_not_wake_by_default_and_opts_in();
     cli_wait_tasks_joins_a_command();
     multiline_composer_off_flattens_a_paste_to_one_line();
+    usage_reports_thinking_tokens_from_the_wire();
 
     // The TUI must terminate through its own quit path: a force-killed session
     // never flushes its gcov counters, which is what pinned tui/ coverage at 0%.

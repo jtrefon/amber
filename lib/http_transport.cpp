@@ -275,6 +275,7 @@ void stream_completion(Config& cfg, const Dialect& dialect, const std::string& p
         stats->completion_tokens = decoder.completion_tokens();
         stats->cache_read_tokens = decoder.cache_read_tokens();
         stats->cache_write_tokens = decoder.cache_write_tokens();
+        stats->reasoning_tokens = decoder.reasoning_tokens();
         stats->response_id = decoder.response_id();
         stats->cache_miss_reason = decoder.cache_miss_reason();
         apply_tps(*stats, out.ttfb, out.total);
@@ -291,6 +292,7 @@ void fill_buffered_stats(Stats& stats, const TokenUsage& usage, double ttfb, dou
     stats.completion_tokens = usage.completion;
     stats.cache_read_tokens = usage.cache_read;
     stats.cache_write_tokens = usage.cache_write;
+    stats.reasoning_tokens = usage.reasoning_tokens;
     stats.response_id = usage.response_id;
     stats.cache_miss_reason = usage.cache_miss_reason;
     apply_tps(stats, ttfb, total);

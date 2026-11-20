@@ -406,6 +406,7 @@ void SubAgentExecutor::record_usage(const std::string& task_id, const Stats& sta
     sample.completion_tokens = stats.completion_tokens;
     sample.cache_read_tokens = stats.cache_read_tokens;
     sample.cache_write_tokens = stats.cache_write_tokens;
+    sample.reasoning_tokens = stats.reasoning_tokens;
     sample.task_id = task_id;
     if (tasks_) {
         tasks_->add_usage(task_id, stats.prompt_tokens, stats.completion_tokens, stats.valid);

@@ -21,8 +21,10 @@ inline void save_source(agent::json& meta, const char* prefix, const agent::Usag
     meta[p + "_completion_tokens"] = usage.completion_tokens;
     meta[p + "_cache_read_tokens"] = usage.cache_read_tokens;
     meta[p + "_cache_write_tokens"] = usage.cache_write_tokens;
+    meta[p + "_reasoning_tokens"] = usage.reasoning_tokens;
     meta[p + "_measured"] = usage.measured;
     meta[p + "_cache_measured"] = usage.measured_cache;
+    meta[p + "_reasoning_measured"] = usage.measured_reasoning;
 }
 
 inline agent::UsageTotals load_source(const agent::json& meta, const char* prefix) {
@@ -38,8 +40,10 @@ inline agent::UsageTotals load_source(const agent::json& meta, const char* prefi
     usage.completion_tokens = number(p + "_completion_tokens");
     usage.cache_read_tokens = number(p + "_cache_read_tokens");
     usage.cache_write_tokens = number(p + "_cache_write_tokens");
+    usage.reasoning_tokens = number(p + "_reasoning_tokens");
     usage.measured = flag(p + "_measured");
     usage.measured_cache = flag(p + "_cache_measured");
+    usage.measured_reasoning = flag(p + "_reasoning_measured");
     return usage;
 }
 
@@ -56,6 +60,7 @@ inline void save_usage(agent::json& meta, const UsageLedger& ledger) {
     meta["session_completion_tokens"] = tree.completion_tokens;
     meta["session_cache_read_tokens"] = tree.cache_read_tokens;
     meta["session_cache_write_tokens"] = tree.cache_write_tokens;
+    meta["session_reasoning_tokens"] = tree.reasoning_tokens;
     meta["session_usage_measured"] = tree.measured;
 }
 

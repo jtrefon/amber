@@ -442,6 +442,9 @@ struct Stats {
     // sitting at 0.
     long cache_read_tokens = -1;
     long cache_write_tokens = -1;
+    // The reasoning part of completion_tokens (-1 when not reported). It is a
+    // breakdown of `completion_tokens`, never a second charge.
+    long reasoning_tokens = -1;
     // The provider's own id for the response, and its explanation when the
     // cache prefix diverged from the previous request.
     std::string response_id;

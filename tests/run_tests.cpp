@@ -2645,15 +2645,15 @@ TEST(openai_usage_reads_reasoning_tokens) {
     ASSERT_EQ(usage.reasoning_tokens, 8L);
 
     // A provider that does not report the field leaves it unknown, not zero.
-    const agent::TokenUsage quiet = d->parse_usage(
-        R"({"usage":{"prompt_tokens":10,"completion_tokens":2}})");
+    const agent::TokenUsage quiet =
+        d->parse_usage(R"({"usage":{"prompt_tokens":10,"completion_tokens":2}})");
     ASSERT_EQ(quiet.reasoning_tokens, -1L);
 }
 
 TEST(openai_streaming_usage_reads_reasoning_tokens) {
     auto d = agent::make_dialect("openai");
     agent::Message msg;
-    auto decoder = d->make_decoder(msg, [](const agent::StreamChunk&) {}, "reasoning-usage");
+    auto decoder = d->make_decoder(msg, [](const agent::StreamChunk&) {}, "");
     const std::string sse =
         "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":32,\"completion_tokens\":8,"
         "\"completion_tokens_details\":{\"reasoning_tokens\":6}}}\n\n"
