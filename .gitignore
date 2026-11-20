@@ -82,6 +82,7 @@ compile_commands.json
 # gcov instrumentation output (a `--coverage` build writes these beside the sources)
 *.gcno
 *.gcda
+*.gcov
 
 # Bench run outputs are generated. bench/results/ is a curated archive whose
 # entries are committed deliberately with `git add -f`; scratch runs write to
