@@ -238,7 +238,9 @@ Config provider_edit_seed(const Config& active, const Provider& editing) {
     seed.model = editing.default_model;
     seed.flavor = editing.flavor;
     seed.context_size = editing.default_context_size;
-    seed.context_explicit = editing.default_context_size > 0;
+    // A provider default is an auto value (config.cpp:206), never a user pin.
+    // Marking it explicit here used to freeze the endpoint's n_ctx into the
+    // global config on the next save, so a smaller model could not resize it.
     if (editing.name == active.provider_name) {
         // The live connection is the truth for the provider in use: its key may
         // live in the global config, and its endpoint/model may have moved since

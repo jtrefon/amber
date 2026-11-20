@@ -4404,6 +4404,33 @@ TEST(overflow_400_buffered_throws_non_retryable_api_error) {
     close(srv);
 }
 
+// A 400 overflow is a runtime fact about the request, not a user override. It
+// may teach this client the window, but it must NOT mark the config explicit:
+// save_global() would then freeze the learned server n_ctx as context_size= and
+// a later pick of a smaller model could never resize the gauge.
+TEST(overflow_400_learns_the_window_without_a_pin) {
+    std::string req;
+    const std::string body = "{\"error\":{\"message\":\"This model's maximum context length is "
+                             "16384 tokens. However, you requested 20000 tokens.\"}}";
+    int srv = spawn_mock_http(8937, req, "HTTP/1.1 400 Bad Request", "application/json", body);
+    ASSERT(srv >= 0);
+    usleep(100000);
+
+    agent::Config cfg;
+    cfg.api_base = "http://127.0.0.1:8937/v1";
+    auto dialect = agent::make_dialect(cfg.flavor);
+    bool threw = false;
+    try {
+        agent::post_completion(cfg, *dialect, "{}", false, nullptr, nullptr);
+    } catch (const agent::ApiError&) {
+        threw = true;
+    }
+    ASSERT(threw);
+    ASSERT_EQ(cfg.context_size, 16384); // learned for this client
+    ASSERT_FALSE(cfg.context_explicit); // but not a persisted user pin
+    close(srv);
+}
+
 TEST(client_serves_next_turn_after_overflow_rejection) {
     // The 400 path mutates the client's internal Config (context_size learned,
     // context_explicit set). A later healthy request on the SAME client must

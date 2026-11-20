@@ -582,7 +582,17 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +
         agent::compact::count(ctx_used) + "/" + agent::compact::count(context_window());
-    put_segment(y, budget, x, readout, gauge_pair(frac));
+    // A stale pin still governs the budget, but hiding the listing behind it
+    // is what made a 262k gauge on a 160k model so hard to diagnose. Show both
+    // numbers when they disagree; the pin remains authoritative.
+    agent::Config effective = tui_.cfg_;
+    if (const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr)
+        effective = *acfg;
+    std::string shown = readout;
+    if (!agent::context_pin_mismatch(effective, tui_.last_detected_).empty() &&
+        tui_.last_detected_.context_size > 0)
+        shown += " (adv " + agent::compact::count(tui_.last_detected_.context_size) + ")";
+    put_segment(y, budget, x, shown, gauge_pair(frac));
 }
 
 int RenderEngine::working_row() const {
