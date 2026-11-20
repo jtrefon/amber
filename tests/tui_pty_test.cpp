@@ -2203,12 +2203,17 @@ TEST(pinned_context_reports_the_listing_mismatch) {
 
     Tui tui;
     tui.name = "pinned_context_reports_the_listing_mismatch";
-    if (!require(tui.start(fixture().binary, fixture().workspace), "the TUI did not start", tui))
+    // The readout carries both windows; give it enough columns to paint.
+    if (!require(tui.start(fixture().binary, fixture().workspace, "", 24, 140),
+                 "the TUI did not start", tui))
         return;
     if (!require(wait_ready(tui), "the UI never came up", tui))
         return;
     if (!require(tui.wait_for("context: pinned 256000, model advertises 1048576", 60000),
                  "the pin/listing mismatch was not reported", tui))
+        return;
+    if (!require(tui.wait_for("(adv 1m)", 10000),
+                 "the gauge hid the advertised window behind the pin", tui))
         return;
 
     const auto run = [&tui](const std::string& line) {

@@ -2247,6 +2247,9 @@ std::string context_window_label(const agent::Config& cfg, const agent::ServerIn
         return std::to_string(cfg.context_size) + " tokens (pinned)";
     if (cfg.context_size > 0)
         return "auto (" + std::to_string(cfg.context_size) + " tokens)";
+    // An unpinned config can still know the window from the cached listing.
+    if (info.ok && info.context_size > 0)
+        return "auto (" + std::to_string(info.context_size) + " tokens)";
     return "auto (unknown)";
 }
 
@@ -2269,6 +2272,16 @@ void SlashDispatcher::clear_model_context() {
         const auto now = tui_.win().agent->config_snapshot();
         if (now)
             tui_.cfg_.context_size = now->context_size;
+    }
+    // Re-resolve from the cached catalogue now, not on the next start. A
+    // smaller learned clamp wins; otherwise the listing's window becomes the
+    // auto value that the gauge and compression read.
+    const agent::ServerInfo advertised = agent::probe_server_cached(tui_.cfg_);
+    if (advertised.ok && advertised.context_size > 0 &&
+        (tui_.cfg_.context_size == 0 || advertised.context_size < tui_.cfg_.context_size)) {
+        tui_.cfg_.context_size = advertised.context_size;
+        if (tui_.win().agent)
+            tui_.win().agent->set_context_window(advertised.context_size);
     }
     // The writer omits context_size when it is not explicit, so clearing
     // removes the file pin as well as the live one.
