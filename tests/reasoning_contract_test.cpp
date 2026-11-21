@@ -6,6 +6,7 @@
 // OpenAI family fallback. They also pin the echo rule: a reasoning model that
 // requires its chain of thought back on a tool turn gets it.
 
+#include "agent/catalogue_fields.h"
 #include "agent/dialect.h"
 #include "agent/llm.h"
 #include "test_util.h"
@@ -178,6 +179,52 @@ TEST(openai_model_list_tolerates_malformed_capability_shapes) {
 // The capability reader is a concept table, not a branch per provider. A body
 // using any documented spelling resolves through the same table, and an
 // unrecognized field stays "not advertised".
+TEST(catalogue_field_readers_skip_wrong_and_empty_values) {
+    using agent::catalogue::first_int;
+    using agent::catalogue::first_object;
+    using agent::catalogue::first_string;
+    using agent::catalogue::first_strings;
+    using agent::catalogue::strings_at;
+
+    agent::json j = {{"object", {{"a", 1}}},
+                     {"not_object", "text"},
+                     {"zero", 0},
+                     {"negative", -5},
+                     {"number_as_text", "42"},
+                     {"positive", 7},
+                     {"empty_text", ""},
+                     {"text_as_number", 5},
+                     {"text", "yes"},
+                     {"list", {"a", 3, "", "b"}},
+                     {"neither", true}};
+
+    const char* const objects[] = {"not_object", "object"};
+    ASSERT(first_object(j, objects, 2) != nullptr);
+    ASSERT(first_object(j, objects, 0) == nullptr);
+    const char* const missing[] = {"absent"};
+    ASSERT(first_object(j, missing, 1) == nullptr);
+
+    const char* const numbers[] = {"not_object", "zero", "negative", "number_as_text", "positive"};
+    ASSERT_EQ(first_int(j, numbers, 5), 7);
+    ASSERT_EQ(first_int(j, missing, 1), 0);
+
+    const char* const texts[] = {"empty_text", "text_as_number", "text"};
+    ASSERT_EQ(first_string(j, texts, 3), std::string("yes"));
+    ASSERT(first_string(j, missing, 1).empty());
+
+    ASSERT(strings_at(j, "empty_text").empty()); // a present but empty string
+    ASSERT(strings_at(j, "neither").empty());    // a value of neither shape
+    ASSERT(strings_at(j, "absent").empty());
+    const auto list = strings_at(j, "list");
+    ASSERT_EQ(list.size(), 2u); // the number and the empty string were skipped
+    ASSERT_EQ(list[0], std::string("a"));
+    ASSERT_EQ(list[1], std::string("b"));
+
+    const char* const lists[] = {"empty_text", "neither", "list"};
+    ASSERT_EQ(first_strings(j, lists, 3).size(), 2u);
+    ASSERT(first_strings(j, missing, 1).empty());
+}
+
 TEST(catalogue_alias_table_reads_documented_spellings) {
     const auto models = parse(R"({"data":[{
       "id":"alias-body",
