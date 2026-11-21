@@ -76,7 +76,7 @@ fixed in #681.
 
 ## Exit criteria
 
-- [ ] `pre-1.0 cleanup` milestone is empty (done 2026-11-20).
+- [x] `pre-1.0 cleanup` milestone is empty (done 2026-11-20).
 - [ ] The 1.0 milestone contains only #562, and #562's exit criteria pass.
 - [ ] `make verify`, `make coverage BASE=origin/main`, `make check`,
       `make test` and `make pty-matrix` are clean on the release commit.
