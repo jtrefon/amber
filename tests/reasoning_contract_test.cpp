@@ -211,7 +211,10 @@ TEST(catalogue_field_readers_skip_wrong_and_empty_values) {
     const char* const texts[] = {"empty_text", "text_as_number", "text"};
     ASSERT_EQ(first_string(j, texts, 3), std::string("yes"));
     ASSERT(first_string(j, missing, 1).empty());
+    const char* const array_only[] = {"list"};
+    ASSERT(first_string(j, array_only, 1).empty()); // an array is not a string
 
+    ASSERT_EQ(strings_at(j, "text").size(), 1u); // the single-string shape
     ASSERT(strings_at(j, "empty_text").empty()); // a present but empty string
     ASSERT(strings_at(j, "neither").empty());    // a value of neither shape
     ASSERT(strings_at(j, "absent").empty());
