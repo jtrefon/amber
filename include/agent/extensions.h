@@ -136,8 +136,13 @@ struct UsageTotals {
     long cache_read_tokens = 0;
     long cache_write_tokens = 0;
     bool measured_cache = false;
+    // Reasoning is a BREAKDOWN of completion, not another charge: keep it
+    // beside the cache counters and gate its display on measured_reasoning.
+    long reasoning_tokens = 0;
+    bool measured_reasoning = false;
 
-    void add(long prompt, long completion, long cache_read = -1, long cache_write = -1) noexcept {
+    void add(long prompt, long completion, long cache_read = -1, long cache_write = -1,
+             long reasoning = -1) noexcept {
         if (prompt >= 0) {
             prompt_tokens += prompt;
             measured = true;
@@ -153,6 +158,10 @@ struct UsageTotals {
         if (cache_write >= 0) {
             cache_write_tokens += cache_write;
             measured_cache = true;
+        }
+        if (reasoning >= 0) {
+            reasoning_tokens += reasoning;
+            measured_reasoning = true;
         }
     }
 };

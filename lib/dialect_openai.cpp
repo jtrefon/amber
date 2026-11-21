@@ -3,6 +3,7 @@
 
 #include "agent/agent_helpers.h"
 #include "agent/json_read.h"
+#include "agent/catalogue_fields.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -14,11 +15,6 @@
 namespace agent {
 
 namespace {
-
-auto read_int = [](const json& o, const char* k) -> int {
-    auto it = o.find(k);
-    return (it != o.end() && it->is_number_integer()) ? it->get<int>() : 0;
-};
 
 void sanitize_node(json& node) {
     if (!node.is_object()) {
@@ -294,24 +290,22 @@ long read_cached_tokens(const json& usage) {
     return read_usage_token(*it, "cached_tokens");
 }
 
+// Reasoning tokens are billed as output and are INCLUDED in completion_tokens.
+// They are a breakdown, never an addition: -1 means the provider did not
+// publish the split.
+long read_reasoning_tokens(const json& usage) {
+    auto it = usage.find("completion_tokens_details");
+    if (it == usage.end() || !it->is_object())
+        return -1;
+    return read_usage_token(*it, "reasoning_tokens");
+}
+
 void append_strings(const json& j, const char* key, std::vector<std::string>& out) {
     if (!j.contains(key) || !j[key].is_array())
         return;
     for (const auto& v : j[key])
         if (v.is_string())
             out.push_back(v.get<std::string>());
-}
-
-void append_unique_strings(const json& j, const char* key, std::vector<std::string>& out) {
-    if (!j.contains(key) || !j[key].is_array())
-        return;
-    for (const auto& v : j[key]) {
-        if (!v.is_string())
-            continue;
-        const std::string text = v.get<std::string>();
-        if (std::find(out.begin(), out.end(), text) == out.end())
-            out.push_back(text);
-    }
 }
 
 bool has_parameter(const std::vector<std::string>& params, const char* name) {
@@ -454,51 +448,42 @@ void parse_reasoning(const json& e, ModelInfo& m) {
 }
 
 void parse_limits(const json& e, ModelInfo& m) {
-    if (m.context == 0 && e.contains("limit") && e["limit"].is_object()) {
-        m.context = read_int(e["limit"], "context");
-        m.context_train = m.context;
-        if (m.max_output == 0)
-            m.max_output = read_int(e["limit"], "output");
-    }
+    // One table per concept. Adding a provider spelling is a row in
+    // catalogue_fields.cpp, not another branch in this parser.
     if (m.context == 0)
-        m.context = read_int(e, "context_window");
+        m.context =
+            catalogue::first_int(e, catalogue::kContextWindow, catalogue::kContextWindowCount);
     if (m.context_train == 0)
-        m.context_train = m.context;
+        m.context_train =
+            catalogue::first_int(e, catalogue::kContextTrain, catalogue::kContextTrainCount);
     if (m.max_output == 0)
-        m.max_output = read_int(e, "max_output_tokens");
+        m.max_output = catalogue::first_int(e, catalogue::kMaxOutput, catalogue::kMaxOutputCount);
+}
+
+void append_modalities(const std::vector<std::string>& found, std::vector<std::string>& into) {
+    for (const auto& value : found)
+        if (std::find(into.begin(), into.end(), value) == into.end())
+            into.push_back(value);
 }
 
 void parse_modalities(const json& e, ModelInfo& m) {
-    append_unique_strings(e, "input_modalities", m.input_modalities);
-    append_unique_strings(e, "output_modalities", m.output_modalities);
-    if (e.contains("architecture") && e["architecture"].is_object()) {
-        append_unique_strings(e["architecture"], "input_modalities", m.input_modalities);
-        append_unique_strings(e["architecture"], "output_modalities", m.output_modalities);
-    }
-    if (e.contains("modalities") && e["modalities"].is_object()) {
-        append_unique_strings(e["modalities"], "input", m.input_modalities);
-        append_unique_strings(e["modalities"], "output", m.output_modalities);
-    }
-}
-
-void parse_top_provider(const json& e, ModelInfo& m) {
-    if (!e.contains("top_provider") || !e["top_provider"].is_object())
-        return;
-    const json& top = e["top_provider"];
-    if (m.context == 0)
-        m.context = read_int(top, "context_length");
-    if (m.context_train == 0)
-        m.context_train = read_int(top, "context_length");
-    m.max_output = read_int(top, "max_completion_tokens");
+    for (std::size_t i = 0; i < catalogue::kInputModalitiesCount; ++i)
+        append_modalities(catalogue::strings_at(e, catalogue::kInputModalities[i]),
+                          m.input_modalities);
+    for (std::size_t i = 0; i < catalogue::kOutputModalitiesCount; ++i)
+        append_modalities(catalogue::strings_at(e, catalogue::kOutputModalities[i]),
+                          m.output_modalities);
 }
 
 void parse_capabilities(const json& e, ModelInfo& m) {
-    if (m.max_output == 0)
-        m.max_output = read_int(e, "max_completion_tokens");
+    parse_limits(e, m);
     append_strings(e, "supported_parameters", m.supported_parameters);
     parse_reasoning(e, m);
-    parse_limits(e, m);
     parse_modalities(e, m);
+    m.verbosity_levels =
+        catalogue::first_strings(e, catalogue::kVerbosityLevels, catalogue::kVerbosityLevelsCount);
+    m.verbosity =
+        catalogue::first_string(e, catalogue::kVerbosityDefault, catalogue::kVerbosityDefaultCount);
 }
 
 // Parse a single model entry into a ModelInfo. The id may come from any of
@@ -511,23 +496,6 @@ ModelInfo parse_entry(const json& e) {
         m.id = e["model"].get<std::string>();
     else if (e.contains("name") && e["name"].is_string())
         m.id = e["name"].get<std::string>();
-    // Context window: llama.cpp reports it under meta.n_ctx; OpenAI-compatible
-    // gateways (kilocode, OpenRouter, ...) advertise context_length at the top
-    // level with meta absent. Prefer the llama.cpp shape when both exist.
-    if (e.contains("meta") && e["meta"].is_object()) {
-        const json& meta = e["meta"];
-        m.context = read_int(meta, "n_ctx");
-        m.context_train = read_int(meta, "n_ctx_train");
-    }
-    if (m.context == 0)
-        m.context = read_int(e, "n_ctx");
-    if (m.context == 0)
-        m.context = read_int(e, "context_length");
-    if (m.context_train == 0)
-        m.context_train = read_int(e, "n_ctx_train");
-    if (m.context_train == 0)
-        m.context_train = read_int(e, "context_length");
-    parse_top_provider(e, m);
     parse_capabilities(e, m);
     // A gateway that lists `anthropic/claude-*` often reports only the id. The
     // documented family fills the limits and the reasoning contract; anything
@@ -584,6 +552,7 @@ protected:
         if (u.contains("completion_tokens") && u["completion_tokens"].is_number())
             completion_tokens_ = u["completion_tokens"].get<long>();
         cache_read_tokens_ = read_cached_tokens(u);
+        reasoning_tokens_ = read_reasoning_tokens(u);
     }
 
     void decode_reasoning(const json& delta, StreamChunk& chunk) {
@@ -805,6 +774,7 @@ public:
             usage.prompt = read_usage_token(u, "prompt_tokens");
             usage.completion = read_usage_token(u, "completion_tokens");
             usage.cache_read = read_cached_tokens(u);
+            usage.reasoning_tokens = read_reasoning_tokens(u);
         }
         return usage;
     }

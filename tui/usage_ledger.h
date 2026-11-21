@@ -24,8 +24,10 @@ struct UsageLedger {
             out.completion_tokens += part->completion_tokens;
             out.cache_read_tokens += part->cache_read_tokens;
             out.cache_write_tokens += part->cache_write_tokens;
+            out.reasoning_tokens += part->reasoning_tokens;
             out.measured = out.measured || part->measured;
             out.measured_cache = out.measured_cache || part->measured_cache;
+            out.measured_reasoning = out.measured_reasoning || part->measured_reasoning;
         }
         return out;
     }
@@ -53,7 +55,7 @@ inline void apply_usage(UsageLedger& ledger, const agent::UsageSample& sample) {
         break;
     }
     sink->add(sample.prompt_tokens, sample.completion_tokens, sample.cache_read_tokens,
-              sample.cache_write_tokens);
+              sample.cache_write_tokens, sample.reasoning_tokens);
 }
 
 } // namespace tui

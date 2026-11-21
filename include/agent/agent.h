@@ -76,6 +76,7 @@ struct UsageSample {
     long cache_write_tokens = -1; // prompt tokens written to the provider cache
     std::string task_id;          // sub-agent samples only
     std::string owner_id;
+    long reasoning_tokens = -1; // reasoning part of completion, -1 when unreported
 };
 
 // The host roles behind AgentHooks. A host implements only what it needs and

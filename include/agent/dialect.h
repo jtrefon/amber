@@ -36,6 +36,10 @@ struct TokenUsage {
     long completion = -1;
     long cache_read = -1;
     long cache_write = -1;
+    // The part of completion billed as reasoning, when the provider reports
+    // it separately (OpenAI-compatible `completion_tokens_details`). It is
+    // INCLUDED in `completion`, never added to it. -1 means unmeasured.
+    long reasoning_tokens = -1;
     // The response's own id (`msg_...`). The next request replays it as
     // `diagnostics.previous_message_id` so the provider can name the first
     // cache tier that diverged.

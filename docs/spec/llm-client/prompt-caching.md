@@ -93,6 +93,14 @@ not report it"; `0` means it reported and the request was **not** cached, which
 is the regression signal. A long session reading `0` on most requests is a bug,
 not a cheap session.
 
+Reasoning is a separate, billed breakdown, not another cache counter. A
+provider that splits output (`usage.completion_tokens_details.reasoning_tokens`
+on OpenAI-compatible endpoints) carries it through the same
+`TokenUsage → Stats → UsageSample → UsageTotals` path and `/usage` appends
+`(thinking N)` only when it was reported. It is **inside** `down`: adding it
+again would double-count the invoice. `-1`/`measured_reasoning == false` means
+unreported, never zero.
+
 #### The split, and why `input_tokens` is not the prompt size
 
 Anthropic reports three disjoint numbers, and only their sum is the prompt:
