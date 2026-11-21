@@ -91,8 +91,11 @@ int first_int(const json& obj, const char* const* paths, std::size_t count) {
 std::string first_string(const json& obj, const char* const* paths, std::size_t count) {
     for (std::size_t i = 0; i < count; ++i) {
         const json* found = object_at(obj, paths[i]);
-        if (found && found->is_string() && !found->get<std::string>().empty())
-            return found->get<std::string>();
+        if (!found || !found->is_string())
+            continue;
+        const std::string value = found->get<std::string>();
+        if (!value.empty())
+            return value;
     }
     return {};
 }
@@ -107,9 +110,13 @@ std::vector<std::string> strings_at(const json& obj, const char* dotted_path) {
         if (!one.empty())
             out.push_back(one);
     } else if (found->is_array()) {
-        for (const auto& item : *found)
-            if (item.is_string() && !item.get<std::string>().empty())
-                out.push_back(item.get<std::string>());
+        for (const auto& item : *found) {
+            if (!item.is_string())
+                continue;
+            const std::string value = item.get<std::string>();
+            if (!value.empty())
+                out.push_back(value);
+        }
     }
     return out;
 }
