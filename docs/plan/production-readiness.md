@@ -9,9 +9,12 @@ Decision log:
   a **decomposed core and a plugin-free core archive**. The work previously
   deferred by #562 becomes pre-1.0 cleanup.
 - 2026-11-20 — all cleanup work has landed. The plan now tracks release
-  execution only. Three enhancement/bug issues (#617, #618, #621) remain open
-  in no milestone; they are candidates for explicit 1.0 scoping, not implicit
-  blockers of the milestone gate.
+  execution only.
+- 2026-11-21 — the two remaining capability/usage issues closed: #618 landed
+  as `05f9293` (reasoning tokens in `/usage`), #617 as `ccbf003` (one
+  capability alias table, verbosity, Gemini `thinkingConfig`). One bug remains
+  open in no milestone: #621, the macOS tab-switch freeze; it needs a repro or
+  an explicit defer before the tag.
 
 ## Why this exists
 
@@ -58,10 +61,11 @@ fixed in #681.
 
 ### Decisions before the tag
 
-- #617 (P2): reasoning contract landed in #623; Gemini `thinkingConfig`,
-  `verbosity` and the generic field-alias table remain.
-- #618 (P3): reasoning tokens in `/usage` — implemented in PR #683, awaiting
-  merge.
+- #617 (P2, closed 2026-11-21): the reasoning contract landed in #623; Gemini
+  `thinkingConfig`, verbosity and the generic field-alias table landed in
+  #686 (`ccbf003`). No capability work remains.
+- #618 (P3, closed 2026-11-21): reasoning tokens in `/usage` landed in #683
+  (`05f9293`). No usage work remains.
 - #621: macOS tab-switch freeze, no reproduction on Linux; journey guard is on
   `main`. Needs a repro or an explicit defer.
 - #562's "formerly deferred" list and the plugin **Deferred Register** name
