@@ -192,6 +192,24 @@ dialect.
   `openai_model_list_reads_opencode_reasoning_capabilities`,
   `openai_model_list_reads_context_and_output_aliases` tests.
 
+**Field aliases are one table.** The context window (`meta.n_ctx`, `n_ctx`,
+`context_length`, `top_provider.context_length`, `limit.context`,
+`context_window`, `inputTokenLimit`), output ceiling
+(`max_completion_tokens`, `limit.output`, `max_output_tokens`,
+`outputTokenLimit`), modalities and verbosity are rows in
+`lib/catalogue_fields.cpp`, not per-provider branches. The first declared
+spelling with a usable value wins; a wrong type is skipped. Adding a provider
+means adding a row and a conformance body, not editing a parser. Verbosity
+(`verbosity` as a string/array, or `verbosity.supported_levels` /
+`default_level`) is an advertised capability carried through
+`ModelInfo → ServerInfo → ModelCapabilities → Config`; amber does not send a
+verbosity field, because no wire shape has been established for it.
+
+Gemini's `thinking`/`reasoning` object is the third reasoning shape: when the
+listing advertises it, `ReasoningWire::GeminiThinkingConfig` is set and the
+autodetect path carries it into `ServerInfo` like every other dialect. A bare
+Gemini model id never gets a guessed thinking contract.
+
 `parse_models_response` copies the whole contract into `ServerInfo`; the
 startup/autodetect path and the picker path cannot disagree.
 
@@ -214,6 +232,13 @@ startup/autodetect path and the picker path cannot disagree.
   - `thinking:{type:"disabled"}` for DeepSeek off,
   - `reasoning:{enabled:false}` for OpenRouter off,
   - `reasoning_effort:"none"` for an advertised `none`/toggle.
+
+  Gemini models put `thinkingConfig` under `generationConfig`: "off" sends
+  `{"thinkingBudget":0}` (the documented disable value), any other configured
+  level sends `{"includeThoughts":true}`. No numeric budget is inferred from an
+  effort label the listing never quantified, and a model with no advertised
+  contract gets no `thinkingConfig` at all.
+
   A configured level is clamped to the advertised `efforts` (falling back to
   `default_effort`); when the listing named levels but no default, an unlisted
   value sends nothing rather than inventing a level. A mandatory model is never

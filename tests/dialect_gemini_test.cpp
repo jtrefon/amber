@@ -356,7 +356,8 @@ TEST(gemini_model_list_reads_thinking_config) {
     const auto info = d->parse_models_response(R"({"models":[{
       "name":"models/gemini-2.5-pro",
       "thinking":{"supported":true,"supported_levels":["low","high"]}
-    }]})", "gemini-2.5-pro");
+    }]})",
+                                               "gemini-2.5-pro");
     ASSERT(info.ok);
     ASSERT(info.reasoning.supported);
     ASSERT(info.reasoning.wire == ReasoningWire::GeminiThinkingConfig);
@@ -386,4 +387,3 @@ TEST(gemini_request_carries_thinking_config) {
     json none = d->build_chat_body(quiet, {user_msg("x")}, {}, false);
     ASSERT_FALSE(none["generationConfig"].contains("thinkingConfig"));
 }
-

@@ -1,6 +1,7 @@
 #include "agent/dialect_gemini.h"
 
 #include "agent/agent_helpers.h"
+#include "agent/catalogue_fields.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -182,6 +183,47 @@ private:
     std::size_t call_count_ = 0;
 };
 
+// Gemini's thinking contract is published as an object in some catalogues and
+// absent in others. No contract means no request field: thinkingConfig is not
+// guessed from a model name.
+void parse_thinking(const json& e, ModelInfo& m) {
+    const json* thinking =
+        catalogue::first_object(e, catalogue::kThinking, catalogue::kThinkingCount);
+    if (!thinking)
+        return;
+    const auto flag = [&thinking](const char* key) {
+        const auto it = thinking->find(key);
+        return it != thinking->end() && it->is_boolean() && it->get<bool>();
+    };
+    m.reasoning.supported = flag("supported");
+    if (!m.reasoning.supported)
+        return;
+    m.reasoning.mandatory = flag("mandatory");
+    m.reasoning.default_enabled = flag("default_enabled") || flag("defaultEnabled");
+    m.reasoning.efforts = catalogue::first_strings(*thinking, catalogue::kEffortLevels,
+                                                   catalogue::kEffortLevelsCount);
+    m.reasoning.effort_levels = !m.reasoning.efforts.empty();
+    m.reasoning.default_effort = catalogue::first_string(*thinking, catalogue::kEffortDefault,
+                                                         catalogue::kEffortDefaultCount);
+    m.reasoning.wire = ReasoningWire::GeminiThinkingConfig;
+    m.reasoning.off =
+        m.reasoning.mandatory ? ReasoningOff::Unsupported : ReasoningOff::ThinkingDisabled;
+}
+
+// includeThoughts asks for the provider's default budget; thinkingBudget 0 is
+// Gemini's documented way to switch thinking off. Neither invents a numeric
+// budget from an effort label the listing never quantified.
+void append_thinking_config(json& body, const Config& cfg) {
+    const ReasoningContract& contract = cfg.model_reasoning;
+    if (!reasoning_control_available(cfg) || contract.wire != ReasoningWire::GeminiThinkingConfig)
+        return;
+    json& generation = body["generationConfig"];
+    if (cfg.reasoning_effort == "off")
+        generation["thinkingConfig"] = {{"thinkingBudget", 0}};
+    else
+        generation["thinkingConfig"] = {{"includeThoughts", true}};
+}
+
 class GeminiDialect : public Dialect {
 public:
     std::string flavor() const override { return "gemini"; }
@@ -233,6 +275,7 @@ public:
 
         body["generationConfig"] = {{"maxOutputTokens", request_max_tokens(cfg)},
                                     {"temperature", cfg.temperature}};
+        append_thinking_config(body, cfg);
 
         if (tools_advertised(cfg))
             append_tools(body, tools);
@@ -273,6 +316,11 @@ public:
             info.context_size = m.context;
             info.context_train = m.context_train;
             info.max_output = m.max_output;
+            info.reasoning = m.reasoning;
+            info.line = m.line;
+            info.supported_parameters = m.supported_parameters;
+            info.verbosity = m.verbosity;
+            info.verbosity_levels = m.verbosity_levels;
             info.ok = true;
             break;
         }
@@ -291,12 +339,17 @@ public:
             m.id = strip_models_prefix(str_field(e, "name"));
             if (m.id.empty())
                 continue;
-            auto limit = e.find("inputTokenLimit");
-            if (limit != e.end() && limit->is_number())
-                m.context = limit->get<int>();
-            auto output = e.find("outputTokenLimit");
-            if (output != e.end() && output->is_number())
-                m.max_output = output->get<int>();
+            m.context =
+                catalogue::first_int(e, catalogue::kContextWindow, catalogue::kContextWindowCount);
+            m.context_train =
+                catalogue::first_int(e, catalogue::kContextTrain, catalogue::kContextTrainCount);
+            m.max_output =
+                catalogue::first_int(e, catalogue::kMaxOutput, catalogue::kMaxOutputCount);
+            m.verbosity = catalogue::first_string(e, catalogue::kVerbosityDefault,
+                                                  catalogue::kVerbosityDefaultCount);
+            m.verbosity_levels = catalogue::first_strings(e, catalogue::kVerbosityLevels,
+                                                          catalogue::kVerbosityLevelsCount);
+            parse_thinking(e, m);
             out.push_back(std::move(m));
         }
         return out;
