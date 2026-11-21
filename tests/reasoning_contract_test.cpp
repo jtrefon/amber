@@ -6,6 +6,7 @@
 // OpenAI family fallback. They also pin the echo rule: a reasoning model that
 // requires its chain of thought back on a tool turn gets it.
 
+#include "agent/catalogue_fields.h"
 #include "agent/dialect.h"
 #include "agent/llm.h"
 #include "test_util.h"
@@ -173,6 +174,104 @@ TEST(openai_model_list_tolerates_malformed_capability_shapes) {
     ASSERT_FALSE(models[18].reasoning.effort_levels);
     ASSERT(models[19].reasoning.echo_field.empty());
     ASSERT(models[20].reasoning.echo_field.empty());
+}
+
+// The capability reader is a concept table, not a branch per provider. A body
+// using any documented spelling resolves through the same table, and an
+// unrecognized field stays "not advertised".
+TEST(catalogue_field_readers_skip_wrong_and_empty_values) {
+    using agent::catalogue::first_int;
+    using agent::catalogue::first_object;
+    using agent::catalogue::first_string;
+    using agent::catalogue::first_strings;
+    using agent::catalogue::strings_at;
+
+    agent::json j = {{"object", {{"a", 1}}},
+                     {"not_object", "text"},
+                     {"zero", 0},
+                     {"negative", -5},
+                     {"number_as_text", "42"},
+                     {"positive", 7},
+                     {"empty_text", ""},
+                     {"text_as_number", 5},
+                     {"text", "yes"},
+                     {"list", {"a", 3, "", "b"}},
+                     {"neither", true}};
+
+    const char* const objects[] = {"not_object", "object"};
+    ASSERT(first_object(j, objects, 2) != nullptr);
+    ASSERT(first_object(j, objects, 0) == nullptr);
+    const char* const missing[] = {"absent"};
+    ASSERT(first_object(j, missing, 1) == nullptr);
+
+    const char* const numbers[] = {"not_object", "zero", "negative", "number_as_text", "positive"};
+    ASSERT_EQ(first_int(j, numbers, 5), 7);
+    ASSERT_EQ(first_int(j, missing, 1), 0);
+
+    const char* const texts[] = {"empty_text", "text_as_number", "text"};
+    ASSERT_EQ(first_string(j, texts, 3), std::string("yes"));
+    ASSERT(first_string(j, missing, 1).empty());
+    const char* const array_only[] = {"list"};
+    ASSERT(first_string(j, array_only, 1).empty()); // an array is not a string
+
+    ASSERT_EQ(strings_at(j, "text").size(), 1u); // the single-string shape
+    ASSERT(strings_at(j, "empty_text").empty()); // a present but empty string
+    ASSERT(strings_at(j, "neither").empty());    // a value of neither shape
+    ASSERT(strings_at(j, "absent").empty());
+    const auto list = strings_at(j, "list");
+    ASSERT_EQ(list.size(), 2u); // the number and the empty string were skipped
+    ASSERT_EQ(list[0], std::string("a"));
+    ASSERT_EQ(list[1], std::string("b"));
+
+    const char* const lists[] = {"empty_text", "neither", "list"};
+    ASSERT_EQ(first_strings(j, lists, 3).size(), 2u);
+    ASSERT(first_strings(j, missing, 1).empty());
+}
+
+TEST(catalogue_alias_table_reads_documented_spellings) {
+    const auto models = parse(R"({"data":[{
+      "id":"alias-body",
+      "context_window":131072,
+      "max_output_tokens":32768,
+      "modalities":{"input":["text","image"],"output":["text"]},
+      "verbosity":{"supported_levels":["low","medium","high"],"default_level":"medium"}
+    }]})");
+    const auto& m = only(models);
+    ASSERT_EQ(m.context, 131072);
+    ASSERT_EQ(m.max_output, 32768);
+    ASSERT_EQ(m.input_modalities.size(), 2u);
+    ASSERT_EQ(m.input_modalities[1], std::string("image"));
+    ASSERT_EQ(m.verbosity_levels.size(), 3u);
+    ASSERT_EQ(m.verbosity, std::string("medium"));
+}
+
+TEST(openai_model_list_reads_a_top_level_verbosity_array) {
+    const auto& m = only(parse(R"({"data":[{
+      "id":"verbose","verbosity":["minimal","low","high"]
+    }]})"));
+    ASSERT_EQ(m.verbosity_levels.size(), 3u);
+    ASSERT_EQ(m.verbosity_levels[0], std::string("minimal"));
+    ASSERT(m.verbosity.empty()); // no default was advertised
+}
+
+TEST(capabilities_carry_verbosity_and_a_provider_switch_clears_it) {
+    Config cfg;
+    ModelInfo m;
+    m.id = "verbose";
+    m.verbosity = "high";
+    m.verbosity_levels = {"low", "high"};
+    agent::apply_model_capabilities(cfg, agent::capabilities_of(m));
+    ASSERT_EQ(cfg.model_verbosity, std::string("high"));
+    ASSERT_EQ(cfg.model_verbosity_levels.size(), 2u);
+
+    cfg.model_verbosity = "high";
+    cfg.model_verbosity_levels = {"low", "high"};
+    // The switch reset is the same set of fields apply_model_capabilities
+    // writes, so a silent listing cannot inherit the old provider's levels.
+    cfg.model_verbosity.clear();
+    cfg.model_verbosity_levels.clear();
+    ASSERT(cfg.model_verbosity.empty());
+    ASSERT(cfg.model_verbosity_levels.empty());
 }
 
 TEST(openai_model_list_accepts_the_models_key_and_skips_an_empty_id) {

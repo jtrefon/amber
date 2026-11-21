@@ -81,6 +81,8 @@ struct ServerInfo {
     ReasoningContract reasoning;
     std::string line; // provider family line (Anthropic "line"), informational
     std::vector<std::string> supported_parameters;
+    std::string verbosity;                     // advertised default, empty when silent
+    std::vector<std::string> verbosity_levels; // advertised levels, empty when silent
 };
 
 // The completion ask the model will actually accept: the configured budget
@@ -115,6 +117,8 @@ struct ModelInfo {
     std::vector<std::string> input_modalities;
     std::vector<std::string> output_modalities;
     std::vector<std::string> supported_parameters;
+    std::string verbosity;
+    std::vector<std::string> verbosity_levels;
 };
 
 // The capability set a model hand-off carries. A struct rather than another
@@ -126,19 +130,28 @@ struct ModelCapabilities {
     ReasoningContract reasoning;
     std::string line;
     std::vector<std::string> supported_parameters;
+    std::string verbosity;
+    std::vector<std::string> verbosity_levels;
 };
 
 inline ModelCapabilities capabilities_of(const ModelInfo& m) {
-    return {m.context, m.max_output, m.reasoning, m.line, m.supported_parameters};
+    return {m.context,   m.max_output,      m.reasoning, m.line, m.supported_parameters,
+            m.verbosity, m.verbosity_levels};
 }
 
 inline ModelCapabilities capabilities_of(const ServerInfo& s) {
-    return {s.context_size, s.max_output, s.reasoning, s.line, s.supported_parameters};
+    return {s.context_size,         s.max_output, s.reasoning,       s.line,
+            s.supported_parameters, s.verbosity,  s.verbosity_levels};
 }
 
 inline ModelCapabilities capabilities_of(const Config& c) {
-    return {c.context_size, c.model_max_output, c.model_reasoning, c.model_line,
-            c.model_supported_parameters};
+    return {c.context_size,
+            c.model_max_output,
+            c.model_reasoning,
+            c.model_line,
+            c.model_supported_parameters,
+            c.model_verbosity,
+            c.model_verbosity_levels};
 }
 
 inline bool has_capabilities(const ModelCapabilities& c) {
@@ -350,6 +363,8 @@ inline void apply_model_capabilities(Config& cfg, const ModelCapabilities& c) {
     cfg.model_supported_parameters = c.supported_parameters;
     cfg.model_line = c.line;
     cfg.model_reasoning = c.reasoning;
+    cfg.model_verbosity = c.verbosity;
+    cfg.model_verbosity_levels = c.verbosity_levels;
 }
 
 // The reasoning levels the protocol understands. A listing narrows this set;

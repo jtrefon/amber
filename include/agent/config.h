@@ -36,8 +36,9 @@ constexpr AgentMode next_mode(AgentMode mode) noexcept {
 // guesses it from a model id.
 enum class ReasoningWire : std::uint8_t {
     None,
-    Effort,          // top-level `reasoning_effort`
-    ReasoningObject, // `reasoning: { "effort": ... }`
+    Effort,               // top-level `reasoning_effort`
+    ReasoningObject,      // `reasoning: { "effort": ... }`
+    GeminiThinkingConfig, // `generationConfig.thinkingConfig`
 };
 
 // How a provider expresses "off". `Unsupported` is a model that cannot disable
@@ -219,6 +220,10 @@ struct Config {
     // a thinking shape the model may reject.
     std::string model_line;
     ReasoningContract model_reasoning;
+    // Output verbosity the listing advertised (levels and default). Read-only
+    // capability: amber does not send a verbosity field it has not been shown.
+    std::string model_verbosity;
+    std::vector<std::string> model_verbosity_levels;
 
     // Conversation / telemetry log. When non-empty, the agent appends one JSON
     // object per event (JSON Lines) to this path. Supports a literal "{ts}"

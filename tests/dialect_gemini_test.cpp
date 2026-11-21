@@ -328,3 +328,62 @@ TEST(gemini_classifies_api_key_invalid_as_an_auth_error) {
     ASSERT_FALSE(d->is_auth_error(429, body));
     ASSERT_FALSE(d->is_auth_error(500, body));
 }
+
+// Gemini publishes thinking through generationConfig.thinkingConfig. The
+// listing has to advertise it first: a bare model id never gets a guessed
+// thinking shape.
+TEST(gemini_model_list_reads_thinking_config) {
+    auto d = make_gemini_dialect();
+    const auto models = d->parse_model_list_response(R"({"models":[{
+      "name":"models/gemini-2.5-pro",
+      "inputTokenLimit":1048576,
+      "outputTokenLimit":65536,
+      "thinking":{"supported":true,"default_enabled":true,
+                  "supported_levels":["low","high"],"default_level":"high"}
+    }]})");
+    ASSERT_EQ(models.size(), 1u);
+    const auto& m = models[0];
+    ASSERT_EQ(m.id, std::string("gemini-2.5-pro"));
+    ASSERT_EQ(m.context, 1048576);
+    ASSERT_EQ(m.max_output, 65536);
+    ASSERT(m.reasoning.supported);
+    ASSERT(m.reasoning.effort_levels);
+    ASSERT_EQ(m.reasoning.default_effort, std::string("high"));
+    ASSERT(m.reasoning.wire == ReasoningWire::GeminiThinkingConfig);
+    ASSERT(m.reasoning.off == ReasoningOff::ThinkingDisabled);
+
+    // The autodetect path must carry the same contract as the picker path.
+    const auto info = d->parse_models_response(R"({"models":[{
+      "name":"models/gemini-2.5-pro",
+      "thinking":{"supported":true,"supported_levels":["low","high"]}
+    }]})",
+                                               "gemini-2.5-pro");
+    ASSERT(info.ok);
+    ASSERT(info.reasoning.supported);
+    ASSERT(info.reasoning.wire == ReasoningWire::GeminiThinkingConfig);
+}
+
+TEST(gemini_request_carries_thinking_config) {
+    auto d = make_gemini_dialect();
+    Config cfg = gemini_cfg();
+    cfg.model_reasoning.supported = true;
+    cfg.model_reasoning.wire = ReasoningWire::GeminiThinkingConfig;
+    cfg.model_reasoning.off = ReasoningOff::ThinkingDisabled;
+    cfg.model_reasoning.effort_levels = true;
+    cfg.model_reasoning.efforts = {"low", "high"};
+
+    cfg.reasoning_effort = "off";
+    json off = d->build_chat_body(cfg, {user_msg("x")}, {}, false);
+    ASSERT_EQ(off["generationConfig"]["thinkingConfig"]["thinkingBudget"].get<int>(), 0);
+    ASSERT_FALSE(off["generationConfig"]["thinkingConfig"].contains("includeThoughts"));
+
+    cfg.reasoning_effort = "high";
+    json on = d->build_chat_body(cfg, {user_msg("x")}, {}, false);
+    ASSERT(on["generationConfig"]["thinkingConfig"].value("includeThoughts", false));
+    ASSERT_FALSE(on["generationConfig"]["thinkingConfig"].contains("thinkingBudget"));
+
+    // A model that advertised nothing gets no field at all.
+    Config quiet = gemini_cfg();
+    json none = d->build_chat_body(quiet, {user_msg("x")}, {}, false);
+    ASSERT_FALSE(none["generationConfig"].contains("thinkingConfig"));
+}

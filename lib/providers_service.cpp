@@ -220,6 +220,8 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     cfg.model_reasoning = {};
     cfg.model_supported_parameters.clear();
     cfg.model_line.clear();
+    cfg.model_verbosity.clear();
+    cfg.model_verbosity_levels.clear();
     // The dialect the client resolves travels with the provider, so a provider
     // contributed by a plugin needs nothing from a table in the core. Derived
     // on every selection, never persisted. The session header name travels the
