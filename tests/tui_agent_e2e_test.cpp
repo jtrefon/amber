@@ -21,6 +21,7 @@
 #include <memory>
 #include <string>
 
+#include "agent/profiles.h"
 #include "agent/workspace.h"
 #include "bench/scripted_endpoint.h"
 #include "tests/minitest.h"
@@ -79,7 +80,7 @@ struct Journey {
                const Prepare& prepare = {}, bool root_api_base = false) {
         return start(binary, journey_name,
                      std::make_unique<bench::ScriptedEndpoint>(std::move(script)), extra_settings,
-                     prepare, root_api_base);
+                     prepare, root_api_base, false);
     }
 
     bool start(const std::string& binary, const std::string& journey_name,
@@ -87,13 +88,13 @@ struct Journey {
                const Prepare& prepare = {}, bool root_api_base = false) {
         return start(binary, journey_name,
                      std::make_unique<bench::ScriptedEndpoint>(std::move(responder)),
-                     extra_settings, prepare, root_api_base);
+                     extra_settings, prepare, root_api_base, false);
     }
 
 private:
     bool start(const std::string& binary, const std::string& journey_name,
                std::unique_ptr<bench::ScriptedEndpoint> server, const std::string& extra_settings,
-               const Prepare& prepare, bool root_api_base) {
+               const Prepare& prepare, bool root_api_base, bool already_started) {
         name = journey_name;
         root = agent::test::pty::make_isolated_root();
         if (root.empty())
@@ -101,7 +102,7 @@ private:
         if (prepare)
             prepare(root);
         endpoint = std::move(server);
-        if (!endpoint->start())
+        if (!already_started && !endpoint->start())
             return false;
         // The versioned dialects (Anthropic, Gemini) add their own /v1./v1beta
         // segment, so their api_base is the bare root.
@@ -115,6 +116,17 @@ private:
     }
 
 public:
+    // A fixture that must know the endpoint URL before startup (a project pin
+    // reads its profile file on the first paint) seeds it against an endpoint
+    // started by the caller, then hands ownership to the journey.
+    bool start_with(const std::string& binary, const std::string& journey_name,
+                    std::unique_ptr<bench::ScriptedEndpoint> server,
+                    const std::string& extra_settings = "", const Prepare& prepare = {},
+                    bool root_api_base = false) {
+        return start(binary, journey_name, std::move(server), extra_settings, prepare,
+                     root_api_base, true);
+    }
+
     std::string file(const std::string& file_name) const {
         return read_text(fs::path(root) / file_name);
     }
@@ -960,6 +972,159 @@ void journey_usage_reasoning_tokens(const std::string& binary) {
     quiet.finish("usage-no-reasoning");
 }
 
+// Profiles are connection state, not a readout: a switch must change which
+// endpoint receives the next turn, mask its key, wait for a busy turn and be
+// pinnable by the project. Both profiles use one loopback endpoint with two
+// path prefixes so the request itself says which connection was adopted.
+void journey_profile_switch(const std::string& binary) {
+    const std::string default_key = "sk-default-0000000000";
+    const std::string work_key = "sk-work-1234567890abcd";
+    const auto seed_profile = [](const char* name, const char* provider, const char* model,
+                                 const std::string& base, const std::string& key) {
+        agent::Profile p;
+        p.name = name;
+        p.provider_name = provider;
+        p.flavor = "openai";
+        p.api_base = base;
+        p.api_key = key;
+        p.model = model;
+        std::string error;
+        return agent::save_profile(p, &error);
+    };
+    auto chat_seq = std::make_shared<int>(0);
+    const auto responder = [chat_seq](const bench::EndpointRequest& request) {
+        bench::EndpointReply reply;
+        if (request.path.find("/models") != std::string::npos) {
+            reply.body = R"({"data":[{"id":"journey-default","context_length":8192},)"
+                         R"({"id":"journey-work","context_length":8192}]})";
+            return reply;
+        }
+        const bool work = request.path.find("/work/") != std::string::npos;
+        reply.body =
+            std::string(R"({"id":"chatcmpl-profile","object":"chat.completion","created":1,)") +
+            R"("model":"journey-test","choices":[{"index":0,"message":{"role":"assistant",)"
+            R"("content":")" +
+            (work ? "WORK-PROFILE-DONE" : "DEFAULT-PROFILE-DONE") +
+            R"("},"finish_reason":"stop"}],)"
+            R"("usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}})";
+        // The turn that receives a queued switch must still be running when the
+        // command arrives; the echo alone is not enough to prove that.
+        if ((*chat_seq)++ == 2)
+            reply.delay_ms = 1500;
+        return reply;
+    };
+
+    Journey journey;
+    {
+        auto server = std::make_unique<bench::ScriptedEndpoint>(responder);
+        if (!require(server->start(), "the loopback endpoint did not start", journey.tui))
+            return;
+        const std::string live = server->base_url();
+        const std::string work_base = server->root_url() + "/work/v1";
+        if (!require(journey.start_with(binary, "profile-switch", std::move(server),
+                                        "model=journey-default\n",
+                                        [&](const std::string&) {
+                                            seed_profile("default", "custom", "journey-default",
+                                                         live, default_key);
+                                            seed_profile("work", "work-gateway", "journey-work",
+                                                         work_base, work_key);
+                                        }),
+                     "the TUI did not start", journey.tui))
+            return;
+    }
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+
+    journey.tui.send("/profile list\r");
+    if (!require(journey.tui.wait_for("work-gateway / journey-work", 10000),
+                 "/profile list did not show the work connection", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("sk-...abcd", 10000), "/profile list did not mask the key",
+                 journey.tui))
+        return;
+
+    journey.tui.send("Reply once. DEFAULT-TURN\r");
+    if (!require(journey.tui.wait_for("DEFAULT-PROFILE-DONE", 30000),
+                 "the first turn did not use the settings connection", journey.tui))
+        return;
+    journey.tui.send("/profile switch work\r");
+    if (!require(journey.tui.wait_for("profile: work (work-gateway, journey-work)", 10000),
+                 "the profile switch did not land", journey.tui))
+        return;
+    journey.tui.send("Reply once. WORK-TURN\r");
+    if (!require(journey.tui.wait_for("WORK-PROFILE-DONE", 30000),
+                 "the switch did not change the request's endpoint", journey.tui))
+        return;
+
+    // A switch asked while the next turn is running must queue, not replace the
+    // client that turn is using.
+    journey.tui.send("Reply slowly. BUSY-TURN\r");
+    if (!require(journey.tui.wait_for("> Reply slowly. BUSY-TURN", 10000),
+                 "the busy turn was not submitted", journey.tui))
+        return;
+    journey.tui.send("/profile switch default\r");
+    if (!require(journey.tui.wait_for("profile: switch to default queued", 10000),
+                 "the busy switch was not queued", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("profile: default (custom, journey-default)", 30000),
+                 "the queued switch never landed", journey.tui))
+        return;
+
+    journey.tui.send("/profile switch ghost\r");
+    if (!require(journey.tui.wait_for("there is no profile named ghost", 10000),
+                 "a missing profile did not warn", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("profile: default (custom, journey-default)", 10000),
+                 "the missing profile changed the connection", journey.tui))
+        return;
+    if (!require(journey.finish("profile-switch"), "the TUI did not exit cleanly", journey.tui))
+        return;
+
+    // Credentials belong to the profile files, never to the workspace or the
+    // session meta written under the state dir.
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(journey.root, ec), end; it != end; it.increment(ec)) {
+        // The XDG config tree legitimately holds keys (profiles + global
+        // config); the workspace and the session meta under /state must not.
+        if (!it->is_regular_file() || it->path().string().find("/xdg/") != std::string::npos)
+            continue;
+        const std::string content = read_text(it->path());
+        if (!require(content.find(default_key) == std::string::npos &&
+                         content.find(work_key) == std::string::npos,
+                     "a profile key leaked into " + it->path().string(), journey.tui))
+            return;
+    }
+
+    // The project pin is a one-line file and must apply before the first turn,
+    // so its profile is seeded against the live endpoint before startup.
+    Journey pinned;
+    {
+        auto server = std::make_unique<bench::ScriptedEndpoint>(responder);
+        if (!require(server->start(), "the pinned endpoint did not start", pinned.tui))
+            return;
+        const std::string work_base = server->root_url() + "/work/v1";
+        if (!require(pinned.start_with(binary, "profile-project-pin", std::move(server),
+                                       "model=journey-default\n",
+                                       [&](const std::string& root) {
+                                           seed_profile("work", "work-gateway", "journey-work",
+                                                        work_base, work_key);
+                                           fs::create_directories(fs::path(root) / ".amber", ec);
+                                           agent::test::pty::write_file(root + "/.amber/profile",
+                                                                        "work\n");
+                                       }),
+                     "the pinned TUI did not start", pinned.tui))
+            return;
+    }
+    if (!require(wait_ready(pinned.tui, fs::path(pinned.root).filename().string()),
+                 "the pinned UI never came up", pinned.tui))
+        return;
+    pinned.tui.send("Reply once. PIN-TURN\r");
+    require(pinned.tui.wait_for("WORK-PROFILE-DONE", 30000),
+            "the project pin did not apply before the first turn", pinned.tui);
+    pinned.finish("profile-project-pin");
+}
+
 // Re-run the journeys in fresh processes. Each journey already owns an
 // isolated root, but a fresh process also resets the plugin runtime, the model
 // cache and every static the TUI touches.
@@ -1049,6 +1214,8 @@ int main(int argc, char** argv) {
         journey_capability_ingestion(binary);
     if (!only || std::string(only) == "usage")
         journey_usage_reasoning_tokens(binary);
+    if (!only || std::string(only) == "profile")
+        journey_profile_switch(binary);
     if (!only || std::string(only) == "compression")
         journey_compression_keeps_ui_responsive(binary);
     if (!only)
