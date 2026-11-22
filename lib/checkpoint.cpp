@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <filesystem>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_set>
@@ -237,6 +238,17 @@ struct IndexCleanup {
     }
 };
 
+// The private index is one file per session, but it is touched from the agent
+// worker (the turn's before/after snapshot) and from the UI thread (undo,
+// rollback). The store is constructed per operation, so an instance mutex
+// cannot serialize them: a global operation lock does. Checkpoints are once per
+// turn, so the coarser lock costs nothing and removes the index.lock race that
+// left a restore stuck on its confirmation frame.
+std::recursive_mutex& checkpoint_operations() {
+    static std::recursive_mutex mutex;
+    return mutex;
+}
+
 } // namespace
 
 CheckpointStore::CheckpointStore(std::string project_root, std::string session_id)
@@ -301,7 +313,11 @@ std::string CheckpointStore::stage_tree() const {
     std::error_code ec;
     fs::create_directories(fs::path(index_path_).parent_path(), ec);
     // A fresh index from an empty state: the worktree is the snapshot, and no
-    // real index entry or staged blob is consulted.
+    // real index entry or staged blob is consulted. The lock belongs to this
+    // session's private index and the caller holds checkpoint_operations(), so
+    // any lock still present is stale; leaving it made every later operation
+    // fail with "index.lock exists".
+    fs::remove(index_path_ + ".lock", ec);
     fs::remove(index_path_, ec);
     const auto env = environment();
     git_checked(root_, add_args(root_), env, "could not stage the working tree");
@@ -369,6 +385,7 @@ void CheckpointStore::move_ref(const std::string& id, const std::string& parent)
 
 std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::string& prompt,
                                                   std::string& error, CheckpointPhase phase) {
+    std::lock_guard<std::recursive_mutex> lock(checkpoint_operations());
     error.clear();
     try {
         ensure_shadow();
@@ -487,12 +504,17 @@ std::string CheckpointStore::diff(const Checkpoint& checkpoint, std::string& err
 }
 
 bool CheckpointStore::restore(const Checkpoint& checkpoint, std::string& error) const {
+    std::lock_guard<std::recursive_mutex> lock(checkpoint_operations());
     error.clear();
     try {
         const auto env = environment();
         const IndexCleanup cleanup{index_path_};
         std::error_code ec;
         fs::create_directories(fs::path(index_path_).parent_path(), ec);
+        // The caller holds checkpoint_operations(), so a lock left by an
+        // interrupted operation is stale; clear it before the add that would
+        // otherwise fail with "index.lock exists".
+        fs::remove(index_path_ + ".lock", ec);
         fs::remove(index_path_, ec);
 
         // Stage the current worktree into the private index so the current

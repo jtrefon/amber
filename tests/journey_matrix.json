@@ -316,23 +316,26 @@
         "alias:history",
         "alias:rollback",
         "alias:undo",
+        "capability:tool_checkpoint:prompt:checkpoint_doc",
+        "capability:tool_checkpoint:tool:git_checkpoint",
         "command:session.diff",
         "command:session.history",
         "command:session.rollback",
-        "command:session.undo"
+        "command:session.undo",
+        "default-tool:git_checkpoint"
       ],
       "journeys": {
         "cli": [
-          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+          "na: the checkpoint commands are an interactive TUI surface"
         ],
         "tui": [
-          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+          "checkpoint"
         ],
         "bench": [
-          "na: the hermetic scenarios assert a task outcome, not this contract"
+          "na: the hermetic scenarios do not run a git checkpoint lifecycle"
         ]
       },
-      "notes": ""
+      "notes": "The TUI journey exercises the service the git_checkpoint tool wraps: history, diff, undo (including the empty-history path), rollback by turn, the private ref, and the user HEAD/branch staying untouched. The tool action parsing is unit-tested."
     },
     {
       "id": "session.compress",
@@ -1026,26 +1029,6 @@
         ]
       },
       "notes": "approval is the contract: allow, deny-with-fallback, and the compile journey; the long-horizon policies run the repository test through bash."
-    },
-    {
-      "id": "tool.checkpoint",
-      "sources": [
-        "capability:tool_checkpoint:prompt:checkpoint_doc",
-        "capability:tool_checkpoint:tool:git_checkpoint",
-        "default-tool:git_checkpoint"
-      ],
-      "journeys": {
-        "cli": [
-          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
-        ],
-        "tui": [
-          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
-        ],
-        "bench": [
-          "na: the hermetic scenarios assert a task outcome, not this contract"
-        ]
-      },
-      "notes": ""
     },
     {
       "id": "tool.coding_library",

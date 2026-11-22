@@ -62,6 +62,26 @@ std::string read_text(const fs::path& path) {
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
+// The checkpoint journey needs a real git repository: the user's HEAD and branch
+// must survive every restore, and that is not observable on a bare directory.
+bool run_git(const std::string& root, const std::string& args) {
+    const std::string command = "git -C '" + root + "' " + args;
+    return std::system(command.c_str()) == 0;
+}
+
+std::string git_output(const std::string& root, const std::string& args) {
+    const std::string command = "git -C '" + root + "' " + args + " 2>/dev/null";
+    FILE* pipe = ::popen(command.c_str(), "r");
+    if (pipe == nullptr)
+        return {};
+    std::string out;
+    char buffer[512];
+    while (std::fgets(buffer, sizeof(buffer), pipe) != nullptr)
+        out += buffer;
+    ::pclose(pipe);
+    return out;
+}
+
 // One journey owns an isolated root, a loopback endpoint and the pty session.
 struct Journey {
     std::string name;
@@ -602,6 +622,126 @@ void journey_mcp_tool_call(const std::string& binary) {
                  journey.tui))
         return;
     journey.finish("mcp-tool");
+}
+
+// The checkpoint lifecycle is a TUI surface: /session history, diff, undo and
+// rollback are slash commands. The journey uses a real git repository so the
+// contract "the user's HEAD and branch survive every restore" is observable,
+// and it checks the private ref under refs/amber/checkpoints/<session>.
+void journey_checkpoint_lifecycle(const std::string& binary) {
+    bool prepared = false;
+    const auto prepare = [&prepared](const std::string& root) {
+        prepared =
+            run_git(root, "init -q") &&
+            agent::test::pty::write_file(root + "/.gitignore", "xdg/\nstate/\ncache/\nhome/\n") &&
+            agent::test::pty::write_file(root + "/checkpoint.txt", "one\n") &&
+            run_git(root, "add .gitignore checkpoint.txt") &&
+            run_git(root, "-c user.name=amber-journey -c user.email=journey@example.invalid "
+                          "commit -q -m initial");
+    };
+    Journey journey;
+    if (!require(journey.start(
+                     binary, "checkpoint-lifecycle",
+                     {tool_call("c1", "write",
+                                R"({"path":"checkpoint.txt","edits":[{"old":"one","new":"two"}]})"),
+                      answer("CHECKPOINT-DONE")},
+                     "", prepare),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require_setup(prepared, "the git fixture was not created"))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+
+    // Ctrl-G dispatches the line as typed, bypassing the completion drawer;
+    // Enter with the drawer open would dispatch the highlighted row instead.
+    const auto run = [&journey](const std::string& line) {
+        journey.tui.send(line);
+        journey.tui.pump(300);
+        journey.tui.send("\x07");
+        journey.tui.pump(300);
+    };
+
+    // Before any file-changing turn there is nothing to undo, and the command
+    // says so rather than opening a confirmation with no target.
+    run("/session undo");
+    if (!require(journey.tui.wait_for("checkpoint undo: no earlier checkpoint", 8000),
+                 "undo of nothing did not report the empty history", journey.tui))
+        return;
+
+    journey.tui.send("Change checkpoint.txt from one to two. CHECKPOINT-JOURNEY\r");
+    if (!require(journey.tui.wait_for("CHECKPOINT-DONE", 30000),
+                 "the checkpointed turn did not finish", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("checkpoint: turn 1", 10000),
+                 "the turn did not report its checkpoint", journey.tui))
+        return;
+    ASSERT_EQ(read_text(fs::path(journey.root) / "checkpoint.txt"), std::string("two\n"));
+
+    const std::string head_before = read_text(fs::path(journey.root) / ".git/HEAD");
+    const std::string commit_before = git_output(journey.root, "rev-parse HEAD");
+    ASSERT(!head_before.empty());
+    ASSERT(!commit_before.empty());
+
+    run("/session history");
+    if (!require(journey.tui.wait_for("checkpoints (newest first", 10000), "history did not open",
+                 journey.tui))
+        return;
+    require(journey.tui.text().find("turn 1") != std::string::npos, "history omitted the turn",
+            journey.tui);
+    require(journey.tui.text().find("refs/amber/checkpoints/") != std::string::npos,
+            "history omitted the private ref", journey.tui);
+
+    run("/session diff");
+    if (!require(journey.tui.wait_for("checkpoint diff latest:", 10000), "diff did not open",
+                 journey.tui))
+        return;
+    require(journey.tui.text().find("+two") != std::string::npos, "diff omitted the turn change",
+            journey.tui);
+
+    run("/session undo");
+    if (!require(journey.tui.wait_for("Restore the working tree to", 5000),
+                 "undo confirmation did not open", journey.tui))
+        return;
+    journey.tui.pump(500);
+    journey.tui.send("y");
+    if (!require(journey.tui.wait_for("checkpoint undo: restored", 15000), "undo did not finish",
+                 journey.tui))
+        return;
+    ASSERT_EQ(read_text(fs::path(journey.root) / "checkpoint.txt"), std::string("one\n"));
+
+    // The restore is a new checkpoint, so the revert itself is undoable; and
+    // the user's HEAD, branch and index were never touched.
+    run("/session history");
+    if (!require(journey.tui.wait_for("turn 2", 10000),
+                 "the revert was not recorded as a new checkpoint", journey.tui))
+        return;
+    require(journey.tui.text().find("undo to turn") != std::string::npos,
+            "the revert checkpoint does not name the undo target", journey.tui);
+    ASSERT_EQ(read_text(fs::path(journey.root) / ".git/HEAD"), head_before);
+    ASSERT_EQ(git_output(journey.root, "rev-parse HEAD"), commit_before);
+    ASSERT_EQ(git_output(journey.root, "status --porcelain"), std::string());
+
+    run("/session rollback 1");
+    if (!require(journey.tui.wait_for("Restore the working tree to", 5000),
+                 "rollback confirmation did not open", journey.tui))
+        return;
+    journey.tui.pump(500);
+    journey.tui.send("y");
+    if (!require(journey.tui.wait_for("checkpoint rollback: restored", 15000),
+                 "rollback did not finish", journey.tui))
+        return;
+    ASSERT_EQ(read_text(fs::path(journey.root) / "checkpoint.txt"), std::string("two\n"));
+
+    run("/session rollback 999");
+    if (!require(journey.tui.wait_for("checkpoint rollback: no checkpoint for '999'", 8000),
+                 "a missing checkpoint did not report the selector", journey.tui))
+        return;
+
+    ASSERT_EQ(read_text(fs::path(journey.root) / ".git/HEAD"), head_before);
+    ASSERT_EQ(git_output(journey.root, "rev-parse HEAD"), commit_before);
+    journey.finish("checkpoint-lifecycle");
 }
 
 void journey_compression_keeps_ui_responsive(const std::string& binary) {
@@ -1200,6 +1340,8 @@ int main(int argc, char** argv) {
         journey_tab_switch_stays_live(binary);
     if (!only || std::string(only) == "restart")
         journey_restart_resumes_session(binary);
+    if (!only || std::string(only) == "checkpoint")
+        journey_checkpoint_lifecycle(binary);
     if (!only || std::string(only) == "subagent")
         journey_subagent_reports_back(binary);
     if (!only || std::string(only) == "skill")
