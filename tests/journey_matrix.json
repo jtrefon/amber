@@ -187,7 +187,7 @@
           "na: profiles are an interactive TUI surface"
         ],
         "tui": [
-          "deferred: #695 the profile-switch journey is not written yet"
+          "profile"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1454,7 +1454,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #696 the /usage reasoning-token journey is not written yet"
+          "usage"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
