@@ -1019,10 +1019,13 @@
           "approval-allowed"
         ],
         "bench": [
-          "na: the hermetic scenarios assert a task outcome, not this contract"
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
         ]
       },
-      "notes": "approval is the contract: allow, deny-with-fallback, and the compile journey."
+      "notes": "approval is the contract: allow, deny-with-fallback, and the compile journey; the long-horizon policies run the repository test through bash."
     },
     {
       "id": "tool.checkpoint",
@@ -1225,10 +1228,13 @@
           "read-edit-verify"
         ],
         "bench": [
-          "na: the hermetic scenarios assert a task outcome, not this contract"
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
         ]
       },
-      "notes": "read and read_result share one workspace-confined implementation."
+      "notes": "read and read_result share one workspace-confined implementation; the long-horizon policies assert the read sequence and the hidden test."
     },
     {
       "id": "tool.search",
@@ -1351,7 +1357,10 @@
           "read-edit-verify"
         ],
         "bench": [
-          "na: the hermetic scenarios assert a task outcome, not this contract"
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
         ]
       },
       "notes": ""
