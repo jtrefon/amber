@@ -66,20 +66,25 @@ regression gates; the live profile runs stay manual:
 | Policy simulation | `make policy-matrix-check` | the policy zoo's point expectations and the best-vs-worst score gap |
 | Trace replay | `make trace-check` | every committed provider fixture through `TraceResponder`, plus one real-client scenario |
 | CLI journeys | `make agent-e2e-check` | 18 journeys through `amber-cli`: final answer, exit, workspace, usage, tool statuses, request contract |
-| TUI journeys | `make tui-agent-e2e` | 13 journeys through the real binary on a pty |
+| TUI journeys | `make tui-agent-e2e` | 14 journeys through the real binary on a pty |
 | Long-horizon repositories | `make long-horizon-check` | five multi-module changes with hidden tests and a real `make test` |
+| Coverage matrix | `make journey-matrix` | every documented capability has a journey, an `internal:`/`na:` reason, or a recorded `deferred:` gap; every named journey exists in its runner |
 | Faults and fuzzing | `./bench_test agent_fault_matrix_*`, `make fuzz-run` | the endpoint/loop fault matrix, the 1,000-sequence policy fuzz and the libFuzzer targets |
 
 `make agent-eval` runs the CLI, policy, trace and long-horizon baselines: the
-same four targets the `agent-e2e` CI job runs. `make preflight` adds the TUI journeys and
+same four targets the `agent-e2e` CI job runs. The journey inventory is
+`docs/spec/tui/e2e-testing.md`; the capability-to-journey matrix is
+`tests/journey_matrix.json`, and `make journey-matrix` fails when a documented
+capability or a named journey drifts. `make preflight` adds the TUI journeys and
 the dual-compiler build. The committed baselines are
 `bench/results/agent-e2e-baseline.json`,
 `bench/results/policy-matrix-baseline.json`,
 `bench/results/long-horizon-baseline.json` and the trace corpus under
-`bench/traces/`. At the time of writing the corpus is 86 scenario files in 22
-suites; 68 carry a hermetic script, policy or trace; the remaining live-only
-scenarios (headroom, loop-live, repo, shaping and part of the review suites)
-need a live model and are not correctness gates.
+`bench/traces/`. At the time of writing the corpus is 86 scenarios in 22 suites (101 JSON files
+including templates and variants); 63 carry a fake script or policy, and 23
+recorded provider bodies replay through `TraceResponder`. The remaining
+live-only scenarios (headroom, loop-live, repo, shaping and part of the review
+suites) need a live model and are not correctness gates.
 
 The policy/fake clients produce deterministic prompts, so a token or call
 change is a harness change. A live-model prompt or model change is proved by a
@@ -97,6 +102,10 @@ previous release's artifact is a failure. The check fails closed: no artifact
 prints `NOT MEASURED` and exits non-zero. Docs/website/packaging-only tags may
 skip via `CHANGED_PATHS`; the release workflow computes that list from the
 previous tag. The gate tests live in `tests/gates/test_bench_release_check.py`.
+
+`make journey-matrix-release` is the coverage side of the same rule: it runs the
+matrix check with `--require-complete`, so a `deferred:` capability cell fails
+the release until its journey lands or the gap is explicitly accepted.
 
 **Status 2026-11-09: 0.8.9 is green on the cloud minimum.**
 `bench/results/releases/0.8.9/cloud-deepseek-chat-r3.json` is a historical
