@@ -111,6 +111,16 @@ def percent(now, then):
     return 100.0 * (now - then) / then
 
 
+def tokens_measured(values):
+    """Whether a scenario reported any token usage at all.
+
+    The long-horizon policy client drives real tools through a scripted policy
+    and reports no usage counters, so its token cells are not measurements of
+    zero. They are absence of measurement and must be shown as such, never
+    gated as a free pass or summarised as a 0-token cost."""
+    return values["prompt_tokens"] > 0 or values["completion_tokens"] > 0
+
+
 def compare(current, recorded):
     """(violations, added, missing) for one report against the baseline.
 
@@ -130,7 +140,8 @@ def compare(current, recorded):
         cur = current[name]
         base_tokens = base["prompt_tokens"] + base["completion_tokens"]
         cur_tokens = cur["prompt_tokens"] + cur["completion_tokens"]
-        if cur_tokens > base_tokens * (1 + TOKEN_REGRESSION):
+        if (tokens_measured(base) or tokens_measured(cur)) and \
+                cur_tokens > base_tokens * (1 + TOKEN_REGRESSION):
             violations.append((name, "tokens", base_tokens, cur_tokens,
                                f"bar +{TOKEN_REGRESSION * 100:.0f}%"))
         if cur["tool_calls"] > base["tool_calls"] * (1 + CALL_REGRESSION):
@@ -153,10 +164,11 @@ def suite_summary(results):
         suite = cur.get("suite") or "?"
         row = agg.setdefault(suite, {
             "scenarios": 0, "passed": 0, "tokens": 0, "base_tokens": 0,
-            "calls": 0, "base_calls": 0, "wall": 0,
+            "measured": 0, "calls": 0, "base_calls": 0, "wall": 0,
         })
         row["scenarios"] += 1
         row["passed"] += 1 if cur["success"] else 0
+        row["measured"] += 1 if tokens_measured(cur) else 0
         row["tokens"] += cur["prompt_tokens"] + cur["completion_tokens"]
         row["base_tokens"] += base["prompt_tokens"] + base["completion_tokens"]
         row["calls"] += cur["tool_calls"]
@@ -175,10 +187,17 @@ def markdown(results, violations, added, allow="", harness=None):
             lines.append("")
     lines += ["| suite | pass | tokens | Δ | calls | Δ | wall |",
               "|---|---:|---:|---:|---:|---:|---:|"]
+    unmeasured = []
     for suite, row in sorted(suite_summary(results).items()):
+        if row["measured"] or row["base_tokens"]:
+            tokens = (f"{row['tokens']} | "
+                      f"{percent(row['tokens'], row['base_tokens']):+.1f}%")
+        else:
+            tokens = "n/a | n/a"
+            unmeasured.append(f"`{suite}`")
         lines.append(
             f"| `{suite}` | {row['passed']}/{row['scenarios']} "
-            f"| {row['tokens']} | {percent(row['tokens'], row['base_tokens']):+.1f}% "
+            f"| {tokens} "
             f"| {row['calls']} | {percent(row['calls'], row['base_calls']):+.1f}% "
             f"| {row['wall']}ms |")
     lines += ["", "| scenario | tokens | Δ | calls | Δ | wall | result |",
@@ -188,11 +207,21 @@ def markdown(results, violations, added, allow="", harness=None):
         base, cur = values
         tokens = cur["prompt_tokens"] + cur["completion_tokens"]
         base_tokens = base["prompt_tokens"] + base["completion_tokens"]
+        if tokens_measured(cur) or tokens_measured(base):
+            token_cell = (f"{tokens} | {percent(tokens, base_tokens):+.1f}%")
+        else:
+            token_cell = "n/a | n/a"
         result = "fail" if name in failed else "ok"
         lines.append(
-            f"| `{name}` | {tokens} | {percent(tokens, base_tokens):+.1f}% "
+            f"| `{name}` | {token_cell} "
             f"| {cur['tool_calls']} | {percent(cur['tool_calls'], base['tool_calls']):+.1f}% "
             f"| {cur['wall_ms']}ms | {result} |")
+    if unmeasured:
+        lines += ["",
+                  f"Token cost is not measured for {', '.join(unmeasured)} "
+                  "(outcome-only paths: no usage counters are reported). Those "
+                  "cells are `n/a`, not zero, and the gate covers outcome, tool "
+                  "calls and wall time there."]
     if added:
         failing = [n for n in added if n in failed]
         passing = [n for n in added if n not in failed]
@@ -253,7 +282,8 @@ def store(path, current):
             "executed tool calls, wall time and task success per fake-LLM "
             "scenario. Regenerate with `make bench-baseline` and review the "
             "diff; the gate fails on +10% tokens or calls, a dropped success, "
-            "or a 2x+500ms wall-time ceiling."
+            "or a 2x+500ms wall-time ceiling. A scenario with no usage counters "
+            "is outcome-only: its token cell is n/a, not a measured zero."
         ),
         "mode": "hermetic",
         "scenarios": {name: current[name] for name in sorted(current)},

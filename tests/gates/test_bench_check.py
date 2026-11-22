@@ -149,6 +149,28 @@ class Comparison(unittest.TestCase):
         self.assertIn("`tools`", text)
         self.assertIn("`terminal`", text)
 
+    def test_zero_token_cells_are_reported_as_outcome_only(self):
+        """The long-horizon policy client reports no usage. A `0` in a token
+        column must not read as a measured cost of zero."""
+        unmeasured = {name: dict(values, prompt_tokens=0, completion_tokens=0)
+                      for name, values in SCENARIOS.items()}
+        current = self.current({name: {"prompt_tokens": 0, "completion_tokens": 0}
+                                for name in SCENARIOS})
+        results = [(name, (unmeasured[name], current[name])) for name in sorted(SCENARIOS)]
+        text = bench.markdown(results, [], [])
+        self.assertIn("n/a", text)
+        self.assertIn("outcome-only", text)
+        self.assertNotIn("| 0 | +0.0% |", text)
+
+    def test_usage_suddenly_appearing_is_not_silently_accepted(self):
+        """An unmeasured baseline plus a measured report is a real change in
+        instrumentation and must still pass through the token comparator."""
+        unmeasured = {"alpha": dict(SCENARIOS["alpha"], prompt_tokens=0, completion_tokens=0)}
+        current = {"alpha": dict(SCENARIOS["alpha"], prompt_tokens=100)}
+        rc, out = run_check(current, unmeasured)
+        self.assertEqual(rc, 1)
+        self.assertIn("tokens", out)
+
     def test_allow_turns_a_regression_into_a_reported_override(self):
         current = self.current({"alpha": {"prompt_tokens": 120}})
         rc, out = run_check(current, SCENARIOS, allow="known one-off")

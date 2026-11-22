@@ -1,5 +1,5 @@
 {
-  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling.",
+  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling. A scenario with no usage counters is outcome-only: its token cell is n/a, not a measured zero. The repo-long policy client reports no usage, so this baseline gates outcome, tool calls and wall time only \u2014 not token cost.",
   "mode": "hermetic",
   "scenarios": {
     "l-01-math": {

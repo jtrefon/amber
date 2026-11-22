@@ -67,7 +67,7 @@ regression gates; the live profile runs stay manual:
 | Trace replay | `make trace-check` | every committed provider fixture through `TraceResponder`, plus one real-client scenario |
 | CLI journeys | `make agent-e2e-check` | 18 journeys through `amber-cli`: final answer, exit, workspace, usage, tool statuses, request contract |
 | TUI journeys | `make tui-agent-e2e` | 14 journeys through the real binary on a pty |
-| Long-horizon repositories | `make long-horizon-check` | five multi-module changes with hidden tests and a real `make test` |
+| Long-horizon repositories | `make long-horizon-check` | five multi-module changes with hidden tests and a real `make test`; outcome, tool calls and wall time only — the policy client reports no token usage, so token cells read `n/a` |
 | Coverage matrix | `make journey-matrix` | every documented capability has a journey, an `internal:`/`na:` reason, or a recorded `deferred:` gap; every named journey exists in its runner |
 | Faults and fuzzing | `./bench_test agent_fault_matrix_*`, `make fuzz-run` | the endpoint/loop fault matrix, the 1,000-sequence policy fuzz and the libFuzzer targets |
 
