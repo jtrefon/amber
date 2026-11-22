@@ -29,9 +29,10 @@ driven by an OpenAI-compatible LLM API.
   check (`ci-manifest`), class-size, nesting, debt, detach, prompt-lint,
   flake-lint, hygiene and header self-containment, the obfuscation guard, the gate tools'
   own tests, `library-check`, and a gate report that also runs complexity and
-  duplicates. CI runs the same work as three jobs (`static-gates`,
-  `content-gates`, `build-hygiene`), so a class-size or nesting finding returns
-  in minutes instead of queueing behind the header compile. It does not build the tree or run the tests. Use
+  duplicates. CI runs the same work as four jobs (`static-gates`,
+  `content-gates`, `build-hygiene`, `journey-matrix`), so a class-size or
+  nesting finding returns in minutes instead of queueing behind the header
+  compile. It does not build the tree or run the tests. Use
   `make verify-quick` for the local mirror of the gating static jobs and
   `make verify` for the build/test/analyzer half; `make doctor` reports which
   analyzers cannot reproduce CI on this machine. **`make preflight` is the
@@ -53,6 +54,19 @@ driven by an OpenAI-compatible LLM API.
   project floor, the TUI floor and the patch gate; a local run cannot measure a
   different scope than the CI job. It is destructive (the normal objects are
   replaced); restore with `./configure && make clean && make`.
+- **Functional coverage is a machine-checked matrix, not a doc.**
+  `tests/journey_matrix.json` maps every documented command path, visible alias,
+  bundled plugin capability, default tool, TUI-only action and interface surface
+  to a journey, an `internal:`/`na:` reason, or a `deferred: #issue` gap.
+  `make journey-matrix` (`tools/journey_matrix_check.py`, CI job
+  `journey-matrix`) fails an unmapped source, a missing or unknown journey, a
+  blank reason or an alias split from its target row;
+  `make journey-matrix-release` refuses every deferred cell and is the 0.9
+  release check. The capability inventory is generated from the live plugin
+  declarations with `make capability-snapshot-update` and pinned by `make test`,
+  so a new capability without a snapshot update and a matrix row is red twice.
+  `docs/spec/tui/e2e-testing.md` is the one human-readable journey inventory
+  (18 CLI, 14 TUI, 5 long-horizon).
 - **`w/` and `.wt/*` are separate git worktrees inside this tree**, not the
   project. They carry their own `run_tests`, `tools/`, and stale test results
   (e.g. `w/`'s `1105 passed, 9 failed`). The repo root is the only source of
@@ -363,8 +377,9 @@ for every gating Python tool — `complexity_gate.py`, `class_size_gate.py`,
 `duplicate_detector.py`, `obfuscation_guard.py`, `doctor.py`,
 `ci_manifest_check.py`, `ci_watchdog.py`, `detach_gate.py`, `prompt_lint.py`,
 `test_presence_gate.py`, `commit_lint.py`, `test_flake_lint.py`,
-`flake_repeat.py`, `test_install_deps.py` and `test_runner_pins.py` — plus the
-shared `cpp_source.py` lexer. `test_install_deps.py` drives the apt
+`flake_repeat.py`, `test_install_deps.py`, `test_runner_pins.py`,
+`journey_sources.py` and `journey_matrix_check.py` — plus the shared
+`cpp_source.py` lexer. `test_install_deps.py` drives the apt
 retry/fallback script with a fake `apt-get`, `test_runner_pins.py` fails a
 floating `ubuntu-latest` or an unlisted runner image, and `flake_repeat.py` /
 `test_flake_lint.py` cover the repeated-test policy. When you change a gate,
@@ -381,6 +396,7 @@ degraded measurement, not just on a missing tool:
 | a translation unit does not compile | `[clang-diagnostic-error]` is never counted as a finding, and fails the lint gate; `lint-baseline-update` refuses to record it |
 | a brace-aware scanner lost sync | an unterminated type is reported as unscannable, not skipped |
 | a function's extent cannot be closed | `nesting` reports it unmeasurable rather than scoring it zero |
+| the coverage-matrix scan found almost nothing | `journey_sources` has per-family floors; a short scan exits 2 |
 
 Two more found by **mutation testing the gates themselves** — deliberately breaking
 each one and confirming it goes red. Everything in the table above is checked at

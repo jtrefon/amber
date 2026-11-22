@@ -47,7 +47,8 @@ PASS, FAIL, ERROR, SKIP = "pass", "fail", "error", "skipped"
 # their own commands, and obfuscation-guard runs the same `make obfuscation`
 # command as the report's `obfuscation` entry. Every other gating job is listed
 # as skipped with its local command or the reason it is CI-only.
-MEASURED_JOBS = {"static-gates", "complexity", "duplicates", "obfuscation-guard"}
+MEASURED_JOBS = {"static-gates", "complexity", "duplicates", "obfuscation-guard",
+                 "journey-matrix"}
 
 # Every gate that can run without a build. Kept explicit rather than discovered,
 # so adding a gate is a visible edit and a missing entry is a review question.
@@ -62,6 +63,7 @@ COMMANDS = {
     "ncurses": ["make", "ncurses"],
     "obfuscation": ["python3", "tools/obfuscation_guard.py"],
     "duplicates": ["make", "duplicates"],
+    "journey-matrix": ["make", "journey-matrix"],
 }
 
 GATES = tuple(COMMANDS)

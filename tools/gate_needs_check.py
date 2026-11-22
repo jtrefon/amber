@@ -73,6 +73,7 @@ ALL_JOBS = (
     "bench-e2e",
     "agent-e2e",
     "tui-agent-e2e",
+    "journey-matrix",
     "coverage",
     "website-build",
     "website-smoke",
@@ -83,7 +84,7 @@ ALL_JOBS = (
 CPP_JOBS = ("build-and-test", "build-and-test-macos", "analyze", "static-gates",
             "content-gates", "build-hygiene", "complexity", "duplicates",
             "format-check", "sanitizers", "tsan", "fuzz", "bench-efficiency", "bench-e2e",
-            "agent-e2e", "tui-agent-e2e", "coverage")
+            "agent-e2e", "tui-agent-e2e", "journey-matrix", "coverage")
 WEB_JOBS = ("website-build", "website-smoke")
 ALWAYS_JOBS = ("obfuscation-guard", "secret-scan")
 PR_ONLY_JOBS = ("pr-readiness", "dependency-review", "lint", "test-presence")

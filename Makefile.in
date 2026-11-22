@@ -421,7 +421,8 @@ $(BUILD_DIR)/tests/skills_browse_core_test.o \
 $(BUILD_DIR)/tests/skills_service_test.o \
 $(BUILD_DIR)/tests/skills_lifecycle_test.o \
 $(BUILD_DIR)/tests/skills_install_sheet_test.o \
-$(BUILD_DIR)/tests/skill_cli_test.o
+$(BUILD_DIR)/tests/skill_cli_test.o \
+$(BUILD_DIR)/tests/capability_snapshot_test.o
 TUI_TEST_OBJ = $(BUILD_DIR)/tests/tui_tests.o
 CL_TEST_OBJ  = $(BUILD_DIR)/tests/command_line_test.o
 SB_TEST_OBJ  = $(BUILD_DIR)/tests/session_browser_test.o
@@ -466,6 +467,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         verify verify-quick preflight check-compilers \
         coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
+        capability-snapshot-update journey-matrix journey-matrix-release \
         release-check \
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
@@ -840,7 +842,7 @@ nesting-update:
 # job logs. Runs the gates only; it never gates anything itself, so a failure here
 # is a reporting failure and exits 2.
 ARTIFACTS_DIR ?= artifacts
-GATES_RUN := complexity nesting class-size debt hygiene detach ncurses prompt-lint obfuscation duplicates
+GATES_RUN := complexity nesting class-size debt hygiene detach ncurses prompt-lint obfuscation duplicates journey-matrix
 # Writes the two report files and, when running under GitHub Actions, appends the
 # table to $GITHUB_STEP_SUMMARY so the verdicts render on the run page itself.
 # Artefacts alone were not enough: they sit in a panel at the very bottom of the
@@ -1135,6 +1137,23 @@ api-check:
 api-snapshot-update:
 	@python3 "$(SRC_DIR)/tools/api_snapshot.py" --update
 
+# The capability inventory the 0.9 journey matrix is checked against. The
+# snapshot is generated from the real bundled plugin declarations and the
+# bare-host default tool set, never hand-written; a reviewed change updates it
+# here and the matrix gate then shows the capability that needs a journey.
+capability-snapshot-update: $(BUILD_DIR)/run_tests
+	@AMBER_UPDATE_CAPABILITY_SNAPSHOT=1 $(BUILD_DIR)/run_tests capability_snapshot
+
+# The 0.9 coverage source: every documented command path, visible alias, bundled
+# plugin capability, default tool, TUI-only action and interface surface is in
+# exactly one matrix row, and every named journey exists in its runner. A
+# `deferred:` cell is a recorded gap; the release variant refuses every one.
+journey-matrix:
+	@python3 "$(SRC_DIR)/tools/journey_matrix_check.py" --report
+
+journey-matrix-release:
+	@python3 "$(SRC_DIR)/tools/journey_matrix_check.py" --require-complete
+
 # Supply chain: every external action in .github must be a 40-character commit
 # SHA with its tag in a trailing comment. A mutable tag would let a release run
 # whatever that tag points at today.
@@ -1187,6 +1206,7 @@ verify-quick:
 	@$(MAKE) --no-print-directory obfuscation
 	@$(MAKE) --no-print-directory api-check
 	@$(MAKE) --no-print-directory action-pins
+	@$(MAKE) --no-print-directory journey-matrix
 	@$(MAKE) --no-print-directory gates-test
 	@$(MAKE) --no-print-directory library-check
 	@echo "verify-quick: clean"
