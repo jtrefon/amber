@@ -51,7 +51,7 @@ It runs, in order:
 
 | Step | What it proves | CI job it mirrors |
 |---|---|---|
-| `make verify` | static gates (including the gate tests and `library-check`), `make test`, `bench-check`, full `lint`, `analyze`, `smoketest` | `static-gates`, `content-gates`, `build-hygiene`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
+| `make verify` | static gates (including the gate tests, `library-check` and the journey matrix), `make test`, `bench-check`, full `lint`, `analyze`, `smoketest` | `static-gates`, `content-gates`, `build-hygiene`, `journey-matrix`, `build-and-test`, `bench-efficiency`, `lint`, `analyze` |
 | `make check-compilers` | the whole tree builds under `g++` and `clang++` with `WERROR=1` | `build-and-test (g++)`, `build-and-test (clang++)` |
 | `make agent-eval` | the CLI journeys, policy-zoo separation, trace corpus and long-horizon repository journeys, each against its committed baseline | `agent-e2e` |
 | `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `tui-agent-e2e` (Linux) and the macOS repeat |
@@ -176,7 +176,7 @@ Two of these are easy to misread as code failures:
 
 | Job | First question |
 |---|---|
-| `complexity`, `nesting`, `class-size`, `debt`, `detach`, `hygiene` | did you run `make verify-quick` on the final commit? |
+| `complexity`, `nesting`, `class-size`, `debt`, `detach`, `hygiene`, `journey-matrix` | did you run `make verify-quick` on the final commit? |
 | `bench-efficiency` | is the violation tokens/calls, or wall time? Only the first two are precise. |
 | `coverage` | patch line/branch bar, or the per-file branch ratchet? |
 | `build-and-test (clang++)` / `(g++)` | did `make check-compilers` pass locally? |

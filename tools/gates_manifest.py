@@ -110,6 +110,12 @@ JOBS = {
         "gating": True,
         "local": "make obfuscation",
     },
+    "journey-matrix": {
+        "dimension": "cpp",
+        "events": ALL_EVENTS,
+        "gating": True,
+        "local": "make journey-matrix",
+    },
     "format-check": {
         "dimension": "cpp",
         "events": ALL_EVENTS,

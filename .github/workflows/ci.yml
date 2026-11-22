@@ -251,6 +251,23 @@ jobs:
           retention-days: 30
 
   # ---------------------------------------------------------------------------
+  # The 0.9 coverage matrix. Every documented command path, visible alias,
+  # bundled plugin capability, default tool, TUI-only action and interface
+  # surface must be in exactly one matrix row, and every journey a row names
+  # must exist in its runner. No build: it reads the tree. A deferred cell is a
+  # recorded gap; `make journey-matrix-release` is the 0.9 release variant.
+  # ---------------------------------------------------------------------------
+  journey-matrix:
+    needs: [changes]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Journey matrix
+        run: python3 tools/journey_matrix_check.py --report
+
+  # ---------------------------------------------------------------------------
   # Content gates — the prompt library's `run` blocks execute commands, so this
   # needs the full toolchain. Kept separate so a library edit fails in minutes
   # rather than behind a header compile.
@@ -1081,7 +1098,7 @@ jobs:
   # gated.
   # ---------------------------------------------------------------------------
   ci-gate:
-    needs: [pr-readiness, changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, format-check, sanitizers, tsan, fuzz, bench-efficiency, bench-e2e, agent-e2e, tui-agent-e2e, coverage, website-build, website-smoke]
+    needs: [pr-readiness, changes, dependency-review, obfuscation-guard, secret-scan, build-and-test, build-and-test-macos, lint, test-presence, analyze, static-gates, content-gates, build-hygiene, complexity, duplicates, journey-matrix, format-check, sanitizers, tsan, fuzz, bench-efficiency, bench-e2e, agent-e2e, tui-agent-e2e, coverage, website-build, website-smoke]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15

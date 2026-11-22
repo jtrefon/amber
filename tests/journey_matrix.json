@@ -1,0 +1,1629 @@
+{
+  "version": 1,
+  "claim": "Every source below is covered by a named journey on each surface, or carries an explicit internal/na reason. A capability with no journey yet records deferred: #issue <reason> in that cell; tools/journey_matrix_check.py --require-complete refuses every deferred cell, which is the 0.9 release check.",
+  "sources": {
+    "commands": "completions.json (every documented path, including visible aliases)",
+    "plugins": "tests/capability_snapshot.txt (generated from the live plugin declarations)",
+    "default_tools": "tests/capability_snapshot.txt (generated from register_default_tools)",
+    "ui_actions": "menus.json + keybindings.json (TUI-only ui.* actions)",
+    "journeys": {
+      "cli": "bench/results/agent-e2e-baseline.json + bench/scenarios/e2e/*.json",
+      "tui": "tests/tui_agent_e2e_test.cpp selectors + read-edit-verify",
+      "bench": "bench/results/harness-efficiency-baseline.json + bench/results/long-horizon-baseline.json"
+    }
+  },
+  "alias_owners": {
+    "mcp": "tool.mcp"
+  },
+  "surfaces": [
+    {
+      "id": "top-rail",
+      "source": "menus.json",
+      "description": "the menu bar and its pull-downs"
+    },
+    {
+      "id": "drawer",
+      "source": "completions.json and feeds",
+      "description": "the command drawer, completion rows and content drawer"
+    },
+    {
+      "id": "editor",
+      "source": "tui/",
+      "description": "the prompt composer and inline editors"
+    },
+    {
+      "id": "dialog",
+      "source": "tui/dialog_view.h",
+      "description": "approval, confirmation, form and install sheets"
+    },
+    {
+      "id": "status-bar",
+      "source": "status segments",
+      "description": "the composed status line, including the workspace marker"
+    },
+    {
+      "id": "resource-viewer",
+      "source": "tui/screen_view.h",
+      "description": "read-only task, job and watch viewers"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "cache.readout",
+      "sources": [
+        "capability:cache:command:cache"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: cache counters are shown by /usage and the status segment; pty tests pin the text"
+        ],
+        "tui": [
+          "internal: cache counters are shown by /usage and the status segment; pty tests pin the text"
+        ],
+        "bench": [
+          "internal: cache counters are shown by /usage and the status segment; pty tests pin the text"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "commands.help",
+      "sources": [
+        "command:help"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no command drawer or help page"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "learn",
+      "sources": [
+        "command:get.learn",
+        "command:learn",
+        "command:learn.forget",
+        "command:learn.panel",
+        "command:learn.pin",
+        "command:learn.show"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "plugins.command",
+      "sources": [
+        "capability:hello:command:hello",
+        "capability:hello:keybinding:ctrl+y",
+        "command:panel",
+        "command:plugin"
+      ],
+      "journeys": {
+        "cli": [
+          "na: plugin command workspaces are an interactive TUI surface"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The cache command is a readout covered by its pty test; the rest need the command workspace."
+    },
+    {
+      "id": "plugins.enable",
+      "sources": [
+        "command:get.plugin",
+        "command:get.plugin.info",
+        "command:get.plugin.list",
+        "command:set.plugin.off",
+        "command:set.plugin.on"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "plugin"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The plugin journey enables a project external plugin and runs its tool."
+    },
+    {
+      "id": "plugins.install",
+      "sources": [
+        "command:get.plugin.settings",
+        "command:set.plugin.install",
+        "command:set.plugin.settings",
+        "command:set.plugin.uninstall"
+      ],
+      "journeys": {
+        "cli": [
+          "na: plugin installation is an interactive TUI surface"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "profile",
+      "sources": [
+        "command:profile",
+        "command:profile.add",
+        "command:profile.list",
+        "command:profile.remove",
+        "command:profile.save",
+        "command:profile.show",
+        "command:profile.switch"
+      ],
+      "journeys": {
+        "cli": [
+          "na: profiles are an interactive TUI surface"
+        ],
+        "tui": [
+          "deferred: #695 the profile-switch journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "prompt.assembly",
+      "sources": [
+        "capability:coding:command:library",
+        "capability:coding:prompt:coding_engineering",
+        "capability:coding:prompt:coding_identity",
+        "capability:coding:prompt:coding_library_index",
+        "capability:coding:prompt:coding_workflow",
+        "capability:instructions:prompt:project_instructions",
+        "capability:project_index:prompt:project_index"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: assembled into every request; the prompt-cache contract pins the prefix"
+        ],
+        "tui": [
+          "internal: assembled into every request; the prompt-cache contract pins the prefix"
+        ],
+        "bench": [
+          "internal: assembled into every request; the prompt-cache contract pins the prefix"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "provider.dialects",
+      "sources": [
+        "capability:anthropic:provider:anthropic",
+        "capability:commandcode:provider:openai",
+        "capability:custom:provider:openai",
+        "capability:deepseek:provider:openai",
+        "capability:gemini:provider:gemini",
+        "capability:kilocode:provider:openai",
+        "capability:opencode_go:provider:openai",
+        "capability:opencode_zen:provider:openai",
+        "capability:openrouter:provider:openai"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-provider-anthropic",
+          "e2e-provider-gemini"
+        ],
+        "tui": [
+          "provider"
+        ],
+        "bench": [
+          "na: the harness uses the configured fake/policy client, not a provider preset"
+        ]
+      },
+      "notes": "Anthropic and Gemini are pinned on the wire; the OpenAI-flavor presets share that dialect."
+    },
+    {
+      "id": "provider.manage",
+      "sources": [
+        "command:provider",
+        "command:provider.delete",
+        "command:provider.list",
+        "command:provider.test"
+      ],
+      "journeys": {
+        "cli": [
+          "na: provider management is an interactive TUI surface"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "provider.wallets",
+      "sources": [
+        "capability:commandcode:wallet:wallet",
+        "capability:deepseek:wallet:wallet",
+        "capability:kilocode:wallet:wallet",
+        "capability:opencode_go:wallet:wallet",
+        "capability:openrouter:wallet:wallet"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: a provider HTTP readout surfaced on the status bar; parser tests cover it"
+        ],
+        "tui": [
+          "internal: a provider HTTP readout surfaced on the status bar; parser tests cover it"
+        ],
+        "bench": [
+          "internal: a provider HTTP readout surfaced on the status bar; parser tests cover it"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "session.browser",
+      "sources": [
+        "command:session.fork",
+        "command:session.remove",
+        "command:session.rename"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no session browser"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "session.checkpoints",
+      "sources": [
+        "alias:diff",
+        "alias:history",
+        "alias:rollback",
+        "alias:undo",
+        "command:session.diff",
+        "command:session.history",
+        "command:session.rollback",
+        "command:session.undo"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "session.compress",
+      "sources": [
+        "alias:compact",
+        "alias:compress",
+        "command:session.compress"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-compression-mid-task"
+        ],
+        "tui": [
+          "compression"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "session.lifecycle",
+      "sources": [
+        "alias:clear",
+        "alias:save",
+        "alias:sessions",
+        "command:session",
+        "command:session.list",
+        "command:session.load",
+        "command:session.new",
+        "command:session.save"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-session-resume"
+        ],
+        "tui": [
+          "restart"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The CLI resume journey uses --session; the TUI restart journey saves and restores automatically; both share the store."
+    },
+    {
+      "id": "session.queue",
+      "sources": [
+        "command:queue",
+        "command:queue.clear",
+        "command:queue.recall"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI takes one prompt per process and has no queue"
+        ],
+        "tui": [
+          "compression"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The compression journey queues a prompt while the classifier runs and asserts it lands."
+    },
+    {
+      "id": "session.stop",
+      "sources": [
+        "alias:stop",
+        "command:session.stop"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-cancel-slow-tool"
+        ],
+        "tui": [
+          "cancel"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "settings.compression",
+      "sources": [
+        "command:get.compression",
+        "command:get.compression.keep_last_prompts",
+        "command:get.compression.min_turns",
+        "command:get.compression.target_pct",
+        "command:get.compression.threshold",
+        "command:set.compression",
+        "command:set.compression.keep_last_prompts",
+        "command:set.compression.min_turns",
+        "command:set.compression.target_pct",
+        "command:set.compression.threshold"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.config",
+      "sources": [
+        "command:get",
+        "command:get.config",
+        "command:get.config.paths",
+        "command:set",
+        "command:settings"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.debug",
+      "sources": [
+        "command:get.debug",
+        "command:set.debug"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.detection",
+      "sources": [
+        "command:get.detection",
+        "command:get.detection.duplicate",
+        "command:get.detection.loop",
+        "command:set.detection",
+        "command:set.detection.duplicate",
+        "command:set.detection.loop"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.display",
+      "sources": [
+        "command:get.display",
+        "command:get.think",
+        "command:set.display",
+        "command:set.display.glyphs",
+        "command:set.display.markdown",
+        "command:set.display.motion",
+        "command:set.display.theme",
+        "command:set.think"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.input",
+      "sources": [
+        "command:get.input",
+        "command:set.input",
+        "command:set.input.max_lines",
+        "command:set.input.multiline"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.logs",
+      "sources": [
+        "command:get.logs",
+        "command:set.logs",
+        "command:set.logs.max",
+        "command:set.logs.prune",
+        "command:set.logs.retention"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.model",
+      "sources": [
+        "alias:model",
+        "command:get.model",
+        "command:get.model.context",
+        "command:get.model.list",
+        "command:set.model",
+        "command:set.model.context"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.policy",
+      "sources": [
+        "command:get.policy",
+        "command:get.policy.approval",
+        "command:get.policy.mode",
+        "command:get.policy.rule",
+        "command:get.policy.timeout",
+        "command:set.policy",
+        "command:set.policy.approval",
+        "command:set.policy.mode",
+        "command:set.policy.rule",
+        "command:set.policy.timeout"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.provider",
+      "sources": [
+        "command:get.provider",
+        "command:get.provider.cache",
+        "command:get.provider.list",
+        "command:get.provider.wallet",
+        "command:set.provider",
+        "command:set.provider.cache",
+        "command:set.provider.wallet"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.reasoning",
+      "sources": [
+        "command:get.reasoning",
+        "command:set.reasoning",
+        "command:set.reasoning.effort"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.registry",
+      "sources": [
+        "capability:cache:settings:settings",
+        "capability:watch:settings:settings",
+        "capability:web:settings:settings"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: settings are registered data consumed by every host; journeys write them at startup"
+        ],
+        "tui": [
+          "internal: settings are registered data consumed by every host; journeys write them at startup"
+        ],
+        "bench": [
+          "internal: settings are registered data consumed by every host; journeys write them at startup"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "settings.skills",
+      "sources": [
+        "command:get.skills",
+        "command:get.skills.settings",
+        "command:get.skills.show",
+        "command:set.skills",
+        "command:set.skills.audit",
+        "command:set.skills.create",
+        "command:set.skills.delete",
+        "command:set.skills.index",
+        "command:set.skills.install",
+        "command:set.skills.interop",
+        "command:set.skills.refresh",
+        "command:set.skills.review",
+        "command:set.skills.scope",
+        "command:set.skills.uninstall",
+        "command:set.skills.update-check",
+        "command:set.skills.update-review"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.subagent",
+      "sources": [
+        "command:get.subagent",
+        "command:set.subagent",
+        "command:set.subagent.max",
+        "command:set.subagent.parallel"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.work",
+      "sources": [
+        "command:get.work",
+        "command:set.work",
+        "command:set.work.auto_attach"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "settings.worktree",
+      "sources": [
+        "command:get.worktree",
+        "command:set.worktree"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI configures through flags and amber.conf"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The settings-surface journey reads and writes a representative path per group."
+    },
+    {
+      "id": "skills.bundled",
+      "sources": [
+        "capability:amber-self:skill:amber-config",
+        "capability:coding:skill:coding-library",
+        "capability:git-timeline:skill:git-timeline"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-skill-activation"
+        ],
+        "tui": [
+          "skill"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The bundled bodies are content; the journey proves a skill body reaches the model."
+    },
+    {
+      "id": "skills.manage",
+      "sources": [
+        "command:skills",
+        "command:skills.browse",
+        "command:skills.install",
+        "command:skills.list",
+        "command:skills.remove",
+        "command:skills.search",
+        "command:skills.show",
+        "command:skills.sources",
+        "command:skills.update"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "status.segments",
+      "sources": [
+        "capability:cache:segment:cache",
+        "capability:clock:segment:clock",
+        "capability:mcp:segment:mcp"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no status bar"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "wait_ready asserts the workspace marker in the rendered status line."
+    },
+    {
+      "id": "surface.dialog",
+      "sources": [
+        "surface:dialog"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "approval",
+          "approval-allowed"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "surface.drawer",
+      "sources": [
+        "surface:drawer"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "surface.editor",
+      "sources": [
+        "surface:editor"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "Every journey types a prompt into the composer and submits it."
+    },
+    {
+      "id": "surface.resource-viewer",
+      "sources": [
+        "surface:resource-viewer"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "surface.status-bar",
+      "sources": [
+        "surface:status-bar"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "wait_ready asserts the workspace marker in the status line."
+    },
+    {
+      "id": "surface.top-rail",
+      "sources": [
+        "surface:top-rail"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tasks.control",
+      "sources": [
+        "command:tasks.cancel",
+        "command:tasks.output",
+        "command:tasks.show",
+        "command:tasks.start",
+        "command:tasks.wait"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tasks.inventory",
+      "sources": [
+        "alias:job",
+        "command:tasks",
+        "command:tasks.list"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "subagent"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The subagent journey asserts /tasks list names the delegated worker."
+    },
+    {
+      "id": "tool.bash",
+      "sources": [
+        "capability:tool_bash:prompt:bash_doc",
+        "capability:tool_bash:tool:bash",
+        "default-tool:bash"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-approval-allowed",
+          "e2e-approval-denied-fallback",
+          "e2e-read-edit-compile"
+        ],
+        "tui": [
+          "approval",
+          "approval-allowed"
+        ],
+        "bench": [
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
+        ]
+      },
+      "notes": "approval is the contract: allow, deny-with-fallback, and the compile journey; the long-horizon policies run the repository test through bash."
+    },
+    {
+      "id": "tool.checkpoint",
+      "sources": [
+        "capability:tool_checkpoint:prompt:checkpoint_doc",
+        "capability:tool_checkpoint:tool:git_checkpoint",
+        "default-tool:git_checkpoint"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #694 the checkpoint CLI/TUI journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.coding_library",
+      "sources": [
+        "capability:coding:tool:coding_library_tool"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #709 the management-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.context",
+      "sources": [
+        "capability:tool_context:prompt:context_doc",
+        "capability:tool_context:tool:context"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: context inspection is a core surface covered by the compression suite"
+        ],
+        "tui": [
+          "internal: context inspection is a core surface covered by the compression suite"
+        ],
+        "bench": [
+          "internal: the compression scenarios assert the rebuilt context, not the tool"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.delegate",
+      "sources": [
+        "capability:tool_delegate:prompt:delegate_doc",
+        "capability:tool_delegate:tool:delegate",
+        "default-tool:delegate"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-subagent-worker-report"
+        ],
+        "tui": [
+          "subagent"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.mcp",
+      "sources": [
+        "alias:mcp",
+        "capability:mcp:command:get",
+        "capability:mcp:command:mcp",
+        "capability:mcp:command:prompt",
+        "capability:mcp:prompt:mcp_doc",
+        "capability:mcp:tool source:mcp_servers",
+        "capability:mcp:tool:read_resource"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-mcp-tool-call",
+          "e2e-mcp-missing-tool-recovery"
+        ],
+        "tui": [
+          "mcp"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.plan",
+      "sources": [
+        "capability:tool_plan:prompt:plan_doc",
+        "capability:tool_plan:tool:todowrite",
+        "default-tool:todowrite"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.process",
+      "sources": [
+        "capability:tool_process:prompt:process_doc",
+        "capability:tool_process:tool:process",
+        "default-tool:process_start"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.project_index",
+      "sources": [
+        "capability:project_index:command:index",
+        "capability:project_index:tool:project_index_tools"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.rate",
+      "sources": [
+        "capability:tool_rate:prompt:throttle_doc",
+        "capability:tool_rate:prompt:wait_doc",
+        "capability:tool_rate:tool:rate",
+        "default-tool:throttle",
+        "default-tool:wait"
+      ],
+      "journeys": {
+        "cli": [
+          "internal: rate control is exercised by the fault and governor suites"
+        ],
+        "tui": [
+          "internal: rate control is exercised by the fault and governor suites"
+        ],
+        "bench": [
+          "internal: rate control is exercised by the fault and governor suites"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.read",
+      "sources": [
+        "capability:tool_read:prompt:read_doc",
+        "capability:tool_read:prompt:read_result_doc",
+        "capability:tool_read:tool:read",
+        "capability:tool_read:tool:read_result",
+        "default-tool:read",
+        "default-tool:read_result"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-read-edit-compile"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
+        ]
+      },
+      "notes": "read and read_result share one workspace-confined implementation; the long-horizon policies assert the read sequence and the hidden test."
+    },
+    {
+      "id": "tool.search",
+      "sources": [
+        "capability:search_grep:search:grep",
+        "capability:search_semantic:search:semantic",
+        "capability:tool_search:prompt:search_doc",
+        "capability:tool_search:tool:search",
+        "default-tool:search"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-search-two-file-edit"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "both backends are selectable behind one tool schema."
+    },
+    {
+      "id": "tool.skills",
+      "sources": [
+        "capability:tool_skills:prompt:skills_doc",
+        "capability:tool_skills:tool:list_skills",
+        "capability:tool_skills:tool:read_skill",
+        "capability:tool_skills:tool:write_skill",
+        "default-tool:list_skills",
+        "default-tool:read_skill",
+        "default-tool:write_skill"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-skill-activation",
+          "e2e-skill-missing-recovery"
+        ],
+        "tui": [
+          "skill"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.tasks",
+      "sources": [
+        "capability:tool_tasks:prompt:tasks_doc",
+        "capability:tool_tasks:tool:tasks"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.watch",
+      "sources": [
+        "capability:watch:panel:watch",
+        "capability:watch:prompt:watch_doc",
+        "capability:watch:prompt:watch_policy",
+        "capability:watch:tool:watch_tool"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.web",
+      "sources": [
+        "capability:web:prompt:web_doc",
+        "capability:web:tool:web"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "tool.write",
+      "sources": [
+        "capability:tool_write:prompt:write_doc",
+        "capability:tool_write:tool:write",
+        "default-tool:write"
+      ],
+      "journeys": {
+        "cli": [
+          "e2e-read-edit-compile"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "l-01-math",
+          "l-02-text",
+          "l-03-inventory",
+          "l-04-report"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "ui.cancel",
+      "sources": [
+        "ui-action:ui.cancel_or_quit",
+        "ui-action:ui.escape"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "cancel"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The cancel journey exercises the cancel path through /stop."
+    },
+    {
+      "id": "ui.display",
+      "sources": [
+        "ui-action:ui.mouse.toggle",
+        "ui-action:ui.scroll.toggle",
+        "ui-action:ui.view.reasoning"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "internal: display toggles are pinned by the pty interface suite"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "ui.input",
+      "sources": [
+        "ui-action:ui.input.delete_word",
+        "ui-action:ui.mode.cycle"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "internal: input editing is pinned by the pty interface suite"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "ui.tabs",
+      "sources": [
+        "ui-action:ui.tab.next",
+        "ui-action:ui.tab.prev"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "switch"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "The switch journey exercises the same switch path by clicking a tab and by /window set."
+    },
+    {
+      "id": "usage",
+      "sources": [
+        "command:usage",
+        "command:usage.reset",
+        "command:usage.show"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #696 the /usage reasoning-token journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "window.resource",
+      "sources": [
+        "command:window.attach",
+        "command:window.detach"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "window.tabs",
+      "sources": [
+        "command:window",
+        "command:window.close",
+        "command:window.list",
+        "command:window.new",
+        "command:window.new.noworkdir",
+        "command:window.rename",
+        "command:window.set"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "tab",
+          "switch"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "work.board",
+      "sources": [
+        "command:work"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "workspace.files-system",
+      "sources": [
+        "command:files",
+        "command:files.find",
+        "command:files.ls",
+        "command:files.open",
+        "command:files.tree",
+        "command:system",
+        "command:system.cp",
+        "command:system.delete",
+        "command:system.df",
+        "command:system.exec",
+        "command:system.info",
+        "command:system.kill",
+        "command:system.mkdir",
+        "command:system.mv",
+        "command:system.ps",
+        "command:system.rmdir",
+        "command:system.uname",
+        "command:system.uptime"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "workspace.project",
+      "sources": [
+        "command:project",
+        "command:project.close",
+        "command:project.list",
+        "command:project.open",
+        "command:project.show"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI has no interactive surface for this"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    },
+    {
+      "id": "workspace.quit",
+      "sources": [
+        "command:quit"
+      ],
+      "journeys": {
+        "cli": [
+          "na: the headless CLI exits when the run ends"
+        ],
+        "tui": [
+          "read-edit-verify"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": "journey.finish asserts the quit path and the exit-ready marker."
+    },
+    {
+      "id": "workspace.worktree",
+      "sources": [
+        "command:worktree",
+        "command:worktree.attach",
+        "command:worktree.detach",
+        "command:worktree.list",
+        "command:worktree.main",
+        "command:worktree.new",
+        "command:worktree.prune",
+        "command:worktree.remove",
+        "command:worktree.show"
+      ],
+      "journeys": {
+        "cli": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "tui": [
+          "deferred: #710 the workspace-surface journey is not written yet"
+        ],
+        "bench": [
+          "na: the hermetic scenarios assert a task outcome, not this contract"
+        ]
+      },
+      "notes": ""
+    }
+  ]
+}

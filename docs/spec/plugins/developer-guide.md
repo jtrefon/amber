@@ -43,7 +43,12 @@ directory to `plugins/<your-id>/` and change the id; it is never registered in
 4. **Register it** in `make_bundled_plugins()` (`plugins/bundled.cpp`) and
    add the object to `Makefile.in` (the compile rule is generic).
 5. **Test it hermetically** (§8), no network, ever.
-6. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
+6. **Record the contribution.** Run `make capability-snapshot-update` to add the
+   capability to `tests/capability_snapshot.txt`, then name it in
+   `tests/journey_matrix.json` (a journey, an `internal:`/`na:` reason, or a
+   `deferred: #issue` gap) and run `make journey-matrix`. A capability the
+   matrix cannot see is a red gate, not an unrecorded extension.
+7. **Prove the seam held:** your diff must not touch `lib/http_transport.cpp`,
    the agent loop, or the TUI. If it does, the framework, not your plugin, is
    missing an extension point; say so in the PR instead of working around it.
 
@@ -175,6 +180,12 @@ public:
 `StatusSegment`, `Panel`, `Provider`, `Wallet`, `Command`, `Keybinding`,
 `SearchBackend`, `Skill`, `Settings`.
 Each has a concrete base class in `include/agent/extensions.h`.
+
+Every declared capability is enumerated by the 0.9 coverage matrix:
+`tests/capability_snapshot.txt` is generated from these declarations, and
+`tests/journey_matrix.json` maps each one to a journey or a recorded reason.
+`make test` pins the snapshot and `make journey-matrix` holds the matrix to it,
+so adding a capability without recording its coverage is red.
 
 `InstallResult` distinguishes a **decline** from a **failure**:
 `ok == false && declined == true` means "nothing to install" and the plugin
