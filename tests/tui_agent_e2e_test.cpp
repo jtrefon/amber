@@ -872,6 +872,94 @@ void journey_capability_ingestion(const std::string& binary) {
     journey.finish("capability-ingestion");
 }
 
+// Reasoning tokens are a breakdown of `down`, never a second charge. The unit
+// suite pins the parser; these journeys pin the readout and the session round
+// trip through the real binary, including the provider that reports no split.
+void journey_usage_reasoning_tokens(const std::string& binary) {
+    const auto responder = [](bool report_reasoning) {
+        return [report_reasoning](const bench::EndpointRequest& request) {
+            bench::EndpointReply reply;
+            if (request.path != "/v1/chat/completions") {
+                reply.handled = false;
+                return reply;
+            }
+            const std::string split =
+                report_reasoning ? R"(,"completion_tokens_details":{"reasoning_tokens":8})" : "";
+            reply.body =
+                std::string(R"({"id":"chatcmpl-usage","object":"chat.completion","created":1,)") +
+                R"("model":"journey-test","choices":[{"index":0,"message":{"role":"assistant",)"
+                R"("content":"USAGE-REASONING-DONE"},"finish_reason":"stop"}],)"
+                R"("usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30)" +
+                split + R"(}})";
+            return reply;
+        };
+    };
+
+    // A provider that splits out reasoning tokens: the readout names them and
+    // the session meta survives the quit path.
+    Journey reported;
+    if (!require(reported.start(binary, "usage-reasoning", responder(true)),
+                 "the TUI did not start", reported.tui))
+        return;
+    if (!require(wait_ready(reported.tui, fs::path(reported.root).filename().string()),
+                 "the UI never came up", reported.tui))
+        return;
+    reported.tui.send("Reasoning probe. USAGE-REASONING\r");
+    if (!require(reported.tui.wait_for("USAGE-REASONING-DONE", 30000), "the reply did not arrive",
+                 reported.tui))
+        return;
+    reported.tui.send("/usage");
+    reported.tui.pump(250);
+    reported.tui.send("\x07");
+    if (!require(reported.tui.wait_for("thinking 8", 10000),
+                 "/usage did not report the reasoning breakdown", reported.tui))
+        return;
+    if (!require(reported.tui.text().find("down 20") != std::string::npos,
+                 "reasoning was added to `down` instead of broken out of it", reported.tui))
+        return;
+    if (!require(reported.finish("usage-reasoning"), "the TUI did not exit cleanly", reported.tui))
+        return;
+
+    bool persisted = false;
+    const fs::path state = fs::path(reported.root) / "state";
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(state, ec), end; it != end; it.increment(ec)) {
+        if (!it->is_regular_file() || it->path().filename() == "workspace.json" ||
+            it->path().extension() != ".json")
+            continue;
+        const agent::json session = agent::json::parse(read_text(it->path()), nullptr, false);
+        if (session.is_discarded() || !session.contains("meta"))
+            continue;
+        const auto& meta = session["meta"];
+        if (meta.value("session_usage_main_reasoning_tokens", 0) == 8 &&
+            meta.value("session_usage_main_reasoning_measured", false))
+            persisted = true;
+    }
+    require(persisted, "the reasoning total did not survive in the session meta", reported.tui);
+
+    // A provider that reports no split: no breakdown and never a fabricated 0.
+    Journey quiet;
+    if (!require(quiet.start(binary, "usage-no-reasoning", responder(false)),
+                 "the TUI did not start", quiet.tui))
+        return;
+    if (!require(wait_ready(quiet.tui, fs::path(quiet.root).filename().string()),
+                 "the UI never came up", quiet.tui))
+        return;
+    quiet.tui.send("Reasoning probe. USAGE-REASONING\r");
+    if (!require(quiet.tui.wait_for("USAGE-REASONING-DONE", 30000), "the reply did not arrive",
+                 quiet.tui))
+        return;
+    quiet.tui.send("/usage");
+    quiet.tui.pump(250);
+    quiet.tui.send("\x07");
+    if (!require(quiet.tui.wait_for("main: up 10 down 20", 10000),
+                 "/usage did not report the measured totals", quiet.tui))
+        return;
+    require(quiet.tui.text().find("thinking ") == std::string::npos,
+            "/usage fabricated a reasoning breakdown the provider never reported", quiet.tui);
+    quiet.finish("usage-no-reasoning");
+}
+
 // Re-run the journeys in fresh processes. Each journey already owns an
 // isolated root, but a fresh process also resets the plugin runtime, the model
 // cache and every static the TUI touches.
@@ -959,6 +1047,8 @@ int main(int argc, char** argv) {
         journey_provider_dialect(binary);
     if (!only || std::string(only) == "capability")
         journey_capability_ingestion(binary);
+    if (!only || std::string(only) == "usage")
+        journey_usage_reasoning_tokens(binary);
     if (!only || std::string(only) == "compression")
         journey_compression_keeps_ui_responsive(binary);
     if (!only)
