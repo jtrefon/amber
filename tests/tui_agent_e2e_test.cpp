@@ -748,6 +748,130 @@ void journey_provider_dialect(const std::string& binary) {
     journey.finish("provider-anthropic");
 }
 
+// A listing that advertises a capability must reach the wire, and switching
+// to a model that advertises nothing must clear it. Unit tests cover the
+// parsing; this journey drives the real binary through the catalogue fetch,
+// the capability application and all three request shapes.
+void journey_capability_ingestion(const std::string& binary) {
+    const std::string catalogue = R"({"models":[
+      {"name":"models/cap-thinking","inputTokenLimit":131072,"outputTokenLimit":8192,
+       "thinking":{"supported":true,"default_enabled":true,"mandatory":false,
+                   "supported_levels":["low","high"],"default_level":"high"},
+       "verbosity":{"supported_levels":["low","medium","high"],"default_level":"medium"}},
+      {"name":"models/cap-plain","inputTokenLimit":32768,"outputTokenLimit":4096}
+    ]})";
+    Journey journey;
+    if (!require(
+            journey.start(
+                binary, "capability-ingestion",
+                [&catalogue](const bench::EndpointRequest& request) {
+                    bench::EndpointReply reply;
+                    if (request.path == "/v1beta/models") {
+                        reply.body = catalogue;
+                        return reply;
+                    }
+                    if (request.path.find(":generateContent") == std::string::npos) {
+                        reply.handled = false;
+                        return reply;
+                    }
+                    if (request.sequence == 0)
+                        reply.body =
+                            R"({"candidates":[{"content":{"role":"model","parts":[)"
+                            R"({"text":"CAP-THINKING-ON-DONE"}]},"finishReason":"STOP","index":0}],)"
+                            R"("usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}})";
+                    else if (request.sequence == 1)
+                        reply.body =
+                            R"({"candidates":[{"content":{"role":"model","parts":[)"
+                            R"({"text":"CAP-THINKING-OFF-DONE"}]},"finishReason":"STOP","index":0}],)"
+                            R"("usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}})";
+                    else
+                        reply.body =
+                            R"({"candidates":[{"content":{"role":"model","parts":[)"
+                            R"({"text":"CAP-PLAIN-DONE"}]},"finishReason":"STOP","index":0}],)"
+                            R"("usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}})";
+                    return reply;
+                },
+                "flavor=gemini\nmodel=cap-thinking\nreasoning_effort=high\napi_key=sk-test\n", {},
+                true),
+            "the TUI did not start", journey.tui))
+        return;
+
+    // Startup reads the disk cache only; the catalogue arrives on a worker.
+    bool listed = false;
+    for (int waited = 0; waited < 30000 && !listed; waited += 200) {
+        journey.tui.pump(200);
+        for (const auto& request : journey.endpoint->requests())
+            listed = listed || request.path == "/v1beta/models";
+    }
+    if (!require(listed, "the Gemini catalogue was never fetched", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("n_ctx=131072", 20000),
+                 "the fetched catalogue was never applied to the session", journey.tui))
+        return;
+
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Reply with the word done. CAP-ON\r");
+    if (!require(journey.tui.wait_for("CAP-THINKING-ON-DONE", 30000),
+                 "the thinking-on answer never arrived", journey.tui))
+        return;
+
+    journey.tui.send("/set reasoning off\r");
+    if (!require(journey.tui.wait_for("reasoning effort: off", 10000),
+                 "the reasoning effort switch did not land", journey.tui))
+        return;
+    journey.tui.send("Reply with the word done. CAP-OFF\r");
+    if (!require(journey.tui.wait_for("CAP-THINKING-OFF-DONE", 30000),
+                 "the thinking-off answer never arrived", journey.tui))
+        return;
+
+    journey.tui.send("/model cap-plain\r");
+    if (!require(journey.tui.wait_for("model set to cap-plain", 10000),
+                 "the model switch did not land", journey.tui))
+        return;
+    journey.tui.send("Reply with the word done. CAP-PLAIN\r");
+    if (!require(journey.tui.wait_for("CAP-PLAIN-DONE", 30000),
+                 "the quiet-model answer never arrived", journey.tui))
+        return;
+
+    std::vector<agent::json> chat;
+    for (const auto& request : journey.endpoint->requests())
+        if (request.path.find(":generateContent") != std::string::npos)
+            chat.push_back(request.json);
+    if (!require(chat.size() == 3u, "expected three Gemini chat requests", journey.tui))
+        return;
+    const auto config_of = [](const agent::json& body) -> agent::json {
+        const auto gen = body.find("generationConfig");
+        if (gen == body.end() || !gen->is_object())
+            return {};
+        const auto cfg = gen->find("thinkingConfig");
+        return cfg == gen->end() ? agent::json{} : *cfg;
+    };
+    const agent::json on = config_of(chat[0]);
+    const agent::json off = config_of(chat[1]);
+    const agent::json quiet = config_of(chat[2]);
+    if (!require(on.value("includeThoughts", false),
+                 "the advertised thinking contract did not reach the wire", journey.tui))
+        return;
+    if (!require(!on.contains("thinkingBudget"), "the journey invented a numeric thinking budget",
+                 journey.tui))
+        return;
+    if (!require(off.value("thinkingBudget", -1) == 0,
+                 "thinking off did not use Gemini's documented zero budget", journey.tui))
+        return;
+    if (!require(!off.contains("includeThoughts"), "thinking off still asked for thoughts",
+                 journey.tui))
+        return;
+    if (!require(quiet.empty(), "the quiet model inherited the previous thinking contract",
+                 journey.tui))
+        return;
+    if (!require(!chat[0].contains("verbosity"),
+                 "a listing-derived verbosity was sent without a wire contract", journey.tui))
+        return;
+    journey.finish("capability-ingestion");
+}
+
 // Re-run the journeys in fresh processes. Each journey already owns an
 // isolated root, but a fresh process also resets the plugin runtime, the model
 // cache and every static the TUI touches.
@@ -833,6 +957,8 @@ int main(int argc, char** argv) {
         journey_plugin_tool(binary);
     if (!only || std::string(only) == "provider")
         journey_provider_dialect(binary);
+    if (!only || std::string(only) == "capability")
+        journey_capability_ingestion(binary);
     if (!only || std::string(only) == "compression")
         journey_compression_keeps_ui_responsive(binary);
     if (!only)
