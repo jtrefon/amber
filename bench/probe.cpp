@@ -11,8 +11,11 @@
 
 #include "agent.h"
 #include "agent/context.h"
+#include "agent/context_shape.h"
 #include "agent/dispatch.h"
 #include "agent/event_bus.h"
+#include "agent/plugin_runtime.h"
+#include "agent/plugins_bundled.h"
 #include "agent/task.h"
 #include "agent/dialect.h"
 #include "agent/tool_call_parser.h"
@@ -1025,6 +1028,22 @@ bool setup_provides_tool(const Scenario& s, const std::string& tool) {
     return false;
 }
 
+// The shipped bundled plugin set, built over the same services the benchmark
+// host wires. The oracle probe needs it because a scenario may name a bundled
+// tool (the coding library's library_lookup) rather than a default one.
+struct ProbeHost {
+    agent::Config cfg;
+    agent::ShapeQueue shapes;
+    agent::HostServices services;
+    agent::Workspace workspace;
+    agent::PluginRuntime plugins;
+
+    ProbeHost(agent::ToolRegistry& registry, agent::JobService& jobs, agent::TodoStore& todos,
+              agent::SubAgentExecutor& subagents, agent::TaskService& tasks)
+        : services{&jobs, &todos, &subagents, &cfg.cancel_token, &shapes, &tasks},
+          plugins(registry, cfg, workspace) {}
+};
+
 // True when every oracle step in the scenario names a registered tool, or a
 // tool the scenario's setup contributes.
 bool oracle_tools_registered(const Scenario& s, const agent::ToolRegistry& reg,
@@ -1050,6 +1069,10 @@ bool oracle_probe_scenario_self_validation(ProbeResult& r) {
     agent::ToolRegistry reg;
     agent::register_default_tools(reg, jobs, todos, agent::CancellationToken{}, subagents,
                                   {nullptr, &tasks});
+    ProbeHost host(reg, jobs, todos, subagents, tasks);
+    host.plugins.attach_host_services(host.services);
+    agent::add_bundled_plugins(host.plugins);
+    host.plugins.start(/*use_persisted_state=*/false);
 
     const fs::path root = fs::current_path() / "bench" / "scenarios";
     if (!fs::is_directory(root))

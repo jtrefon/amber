@@ -1,0 +1,60 @@
+{
+  "name": "e2e-coding-library",
+  "suite": "e2e",
+  "description": "the agent reads a coding-library entry and its result reaches the answer",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Look up the coding library entry solid-violations-by-symptom and reply done.",
+  "oracle": [
+    {
+      "tool": "library_lookup",
+      "args": {
+        "name": "solid-violations-by-symptom"
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "library_lookup"
+    ]
+  },
+  "request_log_contains": [
+    "The acronym is not the diagnosis"
+  ],
+  "expected_tools": [
+    "library_lookup"
+  ],
+  "checks": {
+    "must_contain": [
+      "LIBRARY-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 12,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "library_lookup",
+            "arguments": "{\"name\":\"solid-violations-by-symptom\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 200,
+      "completion_tokens": 5,
+      "content": "LIBRARY-TOOL-DONE"
+    }
+  ]
+}
