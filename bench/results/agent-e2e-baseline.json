@@ -42,6 +42,19 @@
       "wall_ms": 189
     },
     {
+      "completion_tokens": 17,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "LIBRARY-TOOL-DONE",
+      "name": "e2e-coding-library",
+      "ok": true,
+      "prompt_tokens": 320,
+      "tool_calls": [
+        "library_lookup"
+      ],
+      "wall_ms": 34
+    },
+    {
       "completion_tokens": 75,
       "exit_code": 0,
       "failures": [],

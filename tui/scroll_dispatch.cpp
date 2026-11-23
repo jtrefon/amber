@@ -25,4 +25,8 @@ int clamped_scroll_top(int top, int delta, int max_top) {
     return t;
 }
 
+bool follows_live_edge(int scroll_top, int previous_max_top) {
+    return scroll_top >= previous_max_top - 2;
+}
+
 } // namespace tui::scroll_dispatch

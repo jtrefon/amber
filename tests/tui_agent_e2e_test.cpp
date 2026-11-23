@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cerrno>
 #include <cstdlib>
 #include <csignal>
@@ -20,8 +21,11 @@
 #include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "agent/profiles.h"
+#include "agent/skill_install.h"
 #include "agent/workspace.h"
 #include "bench/scripted_endpoint.h"
 #include "tests/minitest.h"
@@ -80,6 +84,226 @@ std::string git_output(const std::string& root, const std::string& args) {
         out += buffer;
     ::pclose(pipe);
     return out;
+}
+
+// Child processes inherit these; the guard restores the developer's own values
+// whether the journey passes, fails or returns early.
+struct ScopedEnv {
+    struct Entry {
+        std::string name;
+        bool had = false;
+        std::string value;
+    };
+    std::vector<Entry> entries;
+
+    explicit ScopedEnv(std::vector<std::pair<std::string, std::string>> vars) {
+        for (auto& var : vars) {
+            const char* old = std::getenv(var.first.c_str());
+            entries.push_back({var.first, old != nullptr, old != nullptr ? old : ""});
+            setenv(var.first.c_str(), var.second.c_str(), 1);
+        }
+    }
+    ~ScopedEnv() {
+        for (const auto& entry : entries) {
+            if (entry.had)
+                setenv(entry.name.c_str(), entry.value.c_str(), 1);
+            else
+                unsetenv(entry.name.c_str());
+        }
+    }
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+};
+
+// The first whitespace-delimited token after `marker`.
+std::string token_after(const std::string& text, const std::string& marker) {
+    const size_t at = text.rfind(marker);
+    if (at == std::string::npos)
+        return {};
+    size_t pos = at + marker.size();
+    while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos])))
+        ++pos;
+    size_t end = pos;
+    while (end < text.size() && !std::isspace(static_cast<unsigned char>(text[end])) &&
+           text[end] != '"')
+        ++end;
+    return text.substr(pos, end - pos);
+}
+
+// Output produced since `mark`, so a marker that was painted earlier in the
+// session cannot satisfy a later assertion.
+bool wait_since(Tui& tui, size_t mark, const std::string& marker, int cap_ms = 15000) {
+    for (int waited = 0; waited < cap_ms; waited += agent::test::pty::kPumpMs) {
+        tui.pump(agent::test::pty::kPumpMs);
+        if (agent::test::pty::text_since(tui, mark).find(marker) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+// A command that paints a long transcript is still writing when its marker
+// lands. Input queued into a pty the app is not draining can lose its tail, so
+// wait until the screen has been quiet for a few slices before the next write.
+void settle_output(Tui& tui) {
+    int quiet = 0;
+    while (quiet < 4) {
+        const size_t before = tui.raw.size();
+        tui.pump(agent::test::pty::kPumpMs);
+        if (tui.raw.size() == before)
+            ++quiet;
+        else
+            quiet = 0;
+    }
+}
+
+// Send one slash command and wait for its own output. The raw stream is
+// cleared first so a marker painted by an earlier command cannot satisfy this
+// assertion; the app still repaints only what changed, so the marker has to be
+// one this command is the first to print.
+bool run_command(Tui& tui, const std::string& line, const std::string& marker, int cap_ms = 15000) {
+    tui.raw.clear();
+    // Ctrl-G sends the line as typed. Enter while the completion drawer is open
+    // dispatches the highlighted row instead, so a bare namespace (/get) would
+    // run its first child.
+    tui.send(line + "\x07");
+    if (!tui.wait_for(marker, cap_ms))
+        return false;
+    settle_output(tui);
+    return true;
+}
+
+bool mouse_sgr(const Tui& tui) {
+    return tui.raw.find("\x1b[?1006") != std::string::npos;
+}
+
+bool mouse_enabled(const Tui& tui) {
+    return tui.raw.find("\x1b[?100") != std::string::npos;
+}
+
+// A real click is press + release: ncurses only arms the next press after the
+// release, so a bare press opens the menu once and swallows every later click.
+void send_click(Tui& tui, bool sgr, int x, int y) {
+    if (sgr) {
+        const std::string at = ";" + std::to_string(x + 1) + ";" + std::to_string(y + 1);
+        tui.send("\x1b[<0" + at + "M");
+        tui.send("\x1b[<0" + at + "m");
+        return;
+    }
+    tui.send(std::string("\x1b[M") + static_cast<char>(32) + static_cast<char>(32 + x) +
+             static_cast<char>(32 + y));
+    tui.send(std::string("\x1b[M") + static_cast<char>(32 + 3) + static_cast<char>(32 + x) +
+             static_cast<char>(32 + y));
+}
+
+bool write_text_file(const std::string& path, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(fs::path(path).parent_path(), ec);
+    return !ec && agent::test::pty::write_file(path, text);
+}
+
+bool run_shell(const std::string& command) {
+    return std::system(command.c_str()) == 0;
+}
+
+// A local skill pack: the installer reads a .tar.gz whose single top-level
+// directory holds SKILL.md. Built here so the journey never reaches the network.
+bool make_skill_pack(const std::string& root, const std::string& name) {
+    const std::string packs = root + "/.amber/packs";
+    const std::string dir = packs + "/" + name;
+    return write_text_file(dir + "/SKILL.md", "---\nname: " + name +
+                                                  "\ndescription: Local pack fixture.\n---\n\n"
+                                                  "A locally installed journey fixture.\n") &&
+           run_shell("tar -czf '" + root + "/.amber/" + name + ".tar.gz' -C '" + packs + "' '" +
+                     name + "'");
+}
+
+bool make_plugin_pack(const std::string& root) {
+    const std::string packs = root + "/.amber/packs";
+    const std::string dir = packs + "/fake";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    return !ec &&
+           fs::copy_file("tests/plugins/fake_manifest.json", dir + "/manifest.json",
+                         fs::copy_options::overwrite_existing, ec) &&
+           !ec &&
+           fs::copy_file("tests/plugins/fake_plugin.py", dir + "/fake_plugin.py",
+                         fs::copy_options::overwrite_existing, ec) &&
+           !ec && ::chmod((dir + "/fake_plugin.py").c_str(), 0755) == 0 &&
+           run_shell("tar -czf '" + root + "/.amber/fake-plugin.tar.gz' -C '" + dir +
+                     "' manifest.json fake_plugin.py");
+}
+
+// The management fixture: a learned memory, a second provider, and the packs.
+bool prepare_management_fixture(const std::string& root, const std::string& api_base) {
+    const std::string experience = agent::Workspace::state_dir() + "/experience.json";
+    std::error_code ec;
+    fs::create_directories(fs::path(experience).parent_path(), ec);
+    if (ec)
+        return false;
+    if (!write_text_file(experience, R"({"version":1,"memories":[{"id":"m1","name":"proj-name",)"
+                                     R"("content":"project uses make","tags":["build"],)"
+                                     R"("evidence":3,"last_confirm_turn":1,"score":0,)"
+                                     R"("promoted":true}],"skills":[]})"))
+        return false;
+    const std::string providers = agent::global_config_dir() + "/providers";
+    fs::create_directories(providers, ec);
+    return !ec &&
+           write_text_file(providers + "/custom.conf",
+                           "provider=custom\napi_base=" + api_base +
+                               "\nflavor=openai\nmodel=journey-test\n") &&
+           write_text_file(providers + "/temp.conf", "provider=temp\napi_base=" + api_base +
+                                                         "\nflavor=openai\napi_key=sk-test\n"
+                                                         "model=journey-temp\n") &&
+           make_plugin_pack(root);
+}
+
+// The checkpoint fixture a managed skill needs: the install directory plus the
+// ledger entry that records the remote revision and the local content hash.
+bool prepare_managed_skill(const std::string& root) {
+    const std::string skills = root + "/.amber/skills";
+    const std::string dir = skills + "/tdd";
+    const std::string body = "---\nname: tdd\ndescription: Managed tdd fixture.\n---\n\nbody one\n";
+    if (!write_text_file(dir + "/SKILL.md", body))
+        return false;
+    const std::string local_hash = agent::skill_content_hash(body);
+    const std::string ledger = "{\"version\":1,\"entries\":{\"tdd\":{\"id\":\"acme/skills/tdd\","
+                               "\"source\":\"acme/skills\",\"slug\":\"tdd\",\"ref\":\"main\","
+                               "\"hash\":\"old-hash\",\"local_hash\":\"" +
+                               local_hash +
+                               "\",\"category\":\"engineering\",\"note\":\"\",\"audit\":\"pass\","
+                               "\"installed_at_ms\":1,\"files\":1,\"bytes\":" +
+                               std::to_string(body.size()) + ",\"enabled\":true}}}";
+    return write_text_file(skills + "/.lock.json", ledger);
+}
+
+// A loopback GitHub/skills mirror: only the paths the update check reads. The
+// tree names a revision the ledger has never seen, so the remote is ahead.
+std::unique_ptr<bench::ScriptedEndpoint> make_skills_mirror() {
+    return std::make_unique<bench::ScriptedEndpoint>([](const bench::EndpointRequest& request) {
+        bench::EndpointReply reply;
+        reply.content_type = "text/plain";
+        if (request.path == "/api/search" || request.path == "/api/v1/skills/search") {
+            reply.content_type = "application/json";
+            reply.body = R"({"skills":[{"id":"acme/skills/tdd","name":"tdd",)"
+                         R"("source":"acme/skills","installs":1234}],"count":1})";
+        } else if (request.path == "/repos/acme/skills") {
+            reply.content_type = "application/json";
+            reply.body = R"({"default_branch":"main","license":{"spdx_id":"MIT"}})";
+        } else if (request.path == "/repos/acme/skills/git/trees/main") {
+            reply.content_type = "application/json";
+            reply.body =
+                R"({"truncated":false,"tree":[)"
+                R"({"path":"skills/tdd/SKILL.md","type":"blob","size":64,"sha":"new-hash"},)"
+                R"({"path":"skills/tdd/reference.md","type":"blob","size":8,"sha":"sha-ref"}]})";
+        } else if (request.path == "/acme/skills/main/skills/tdd/SKILL.md") {
+            reply.body = "---\nname: tdd\ndescription: Managed tdd fixture v2.\n---\n\nbody two\n";
+        } else if (request.path == "/acme/skills/main/skills/tdd/reference.md") {
+            reply.body = "ref one\n";
+        } else {
+            reply.handled = false;
+        }
+        return reply;
+    });
 }
 
 // One journey owns an isolated root, a loopback endpoint and the pty session.
@@ -570,6 +794,629 @@ void journey_skill_activation(const std::string& binary) {
         return;
     require(calls == 2, "the activation did not take exactly two requests", journey.tui);
     journey.finish("skill-activation");
+}
+
+void journey_skills_management(const std::string& binary) {
+    auto mirror = make_skills_mirror();
+    if (!require_setup(mirror->start(), "the skills mirror did not start"))
+        return;
+    ScopedEnv env({{"AMBER_SKILLS_INDEX_URL", mirror->root_url()},
+                   {"AMBER_GITHUB_API_URL", mirror->root_url()},
+                   {"AMBER_GITHUB_RAW_URL", mirror->root_url()}});
+    Journey journey;
+    if (!require(journey.start(binary, "skills-manage", {answer("SKILLS-SESSION-READY")}, "",
+                               [](const std::string& root) {
+                                   require_setup(prepare_managed_skill(root) &&
+                                                     make_skill_pack(root, "loose-skill"),
+                                                 "the skills fixtures were not written");
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    // The app opens on the read-only welcome window: a turn creates the chat
+    // window and its agent, which the skills commands read through.
+    journey.tui.send("Prepare the session.\r");
+    if (!require(journey.tui.wait_for("SKILLS-SESSION-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    if (!require(run_command(journey.tui, "/skills list", "project \u00b7 authored \u00b7 tdd"),
+                 "/skills list did not name the managed skill", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills show", "project \u00b7 authored \u00b7 tdd"),
+                 "/skills show did not list the catalog", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills show no-such-skill",
+                             "no skill matching 'no-such-skill'"),
+                 "/skills show did not report an unknown name", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills sources", "github api"),
+                 "/skills sources did "
+                 "not name the GitHub "
+                 "endpoint",
+                 journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills browse", "type to search"),
+                 "/skills browse did not open the explorer", journey.tui))
+        return;
+    journey.tui.send("q");
+    if (!require(journey.tui.wait_for("skills closed", 10000), "q did not close the explorer",
+                 journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills search tdd", "1 results"),
+                 "/skills search did not reach the prefilled explorer", journey.tui))
+        return;
+    journey.tui.send("q");
+    if (!require(journey.tui.wait_for("skills closed", 10000), "q did not close the explorer",
+                 journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/skills install acme/skills/tdd", "tdd"),
+                 "/skills install did not open the install sheet", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    journey.tui.send("q");
+    journey.tui.pump(500);
+
+    const std::string pack = journey.root + "/.amber/loose-skill.tar.gz";
+    if (!require(run_command(journey.tui, "/set skills install " + pack, "skill installed to"),
+                 "the local skill pack was not installed", journey.tui))
+        return;
+    require(fs::exists(journey.root + "/xdg/amber/skills/loose-skill/SKILL.md"),
+            "the installed skill file is missing", journey.tui);
+    if (!require(
+            run_command(journey.tui, "/skills list", "global \u00b7 authored \u00b7 loose-skill"),
+            "/skills list did not show the installed pack", journey.tui))
+        return;
+
+    // A locally edited managed skill: the update check names the remote change,
+    // and pressing u again is the explicit override. The first pass must leave
+    // the edited file alone.
+    const std::string local_edit =
+        "---\nname: tdd\ndescription: Locally edited.\n---\n\nlocal edit stays\n";
+    if (!require_setup(write_text_file(journey.root + "/.amber/skills/tdd/SKILL.md", local_edit),
+                       "the local edit was not written"))
+        return;
+    if (!require(run_command(journey.tui, "/skills update", "tdd"),
+                 "/skills update did not open the installed shelf", journey.tui))
+        return;
+    journey.tui.send("/");
+    journey.tui.pump(200);
+    journey.tui.send("tdd");
+    journey.tui.send("\r");
+    journey.tui.pump(300);
+    const size_t status_mark = journey.tui.raw.size();
+    journey.tui.send("u");
+    if (!require(wait_since(journey.tui, status_mark, "local edits"),
+                 "the update check did not report the local edit", journey.tui))
+        return;
+    journey.tui.send("u");
+    if (!require(journey.tui.wait_for("press x to override", 15000),
+                 "the review did not warn before replacing local edits", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    require(read_text(journey.root + "/.amber/skills/tdd/SKILL.md") == local_edit,
+            "an unreviewed update replaced the local edit", journey.tui);
+    journey.tui.send("q");
+    if (!require(journey.tui.wait_for("skills closed", 10000), "q did not close the explorer",
+                 journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/skills remove loose-skill", "loose-skill"),
+                 "/skills remove did not open the installed shelf", journey.tui))
+        return;
+    journey.tui.send("D");
+    if (!require(journey.tui.wait_for("Remove skill", 10000), "D did not open the removal prompt",
+                 journey.tui))
+        return;
+    journey.tui.send("y");
+    if (!require(journey.tui.wait_for("removed loose-skill", 10000),
+                 "the removal did not report the skill", journey.tui))
+        return;
+    require(!fs::exists(journey.root + "/xdg/amber/skills/loose-skill"),
+            "the removed skill directory is still there", journey.tui);
+    journey.finish("skills-manage");
+}
+
+void journey_management_surface(const std::string& binary) {
+    auto llm = std::make_unique<bench::ScriptedEndpoint>(
+        std::deque<bench::EndpointReply>{answer("MANAGEMENT-READY")});
+    if (!require_setup(llm->start(), "the management endpoint did not start"))
+        return;
+    const std::string llm_base = llm->base_url();
+    Journey journey;
+    if (!require(journey.start_with(binary, "management-surface", std::move(llm), "",
+                                    [llm_base](const std::string& root) {
+                                        require_setup(prepare_management_fixture(root, llm_base),
+                                                      "the management fixtures were not written");
+                                    }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    // The welcome window is read-only and owns no agent; one turn creates the
+    // chat window every management command below is reached through.
+    journey.tui.send("Prepare the management session.\r");
+    if (!require(journey.tui.wait_for("MANAGEMENT-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    // Top rail and the amber mark's menu.
+    if (!require(journey.tui.wait_for("\u25c6", 5000), "the amber mark is missing", journey.tui))
+        return;
+    if (mouse_enabled(journey.tui) &&
+        !require(mouse_sgr(journey.tui), "the app did not ask for SGR mouse encoding", journey.tui))
+        return;
+    if (mouse_sgr(journey.tui)) {
+        send_click(journey.tui, true, 1, 0);
+        if (!require(journey.tui.wait_for("File", 5000), "the mark did not open the menu",
+                     journey.tui))
+            return;
+        journey.tui.send("\x1b");
+        journey.tui.pump(500);
+    }
+
+    // The completion drawer is the typed path to every documented command.
+    journey.tui.raw.clear();
+    journey.tui.send("/");
+    if (!require(journey.tui.wait_for("Tab complete", 5000), "typing / did not open the drawer",
+                 journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("Show command help", 5000), "the drawer did not list /help",
+                 journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(300);
+    journey.tui.send("\x15"); // clear the "/" left in the composer
+    journey.tui.pump(200);
+
+    if (!require(run_command(journey.tui, "/learn show", "proj-name"),
+                 "/learn show did not list the stored memory", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/learn show m1", "content: project uses make"),
+                 "/learn show m1 did not open the detail", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/learn pin m1 on", "pinned m1: on"),
+                 "/learn pin did not pin the memory", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/learn panel", "Learned items"),
+                 "/learn panel did not open", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    if (!require(run_command(journey.tui, "/get learn", "memories:"),
+                 "the prompt did not return from the learn panel", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/learn forget m1", "removed m1"),
+                 "/learn forget did not remove the memory", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/provider list", "custom (http"),
+                 "/provider list did not render the active provider", journey.tui))
+        return;
+    // The catalogue probe is asynchronous: record the request count before the
+    // command, because the probe can finish before the "testing ..." line is
+    // painted. The screen only has to prove the command started.
+    const auto paths_before = journey.endpoint->paths();
+    const auto models_before = static_cast<std::size_t>(
+        std::count(paths_before.begin(), paths_before.end(), "/v1/models"));
+    journey.tui.raw.clear();
+    journey.tui.send("/provider test custom\x07");
+    if (!require(journey.tui.wait_for("testing custom...", 15000),
+                 "/provider test did not start the catalogue probe", journey.tui))
+        return;
+    bool probed = false;
+    for (int waited = 0; waited < 10000 && !probed; waited += 50) {
+        journey.tui.pump(50);
+        const auto paths = journey.endpoint->paths();
+        probed = static_cast<std::size_t>(std::count(paths.begin(), paths.end(), "/v1/models")) >
+                 models_before;
+    }
+    if (!require(probed, "/provider test did not probe the provider's model listing", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/provider delete temp", "deleted provider: temp"),
+                 "/provider delete did not remove the temporary provider", journey.tui))
+        return;
+    require(!fs::exists(agent::global_config_dir() + "/providers/temp.conf"),
+            "the deleted provider file is still there", journey.tui);
+
+    if (!require(
+            run_command(journey.tui, "/get plugin settings cache metric", "cache metric = tokens"),
+            "/get plugin settings did not read the cache metric", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set plugin settings cache metric calls",
+                             "set cache metric = calls"),
+                 "/set plugin settings did not write the cache metric", journey.tui))
+        return;
+    if (!require(
+            run_command(journey.tui, "/get plugin settings cache metric", "cache metric = calls"),
+            "the plugin setting did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/plugin hello greet Amber", "Hello, Amber!"),
+                 "/plugin hello greet did not run the contributed workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/panel", "Plugin registry"),
+                 "/panel did not open the registry console", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+
+    const std::string pack = journey.root + "/.amber/fake-plugin.tar.gz";
+    if (!require(run_command(journey.tui, "/set plugin install " + pack, "activates it"),
+                 "the plugin pack was not installed", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get plugin settings fake", "settings fake: (none)"),
+                 "the installed plugin's settings store was not readable", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set plugin on fake", "plugin fake on"),
+                 "the installed plugin did not activate", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/fake echo hi", "unknown command: /fake"),
+                 "an external plugin added a command root", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set plugin off fake", "plugin fake off"),
+                 "the installed plugin did not deactivate", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set plugin uninstall fake", "uninstalled: fake"),
+                 "the installed plugin was not removed", journey.tui))
+        return;
+    require(!fs::exists(agent::global_config_dir() + "/plugins/fake"),
+            "the uninstalled plugin directory is still there", journey.tui);
+
+    // Sessions: save the finished turn, rename the stored row, remove it, then
+    // fork the live conversation into its own window.
+    if (!require(run_command(journey.tui, "/session save", "saved session"),
+                 "/session save did not persist the conversation", journey.tui))
+        return;
+    const std::string session_id = token_after(journey.tui.text(), "saved session ");
+    if (!require_setup(!session_id.empty(), "the saved session id was not printed"))
+        return;
+    const std::string session_file =
+        agent::Workspace::state_dir() + "/sessions/" + session_id + ".json";
+    if (!require_setup(fs::exists(session_file), "the saved session file is missing"))
+        return;
+    if (!require(run_command(journey.tui, "/session rename " + session_id + " Renamed Session",
+                             "renamed session " + session_id),
+                 "/session rename did not update the stored row", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/session remove " + session_id,
+                             "deleted session: " + session_id),
+                 "/session remove did not delete the stored row", journey.tui))
+        return;
+    require(!fs::exists(session_file), "the removed session file is still there", journey.tui);
+    if (!require(run_command(journey.tui, "/session fork", "forked session into window"),
+                 "/session fork did not open the forked window", journey.tui))
+        return;
+
+    // /help paints a long transcript; the command after it must still be
+    // visible (the live-edge rule this journey pinned in the pty suite).
+    if (!require(run_command(journey.tui, "/help", "/undo Restore the"),
+                 "/help did not print the command list", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/stop", "stop requested"),
+                 "the command after /help was not visible", journey.tui))
+        return;
+    journey.finish("management-surface");
+}
+
+void journey_settings_surface(const std::string& binary) {
+    Journey journey;
+    if (!require(journey.start(binary, "settings-surface", {answer("SETTINGS-READY")}),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Prepare the settings session.\r");
+    if (!require(journey.tui.wait_for("SETTINGS-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    if (!require(run_command(journey.tui, "/set", "Use /set <option> <value>"),
+                 "the bare /set overview did not print", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/settings", "settings groups"),
+                 "the /settings group list did not print", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get", "Configuration"),
+                 "/get did not open the configuration screen", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    if (!require(run_command(journey.tui, "/get config", "Configuration"),
+                 "/get config did not open the configuration screen", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    if (!require(run_command(journey.tui, "/get config paths", "sessions"),
+                 "/get config paths did not print the resolved layout", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get display", "theme: amber"),
+                 "the display readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set display theme modern", "theme: Modern"),
+                 "the display theme was not set", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get display", "theme: modern"),
+                 "the display theme did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set display theme sepia", "usage: /set display theme"),
+                 "an invalid theme was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get display", "theme: modern"),
+                 "an invalid theme changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get policy mode", "policy mode: write"),
+                 "the policy mode readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set policy mode read", "policy mode: read"),
+                 "the policy mode was not set", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get policy mode", "policy mode: read"),
+                 "the policy mode did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set policy mode chaos", "usage: /set policy mode"),
+                 "an invalid policy mode was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get policy approval", "policy approval: on"),
+                 "the approval readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set policy approval off", "policy approval: off"),
+                 "the approval switch was not set", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get policy approval", "policy approval: off"),
+                 "the approval switch did not round-trip", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get work", "work.auto_attach: off"),
+                 "the work readout is wrong", journey.tui))
+        return;
+    if (!require(
+            run_command(journey.tui, "/set work auto_attach agents", "work.auto_attach: agents"),
+            "the work setting was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get work", "work.auto_attach: agents"),
+                 "the work setting did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set work auto_attach sometimes",
+                             "work.auto_attach: expected off|agents|jobs|all"),
+                 "an invalid work setting was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get work", "work.auto_attach: agents"),
+                 "an invalid work setting changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get worktree", "worktree: on"),
+                 "the worktree readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set worktree off", "worktree: off"),
+                 "the worktree setting was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get worktree", "worktree: off"),
+                 "the worktree setting did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set worktree maybe", "usage: /set worktree"),
+                 "an invalid worktree value was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get worktree", "worktree: off"),
+                 "an invalid worktree value changed the setting", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get input", "input.max_lines: 8"),
+                 "the input readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set input max_lines 10", "input.max_lines: 10"),
+                 "the input line cap was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get input", "input.max_lines: 10"),
+                 "the input line cap did not round-trip", journey.tui))
+        return;
+    if (!require(
+            run_command(journey.tui, "/set input max_lines 99", "input.max_lines: expected 1-20"),
+            "an invalid input line cap was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get input", "input.max_lines: 10"),
+                 "an invalid input line cap changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get logs", "cap: 256 MB"), "the logs readout is wrong",
+                 journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set logs max 128", "logs cap: 128 MB"),
+                 "the logs cap was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get logs", "cap: 128 MB"),
+                 "the logs cap did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set logs max 0", "logs.max: invalid value"),
+                 "an invalid logs cap was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get logs", "cap: 128 MB"),
+                 "an invalid logs cap changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get detection", "detection loop: off"),
+                 "the detection readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set detection loop on", "detection loop: on"),
+                 "the loop detector was not enabled", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get detection", "detection loop: on"),
+                 "the loop detector did not round-trip", journey.tui))
+        return;
+    if (!require(
+            run_command(journey.tui, "/set detection loop maybe", "usage: /set detection loop"),
+            "an invalid loop value was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get detection", "detection loop: on"),
+                 "an invalid loop value changed the setting", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get compression", "compression threshold:"),
+                 "the compression readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set compression threshold 0.7",
+                             "compression threshold: 0.700000"),
+                 "the compression threshold was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get compression", "compression threshold: 0.700000"),
+                 "the compression threshold did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set compression threshold 2",
+                             "compression.threshold: invalid value (0.1-1.0)"),
+                 "an invalid compression threshold was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get compression", "compression threshold: 0.700000"),
+                 "an invalid compression threshold changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get skills settings", "review on"),
+                 "the skills acquisition readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills review off", "skills review: off"),
+                 "the skills review gate was not changed", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get skills settings", "review off"),
+                 "the skills review gate did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills review maybe",
+                             "usage: /set skills review on|off"),
+                 "an invalid skills review value was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get skills settings", "review off"),
+                 "an invalid skills review value changed the gate", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills create probe-skill",
+                             "skill 'probe-skill' created (project)"),
+                 "the probe skill was not created", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills delete probe-skill",
+                             "skill 'probe-skill' deleted (project)"),
+                 "the probe skill was not deleted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills refresh", "skills refreshed"),
+                 "the skill catalog was not refreshed", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set skills interop on", "skills interop: on"),
+                 "the interop scan was not enabled", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get subagent", "subagent parallel:"),
+                 "the subagent readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set subagent max 2", "subagent max: 2"),
+                 "the subagent cap was not applied", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get subagent", "max: 2"),
+                 "the subagent cap did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set subagent max 0", "usage: /set subagent max <1-16>"),
+                 "an invalid subagent cap was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get subagent", "max: 2"),
+                 "an invalid subagent cap changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get reasoning", "configured=off"),
+                 "the reasoning readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set reasoning effort off",
+                             "reasoning effort: off (applies from the next turn)"),
+                 "the reasoning effort was not set", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set reasoning effort high",
+                             "not available for journey-test"),
+                 "an unavailable reasoning effort was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get reasoning", "configured=off"),
+                 "an unavailable reasoning effort changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get model", "model: journey-test (provider: custom)"),
+                 "the model readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set model context 200000",
+                             "context window pinned: 200000 tokens"),
+                 "the context window was not pinned", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+                 "the context window did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set model context 100", "usage: /set model context"),
+                 "an invalid context window was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+                 "an invalid context window changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get provider", "flavor: openai"),
+                 "the provider readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set provider cache 1h", "provider cache 1h"),
+                 "the provider cache lifetime was not set", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get provider", "prompt cache 1h"),
+                 "the provider cache lifetime did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set provider cache 2h", "usage: /set provider cache"),
+                 "an invalid cache lifetime was accepted", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get provider", "prompt cache 1h"),
+                 "an invalid cache lifetime changed the value", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/get debug", "diagnostics: off"),
+                 "the diagnostics readout is wrong", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set debug on", "diagnostics: on"),
+                 "the diagnostics switch was not enabled", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get debug", "diagnostics: on"),
+                 "the diagnostics switch did not round-trip", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/set debug off", "diagnostics: off"),
+                 "the diagnostics switch was not disabled", journey.tui))
+        return;
+    journey.finish("settings-surface");
+}
+
+void journey_coding_library(const std::string& binary) {
+    Journey journey;
+    if (!require(journey.start(binary, "coding-library",
+                               [](const bench::EndpointRequest& request) {
+                                   bench::EndpointReply reply;
+                                   if (request.path != "/v1/chat/completions") {
+                                       reply.handled = false;
+                                       return reply;
+                                   }
+                                   if (request.sequence == 0)
+                                       return tool_call("c1", "library_lookup", R"({"list":true})");
+                                   reply.content =
+                                       request.body.find("architecture-monolith-or-services") !=
+                                               std::string::npos
+                                           ? "LIBRARY-TOOL-DONE"
+                                           : "LIBRARY-RESULT-MISSING";
+                                   return reply;
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("List the coding library. LIBRARY\r");
+    if (!require(journey.tui.wait_for("LIBRARY-TOOL-DONE", 30000),
+                 "the library tool result never reached the model", journey.tui))
+        return;
+    journey.finish("coding-library");
 }
 
 void journey_mcp_tool_call(const std::string& binary) {
@@ -1346,6 +2193,14 @@ int main(int argc, char** argv) {
         journey_subagent_reports_back(binary);
     if (!only || std::string(only) == "skill")
         journey_skill_activation(binary);
+    if (!only || std::string(only) == "skills-manage")
+        journey_skills_management(binary);
+    if (!only || std::string(only) == "management-surface")
+        journey_management_surface(binary);
+    if (!only || std::string(only) == "settings-surface")
+        journey_settings_surface(binary);
+    if (!only || std::string(only) == "coding-library")
+        journey_coding_library(binary);
     if (!only || std::string(only) == "mcp")
         journey_mcp_tool_call(binary);
     if (!only || std::string(only) == "plugin")

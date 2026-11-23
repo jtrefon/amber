@@ -24,7 +24,7 @@ and `../tui/e2e-testing.md`; the gates print their own counts.
 ```sh
 find bench/scenarios -mindepth 2 -maxdepth 2 -name '*.json' | wc -l  # 86
 make bench-check        # the hermetic cells; the baseline + additive counts
-make agent-e2e-check    # 18 CLI journeys against the committed baseline
+make agent-e2e-check    # 19 CLI journeys against the committed baseline
 make long-horizon-check # 5 repository journeys
 ```
 
