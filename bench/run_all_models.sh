@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the full model benchmark (49 scenarios) for every model registered in
+# Run the current model corpus (79 scenarios on 2026-11-23) for every model registered in
 # the llama-turboq in-process swap registry (models.ini aliases).
 #
 # Uses the service's documented in-process model swap (POST /models/load) —

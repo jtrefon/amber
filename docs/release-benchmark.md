@@ -15,7 +15,8 @@ the release workflow decides with the changed-path list and
 ## Minimum for the gate
 
 One live run on the fixed local profile with `--repeat 3`, committed as
-`bench/results/releases/<version>/local-<model>-r3.json`:
+`bench/results/releases/<version>/local-<model>-r3.json`. The model corpus is
+the current one (79 scenarios on 2026-11-23; the gate's absolute floor is 49):
 
 ```sh
 ./amber-bench run --live --profile qwen38-27b-mtp --repeat 3 \
@@ -24,8 +25,9 @@ make bench-release-check VERSION=<version>
 ```
 
 The gate rejects a non-live run, a different engine, a short corpus, an
-infrastructure failure (a setup error, a throw, a task that never finished) and
-a score drop beyond the recorded band. A model losing scenario points is the
+infrastructure failure (a setup error, a throw, a task that never finished), a
+score drop beyond the recorded band, and the cost/behaviour regressions in the
+section below. A model losing scenario points is the
 measurement, not an infrastructure failure. The full model population below is
 still the documented release review; the minimum is what blocks a tag.
 
@@ -34,6 +36,38 @@ stand in for the minimum and is recorded as such in the release directory and
 the release notes; the local population remains the review target. The baseline
 artifact records its model and profile, so a later reader can tell which was
 measured.
+
+## Cost and behaviour bands (0.9+)
+
+`make bench-release-check` compares the new artifact with the highest earlier
+release directory under `bench/results/releases/` for the same `(model,
+profile)`; `BENCH_PREVIOUS_DIR` overrides the discovery. On the scenarios
+successful in both artifacts (the common successful corpus, floor 30):
+
+- prompt+completion tokens: the median of the repeat-3 totals per scenario,
+  aggregated across the common corpus, within +10%;
+- tool calls: aggregated across the common corpus, within +10%;
+- compaction failures: zero;
+- hard stop / wall-budget failures: zero;
+- per-scenario wall: at most `max(3x, +60 s)`; TTFT at most
+  `max(3x, +10 s)` — a pathology ceiling, not a micro-regression;
+- model score: within 5.0 of the previous artifact on the same model/profile.
+  When the corpus changed (0.9 adds scenarios the 0.8.9 artifact did not run),
+  the top `model_score` is a different weighted aggregate and is reported but
+  not gated; the band is applied to the mean per-scenario score of the
+  scenarios present in both artifacts, scaled to the 0..1000 axis.
+
+The per-scenario repeat variance is why tokens are compared in aggregate, and
+the wall/TTFT ceilings exist to catch a hang rather than a slow tail. The score
+band is a ratchet, not a significance test (the 0.8.9 95% CI is ±11.3 points; a
+larger drop is a release decision recorded in the artifact README, not a silent
+pass). The gate is `tools/bench_release_check.py`; its tests are
+`tests/gates/test_bench_release_check.py`. A deliberate override uses
+`--cost-band` / `--comparable-floor` and is recorded in the release notes.
+
+The 0.8.9 artifact is the 0.9 baseline: the self-comparison is 37 common
+successful scenarios, 3,550,162 tokens and 210 tool calls. The 0.8.9 -> 0.8.8
+comparison was green (tokens -1.8%, calls -10.2%) before the 0.9 run.
 
 ## Pending validations (re-scoped while the service is down)
 

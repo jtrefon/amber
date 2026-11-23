@@ -248,7 +248,9 @@ driven by an OpenAI-compatible LLM API.
   bench-release-check VERSION=X` requires a committed live artifact under
   `bench/results/releases/X/`: mode live, engine X, the model corpus covered,
   zero failed scenarios, and no score drop beyond the recorded band against the
-  previous release. No artifact prints `NOT MEASURED` and exits non-zero;
+  previous release. It also enforces the cost/behaviour bands on the common
+  successful corpus: prompt+completion tokens and tool calls within +10%,
+  zero compaction/hard-stop failures, and a wall/TTFT pathology ceiling. No artifact prints `NOT MEASURED` and exits non-zero;
   docs/website/packaging-only tags skip via `CHANGED_PATHS`, which
   `release.yml` computes from the previous tag. The gate is tested in
   `tests/gates/test_bench_release_check.py`. The live run itself still follows

@@ -17,13 +17,25 @@ gate = load("bench_release_check")
 
 
 def artifact(engine="0.8.8", model="qwen38-27b-mtp", profile="qwen38-27b-mtp",
-             score=800.0, scenarios=49, failed=(), mode="live"):
+             score=800.0, scenarios=49, failed=(), mode="live", token_scale=1.0,
+             calls=1, wall_ms=1000, ttft_ms=100, compaction=0, failure="scenario failed",
+             row_score=90.0):
     rows = []
     for i in range(scenarios):
-        row = {"name": f"s-{i}", "suite": "tools", "score": 90.0, "success": True}
+        prompt = int(100 * token_scale)
+        completion = int(10 * token_scale)
+        row = {
+            "name": f"s-{i}", "suite": "tools", "score": row_score, "success": True,
+            "prompt_tokens": prompt, "completion_tokens": completion,
+            "repeat_prompt_tokens": [prompt] * 3,
+            "repeat_completion_tokens": [completion] * 3,
+            "tool_calls_total": calls, "tool_calls": [{}] * calls,
+            "wall_ms": wall_ms, "ttft_ms": ttft_ms,
+            "compaction_failures": compaction,
+        }
         if i in failed:
             row["success"] = False
-            row["failures"] = ["scenario failed"]
+            row["failures"] = [failure]
         rows.append(row)
     return {
         "engine_version": engine,
@@ -55,6 +67,100 @@ class Fixture:
         import shutil
 
         shutil.rmtree(self.root, ignore_errors=True)
+
+
+class CostBands(unittest.TestCase):
+    def setUp(self):
+        self.f = Fixture(self.id().rsplit(".", 1)[-1])
+
+    def tearDown(self):
+        self.f.cleanup()
+
+    def run_check(self, current, previous, **kwargs):
+        current_dir = self.f.write("current", "run.json", current)
+        previous_dir = self.f.write("previous", "old.json", previous)
+        kwargs.setdefault("min_scenarios", 2)
+        kwargs.setdefault("comparable_floor", 2)
+        return gate.check(current_dir, "0.8.8", previous_dir=previous_dir, **kwargs)
+
+    def test_equal_cost_passes(self):
+        report = self.run_check(artifact(scenarios=3), artifact(scenarios=3))
+        self.assertEqual(report.code, 0, "\n".join(report.lines))
+        self.assertIn("cost 3 common", "\n".join(report.lines))
+
+    def test_token_regression_beyond_ten_percent_fails(self):
+        report = self.run_check(artifact(scenarios=3, token_scale=1.2), artifact(scenarios=3))
+        self.assertEqual(report.code, 1)
+        self.assertIn("tokens up", "\n".join(report.lines))
+
+    def test_token_growth_inside_the_band_passes(self):
+        report = self.run_check(artifact(scenarios=3, token_scale=1.05), artifact(scenarios=3))
+        self.assertEqual(report.code, 0, "\n".join(report.lines))
+
+    def test_tool_call_regression_beyond_ten_percent_fails(self):
+        report = self.run_check(artifact(scenarios=3, calls=2), artifact(scenarios=3, calls=1))
+        self.assertEqual(report.code, 1)
+        self.assertIn("tool calls up", "\n".join(report.lines))
+
+    def test_failed_scenarios_are_excluded_from_cost(self):
+        previous = artifact(scenarios=3)
+        current = artifact(scenarios=3)
+        current["scenarios"][0]["success"] = False
+        current["scenarios"][0]["failures"] = ["final answer failed scenario checks"]
+        current["scenarios"][0]["prompt_tokens"] = 10**9
+        current["scenarios"][0]["repeat_prompt_tokens"] = [10**9] * 3
+        report = self.run_check(current, previous)
+        text = "\n".join(report.lines)
+        self.assertNotIn("tokens up", text)
+
+    def test_comparable_floor_fails_closed(self):
+        report = self.run_check(artifact(scenarios=3), artifact(scenarios=3), comparable_floor=4)
+        self.assertEqual(report.code, 1)
+        self.assertIn("comparable successful", "\n".join(report.lines))
+
+    def test_compaction_failure_blocks(self):
+        report = self.run_check(artifact(scenarios=3, compaction=1), artifact(scenarios=3))
+        self.assertEqual(report.code, 1)
+        self.assertIn("compaction failure", "\n".join(report.lines))
+
+    def test_hard_stop_blocks(self):
+        report = self.run_check(
+            artifact(scenarios=3, failed={0}, failure="hard stop: wall budget"),
+            artifact(scenarios=3),
+        )
+        self.assertEqual(report.code, 1)
+        self.assertIn("hard stop", "\n".join(report.lines))
+
+    def test_wall_pathology_blocks(self):
+        report = self.run_check(artifact(scenarios=3, wall_ms=100000), artifact(scenarios=3))
+        self.assertEqual(report.code, 1)
+        self.assertIn("wall", "\n".join(report.lines))
+
+    def test_ttft_pathology_blocks(self):
+        report = self.run_check(artifact(scenarios=3, ttft_ms=50000), artifact(scenarios=3))
+        self.assertEqual(report.code, 1)
+        self.assertIn("TTFT", "\n".join(report.lines))
+
+    def test_corpus_change_uses_the_common_score(self):
+        report = self.run_check(artifact(scenarios=4, score=700), artifact(scenarios=3, score=800))
+        text = "\n".join(report.lines)
+        self.assertEqual(report.code, 0, text)
+        self.assertIn("corpus changed", text)
+        self.assertIn("common score", text)
+
+    def test_common_score_regression_fails(self):
+        report = self.run_check(
+            artifact(scenarios=4, score=800, row_score=80),
+            artifact(scenarios=3, score=800),
+        )
+        self.assertEqual(report.code, 1)
+        self.assertIn("common-corpus score", "\n".join(report.lines))
+
+    def test_no_previous_notes_cost_bands_not_measured(self):
+        directory = self.f.write("current", "run.json", artifact(scenarios=3))
+        report = gate.check(directory, "0.8.8", min_scenarios=2)
+        self.assertEqual(report.code, 0, "\n".join(report.lines))
+        self.assertIn("cost bands not measured", "\n".join(report.lines))
 
 
 class ReleaseGate(unittest.TestCase):
@@ -144,6 +250,19 @@ class ReleaseGate(unittest.TestCase):
         report = gate.check(directory, "0.8.8", min_scenarios=2)
         self.assertEqual(report.code, 1)
         self.assertIn("unreadable", "\n".join(report.lines))
+
+    def test_discover_previous_picks_the_highest_earlier_release(self):
+        for version in ("0.8.8", "0.8.9", "0.9.0", "0.10.0"):
+            self.f.write(f"releases/{version}", "run.json", {"model_score": 1})
+        (self.f.root / "releases" / "not-a-version").mkdir()
+        self.assertEqual(
+            Path(gate.discover_previous(str(self.f.root / "releases/0.9.0"))).name, "0.8.9"
+        )
+        self.assertEqual(
+            Path(gate.discover_previous(str(self.f.root / "releases/0.8.9"))).name, "0.8.8"
+        )
+        self.assertIsNone(gate.discover_previous(str(self.f.root / "releases/0.8.8")))
+        self.assertIsNone(gate.discover_previous(str(self.f.root / "elsewhere")))
 
     def test_corpus_counts_only_real_scenarios(self):
         corpus = self.f.root / "corpus" / "suite"
