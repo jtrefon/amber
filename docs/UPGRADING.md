@@ -3,6 +3,43 @@
 This note covers the move from the 0.8 line to 1.0. It is deliberately short;
 the release notes carry the per-release details.
 
+## 0.8.9 -> 0.9.0
+
+0.9 adds named profiles and per-turn checkpoints. On the first 0.9 start, when
+the profiles directory does not exist, the connection the config files resolved
+is saved as `profiles/default.json` (mode 0600). Sessions, the global config,
+the project `amber.conf` and plugin state keep their paths; a plugin disabled
+in 0.8.9 stays disabled.
+
+The installed-tree check:
+
+```sh
+# Extract amber-0.8.9-<platform>.tar.gz, build the candidate, then:
+make upgrade-check UPGRADE_OLD=/path/to/amber-0.8.9/usr/local/bin/amber
+```
+
+It drives the real 0.8.9 TUI and the candidate against one scratch XDG tree and
+project, a loopback endpoint and a real git repository. It asserts:
+
+- the 0.8.9 session's context is carried into 0.9;
+- `profiles/default.json` has the migrated endpoint, model and key (0600);
+- a second profile and `<project>/.amber/profile` pin apply before the turn;
+- the profile key is masked in the transcript;
+- the checkpoint turn creates a ref under `refs/amber/checkpoints`, the history
+  survives a restart, and the user's HEAD/branch do not move;
+- the 0.8.9 plugin state survives;
+- a missing config falls back with `info: wrote default config`, and a bad
+  legacy value warns (`config: ... using default`) instead of crashing.
+
+The 0.9.0 package/Homebrew upgrade itself is P4: it uses the same state, and
+`amber-cli update` selects the system package manager. The check uses the
+previous release tarball and the candidate build because the 0.9.0 package does
+not exist before the tag.
+
+Observed 2026-11-23 on macOS arm64 with
+`amber-0.8.9-darwin-arm64.tar.gz` and the current `main`: all checks passed
+(the script prints each).
+
 ## Packages
 
 - The package is named `amber-agent` on apt and dnf. The binaries remain

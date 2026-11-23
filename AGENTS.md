@@ -244,6 +244,13 @@ driven by an OpenAI-compatible LLM API.
   `cpp_toolchain: 'false'` to skip clang/ncurses/pkg-config. To upgrade the
   image, change every `runs-on` together, let the full matrix and
   `mirror-probe` pass, and update `tests/gates/test_runner_pins.py`.
+- **Installed-tree upgrades are checked, not assumed.** `make upgrade-check
+  UPGRADE_OLD=<0.8.9>/usr/local/bin/amber` drives the previous release and the
+  candidate through one scratch XDG tree and project and asserts session
+  context, `profiles/default.json` migration, the `.amber/profile` pin,
+  checkpoints, plugin state and missing/legacy config fallbacks. It is a
+  release check, not CI: the previous artifact is not checked out there. Record
+  the output and the artifact in the release issue.
 - **A live benchmark is a release gate, not a dashboard.** `make
   bench-release-check VERSION=X` requires a committed live artifact under
   `bench/results/releases/X/`: mode live, engine X, the model corpus covered,
