@@ -66,7 +66,7 @@ driven by an OpenAI-compatible LLM API.
   declarations with `make capability-snapshot-update` and pinned by `make test`,
   so a new capability without a snapshot update and a matrix row is red twice.
   `docs/spec/tui/e2e-testing.md` is the one human-readable journey inventory
-  (18 CLI, 17 TUI, 5 long-horizon).
+  (19 CLI, 21 TUI, 5 long-horizon).
 - **`w/` and `.wt/*` are separate git worktrees inside this tree**, not the
   project. They carry their own `run_tests`, `tools/`, and stale test results
   (e.g. `w/`'s `1105 passed, 9 failed`). The repo root is the only source of
@@ -1460,7 +1460,7 @@ claim 0-debt conformance. Line counts below are enforced by
 |------|------:|-------|
 | `tests/run_tests.cpp` | - | Test file; exempt from class-size rule but a candidate for per-area headers. |
 | `lib/session.cpp` | 329 | Resolved, `list()` now uses `std::filesystem::directory_iterator`. |
-| `tui/tui_render.cpp` | 122 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
+| `tui/tui_render.cpp` | 127 | Method implementations (not a class); exempt from class-size rule; real rendering now in `render_engine.cpp` (FIX-026). |
 | `tui/tui_input.cpp` | 4835 | Method implementations (not a class); exempt from class-size rule. |
 
 ### Resolved

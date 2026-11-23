@@ -44,8 +44,9 @@ Fields beyond the common scenario schema:
 The surface journeys add two cases each for skills
 (`e2e-skill-activation`, `e2e-skill-missing-recovery`), MCP
 (`e2e-mcp-tool-call`, `e2e-mcp-missing-tool-recovery`) and external plugins
-(`e2e-plugin-tool-call`, `e2e-plugin-failure-recovery`), plus the Anthropic and
-Gemini dialect journeys (`e2e-provider-anthropic`, `e2e-provider-gemini`). The
+(`e2e-plugin-tool-call`, `e2e-plugin-failure-recovery`), the Anthropic and
+Gemini dialect journeys (`e2e-provider-anthropic`, `e2e-provider-gemini`), and
+the coding library's `library_lookup` round trip (`e2e-coding-library`). The
 failure paths assert that an unknown skill/tool or a plugin failure is a tool
 error the model can recover from, not a crash. The TUI suite covers the same
 skill, MCP, plugin and provider surfaces through the real pty client.

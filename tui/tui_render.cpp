@@ -1,4 +1,5 @@
 #include "tui.h"
+#include "scroll_dispatch.h"
 #include "tool_display.h"
 
 #include <ctime>
@@ -29,6 +30,11 @@ size_t Tui::append_line_to(Window& w, int color, const std::string& text) {
     return append_line_to(w, color, text, timestamp());
 }
 size_t Tui::append_line_to(Window& w, int color, const std::string& text, const std::string& ts) {
+    // The live-edge decision is relative to where the bottom was BEFORE this
+    // line: a wrapped line can move the maximum by several rows at once, and
+    // comparing against the new maximum leaves the view behind (which made a
+    // command's output after a long /help list invisible).
+    const int previous_max = render_engine_->max_scroll(w);
     // Build one RichLine with a dim timestamp run followed by the body run,
     // then wrap it to the current width so wrapped continuations align.
     rich::Line head;
@@ -43,9 +49,8 @@ size_t Tui::append_line_to(Window& w, int color, const std::string& text, const 
     for (auto& l : wrapped)
         w.lines.push_back(std::move(l));
     trim_lines(w);
-    int max = render_engine_->max_scroll(w);
-    if (w.scroll_top >= max - 2)
-        w.scroll_top = max;
+    if (scroll_dispatch::follows_live_edge(w.scroll_top, previous_max))
+        w.scroll_top = render_engine_->max_scroll(w);
     return first;
 }
 void Tui::append_rich(const rich::Line& l) {
