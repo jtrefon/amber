@@ -22,6 +22,11 @@ Run this in order. Every command must succeed before the next step.
       with `./configure && make clean && make`).
 - [ ] `make test` includes the pty suite and the plugin conformance tests.
 - [ ] `make check` and `make verify-quick` are clean.
+- [ ] `make journey-matrix-release` is green: no `deferred:` cell remains.
+- [ ] Every manual cell claimed for 0.9 in `docs/platform-support.md` has a
+      recorded result in #698 (Terminal.app, iTerm2, GNU screen, plain ssh,
+      WSL2 and any other named xterm-256color emulator); unrecorded cells are
+      named as unverified in the release notes.
 - [ ] `make docs`/website build and smoke if the site changed.
 
 ## 3. Tag

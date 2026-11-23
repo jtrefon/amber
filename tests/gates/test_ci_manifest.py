@@ -185,6 +185,53 @@ class Advisory(unittest.TestCase):
         self.assertEqual(checker.advisory_errors(manifest.JOBS, blocks), [])
 
 
+MATRIX_CONDITIONS = """\
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+  guarded:
+    runs-on: macos-latest
+    if: needs.changes.outputs.cpp == 'true'
+    steps:
+      - name: No matrix
+        if: matrix.cxx == 'g++'
+        run: echo
+  real:
+    strategy:
+      matrix:
+        cxx: [g++, clang++]
+    runs-on: ubuntu-latest
+    steps:
+      - name: With matrix
+        if: matrix.cxx == 'g++'
+        run: echo
+  ci-gate:
+    needs: [changes]
+"""
+
+
+class MatrixConditions(unittest.TestCase):
+    def test_a_matrix_condition_without_a_matrix_is_an_error(self):
+        errors = checker.matrix_errors(checker.parse_job_blocks(MATRIX_CONDITIONS))
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("guarded", errors[0])
+        self.assertIn("never runs", errors[0])
+
+    def test_a_matrix_condition_with_a_matrix_is_clean(self):
+        errors = checker.matrix_errors(checker.parse_job_blocks(MATRIX_CONDITIONS))
+        self.assertFalse(any("real" in error for error in errors), errors)
+
+    def test_the_real_workflow_has_no_undefined_matrix_condition(self):
+        with open(WORKFLOW, encoding="utf-8") as handle:
+            blocks = checker.parse_job_blocks(handle.read())
+        self.assertEqual(checker.matrix_errors(blocks), [])
+
+
 class TheRepository(unittest.TestCase):
     def test_the_real_workflow_and_manifest_agree(self):
         self.assertEqual(checker.load_and_check(WORKFLOW), [])

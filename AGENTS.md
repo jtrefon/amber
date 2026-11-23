@@ -167,7 +167,10 @@ driven by an OpenAI-compatible LLM API.
   job must be in `ci-gate.needs`, and every gating job must name a local command
   or a reason it is CI-only. It runs inside `make check` and `make verify-quick`.
   Without it, a job can be added to the workflow, report a check run, and never
-  be judged by the merge gate.
+  be judged by the merge gate. It also rejects a step `if:` that references
+  `matrix.*` in a job with no `strategy.matrix`: GitHub evaluates the missing
+  context as false, so the step silently never runs (the macOS tmux smoke was
+  dead that way), and a green job then claims a gate that never executed.
 - `make library-check` executes the `run` blocks in the prompt library
   (`prompts/domains/coding/library/**/*.md`). A block marked `# manual:` is
   skipped on purpose; `# platform: linux` (or `darwin`) and
