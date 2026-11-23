@@ -84,7 +84,7 @@ scripted deque or a responder (so a journey can inspect the request and answer
 per path), an `extra_settings` string, a `prepare` hook that runs before startup
 (skills/MCP/plugins) and `root_api_base` for a versioned dialect.
 
-The 16 journeys are:
+The 17 journeys are:
 
 | Journey | What it proves |
 |---|---|
@@ -98,11 +98,13 @@ The 16 journeys are:
 | `restart` | a second process resumes the saved session and its context |
 | `checkpoint` | history, diff, undo (including the empty-history path), rollback by turn, the private ref, and the user's HEAD/branch unchanged |
 | `usage` | a provider that splits out reasoning tokens shows `thinking N` without inflating `down`; a provider that reports none shows no fabricated breakdown |
+| `capability-ingestion` | an advertised Gemini `thinking` contract reaches the wire (`includeThoughts`, `thinkingBudget: 0` off) and a quiet model does not inherit it |
 | `subagent` | a delegated worker reports to its owner; `/tasks list` names it |
 | `skill` | an authored `SKILL.md` body reaches the model after `read_skill` |
 | `mcp` | a real stdio MCP server auto-connects; its tool runs; `/mcp list/show` |
 | `plugin` | a project external plugin is enabled, its tool runs, output on screen |
 | `provider` | the Anthropic path `/v1/messages` is used and the raw reply renders |
+| `profile-switch` | two profiles switch endpoint/model, key stays masked, a busy switch queues, a project pin applies first, no key leaks into workspace/session meta |
 | `compression` | `/compress` accepts a queued prompt while the classifier runs |
 
 Run them with:

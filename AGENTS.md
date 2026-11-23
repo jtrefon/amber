@@ -66,7 +66,7 @@ driven by an OpenAI-compatible LLM API.
   declarations with `make capability-snapshot-update` and pinned by `make test`,
   so a new capability without a snapshot update and a matrix row is red twice.
   `docs/spec/tui/e2e-testing.md` is the one human-readable journey inventory
-  (18 CLI, 16 TUI, 5 long-horizon).
+  (18 CLI, 17 TUI, 5 long-horizon).
 - **`w/` and `.wt/*` are separate git worktrees inside this tree**, not the
   project. They carry their own `run_tests`, `tools/`, and stale test results
   (e.g. `w/`'s `1105 passed, 9 failed`). The repo root is the only source of
