@@ -20,7 +20,7 @@ correctness gates and the live-model runs are manual.
 | Layer | Gate | Count at the time of writing |
 |---|---|---|
 | Hermetic scenarios | `make bench-check` | 68 deterministic scenario files; 46 baseline cells + 25 additive cells in the last report |
-| CLI journeys | `make agent-e2e-check` | 18 journeys |
+| CLI journeys | `make agent-e2e-check` | 19 journeys |
 | TUI journeys | `make tui-agent-e2e` | 13 journeys |
 | Long-horizon repositories | `make long-horizon-check` | 5 journeys |
 | Policy matrix | `make policy-matrix-check` | 7 zoo policies on `zoo` |

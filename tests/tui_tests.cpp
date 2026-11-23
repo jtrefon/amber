@@ -1224,6 +1224,16 @@ TEST(scroll_dispatch_clamp_bounds) {
     ASSERT_EQ(tui::scroll_dispatch::clamped_scroll_top(10, 5, 10), 10);
 }
 
+TEST(scroll_dispatch_follows_the_live_edge_from_the_previous_bottom) {
+    // At the old bottom, and within the two-line slack, an append follows.
+    ASSERT_TRUE(tui::scroll_dispatch::follows_live_edge(10, 10));
+    ASSERT_TRUE(tui::scroll_dispatch::follows_live_edge(8, 10));
+    ASSERT_TRUE(tui::scroll_dispatch::follows_live_edge(0, 0));
+    // A reader who scrolled further up is left where they are.
+    ASSERT_FALSE(tui::scroll_dispatch::follows_live_edge(7, 10));
+    ASSERT_FALSE(tui::scroll_dispatch::follows_live_edge(0, 10));
+}
+
 TEST(tool_display_reasoning_badge_mapping) {
     // The badge composes INSIDE the model bracket: [model(high)].
     ASSERT_EQ(tui::tool_display::reasoning_badge("off"), "(off)");

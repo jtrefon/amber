@@ -88,7 +88,7 @@ scripted deque or a responder (so a journey can inspect the request and answer
 per path), an `extra_settings` string, a `prepare` hook that runs before startup
 (skills/MCP/plugins) and `root_api_base` for a versioned dialect.
 
-The 17 journeys are:
+The 21 journeys are:
 
 | Journey | What it proves |
 |---|---|
@@ -109,6 +109,10 @@ The 17 journeys are:
 | `plugin` | a project external plugin is enabled, its tool runs, output on screen |
 | `provider` | the Anthropic path `/v1/messages` is used and the raw reply renders |
 | `profile-switch` | two profiles switch endpoint/model, key stays masked, a busy switch queues, a project pin applies first, no key leaks into workspace/session meta |
+| `skills-manage` | list/show/sources; a local pack installs; a managed skill's update names local edits before overriding; the explorer removes it |
+| `management-surface` | menu/top rail/drawer, learn show/pin/panel/forget, provider list/test/delete, plugin install/on/off/settings/uninstall, the contributed command workspace, `/panel`, session save/rename/remove/fork, and `/help` followed by a visible command |
+| `settings-surface` | every settings group reads, writes, reads back, and refuses an invalid value without changing the stored one |
+| `coding-library` | `library_lookup` returns an entry and the body reaches the model's next request |
 | `compression` | `/compress` accepts a queued prompt while the classifier runs |
 
 Run them with:
@@ -122,7 +126,7 @@ AMBER_TUI_JOURNEY=plugin ./tui_agent_e2e_test ./amber
 
 ## CLI journeys
 
-`bench/scenarios/e2e/*.json` are the 18 CLI journeys. They are ordinary
+`bench/scenarios/e2e/*.json` are the 19 CLI journeys. They are ordinary
 scenarios plus `endpoint_replies`/`expected_tools`/`request_log_contains` where
 the CLI wire differs from the in-process reference. `bench/binary_driver.cpp`
 runs each scenario twice:

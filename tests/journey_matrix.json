@@ -76,7 +76,7 @@
           "na: the headless CLI has no command drawer or help page"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -99,7 +99,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -120,7 +120,7 @@
           "na: plugin command workspaces are an interactive TUI surface"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -163,7 +163,7 @@
           "na: plugin installation is an interactive TUI surface"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -259,7 +259,7 @@
           "na: provider management is an interactive TUI surface"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -301,7 +301,7 @@
           "na: the headless CLI has no session browser"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -440,7 +440,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -462,7 +462,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -481,7 +481,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -504,7 +504,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -529,7 +529,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -550,7 +550,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -572,7 +572,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -595,7 +595,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -622,7 +622,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -646,7 +646,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -666,7 +666,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -719,7 +719,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -740,7 +740,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -760,7 +760,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -779,7 +779,7 @@
           "na: the headless CLI configures through flags and amber.conf"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "settings-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -822,10 +822,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "internal: the direct amber-cli skills surface is covered by tests/skill_cli_test.cpp; e2e scenarios drive the agent loop"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "skills-manage"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -882,7 +882,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -954,7 +954,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "management-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1037,10 +1037,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "e2e-coding-library"
         ],
         "tui": [
-          "deferred: #709 the management-surface journey is not written yet"
+          "coding-library"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
