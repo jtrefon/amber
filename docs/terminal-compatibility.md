@@ -1,5 +1,9 @@
 # Terminal Compatibility Guide
 
+> This page is the ncurses/ACS/Unicode rendering reference. The supported
+> OS/terminal matrix and the manual checks are in
+> `docs/platform-support.md`.
+
 - **Status:** Living reference
 - **Applies to:** `tui/` (ncurses client)
 - **References:** Midnight Commander, htop, Vim, ncurses source

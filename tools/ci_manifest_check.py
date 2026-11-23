@@ -14,6 +14,8 @@ The check is structural and fail-closed:
   * every gating job has a local command or a stated reason it is CI-only;
   * an advisory job's step carries `continue-on-error`, so it concludes success
     instead of reporting a failed check that cannot block a merge;
+  * a step `if:` that references `matrix.*` belongs to a job with a
+    `strategy.matrix`, otherwise the step is silently never eligible to run;
   * the scan found a plausible number of jobs (a parser that matched nothing
     must not report a clean inventory).
 
@@ -43,6 +45,8 @@ NEEDS = re.compile(r"^    needs:\s*(.*)$")
 # job-level flag is four, and the difference is the whole point: job-level alone
 # still reports a failed check run.
 STEP_CONTINUE_ON_ERROR = re.compile(r"^        continue-on-error:\s*true\s*$")
+MATRIX_IF = re.compile(r"^\s+if:\s*.*\bmatrix\.")
+MATRIX_DEFINITION = re.compile(r"^\s+matrix:\s*(\[|$)")
 
 DIMENSIONS = ("always", "cpp", "web")
 
@@ -170,6 +174,7 @@ def check(manifest, ci_jobs, needs, min_jobs=0, min_needs=0, blocks=None):
             )
     if blocks is not None:
         errors.extend(advisory_errors(manifest, blocks))
+        errors.extend(matrix_errors(blocks))
     return errors
 
 
@@ -194,6 +199,25 @@ def advisory_errors(manifest, blocks):
             errors.append(
                 f"advisory job {job!r} has no step-level continue-on-error: it would "
                 "report a failed check that cannot block a merge"
+            )
+    return errors
+
+
+def matrix_errors(blocks):
+    """A `matrix.*` condition in a job with no matrix silently never runs.
+
+    The macOS job's tmux smoke was guarded by `if: matrix.cxx == 'g++'` after
+    the matrix had been removed: GitHub evaluates the missing context as false,
+    so the step was dead and a green job claimed a gate that never executed.
+    """
+    errors = []
+    for job, block in blocks.items():
+        if not any(MATRIX_IF.match(line) for line in block):
+            continue
+        if not any(MATRIX_DEFINITION.match(line) for line in block):
+            errors.append(
+                f"job {job!r} has a step if: using matrix.* but no strategy.matrix: "
+                "the step never runs"
             )
     return errors
 

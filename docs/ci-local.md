@@ -55,6 +55,7 @@ It runs, in order:
 | `make check-compilers` | the whole tree builds under `g++` and `clang++` with `WERROR=1` | `build-and-test (g++)`, `build-and-test (clang++)` |
 | `make agent-eval` | the CLI journeys, policy-zoo separation, trace corpus and long-horizon repository journeys, each against its committed baseline | `agent-e2e` |
 | `make tui-agent-e2e` | the TUI journeys, if the change can reach them | `tui-agent-e2e` (Linux) and the macOS repeat |
+| `./tests/tmux_smoke.sh ./amber` | the real binary in a real tmux pane (`screen-256color`), if tmux is installed | `build-and-test-macos` |
 
 `make preflight` is deliberately not part of `make test`: it is slow, it cleans
 the tree twice, and it is a pre-push ritual, not a per-commit one. Before each
@@ -177,6 +178,7 @@ Two of these are easy to misread as code failures:
 | Job | First question |
 |---|---|
 | `complexity`, `nesting`, `class-size`, `debt`, `detach`, `hygiene`, `journey-matrix` | did you run `make verify-quick` on the final commit? |
+| `build-and-test-macos` tmux step | run `./tests/tmux_smoke.sh ./amber` on a Mac with tmux |
 | `bench-efficiency` | is the violation tokens/calls, or wall time? Only the first two are precise. |
 | `coverage` | patch line/branch bar, or the per-file branch ratchet? |
 | `build-and-test (clang++)` / `(g++)` | did `make check-compilers` pass locally? |

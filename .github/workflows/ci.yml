@@ -783,7 +783,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
         with:
-          extra: ccache tmux
+          extra: ccache
 
       - name: Cache ccache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -842,8 +842,10 @@ jobs:
 
       - name: TUI in a real tmux pane
         # A bare pty is not a terminal emulator; tmux is where the welcome
-        # window and slash-command output had to prove themselves.
-        if: matrix.cxx == 'g++'
+        # window and slash-command output had to prove themselves. This job has
+        # no matrix, so the old `if: matrix.cxx == 'g++'` guard was false and
+        # the step never ran; `make ci-manifest` now rejects an undefined
+        # matrix condition so a dead step cannot read as a pass.
         run: ./tests/tmux_smoke.sh ./amber
 
       - name: PTY exit handshake, repeated

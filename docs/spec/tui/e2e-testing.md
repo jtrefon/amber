@@ -17,6 +17,10 @@ Three layers answer different questions:
 No pixel-perfect screen goldens. A journey asserts semantic text, workspace
 state, tool calls and the exit path.
 
+The pty is not a terminal emulator. `docs/platform-support.md` is the support
+matrix: which terminals are gated by the pty/tmux runs and which need a manual
+run. A green pty suite does not prove a specific emulator renders the UI.
+
 ## Coverage matrix (0.9)
 
 The journey set is not the coverage claim by itself. The claim lives in
@@ -113,6 +117,7 @@ Run them with:
 make tui-agent-e2e
 make tui-agent-e2e REPEAT=2                 # the macOS shape
 AMBER_TUI_JOURNEY=plugin ./tui_agent_e2e_test ./amber
+./tests/tmux_smoke.sh ./amber               # a real tmux pane (screen-256color)
 ```
 
 ## CLI journeys
