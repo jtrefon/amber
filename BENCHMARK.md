@@ -81,8 +81,10 @@ the dual-compiler build. The committed baselines are
 `bench/results/policy-matrix-baseline.json`,
 `bench/results/long-horizon-baseline.json` and the trace corpus under
 `bench/traces/`. At the time of writing the corpus is 86 scenarios in 22 suites (101 JSON files
-including templates and variants); 63 carry a fake script or policy, and 23
-recorded provider bodies replay through `TraceResponder`. The remaining
+including variants); 63 carry a fake script or policy, and 23 recorded provider
+bodies replay through `TraceResponder`. The live model corpus is the 56
+model scenarios (the 0.8.9 artifact covered 51; the 0.9 run covers 56); the 18
+e2e and 5 repo-long journeys are separate `agent-e2e`/`long-horizon` gates. The remaining
 live-only scenarios (headroom, loop-live, repo, shaping and part of the review
 suites) need a live model and are not correctness gates.
 
@@ -97,9 +99,13 @@ behaviour.
 `make bench-release-check VERSION=<x.y.z>` requires a live artifact under
 `bench/results/releases/<x.y.z>/` whose `engine_version` is that version, whose
 `mode` is `live`, whose scenario count covers the model corpus, and whose
-scenarios all succeeded. A drop larger than the recorded band against the
-previous release's artifact is a failure. The check fails closed: no artifact
-prints `NOT MEASURED` and exits non-zero. Docs/website/packaging-only tags may
+scenarios all succeeded. The check discovers the highest earlier release
+directory for the same model/profile (or takes `BENCH_PREVIOUS_DIR`) and
+enforces the score band plus the cost/behaviour bands: tokens and tool calls
+within +10% on the common successful corpus, zero compaction/hard-stop failures,
+and a wall/TTFT pathology ceiling. A drop or regression beyond a band is a
+failure. The check fails closed: no artifact prints `NOT MEASURED` and exits
+non-zero. The bands and their rationale are in `docs/release-benchmark.md`. Docs/website/packaging-only tags may
 skip via `CHANGED_PATHS`; the release workflow computes that list from the
 previous tag. The gate tests live in `tests/gates/test_bench_release_check.py`.
 
