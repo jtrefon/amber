@@ -2618,6 +2618,28 @@ TEST(get_logs_reports_the_policy_and_the_totals) {
     require(tui.wait_for("sessions:", 10000), "/get logs did not report the session total", tui);
 }
 
+// A long /help list used to leave the view a few rows above the live edge. The
+// next command still ran, but its output was appended below the visible area,
+// so the user saw nothing and the app looked hung. The live edge is decided
+// against the bottom BEFORE the appended line, not the bottom it creates.
+TEST(help_output_keeps_the_live_edge_for_the_next_command) {
+    Tui tui;
+    tui.name = "help_output_keeps_the_live_edge_for_the_next_command";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/help\r");
+    if (!require(tui.wait_for("/undo Restore the", 10000), "/help printed nothing", tui))
+        return;
+
+    tui.raw.clear();
+    tui.send("/stop\r");
+    require(tui.wait_for("stop requested", 10000),
+            "the command after /help ran but its output never became visible", tui);
+}
+
 // The two policy values are settings, so they survive the readout and the file
 // the project already keeps its settings in.
 TEST(set_logs_retention_round_trips) {
@@ -4739,6 +4761,7 @@ int main(int argc, char** argv) {
     multiline_composer_grows_and_falls_back_to_single_line();
     get_config_paths_prints_the_resolved_layout();
     get_logs_reports_the_policy_and_the_totals();
+    help_output_keeps_the_live_edge_for_the_next_command();
     profile_commands_switch_the_connection_and_mask_the_key();
     profile_switch_queues_while_a_turn_is_running();
     profile_lifecycle_commands_answer_every_edge();
