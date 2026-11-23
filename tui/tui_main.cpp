@@ -136,6 +136,8 @@ void apply_global_config(agent::Config& cfg) {
     // not what it asked for), and a project pin selects an account for that
     // project rather than naming the user's default.
     (void)agent::ensure_default_profile(cfg);
+    for (const auto& warning : cfg.warnings)
+        std::fprintf(stderr, "config: %s\n", warning.c_str());
 }
 
 // Project-local overrides (non-LLM settings) live in the per-project state dir
@@ -158,6 +160,8 @@ void apply_local_settings(agent::Config& cfg) {
     cfg.apply_environment();
     if (!profile_note.empty())
         std::fprintf(stderr, "profile: %s\n", profile_note.c_str());
+    for (const auto& warning : cfg.warnings)
+        std::fprintf(stderr, "config: %s\n", warning.c_str());
 }
 
 // The TUI tolerates an unresolved model — the background catalog refresh or
