@@ -79,12 +79,20 @@ std::vector<std::string> excluded_paths(const std::string& root) {
     return out;
 }
 
+// Whether the project's own `.gitignore` already covers `path`. `git add`
+// refuses the whole operation when an exclude pathspec names an ignored path,
+// and `-A` skips it anyway, so only a path git does not ignore needs excluding.
+bool already_ignored(const std::string& root, const std::string& path) {
+    return run_git(root, {"check-ignore", "-q", "--", path}).status == 0;
+}
+
 // `git add -A` with the harness-owned roots excluded, so the snapshot is the
 // project and not the harness's own bookkeeping.
 std::vector<std::string> add_args(const std::string& root) {
     std::vector<std::string> args{"add", "-A", "--", "."};
     for (const auto& path : excluded_paths(root))
-        args.push_back(":(exclude)" + path);
+        if (!already_ignored(root, path))
+            args.push_back(":(exclude)" + path);
     return args;
 }
 
@@ -385,7 +393,7 @@ void CheckpointStore::move_ref(const std::string& id, const std::string& parent)
 
 std::optional<Checkpoint> CheckpointStore::create(std::size_t turn, const std::string& prompt,
                                                   std::string& error, CheckpointPhase phase) {
-    std::lock_guard<std::recursive_mutex> lock(checkpoint_operations());
+    std::scoped_lock lock(checkpoint_operations());
     error.clear();
     try {
         ensure_shadow();
@@ -504,7 +512,7 @@ std::string CheckpointStore::diff(const Checkpoint& checkpoint, std::string& err
 }
 
 bool CheckpointStore::restore(const Checkpoint& checkpoint, std::string& error) const {
-    std::lock_guard<std::recursive_mutex> lock(checkpoint_operations());
+    std::scoped_lock lock(checkpoint_operations());
     error.clear();
     try {
         const auto env = environment();
