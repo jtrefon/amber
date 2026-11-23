@@ -1649,9 +1649,16 @@ void journey_compression_keeps_ui_responsive(const std::string& binary) {
     if (!require(journey.tui.wait_for("READS-DONE", 30000), "the read turn never finished",
                  journey.tui))
         return;
-    journey.tui.send("/compress\r");
-    if (!require(journey.tui.wait_for("compressing...", 8000),
-                 "the manual compression never started", journey.tui))
+    // The reply reaches the transcript before the worker releases the window,
+    // so a /compress typed in that gap is refused with "agent is busy" and the
+    // command is lost. The refusal has no side effect, so retry until the
+    // command is accepted rather than racing the turn boundary.
+    bool compressing = false;
+    for (int waited = 0; waited < 30000 && !compressing; waited += 500) {
+        journey.tui.send("/compress\r");
+        compressing = journey.tui.wait_for("compressing...", 500);
+    }
+    if (!require(compressing, "the manual compression never started", journey.tui))
         return;
     bool seen = false;
     for (int waited = 0; waited < 20000 && !seen; waited += 50) {
