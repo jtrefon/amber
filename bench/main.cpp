@@ -529,6 +529,22 @@ int run_harness_axis(const std::string& out_file) {
     return sc.passed == sc.total ? 0 : 1;
 }
 
+// The release model corpus is the model scenarios. The e2e and repo-long
+// suites are journey layers with their own drivers and gates; running them
+// against a live model in the model axis produced workspace failures that are
+// not model quality. An explicit --suite still selects them.
+bool journey_suite(const std::string& suite) {
+    return suite == "e2e" || suite == "repo-long";
+}
+
+void drop_journey_suites(std::vector<bench::Scenario>& scenarios, const std::string& suite_filter) {
+    if (!suite_filter.empty())
+        return;
+    scenarios.erase(std::remove_if(scenarios.begin(), scenarios.end(),
+                                   [](const bench::Scenario& s) { return journey_suite(s.suite); }),
+                    scenarios.end());
+}
+
 // The model axis: run the scenarios and print the text report, with the JSON
 // sidecar when asked for.
 int run_model_axis(const CliOptions& args) {
@@ -539,6 +555,7 @@ int run_model_axis(const CliOptions& args) {
         std::cerr << "error: " << err << "\n";
         return 1;
     }
+    drop_journey_suites(scenarios, args.suite);
     if (scenarios.empty()) {
         std::cerr << "error: no scenarios match\n";
         return 1;
@@ -568,6 +585,7 @@ int run_both_axes(const CliOptions& args) {
         std::cerr << "error: " << err << "\n";
         return 1;
     }
+    drop_journey_suites(scenarios, args.suite);
     bench::RunMeta meta = build_run_meta(args, opts);
     std::vector<bench::ScenarioReport> reports;
     if (scenarios.empty()) {

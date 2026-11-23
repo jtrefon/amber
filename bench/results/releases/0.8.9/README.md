@@ -30,7 +30,7 @@ make bench-release-check VERSION=0.8.9
 ```
 
 **Historical note (2026-11-23):** this artifact covers the 51-scenario corpus of
-its release. The current model corpus is 79 scenarios, so a retroactive
+its release. The current model corpus is 56 model scenarios, so a retroactive
 `make bench-release-check VERSION=0.8.9` expects the corpus floor to fail; the
 0.9 release is checked against the 0.9.0 artifact, where the common-scenario
 score and cost bands compare the two corpora.

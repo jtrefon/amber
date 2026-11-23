@@ -82,8 +82,9 @@ the dual-compiler build. The committed baselines are
 `bench/results/long-horizon-baseline.json` and the trace corpus under
 `bench/traces/`. At the time of writing the corpus is 86 scenarios in 22 suites (101 JSON files
 including variants); 63 carry a fake script or policy, and 23 recorded provider
-bodies replay through `TraceResponder`. The live model corpus is the 79
-non-hermetic scenarios (the 0.8.9 artifact covered 51; the 0.9 run covers 79). The remaining
+bodies replay through `TraceResponder`. The live model corpus is the 56
+model scenarios (the 0.8.9 artifact covered 51; the 0.9 run covers 56); the 18
+e2e and 5 repo-long journeys are separate `agent-e2e`/`long-horizon` gates. The remaining
 live-only scenarios (headroom, loop-live, repo, shaping and part of the review
 suites) need a live model and are not correctness gates.
 

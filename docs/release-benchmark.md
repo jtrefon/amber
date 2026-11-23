@@ -16,7 +16,7 @@ the release workflow decides with the changed-path list and
 
 One live run on the fixed local profile with `--repeat 3`, committed as
 `bench/results/releases/<version>/local-<model>-r3.json`. The model corpus is
-the current one (79 scenarios on 2026-11-23; the gate's absolute floor is 49):
+the current one (56 model scenarios on 2026-11-23; the gate's absolute floor is 49):
 
 ```sh
 ./amber-bench run --live --profile qwen38-27b-mtp --repeat 3 \

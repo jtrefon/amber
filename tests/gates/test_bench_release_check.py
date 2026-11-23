@@ -273,6 +273,12 @@ class ReleaseGate(unittest.TestCase):
         (corpus / "probe.json").write_text(
             json.dumps({"name": "probe", "prompt": "p", "hermetic_only": True})
         )
+        (corpus / "e2e.json").write_text(
+            json.dumps({"name": "e2e", "prompt": "p", "suite": "e2e"})
+        )
+        (corpus / "repo-long.json").write_text(
+            json.dumps({"name": "repo-long", "prompt": "p", "suite": "repo-long"})
+        )
         self.assertEqual(gate.corpus_count(str(self.f.root / "corpus")), 2)
 
 

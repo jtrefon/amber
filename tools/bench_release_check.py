@@ -54,6 +54,7 @@ HARD_STOP_MARKERS = ("hard stop", "wall budget")
 # A live model is allowed to lose scenario points; those checks are the score.
 # Anything else in `failures` (a setup failure, a throw, a task that never
 # finished) is an infrastructure failure and fails the release.
+MODEL_EXCLUDED_SUITES = {"e2e", "repo-long"}
 MODEL_QUALITY_FAILURES = (
     "oracle not matched",
     "final answer failed scenario checks",
@@ -115,6 +116,7 @@ def corpus_count(corpus_dir):
             and data.get("name")
             and data.get("prompt")
             and not data.get("hermetic_only")
+            and data.get("suite") not in MODEL_EXCLUDED_SUITES
         ):
             count += 1
     return count
