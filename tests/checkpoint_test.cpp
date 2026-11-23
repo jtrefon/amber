@@ -648,6 +648,84 @@ TEST(checkpoint_restore_brings_the_tree_back) {
     ASSERT_TRUE(project.exists("ignored.txt"));
 }
 
+// An interrupted checkpoint can leave the private index's lock behind. The
+// index belongs to this session, so a lock present when the next operation
+// starts is stale and must be cleared; a restore otherwise fails with
+// "index.lock exists" and the TUI stays on the confirmation frame.
+// A project can keep its harness state and cache inside its own tree and list
+// them in .gitignore. The checkpoint's `git add -A` excludes those roots by
+// pathspec, but git refuses the whole add when an exclude names a path its own
+// .gitignore already covers ("The following paths are ignored"). An ignored
+// path is skipped by `-A` anyway, so the snapshot must not name it.
+TEST(checkpoint_stages_a_project_that_ignores_its_xdg_roots) {
+    TempProject project("ignored_xdg_roots", /*git=*/true);
+    project.write(".gitignore", "state/\ncache/\n");
+    project.write("a.txt", "one\n");
+    project.commit_all("init");
+    fs::create_directories(project.path() / "state");
+    fs::create_directories(project.path() / "cache");
+
+    const std::string root = fs::canonical(project.path()).string();
+    struct EnvOverride {
+        const char* name;
+        bool had = false;
+        std::string saved;
+        EnvOverride(const char* key, const std::string& value) : name(key) {
+            const char* old = std::getenv(key);
+            had = old != nullptr;
+            if (old)
+                saved = old;
+            setenv(key, value.c_str(), 1);
+        }
+        ~EnvOverride() {
+            if (had)
+                setenv(name, saved.c_str(), 1);
+            else
+                unsetenv(name);
+        }
+    } state_env("XDG_STATE_HOME", root + "/state"), cache_env("XDG_CACHE_HOME", root + "/cache");
+
+    agent::CheckpointStore store(root, "sess-ignored-xdg");
+    std::string error;
+    const auto checkpoint = store.create(1, "change", error);
+    ASSERT_TRUE(checkpoint.has_value());
+    ASSERT_TRUE(error.empty());
+    const agent::GitResult tree =
+        agent::run_git(root, {"ls-tree", "-r", "--name-only", checkpoint->id});
+    ASSERT_EQ(tree.status, 0);
+    ASSERT_EQ(tree.output.find("state/"), std::string::npos);
+    ASSERT_EQ(tree.output.find("cache/"), std::string::npos);
+    ASSERT_TRUE(tree.output.find("a.txt") != std::string::npos);
+}
+
+TEST(checkpoint_restore_clears_a_stale_private_index_lock) {
+    agent::test::XdgGuard xdg("checkpoint_stale_lock");
+    TempProject project("stale_lock", /*git=*/true);
+    project.write("a.txt", "one\n");
+    project.commit_all("init");
+
+    const std::string root = fs::canonical(project.path()).string();
+    agent::CheckpointStore store(root, "sess-stale-lock");
+    std::string error;
+    const auto base = store.create(0, "base", error);
+    ASSERT(base.has_value());
+    project.write("a.txt", "two\n");
+    ASSERT(store.create(1, "change", error).has_value());
+
+    const fs::path state = fs::path(agent::Workspace::state_dir_for(root)) / "checkpoints";
+    ASSERT_TRUE(fs::exists(state));
+    const fs::path index = state / "sess-stale-lock.index";
+    {
+        std::ofstream lock(index.string() + ".lock");
+        ASSERT(lock.good());
+    }
+
+    ASSERT(store.restore(*base, error));
+    ASSERT_TRUE(error.empty());
+    ASSERT_EQ(project.read("a.txt"), std::string("one\n"));
+    ASSERT_FALSE(fs::exists(index.string() + ".lock"));
+}
+
 TEST(checkpoint_restore_never_moves_head_or_the_user_index) {
     agent::test::XdgGuard xdg("checkpoint_restore_index");
     TempProject project("restore_index", /*git=*/true);
