@@ -1046,6 +1046,13 @@ void write_default_config_once(const CliArgs& args) {
         std::cerr << "info: wrote default config to " << agent::global_config_path() << "\n";
 }
 
+// A malformed or stale setting falls back to its default; say which one, so a
+// legacy config is a visible warning rather than a silent behaviour change.
+void report_config_warnings(const agent::Config& cfg) {
+    for (const auto& warning : cfg.warnings)
+        std::cerr << "config: " << warning << "\n";
+}
+
 // The acquisition surface is not an agent run: it needs no model, no plugins
 // and no config, so it answers before any of that is loaded. Returns -1 when
 // this is an ordinary run.
@@ -1125,8 +1132,10 @@ int main(int argc, char** argv) try {
     CliArgs args;
     const agent::GlobalConfig global = agent::apply_global_selection(cfg);
     write_default_config_once(args);
+    report_config_warnings(cfg);
     if (std::optional<int> rc = parse_args(argc, argv, cfg, args))
         return *rc;
+    report_config_warnings(cfg);
     return run_configured(cfg, args, global, argv[0]);
 } catch (const std::exception& e) {
     std::cerr << "fatal: " << e.what() << "\n";

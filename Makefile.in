@@ -468,7 +468,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         coverage coverage-branch-baseline ci-manifest detach \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
         capability-snapshot-update journey-matrix journey-matrix-release \
-        release-check \
+        upgrade-check release-check \
         parity-image verify-container verify-quick-container \
         lint lint-changed lint-baseline-update \
         class-size class-size-update \
@@ -926,6 +926,17 @@ commit-lint:
 release-check:
 	@test -n "$(TAG)" || { echo "release-check: set TAG=vX.Y.Z"; exit 2; }
 	@python3 "$(SRC_DIR)/tools/release_check.py" --tag "$(TAG)" --check-formula
+
+# The installed-tree upgrade check: a real 0.8.9 TUI, a real candidate TUI, a
+# scratch XDG tree and a loopback endpoint. It is not in CI (the previous
+# release artifact is not checked out there); the release checklist runs it
+# against the downloaded 0.8.9 tarball and records the result.
+UPGRADE_OLD ?=
+UPGRADE_NEW ?= $(BUILD_DIR)/$(TUI_BIN)
+upgrade-check: $(BUILD_DIR)/$(TUI_BIN)
+	@test -n "$(UPGRADE_OLD)" || { \
+	  echo "upgrade-check: set UPGRADE_OLD=/path/to/0.8.9/usr/local/bin/amber"; exit 2; }
+	@python3 "$(SRC_DIR)/tools/upgrade_check.py" --old "$(UPGRADE_OLD)" --new "$(UPGRADE_NEW)"
 
 # Shared by `complexity` and `nesting`: both parse lizard's -w output with a regex
 # and both judge success from that output, never from lizard's exit status.
