@@ -16,6 +16,12 @@ The check is a ratchet against the previous release artifact, not a leaderboard:
 a model score drop larger than `--band` on the same model/profile fails unless
 the new artifact's `run_id` differs only because it is a new release (the band
 is the recorded run-to-run variance, default 5 points on the 0..1000 score).
+
+The same comparison enforces the cost and behaviour bands on the scenarios
+successful in both artifacts: prompt+completion tokens and tool calls within
++10% in aggregate, no compaction failure, no hard stop or wall-budget failure,
+and a per-scenario wall/TTFT pathology ceiling. The bands are reviewed before
+the run and documented in `docs/release-benchmark.md`.
 """
 
 import argparse
@@ -33,10 +39,22 @@ ENGINE_PATHS = ("lib/", "src/", "tools/", "plugins/", "include/", "bench/", "pro
 # gate, while removing half the corpus must fail.
 DEFAULT_MIN_SCENARIOS = 49
 DEFAULT_BAND = 5.0
+DEFAULT_COST_BAND = 0.10
+DEFAULT_COMPARABLE_FLOOR = 30
+# A pathology ceiling, not a micro-regression: live endpoints have tail
+# latency. A scenario that takes three times as long (and at least a minute
+# longer) or whose first token is three times later (and 10 s later) is a
+# different run, not variance.
+WALL_FACTOR = 3
+WALL_GRACE_MS = 60000
+TTFT_FACTOR = 3
+TTFT_GRACE_MS = 10000
+HARD_STOP_MARKERS = ("hard stop", "wall budget")
 
 # A live model is allowed to lose scenario points; those checks are the score.
 # Anything else in `failures` (a setup failure, a throw, a task that never
 # finished) is an infrastructure failure and fails the release.
+MODEL_EXCLUDED_SUITES = {"e2e", "repo-long"}
 MODEL_QUALITY_FAILURES = (
     "oracle not matched",
     "final answer failed scenario checks",
@@ -98,6 +116,7 @@ def corpus_count(corpus_dir):
             and data.get("name")
             and data.get("prompt")
             and not data.get("hermetic_only")
+            and data.get("suite") not in MODEL_EXCLUDED_SUITES
         ):
             count += 1
     return count
@@ -171,8 +190,30 @@ def validate_artifact(name, artifact, version, minimum_scenarios, model, profile
     return errors, score
 
 
-def previous_scores(previous_dir):
-    """(model, profile) -> (filename, score, band from model_score_ci?)."""
+def discover_previous(results_dir):
+    """The highest earlier release directory under .../releases, if any."""
+    directory = Path(results_dir).resolve()
+    if directory.parent.name != "releases":
+        return None
+    try:
+        current = tuple(int(part) for part in directory.name.split("."))
+    except ValueError:
+        return None
+    candidates = []
+    for entry in directory.parent.iterdir():
+        if not entry.is_dir() or entry == directory:
+            continue
+        try:
+            version = tuple(int(part) for part in entry.name.split("."))
+        except ValueError:
+            continue
+        if version < current and any(entry.glob("*.json")):
+            candidates.append((version, str(entry)))
+    return max(candidates)[1] if candidates else None
+
+
+def previous_artifacts(previous_dir):
+    """(model, profile) -> (filename, artifact) for a comparable release."""
     out = {}
     if not previous_dir:
         return out
@@ -182,12 +223,186 @@ def previous_scores(previous_dir):
         if not isinstance(score, (int, float)):
             continue
         key = (artifact.get("model"), artifact.get("profile"))
-        out[key] = (name, float(score))
+        out[key] = (name, artifact)
     return out
 
 
+def _median_tokens(row):
+    """The median of the repeat prompt+completion totals, or None."""
+    prompts = row.get("repeat_prompt_tokens")
+    completions = row.get("repeat_completion_tokens")
+    if (isinstance(prompts, list) and isinstance(completions, list)
+            and prompts and len(prompts) == len(completions)):
+        totals = []
+        for prompt, completion in zip(prompts, completions):
+            if not isinstance(prompt, (int, float)) or not isinstance(completion, (int, float)):
+                return None
+            totals.append(float(prompt) + float(completion))
+        totals.sort()
+        return totals[len(totals) // 2]
+    prompt = row.get("prompt_tokens")
+    completion = row.get("completion_tokens")
+    if isinstance(prompt, (int, float)) and isinstance(completion, (int, float)):
+        return float(prompt) + float(completion)
+    return None
+
+
+def _tool_calls(row):
+    total = row.get("tool_calls_total")
+    if isinstance(total, (int, float)):
+        return float(total)
+    calls = row.get("tool_calls")
+    if isinstance(calls, list):
+        return float(len(calls))
+    return None
+
+
+def behaviour_errors(name, artifact):
+    """Compaction failures and hard stops are infrastructure, not model quality."""
+    errors = []
+    for row in artifact.get("scenarios", []):
+        if not isinstance(row, dict):
+            continue
+        scenario = row.get("name", "?")
+        if row.get("compaction_failures", 0):
+            errors.append(f"{name}: {scenario}: {row['compaction_failures']} compaction failure(s)")
+        for reason in row.get("failures") or []:
+            text = str(reason).lower()
+            if any(marker in text for marker in HARD_STOP_MARKERS):
+                errors.append(f"{name}: {scenario}: hard stop: {reason}")
+    return errors
+
+
+def common_score_comparison(previous_name, previous, name, current, band):
+    """Compare the mean per-scenario score of the scenarios in both artifacts.
+
+    A release can add scenarios to the corpus. The top `model_score` is then a
+    different weighted aggregate, so it is not a regression signal; the
+    scenarios present in both artifacts are. The per-scenario score is 0..100;
+    scaling the mean by 10 puts it on the 0..1000 model-score axis the band is
+    expressed in.
+    """
+    errors = []
+    previous_rows = {row.get("name"): row for row in previous.get("scenarios", [])
+                     if isinstance(row, dict) and row.get("name")}
+    current_rows = {row.get("name"): row for row in current.get("scenarios", [])
+                    if isinstance(row, dict) and row.get("name")}
+    common = sorted(set(previous_rows) & set(current_rows))
+    if not common:
+        return [f"{name}: no scenario present in both {previous_name} and {name}"], ""
+    previous_scores = []
+    current_scores = []
+    for scenario in common:
+        old = previous_rows[scenario].get("score")
+        new = current_rows[scenario].get("score")
+        if not isinstance(old, (int, float)) or not isinstance(new, (int, float)):
+            return [f"{name}: {scenario}: missing score for the common-corpus band"], ""
+        previous_scores.append(float(old))
+        current_scores.append(float(new))
+    previous_mean = sum(previous_scores) / len(previous_scores) * 10
+    current_mean = sum(current_scores) / len(current_scores) * 10
+    delta = current_mean - previous_mean
+    if delta < -band:
+        errors.append(
+            f"{name}: common-corpus score {current_mean:.1f} is {-delta:.1f} below "
+            f"{previous_name} ({previous_mean:.1f}), band {band:g}"
+        )
+    summary = f"common score {previous_mean:.1f}->{current_mean:.1f} ({delta:+.1f})"
+    return errors, summary
+
+
+def cost_comparison(previous_name, previous, name, current, cost_band, comparable_floor):
+    """Compare the common successful corpus; return (errors, summary)."""
+    errors = []
+    previous_rows = {row.get("name"): row for row in previous.get("scenarios", [])
+                     if isinstance(row, dict) and row.get("name")}
+    current_rows = {row.get("name"): row for row in current.get("scenarios", [])
+                    if isinstance(row, dict) and row.get("name")}
+    common = sorted(name for name in previous_rows
+                    if name in current_rows
+                    and previous_rows[name].get("success") is True
+                    and current_rows[name].get("success") is True)
+    if not common:
+        return [f"{name}: no scenario successful in both {previous_name} and {name}"], ""
+    if comparable_floor and len(common) < comparable_floor:
+        errors.append(
+            f"{name}: only {len(common)} comparable successful scenario(s); "
+            f"the cost floor is {comparable_floor}"
+        )
+    previous_tokens = current_tokens = 0.0
+    previous_calls = current_calls = 0.0
+    for scenario in common:
+        old = previous_rows[scenario]
+        new = current_rows[scenario]
+        old_tokens = _median_tokens(old)
+        new_tokens = _median_tokens(new)
+        if old_tokens is None or new_tokens is None:
+            errors.append(f"{name}: {scenario}: missing token data for the cost band")
+            continue
+        previous_tokens += old_tokens
+        current_tokens += new_tokens
+        old_calls = _tool_calls(old)
+        new_calls = _tool_calls(new)
+        if old_calls is None or new_calls is None:
+            errors.append(f"{name}: {scenario}: missing tool-call data for the cost band")
+            continue
+        previous_calls += old_calls
+        current_calls += new_calls
+        old_wall = old.get("wall_ms")
+        new_wall = new.get("wall_ms")
+        if isinstance(old_wall, (int, float)) and isinstance(new_wall, (int, float)):
+            ceiling = max(float(old_wall) * WALL_FACTOR, float(old_wall) + WALL_GRACE_MS)
+            if new_wall > ceiling:
+                errors.append(
+                    f"{name}: {scenario}: wall {new_wall:.0f}ms exceeds the pathology "
+                    f"ceiling {ceiling:.0f}ms ({previous_name} {old_wall:.0f}ms)"
+                )
+        old_ttft = old.get("ttft_ms")
+        new_ttft = new.get("ttft_ms")
+        if isinstance(old_ttft, (int, float)) and isinstance(new_ttft, (int, float)):
+            ceiling = max(float(old_ttft) * TTFT_FACTOR, float(old_ttft) + TTFT_GRACE_MS)
+            if new_ttft > ceiling:
+                errors.append(
+                    f"{name}: {scenario}: TTFT {new_ttft:.0f}ms exceeds the pathology "
+                    f"ceiling {ceiling:.0f}ms ({previous_name} {old_ttft:.0f}ms)"
+                )
+    if previous_tokens <= 0:
+        errors.append(f"{name}: no usable previous token data for the comparison")
+    else:
+        token_delta = (current_tokens - previous_tokens) / previous_tokens
+        if token_delta > cost_band:
+            errors.append(
+                f"{name}: prompt+completion tokens up {token_delta * 100:.1f}% on the "
+                f"common corpus (band +{cost_band * 100:.0f}%)"
+            )
+    if previous_calls <= 0:
+        if current_calls > 0:
+            errors.append(
+                f"{name}: tool calls added where the previous common corpus had none"
+            )
+    else:
+        call_delta = (current_calls - previous_calls) / previous_calls
+        if call_delta > cost_band:
+            errors.append(
+                f"{name}: tool calls up {call_delta * 100:.1f}% on the common corpus "
+                f"(band +{cost_band * 100:.0f}%)"
+            )
+    token_pct = (
+        (current_tokens - previous_tokens) / previous_tokens * 100
+        if previous_tokens else 0.0
+    )
+    call_pct = ((current_calls - previous_calls) / previous_calls * 100) if previous_calls else 0.0
+    summary = (
+        f"cost {len(common)} common: tokens {previous_tokens:.0f}->{current_tokens:.0f} "
+        f"({token_pct:+.1f}%), calls {previous_calls:.0f}->{current_calls:.0f} "
+        f"({call_pct:+.1f}%)"
+    )
+    return errors, summary
+
+
 def check(results_dir, version, corpus_dir=None, previous_dir=None, band=DEFAULT_BAND,
-          model=None, profile=None, min_scenarios=None, changed_paths=None):
+          model=None, profile=None, min_scenarios=None, changed_paths=None,
+          cost_band=DEFAULT_COST_BAND, comparable_floor=0):
     report = Report()
     if changed_paths is not None and not engine_touching(changed_paths):
         report.say("bench: docs/packaging-only tag; live baseline not required")
@@ -208,13 +423,18 @@ def check(results_dir, version, corpus_dir=None, previous_dir=None, band=DEFAULT
         )
         return report
 
-    previous = previous_scores(previous_dir)
-    report.say(f"bench release check {version} (band {band:g}, scenarios >= {floor})")
+    previous = previous_artifacts(previous_dir)
+    report.say(
+        f"bench release check {version} (score band {band:g}, "
+        f"cost band +{cost_band * 100:.0f}%, scenarios >= {floor})"
+    )
     for name, artifact in sorted(artifacts):
         problems, score = validate_artifact(
             name, artifact, version, floor, model, profile
         )
         for problem in problems:
+            report.fail(f"bench: {problem}")
+        for problem in behaviour_errors(name, artifact):
             report.fail(f"bench: {problem}")
         if problems:
             continue
@@ -225,15 +445,42 @@ def check(results_dir, version, corpus_dir=None, previous_dir=None, band=DEFAULT
             f"score {score:.1f} ({len(artifact.get('scenarios', []))} scenarios)"
         )
         if key in previous:
-            prev_name, prev_score = previous[key]
-            drop = prev_score - float(score)
-            if drop > band:
-                report.fail(
-                    f"bench: {name}: score {score:.1f} is {drop:.1f} below "
-                    f"{prev_name} ({prev_score:.1f}), band {band:g}"
-                )
+            prev_name, prev_artifact = previous[key]
+            prev_score = float(prev_artifact.get("model_score", 0.0))
+            previous_names = {row.get("name") for row in prev_artifact.get("scenarios", [])
+                              if isinstance(row, dict)}
+            current_names = {row.get("name") for row in artifact.get("scenarios", [])
+                             if isinstance(row, dict)}
+            if previous_names == current_names:
+                drop = prev_score - float(score)
+                if drop > band:
+                    report.fail(
+                        f"bench: {name}: score {score:.1f} is {drop:.1f} below "
+                        f"{prev_name} ({prev_score:.1f}), band {band:g}"
+                    )
+                else:
+                    line += f" (vs {prev_name}: {score - prev_score:+.1f})"
             else:
-                line += f" (vs {prev_name}: {score - prev_score:+.1f})"
+                # The corpus changed: the top score is a different weighted
+                # aggregate. Compare the scenarios the two releases share.
+                score_errors, score_summary = common_score_comparison(
+                    prev_name, prev_artifact, name, artifact, band
+                )
+                for problem in score_errors:
+                    report.fail(f"bench: {problem}")
+                line += (
+                    f" (vs {prev_name}: top score {score - prev_score:+.1f}; "
+                    f"corpus changed, {score_summary})"
+                )
+            cost_errors, cost_summary = cost_comparison(
+                prev_name, prev_artifact, name, artifact, cost_band, comparable_floor
+            )
+            for problem in cost_errors:
+                report.fail(f"bench: {problem}")
+            if cost_summary:
+                line += f"; {cost_summary}"
+        else:
+            line += " (no previous artifact for this model/profile; cost bands not measured)"
         report.say(line)
 
     if report.code:
@@ -252,6 +499,10 @@ def main(argv=None):
     parser.add_argument("--corpus-dir", default=None, help="scenario corpus root")
     parser.add_argument("--previous-dir", default=None, help="previous release artifacts")
     parser.add_argument("--band", type=float, default=DEFAULT_BAND)
+    parser.add_argument("--cost-band", type=float, default=DEFAULT_COST_BAND,
+                        help="fractional token/tool-call ceiling on the common corpus")
+    parser.add_argument("--comparable-floor", type=int, default=DEFAULT_COMPARABLE_FLOOR,
+                        help="minimum scenarios successful in both artifacts")
     parser.add_argument("--model", default=None, help="expected model")
     parser.add_argument("--profile", default=None, help="expected profile")
     parser.add_argument("--min-scenarios", type=int, default=None)
@@ -273,17 +524,20 @@ def main(argv=None):
     results_dir = args.results_dir or str(
         root / "bench" / "results" / "releases" / version
     )
+    previous_dir = args.previous_dir or discover_previous(results_dir)
     corpus_dir = args.corpus_dir or str(root / "bench" / "scenarios")
     report = check(
         results_dir,
         version,
         corpus_dir=corpus_dir,
-        previous_dir=args.previous_dir,
+        previous_dir=previous_dir,
         band=args.band,
         model=args.model,
         profile=args.profile,
         min_scenarios=args.min_scenarios,
         changed_paths=read_changed_paths(args.changed_paths_file),
+        cost_band=args.cost_band,
+        comparable_floor=args.comparable_floor,
     )
     for line in report.lines:
         print(line)
