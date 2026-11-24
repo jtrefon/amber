@@ -1292,6 +1292,7 @@ coverage:
 	@env CXX="$(CXX)" CXXFLAGS="$(COVERAGE_CXXFLAGS)" CFLAGS="$(COVERAGE_CFLAGS)" ./configure
 	@$(MAKE) --no-print-directory -j$(NPROC)
 	@$(MAKE) --no-print-directory test
+	@$(MAKE) --no-print-directory tui-agent-e2e
 	@BASE=$(BASE) PATCH_COVERAGE_ENFORCE=$(PATCH_COVERAGE_ENFORCE) \
 	    BRANCH_RATCHET_ENFORCE=$(BRANCH_RATCHET_ENFORCE) \
 	    sh "$(SRC_DIR)/tools/coverage_report.sh"

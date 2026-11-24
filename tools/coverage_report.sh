@@ -74,16 +74,17 @@ gcovr --root . \
     --exclude '.*tests/.*' --exclude '.*third_party/.*' \
     --json-summary -o coverage-core.json
 
-# The pty harness is the only thing that exercises tui/. A SIGKILLed session
-# never flushes gcov, so tui/ can read 0% on an otherwise green run. 1% is not a
-# quality bar; it is the assertion that the harness ran and wrote its counters.
-# The summary includes the branch rate: that is the TUI branch report, printed
-# but not enforced (the patch gate says the same per changed file).
+# The pty harness and the 27 agent journeys are what exercise tui/. A
+# SIGKILLed session never flushes gcov, so tui/ can read 0% on an otherwise
+# green run; the floor is the project's 80% target, measured at 82.3% with both
+# harnesses in the 0.9 recipe. The summary includes the branch rate: that is the
+# TUI branch report, printed but not enforced (the patch gate says the same per
+# changed file).
 gcovr --root . \
     --gcov-ignore-parse-errors=negative_hits.warn_once_per_file \
     --exclude-throw-branches --exclude-unreachable-branches \
     --filter 'tui/.*' --exclude '.*third_party/.*' \
-    --fail-under-line 1 --print-summary
+    --fail-under-line 80 --print-summary
 
 # The branch ratchet comes from the same Cobertura report the patch gate reads, so
 # the baseline and the measurement cannot drift apart. `make coverage` restores a

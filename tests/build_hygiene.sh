@@ -444,6 +444,22 @@ if echo "$coverage_out" | grep -q -- '--coverage'; then
 else
     warn "P16: make coverage does not configure --coverage"
 fi
+# The TUI floor is measured from the pty and journey harnesses. A recipe that
+# drops the journeys would leave the floor measuring only the pty surface while
+# still claiming the whole UI.
+if echo "$coverage_out" | grep -q 'tui-agent-e2e'; then
+    ok "P16: make coverage runs the TUI journeys"
+else
+    warn "P16: make coverage does not run the TUI journeys"
+fi
+# The TUI floor is the project target, measured from both harnesses. Keep it
+# from silently reverting to the old 1% "the harness ran" assertion.
+tui_block=$(sed -n "/--filter 'tui\/\.\*'/,/--print-summary/p" tools/coverage_report.sh)
+if echo "$tui_block" | grep -q -- '--fail-under-line 80'; then
+    ok "P16: the TUI floor is the 80% project target"
+else
+    warn "P16: the TUI floor is not the 80% project target"
+fi
 if grep -q 'coverage_report.sh' .github/workflows/ci.yml; then
     ok "P16: the CI coverage job runs tools/coverage_report.sh"
 else
