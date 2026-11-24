@@ -286,8 +286,12 @@ driven by an OpenAI-compatible LLM API.
   in `ci-gate`: the suite is one test binary, the score moves with test
   selection (measured 37% vs 91% on one module), and timeout classification
   moves by one or two between identical runs. It is also destructive (an `-O0`
-  clang + Mull rebuild, like `make coverage`). The measurement, the two boundary
-  gaps it found, and the conditions for ratcheting are in
+  clang + Mull rebuild, like `make coverage`). A survivor budget was **rejected**
+  for 0.9: the nightly changed-line samples measured 43/43 and 14/14 with zero
+  survivors, but zero is a cliff with a known equivalent mutant and the score
+  is selection-dependent. `tests/gates/test_mutation_policy.py` pins the
+  workflow outside `ci.yml`/`ci-gate`; the measurement, the two boundary gaps
+  it found, and the conditions for ratcheting are in
   `docs/plan/mutation-testing-spike.md`.
 - **Harness efficiency is gated hermetically** (`make bench-check`, CI job
   `bench-efficiency`). The fake-LLM scenarios are compared per scenario with
