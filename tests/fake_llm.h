@@ -6,6 +6,7 @@
 // agent-loop-reliability.md). Serves scripted replies in order and records
 // every request for assertions. Never touches the network.
 
+#include <atomic>
 #include <deque>
 #include <string>
 #include <vector>
@@ -35,6 +36,9 @@ public:
     std::vector<std::vector<agent::Message>> requests;
     std::vector<size_t> tool_counts;
     int chat_calls = 0;
+    // A TSan-safe signal that a chat call has started, for tests that cancel
+    // during the backoff without racing the plain chat_calls counter.
+    std::atomic<unsigned> calls_started{0};
     std::string session_id;
 
     void set_session_id(const std::string& id) override { session_id = id; }
@@ -51,6 +55,7 @@ public:
                         const std::vector<std::shared_ptr<agent::Tool>>& tools,
                         agent::Stats* stats = nullptr) override {
         ++chat_calls;
+        calls_started.store(static_cast<unsigned>(chat_calls), std::memory_order_release);
         requests.push_back(messages);
         tool_counts.push_back(tools.size());
         FakeReply r;
