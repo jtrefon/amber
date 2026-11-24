@@ -1,0 +1,71 @@
+{
+  "name": "e2e-tool-plan",
+  "suite": "e2e",
+  "description": "todowrite records the plan and the rendered list reaches the model",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Write the plan for this task, then reply done.",
+  "oracle": [
+    {
+      "tool": "todowrite",
+      "args": {
+        "todos": [
+          {
+            "id": "1",
+            "text": "PLAN-ITEM-ONE",
+            "status": "in_progress"
+          },
+          {
+            "id": "2",
+            "text": "PLAN-ITEM-TWO",
+            "status": "pending"
+          }
+        ]
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "todowrite"
+    ]
+  },
+  "request_log_contains": [
+    "PLAN-ITEM-ONE"
+  ],
+  "expected_tools": [
+    "todowrite"
+  ],
+  "checks": {
+    "must_contain": [
+      "PLAN-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 2,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 20,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "todowrite",
+            "arguments": "{\"todos\":[{\"id\":\"1\",\"text\":\"PLAN-ITEM-ONE\",\"status\":\"in_progress\"},{\"id\":\"2\",\"text\":\"PLAN-ITEM-TWO\",\"status\":\"pending\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 180,
+      "completion_tokens": 5,
+      "content": "PLAN-TOOL-DONE"
+    }
+  ]
+}

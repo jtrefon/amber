@@ -47,9 +47,15 @@ The surface journeys add two cases each for skills
 (`e2e-plugin-tool-call`, `e2e-plugin-failure-recovery`), the Anthropic and
 Gemini dialect journeys (`e2e-provider-anthropic`, `e2e-provider-gemini`), and
 the coding library's `library_lookup` round trip (`e2e-coding-library`). The
-failure paths assert that an unknown skill/tool or a plugin failure is a tool
-error the model can recover from, not a crash. The TUI suite covers the same
-skill, MCP, plugin and provider surfaces through the real pty client.
+workspace tools add `todowrite` (`e2e-tool-plan`), `process_start`
+(`e2e-tool-process`), `process_start` + `tasks` (`e2e-tool-tasks`), the project
+index (`e2e-tool-project-index`) and the watch tool (`e2e-tool-watch`); the
+latter three exit 3 because a background task is deliberately still live, which
+is the CLI's documented delivery contract. The failure paths assert that an
+unknown skill/tool or a plugin failure is a tool error the model can recover
+from, not a crash. The TUI suite covers the same skill, MCP, plugin, provider,
+filesystem, worktree, tasks, project, search/web and watch surfaces through the
+real pty client.
 
 A failed journey keeps its workspace (`--keep-failures`) with `telemetry.json`,
 `requests.json`, `out.txt` and `err.txt`.

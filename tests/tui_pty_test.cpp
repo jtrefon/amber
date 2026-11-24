@@ -1437,6 +1437,15 @@ TEST(system_commands_do_not_freeze_the_ui) {
                  tui))
         return;
 
+    // /system df uses the same async job path; this line is covered here because
+    // the coverage job runs the pty suite, not the TUI journey binary.
+    tui.raw.clear();
+    tui.send("/system df\r");
+    if (!require(tui.wait_for("df: started", 5000), "/system df did not start", tui))
+        return;
+    if (!require(tui.wait_for("df: exit 0", 10000), "/system df did not finish", tui))
+        return;
+
     // The UI stays live while the job runs: a keystroke still reaches the prompt
     // before the job's own result does. The job takes 4 s, so losing this race
     // means the UI was blocked, not that the machine was slow.

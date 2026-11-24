@@ -1,0 +1,86 @@
+{
+  "name": "e2e-tool-project-index",
+  "suite": "e2e",
+  "description": "index_init writes the project index and index_show reads it back to the model",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "approval": "allow",
+  "setup": {
+    "files": {
+      "package.json": "{\"name\":\"journey-index\",\"dependencies\":{\"react\":\"18\"}}"
+    }
+  },
+  "prompt": "Write the project index, read it back, then reply done.",
+  "oracle": [
+    {
+      "tool": "index_init",
+      "args": {
+        "commit": "# Journey Index\n\n- package.json: the project\n"
+      }
+    },
+    {
+      "tool": "index_show",
+      "args": {}
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "index_init",
+      "index_show"
+    ]
+  },
+  "request_log_contains": [
+    "Journey Index"
+  ],
+  "expected_tools": [
+    "index_init",
+    "index_show"
+  ],
+  "checks": {
+    "must_contain": [
+      "INDEX-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 20,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "index_init",
+            "arguments": "{\"commit\":\"# Journey Index\\n\\n- package.json: the project\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 240,
+      "completion_tokens": 8,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "index_show",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 320,
+      "completion_tokens": 5,
+      "content": "INDEX-TOOL-DONE"
+    }
+  ]
+}
