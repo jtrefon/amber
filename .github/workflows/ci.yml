@@ -104,9 +104,10 @@ jobs:
   lint:
     needs: [changes]
     runs-on: ubuntu-24.04
-    # 60 min: clang-tidy is ~20 min of work on top of an install that is
-    # bounded at 30.
-    timeout-minutes: 60
+    # 75 min: clang-tidy is ~40 min measured (#721) on a cold runner, and the
+    # 60 min budget was hit twice (#722, #725) before the work finished. The
+    # ci-watchdog's no-progress window is 90, so 75 keeps a margin.
+    timeout-minutes: 75
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -701,6 +702,12 @@ jobs:
 
       - name: Test
         run: make test
+
+      # The TUI floor is measured from the pty suite and the agent journeys.
+      # This job calls the recipe directly, not `make coverage`, so the step has
+      # to be here as well as in the Makefile target.
+      - name: TUI agent journeys
+        run: make tui-agent-e2e
 
       - name: Coverage reports and gates
         # One recipe, shared with `make coverage`: it writes coverage.xml and

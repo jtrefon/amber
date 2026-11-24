@@ -637,7 +637,9 @@ void journey_tab_switch_stays_live(const std::string& binary) {
                  "clicking the tab did not switch sessions", journey.tui))
         return;
     journey.tui.send("liveness-probe");
-    if (!require(journey.tui.wait_for("liveness-probe", 6000),
+    // The coverage runner instruments the binary; an echo can take several
+    // times longer there than in a normal build.
+    if (!require(journey.tui.wait_for("liveness-probe", 15000),
                  "the UI stopped accepting input after the tab switch", journey.tui))
         return;
     journey.tui.send("\x07"); // drop the probe before issuing another command

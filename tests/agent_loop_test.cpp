@@ -2380,8 +2380,13 @@ TEST(agent_loop_cancel_during_backoff) {
     f.retryable = true;
     fake->script.push_back(std::move(f));
 
-    std::thread canceller([&cfg]() {
-        usleep(150 * 1000);
+    // Wait for the first attempt to start instead of assuming it has: a loaded
+    // macOS runner can schedule the canceller first, and then the cancellation
+    // lands before any call (the 0 != 1 failure this pins).
+    std::thread canceller([&cfg, raw]() {
+        while (raw->calls_started.load(std::memory_order_acquire) == 0)
+            usleep(1000);
+        usleep(20 * 1000); // let the failed attempt enter the backoff
         cfg.cancel_token.request();
     });
     agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
@@ -3487,9 +3492,15 @@ TEST(agent_loop_cancel_does_not_fabricate_message) {
     f.error = "server down";
     f.retryable = true;
     fake->script.push_back(std::move(f));
+    agent_test::FakeLLMClient* raw = fake.get();
 
-    std::thread canceller([&cfg]() {
-        usleep(150 * 1000);
+    // Wait for the first attempt to start instead of assuming it has: a loaded
+    // macOS runner can schedule the canceller first, and then the cancellation
+    // lands before any call (the 0 != 1 failure this pins).
+    std::thread canceller([&cfg, raw]() {
+        while (raw->calls_started.load(std::memory_order_acquire) == 0)
+            usleep(1000);
+        usleep(20 * 1000); // let the failed attempt enter the backoff
         cfg.cancel_token.request();
     });
     agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
