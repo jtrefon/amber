@@ -369,6 +369,22 @@
       "suite": "tools",
       "tool_calls": 5,
       "wall_ms": 113
+    },
+    "trace-openai-read": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "policy",
+      "tool_calls": 1,
+      "wall_ms": 8
+    },
+    "zoo": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "policy",
+      "tool_calls": 1,
+      "wall_ms": 8
     }
   }
 }
