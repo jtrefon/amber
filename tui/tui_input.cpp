@@ -3098,7 +3098,7 @@ void SlashDispatcher::cmd_system_info(const std::string& rest) {
 void SlashDispatcher::cmd_system_ps() {
     // -axo is accepted by GNU and BSD ps alike; --no-headers is GNU-only and
     // made /system ps fail on macOS.
-    tui_.run_command_async("ps", "ps -axo pid,comm,args | head -30");
+    tui_.run_command_async("ps", "ps -axo pid,comm | head -20");
 }
 
 void SlashDispatcher::cmd_system_kill(const std::string& rest) {

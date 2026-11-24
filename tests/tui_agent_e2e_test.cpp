@@ -1846,16 +1846,22 @@ void journey_project_index(const std::string& binary) {
     const std::string second = journey.root + "/second";
     const std::string original = journey.root;
 
-    if (!require(run_command(journey.tui, "/project show", "project: " + original),
-                 "/project show did not name the original root", journey.tui))
+    if (!require(run_command(journey.tui, "/project show", "project: "),
+                 "/project show did not print a root", journey.tui))
         return;
+    require(journey.tui.text().find(original) != std::string::npos,
+            "/project show did not name the original root", journey.tui);
     if (!require(run_command(journey.tui, "/project open " + second + " --no-worktree",
-                             "project opened: " + second),
+                             "project opened: "),
                  "/project open did not create the scoped window", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/project show", "project: " + second),
-                 "/project show did not follow the new window", journey.tui))
+    require(journey.tui.text().find(second) != std::string::npos,
+            "/project open did not name the second root", journey.tui);
+    if (!require(run_command(journey.tui, "/project show", "project: "),
+                 "/project show did not print a root", journey.tui))
         return;
+    require(journey.tui.text().find(second) != std::string::npos,
+            "/project show did not follow the new window", journey.tui);
     if (!require(run_command(journey.tui, "/project list", "Open projects"),
                  "/project list did not open", journey.tui))
         return;
@@ -1882,9 +1888,11 @@ void journey_project_index(const std::string& binary) {
         return;
     journey.tui.send("y");
     journey.tui.pump(500);
-    if (!require(run_command(journey.tui, "/project show", "project: " + original),
-                 "/project close did not return to the original window", journey.tui))
+    if (!require(run_command(journey.tui, "/project show", "project: "),
+                 "/project close did not print a root", journey.tui))
         return;
+    require(journey.tui.text().find(original) != std::string::npos,
+            "/project close did not return to the original window", journey.tui);
     require(fs::exists(second + "/package.json"), "closing the project deleted its directory",
             journey.tui);
     journey.finish("project-index");
