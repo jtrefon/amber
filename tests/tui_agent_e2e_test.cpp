@@ -27,6 +27,7 @@
 #include "agent/profiles.h"
 #include "agent/skill_install.h"
 #include "agent/workspace.h"
+#include "agent/worktree.h"
 #include "bench/scripted_endpoint.h"
 #include "tests/minitest.h"
 #include "tests/pty_harness.h"
@@ -114,6 +115,33 @@ struct ScopedEnv {
     ScopedEnv(const ScopedEnv&) = delete;
     ScopedEnv& operator=(const ScopedEnv&) = delete;
 };
+
+std::string first_token(const std::string& text) {
+    const size_t begin = text.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos)
+        return {};
+    const size_t end = text.find_first_of(" \t\r\n", begin);
+    return text.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+}
+
+// A task id is `task_` plus [a-z0-9_-]; the list and start lines put a colon
+// or whitespace after it.
+std::string task_id_after(const std::string& text, const std::string& marker) {
+    const size_t at = text.rfind(marker);
+    if (at == std::string::npos)
+        return {};
+    size_t begin = at + marker.size();
+    while (begin < text.size() && std::isspace(static_cast<unsigned char>(text[begin])))
+        ++begin;
+    size_t end = begin;
+    while (end < text.size()) {
+        const char c = text[end];
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'))
+            break;
+        ++end;
+    }
+    return text.substr(begin, end - begin);
+}
 
 // The first whitespace-delimited token after `marker`.
 std::string token_after(const std::string& text, const std::string& marker) {
@@ -1389,6 +1417,639 @@ void journey_settings_surface(const std::string& binary) {
     journey.finish("settings-surface");
 }
 
+bool prepare_workspace_fixture(const std::string& root) {
+    return write_text_file(root + "/alpha.txt", "ALPHA-MARKER\n") &&
+           write_text_file(root + "/dir/nested.txt", "NESTED-MARKER\n");
+}
+
+void journey_workspace_files(const std::string& binary) {
+    Journey journey;
+    if (!require(journey.start(binary, "workspace-files", {answer("FILES-SESSION-READY")}, "",
+                               [](const std::string& root) {
+                                   require_setup(prepare_workspace_fixture(root),
+                                                 "the workspace files fixture was not written");
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Prepare the workspace session.\r");
+    if (!require(journey.tui.wait_for("FILES-SESSION-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    if (!require(run_command(journey.tui, "/files ls .", "alpha.txt"),
+                 "/files ls did not list the workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/files tree .", "nested.txt"),
+                 "/files tree did not walk the directory", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/files open alpha.txt", "ALPHA-MARKER"),
+                 "/files open did not show the file body", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/files find dir", "nested.txt"),
+                 "/files find did not list the directory", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/system mkdir made", "created: made"),
+                 "/system mkdir did not create the directory", journey.tui))
+        return;
+    require(fs::is_directory(journey.root + "/made"), "the created directory is missing",
+            journey.tui);
+    if (!require(run_command(journey.tui, "/system cp alpha.txt made/copy.txt", "copied"),
+                 "/system cp did not copy the file", journey.tui))
+        return;
+    require(read_text(journey.root + "/made/copy.txt") == "ALPHA-MARKER\n",
+            "the copied file body is wrong", journey.tui);
+    if (!require(run_command(journey.tui, "/system mv made/copy.txt made/moved.txt", "moved"),
+                 "/system mv did not move the file", journey.tui))
+        return;
+    require(!fs::exists(journey.root + "/made/copy.txt") &&
+                fs::exists(journey.root + "/made/moved.txt"),
+            "the moved file is in the wrong place", journey.tui);
+    if (!require(run_command(journey.tui, "/system info made/moved.txt", "made/moved.txt: file"),
+                 "/system info did not describe the file", journey.tui))
+        return;
+    if (!require(
+            run_command(journey.tui, "/system delete made/moved.txt", "deleted: made/moved.txt"),
+            "/system delete did not remove the file", journey.tui))
+        return;
+    require(!fs::exists(journey.root + "/made/moved.txt"), "the deleted file is still there",
+            journey.tui);
+    if (!require(run_command(journey.tui, "/system rmdir made", "removed dir: made"),
+                 "/system rmdir did not remove the empty directory", journey.tui))
+        return;
+    require(!fs::exists(journey.root + "/made"), "the removed directory is still there",
+            journey.tui);
+
+    if (!require(run_command(journey.tui, "/system exec echo WORKSPACE-EXEC", "exec: started"),
+                 "/system exec did not start the command", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("exec: exit 0", 15000), "/system exec did not finish",
+                 journey.tui))
+        return;
+    require(journey.tui.wait_for("WORKSPACE-EXEC", 5000), "the exec output never appeared",
+            journey.tui);
+
+    if (!require(run_command(journey.tui, "/system ps", "ps: started"), "/system ps did not start",
+                 journey.tui))
+        return;
+    require(journey.tui.wait_for("ps: exit 0", 15000), "/system ps did not finish", journey.tui);
+    if (!require(run_command(journey.tui, "/system df", "df: started"), "/system df did not start",
+                 journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("df: exit 0", 15000), "/system df did not finish",
+                 journey.tui))
+        return;
+    require(journey.tui.wait_for("Filesystem", 5000), "df printed no filesystem table",
+            journey.tui);
+    if (!require(run_command(journey.tui, "/system uname", "uname: started"),
+                 "/system uname did not start", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("uname: exit 0", 15000), "/system uname did not finish",
+                 journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/system uptime", "uptime: started"),
+                 "/system uptime did not start", journey.tui))
+        return;
+    if (!require(journey.tui.wait_for("uptime: exit 0", 15000), "/system uptime did not finish",
+                 journey.tui))
+        return;
+    require(journey.tui.wait_for("load average", 5000), "uptime printed no load average",
+            journey.tui);
+
+    const std::string pidfile = journey.root + "/sleep.pid";
+    if (!require_setup(run_shell("sh -c 'sleep 300 & echo $! > " + pidfile + "'"),
+                       "the kill fixture process did not start"))
+        return;
+    const std::string pid = first_token(read_text(pidfile));
+    if (!require_setup(!pid.empty(), "the fixture process did not print its pid"))
+        return;
+    if (!require(run_command(journey.tui, "/system kill " + pid, "killed " + pid),
+                 "/system kill did not report the pid", journey.tui))
+        return;
+    require(::kill(std::atoi(pid.c_str()), 0) != 0, "the killed process is still alive",
+            journey.tui);
+    journey.finish("workspace-files");
+}
+
+bool prepare_worktree_fixture(const std::string& root) {
+    return run_git(root, "init -q") && write_text_file(root + "/a.txt", "one\n") &&
+           run_git(root, "add a.txt") &&
+           run_git(root, "-c user.name=amber-journey -c user.email=journey@example.invalid "
+                         "commit -qm init");
+}
+
+void journey_worktree_lifecycle(const std::string& binary) {
+    Journey journey;
+    if (!require(journey.start(binary, "worktree-lifecycle", {answer("WORKTREE-SESSION-READY")}, "",
+                               [](const std::string& root) {
+                                   require_setup(prepare_worktree_fixture(root),
+                                                 "the worktree git fixture was not written");
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Prepare the worktree session.\r");
+    if (!require(journey.tui.wait_for("WORKTREE-SESSION-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+    const std::string head_before = first_token(git_output(journey.root, "rev-parse HEAD"));
+    const std::string branch_before =
+        first_token(git_output(journey.root, "rev-parse --abbrev-ref HEAD"));
+    const std::string status_before = git_output(journey.root, "status --porcelain");
+    const std::string base = agent::worktree_base_dir(journey.root);
+
+    if (!require(run_command(journey.tui, "/worktree new feature-x", "created feature-x"),
+                 "/worktree new did not create the workspace", journey.tui))
+        return;
+    if (!require_setup(fs::exists(base + "/feature-x/a.txt"), "the new worktree has no checkout"))
+        return;
+    if (!require(run_command(journey.tui, "/worktree list", "feature-x"),
+                 "/worktree list did not name the workspace", journey.tui))
+        return;
+    require(journey.tui.text().find("live") != std::string::npos,
+            "/worktree list did not say the workspace is live", journey.tui);
+    if (!require(run_command(journey.tui, "/worktree show", "worktree: feature-x (live)"),
+                 "/worktree show did not describe the workspace", journey.tui))
+        return;
+    require(journey.tui.text().find("branch: detached") != std::string::npos,
+            "/worktree show did not report the detached branch", journey.tui);
+    if (!require(run_command(journey.tui, "/worktree remove feature-x", "is in use"),
+                 "a claimed workspace was removable", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/worktree detach", "parked"),
+                 "/worktree detach did not park the workspace", journey.tui))
+        return;
+    require(fs::exists(base + "/feature-x"), "detach deleted the workspace directory", journey.tui);
+    if (!require(run_command(journey.tui, "/worktree attach", "available: feature-x"),
+                 "/worktree attach did not list the parked workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree attach feature-x", "attached feature-x"),
+                 "/worktree attach did not reclaim the workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree detach", "parked"),
+                 "/worktree detach did not park the workspace again", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree remove feature-x", "workspace removed"),
+                 "a clean parked workspace was not removable", journey.tui))
+        return;
+    require(!fs::exists(base + "/feature-x"), "the removed workspace directory is still there",
+            journey.tui);
+
+    if (!require(run_command(journey.tui, "/worktree new main-x", "created main-x"),
+                 "/worktree new did not create the second workspace", journey.tui))
+        return;
+    journey.tui.raw.clear();
+    journey.tui.send("/worktree main\x07");
+    if (!require(journey.tui.wait_for("worktree main-x: leave", 10000),
+                 "/worktree main did not open the leave prompt", journey.tui))
+        return;
+    journey.tui.send("j"); // Leave and remove
+    journey.tui.pump(200);
+    journey.tui.send("\r");
+    if (!require(journey.tui.wait_for("left main-x", 15000),
+                 "/worktree main did not return to the project root", journey.tui))
+        return;
+    require(!fs::exists(base + "/main-x"), "main kept the worktree directory", journey.tui);
+    if (!require(run_command(journey.tui, "/worktree show", "worktree: none"),
+                 "the window did not return to the project root", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/worktree new dirty-x", "created dirty-x"),
+                 "/worktree new did not create the dirty workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree detach", "parked"),
+                 "/worktree detach did not park the dirty workspace", journey.tui))
+        return;
+    require_setup(write_text_file(base + "/dirty-x/dirty.txt", "local\n"),
+                  "the dirty fixture was not written");
+    if (!require(run_command(journey.tui, "/worktree remove dirty-x", "workspace kept"),
+                 "a dirty workspace was removed", journey.tui))
+        return;
+    require_setup(fs::remove(base + "/dirty-x/dirty.txt"), "the dirty fixture was not removed");
+    if (!require(run_command(journey.tui, "/worktree remove dirty-x", "workspace removed"),
+                 "a cleaned workspace was not removable", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/worktree new stale-x", "created stale-x"),
+                 "/worktree new did not create the stale workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree detach", "parked"),
+                 "/worktree detach did not park the stale workspace", journey.tui))
+        return;
+    std::error_code ec;
+    fs::remove_all(base + "/stale-x", ec);
+    if (!require_setup(!ec, "the stale workspace directory was not removed"))
+        return;
+    if (!require(run_command(journey.tui, "/worktree prune", "dropped registry entries: stale-x"),
+                 "/worktree prune did not drop the vanished workspace", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/worktree list", "none in this project"),
+                 "/worktree list did not report an empty registry", journey.tui))
+        return;
+
+    const std::string head_after = first_token(git_output(journey.root, "rev-parse HEAD"));
+    const std::string branch_after =
+        first_token(git_output(journey.root, "rev-parse --abbrev-ref HEAD"));
+    const std::string status_after = git_output(journey.root, "status --porcelain");
+    require(head_after == head_before && branch_after == branch_before &&
+                status_after == status_before,
+            "a worktree command moved the user's HEAD, branch or index", journey.tui);
+    journey.finish("worktree-lifecycle");
+}
+
+void journey_tasks_control(const std::string& binary) {
+    int call = 0;
+    Journey journey;
+    if (!require(journey.start(
+                     binary, "tasks-control",
+                     [&call](const bench::EndpointRequest& request) {
+                         bench::EndpointReply reply;
+                         if (request.path != "/v1/chat/completions") {
+                             reply.handled = false;
+                             return reply;
+                         }
+                         ++call;
+                         if (call == 1)
+                             return tool_call("c1", "todowrite",
+                                              R"({"todos":[{"id":"1","text":"PLAN-ITEM-ONE",)"
+                                              R"("status":"in_progress"},{"id":"2",)"
+                                              R"("text":"PLAN-ITEM-TWO","status":"pending"}]})");
+                         if (call == 2) {
+                             reply.content = request.body.find("PLAN-ITEM-ONE") != std::string::npos
+                                                 ? "PLAN-TOOL-DONE"
+                                                 : "PLAN-TOOL-MISSING";
+                             return reply;
+                         }
+                         if (call == 3)
+                             return tool_call("c2", "process_start",
+                                              R"({"command":"sleep 5","label":"JOURNEY-PROCESS"})");
+                         if (call == 4) {
+                             reply.content =
+                                 request.body.find("JOURNEY-PROCESS") != std::string::npos
+                                     ? "PROCESS-TOOL-DONE"
+                                     : "PROCESS-TOOL-MISSING";
+                             return reply;
+                         }
+                         if (call == 5)
+                             return tool_call("c3", "tasks", R"({"action":"list"})");
+                         if (call == 6) {
+                             reply.content =
+                                 request.body.find("JOURNEY-PROCESS") != std::string::npos
+                                     ? "TASKS-TOOL-DONE"
+                                     : "TASKS-TOOL-MISSING";
+                             return reply;
+                         }
+                         reply.content = "UNEXPECTED-TURN";
+                         return reply;
+                     }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+
+    journey.tui.send("Write the plan. PLAN-TOOL\r");
+    if (!require(journey.tui.wait_for("PLAN-TOOL-DONE", 30000),
+                 "the plan tool result never reached the model", journey.tui))
+        return;
+    settle_output(journey.tui);
+    journey.tui.send("Start a background process. PROCESS-TOOL\r");
+    if (!require(journey.tui.wait_for("Approve action?", 15000),
+                 "process_start did not ask for approval", journey.tui))
+        return;
+    journey.tui.send("1"); // Allow once
+    if (!require(journey.tui.wait_for("PROCESS-TOOL-DONE", 30000),
+                 "the process_start result never reached the model", journey.tui))
+        return;
+    settle_output(journey.tui);
+    journey.tui.send("List the background tasks. TASKS-TOOL\r");
+    if (!require(journey.tui.wait_for("TASKS-TOOL-DONE", 30000),
+                 "the tasks tool result never reached the model", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    if (!require(run_command(journey.tui, "/tasks list", "JOURNEY-PROCESS"),
+                 "/tasks list did not show the tool's task", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks start sleep 30", "started task "),
+                 "/tasks start did not create the task", journey.tui))
+        return;
+    const std::string task = task_id_after(journey.tui.text(), "started task ");
+    if (!require_setup(!task.empty(), "the started task id was not shown"))
+        return;
+    if (!require(run_command(journey.tui, "/tasks show " + task, "state: running"),
+                 "/tasks show did not describe the running task", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks wait " + task, "waiting for task"),
+                 "/tasks wait did not register", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks output " + task, "id: " + task),
+                 "/tasks output did not open the task viewer", journey.tui))
+        return;
+    journey.tui.send("/window detach\x07");
+    journey.tui.pump(500);
+    if (!require(run_command(journey.tui, "/window attach task " + task, "id: " + task),
+                 "/window attach did not open the task viewer", journey.tui))
+        return;
+    journey.tui.send("/window detach\x07");
+    journey.tui.pump(500);
+
+    journey.tui.raw.clear();
+    journey.tui.send("/tasks cancel " + task + "\x07");
+    if (!require(journey.tui.wait_for("Cancel task", 10000),
+                 "/tasks cancel did not open the confirmation", journey.tui))
+        return;
+    journey.tui.send("\t"); // switch from No to Yes
+    journey.tui.pump(200);
+    journey.tui.send("\r");
+    if (!require(journey.tui.wait_for("cancel requested for " + task, 10000),
+                 "/tasks cancel did not request the cancellation", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks wait " + task, "state: cancelled"),
+                 "/tasks wait did not observe the cancelled task", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks cancel " + task, "already cancelled"),
+                 "a terminal task reported a second cancel as new work", journey.tui))
+        return;
+
+    if (!require(run_command(journey.tui, "/work", "Tasks"), "the Work board did not open",
+                 journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+    journey.finish("tasks-control");
+}
+
+bool prepare_project_fixture(const std::string& root) {
+    return write_text_file(root + "/second/package.json",
+                           R"({"name":"journey-second","dependencies":{"react":"18"}})") &&
+           write_text_file(root + "/second/src/app.js", "console.log('second');\n");
+}
+
+void journey_project_index(const std::string& binary) {
+    int call = 0;
+    Journey journey;
+    if (!require(
+            journey.start(
+                binary, "project-index",
+                [&call](const bench::EndpointRequest& request) {
+                    bench::EndpointReply reply;
+                    if (request.path != "/v1/chat/completions") {
+                        reply.handled = false;
+                        return reply;
+                    }
+                    ++call;
+                    if (call == 1) {
+                        reply.content = "PROJECT-SESSION-READY";
+                        return reply;
+                    }
+                    if (call == 2)
+                        return tool_call(
+                            "c1", "index_init",
+                            R"({"commit":"# Journey Index\n\n- package.json: the second project\n"})");
+                    if (call == 3)
+                        return request.body.find("wrote ") != std::string::npos
+                                   ? tool_call("c2", "index_show", "{}")
+                                   : answer("INDEX-WRITE-MISSING");
+                    if (call == 4) {
+                        reply.content = request.body.find("Journey Index") != std::string::npos
+                                            ? "INDEX-TOOL-DONE"
+                                            : "INDEX-READ-MISSING";
+                        return reply;
+                    }
+                    reply.content = "UNEXPECTED-TURN";
+                    return reply;
+                },
+                "",
+                [](const std::string& root) {
+                    require_setup(prepare_project_fixture(root),
+                                  "the second project was not written");
+                }),
+            "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Prepare the project session.\r");
+    if (!require(journey.tui.wait_for("PROJECT-SESSION-READY", 30000),
+                 "the first turn did not start a chat window", journey.tui))
+        return;
+    settle_output(journey.tui);
+    const std::string second = journey.root + "/second";
+    const std::string original = journey.root;
+
+    if (!require(run_command(journey.tui, "/project show", "project: " + original),
+                 "/project show did not name the original root", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/project open " + second + " --no-worktree",
+                             "project opened: " + second),
+                 "/project open did not create the scoped window", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/project show", "project: " + second),
+                 "/project show did not follow the new window", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/project list", "Open projects"),
+                 "/project list did not open", journey.tui))
+        return;
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+
+    journey.tui.send("Index this project. INDEX-TOOL\r");
+    if (!require(journey.tui.wait_for("Approve action?", 15000),
+                 "index_init did not ask to write the index", journey.tui))
+        return;
+    journey.tui.send("1"); // Allow once
+    if (!require(journey.tui.wait_for("INDEX-TOOL-DONE", 30000),
+                 "the index tool result never reached the model", journey.tui))
+        return;
+    settle_output(journey.tui);
+    if (!require(run_command(journey.tui, "/plugin project_index index show", "Journey Index"),
+                 "the plugin command did not read the written index", journey.tui))
+        return;
+
+    journey.tui.raw.clear();
+    journey.tui.send("/project close\x07");
+    if (!require(journey.tui.wait_for("Close session", 10000),
+                 "/project close did not ask to close the window", journey.tui))
+        return;
+    journey.tui.send("y");
+    journey.tui.pump(500);
+    if (!require(run_command(journey.tui, "/project show", "project: " + original),
+                 "/project close did not return to the original window", journey.tui))
+        return;
+    require(fs::exists(second + "/package.json"), "closing the project deleted its directory",
+            journey.tui);
+    journey.finish("project-index");
+}
+
+bool prepare_tools_fixture(const std::string& root) {
+    return write_text_file(root + "/notes.txt", "NEEDLE-ALPHA lives here\n") &&
+           write_text_file(root + "/other.txt", "nothing to find\n");
+}
+
+void journey_workspace_tools(const std::string& binary) {
+    auto page =
+        std::make_unique<bench::ScriptedEndpoint>([](const bench::EndpointRequest& request) {
+            bench::EndpointReply reply;
+            if (request.path == "/page") {
+                reply.content_type = "text/html";
+                reply.body = "<html><body><p>WEB-PAGE-MARKER</p></body></html>";
+            } else {
+                reply.handled = false;
+            }
+            return reply;
+        });
+    if (!require_setup(page->start(), "the loopback page server did not start"))
+        return;
+    const std::string page_url = page->root_url() + "/page";
+    int call = 0;
+    Journey journey;
+    if (!require(
+            journey.start(
+                binary, "workspace-tools",
+                [&call, page_url](const bench::EndpointRequest& request) {
+                    bench::EndpointReply reply;
+                    if (request.path != "/v1/chat/completions") {
+                        reply.handled = false;
+                        return reply;
+                    }
+                    ++call;
+                    if (call == 1)
+                        return tool_call("c1", "search",
+                                         R"({"pattern":"NEEDLE-ALPHA","mode":"grep"})");
+                    if (call == 2) {
+                        if (request.body.find("notes.txt") == std::string::npos)
+                            return answer("SEARCH-GREP-MISSING");
+                        return tool_call("c2", "search",
+                                         R"({"pattern":"NEEDLE-ALPHA","mode":"semantic"})");
+                    }
+                    if (call == 3) {
+                        if (request.body.find("notes.txt") == std::string::npos)
+                            return answer("SEARCH-SEMANTIC-MISSING");
+                        return tool_call("c3", "web_fetch", R"({"url":")" + page_url + R"("})");
+                    }
+                    if (call == 4)
+                        return answer(request.body.find("WEB-PAGE-MARKER") != std::string::npos
+                                          ? "TOOLS-DONE"
+                                          : "WEB-MISSING");
+                    return answer("UNEXPECTED-TURN");
+                },
+                "",
+                [](const std::string& root) {
+                    require_setup(prepare_tools_fixture(root), "the tools fixture was not written");
+                }),
+            "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Search the workspace and fetch the page. TOOLS\r");
+    if (!require(journey.tui.wait_for("TOOLS-DONE", 30000),
+                 "the search or web tool result never reached the model", journey.tui))
+        return;
+    require(journey.tui.text().find("SEARCH-") == std::string::npos &&
+                journey.tui.text().find("WEB-MISSING") == std::string::npos,
+            "a tool result was missing", journey.tui);
+    journey.finish("workspace-tools");
+}
+
+std::string first_task_id(const std::string& text) {
+    const size_t at = text.rfind("task_");
+    if (at == std::string::npos)
+        return {};
+    size_t end = at;
+    while (end < text.size()) {
+        const char c = text[end];
+        if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'))
+            break;
+        ++end;
+    }
+    return text.substr(at, end - at);
+}
+
+void journey_watch_surface(const std::string& binary) {
+    int call = 0;
+    Journey journey;
+    if (!require(journey.start(binary, "watch-surface",
+                               [&call](const bench::EndpointRequest& request) {
+                                   bench::EndpointReply reply;
+                                   if (request.path != "/v1/chat/completions") {
+                                       reply.handled = false;
+                                       return reply;
+                                   }
+                                   ++call;
+                                   if (call == 1)
+                                       return tool_call("c1", "watch",
+                                                        R"({"action":"start","profile":"process",)"
+                                                        R"("command":"echo WATCH-MARKER",)"
+                                                        R"("label":"JOURNEY-WATCH","interval_s":1,)"
+                                                        R"("deadline_s":3,"observe":"off"})");
+                                   if (call == 2) {
+                                       reply.content =
+                                           request.body.find("task_") != std::string::npos
+                                               ? "WATCH-TOOL-DONE"
+                                               : "WATCH-TOOL-MISSING";
+                                       return reply;
+                                   }
+                                   reply.content = "UNEXPECTED-TURN";
+                                   return reply;
+                               }),
+                 "the TUI did not start", journey.tui))
+        return;
+    if (!require(wait_ready(journey.tui, fs::path(journey.root).filename().string()),
+                 "the UI never came up", journey.tui))
+        return;
+    journey.tui.send("Start a watch on the marker. WATCH-TOOL\r");
+    if (!require(journey.tui.wait_for("Approve action?", 15000), "watch did not ask for approval",
+                 journey.tui))
+        return;
+    journey.tui.send("1"); // Allow once
+    if (!require(journey.tui.wait_for("WATCH-TOOL-DONE", 30000),
+                 "the watch tool result never reached the model", journey.tui))
+        return;
+    settle_output(journey.tui);
+
+    if (!require(run_command(journey.tui, "/tasks list", "JOURNEY-WATCH"),
+                 "/tasks list did not show the watch task", journey.tui))
+        return;
+    const std::string task = first_task_id(journey.tui.text());
+    if (!require_setup(!task.empty(), "the watch task id was not shown"))
+        return;
+    if (!require(run_command(journey.tui, "/panel watch", "Watches"),
+                 "/panel watch did not open the watch panel", journey.tui))
+        return;
+    require(journey.tui.text().find("process") != std::string::npos,
+            "the watch panel did not name the profile", journey.tui);
+    journey.tui.send("\x1b");
+    journey.tui.pump(500);
+
+    journey.tui.raw.clear();
+    journey.tui.send("/tasks wait " + task + "\x07");
+    const bool registered = journey.tui.wait_for("waiting for task", 3000);
+    if (!registered && !require(journey.tui.wait_for("state: succeeded", 3000),
+                                "the watch task never reported a terminal state", journey.tui))
+        return;
+    if (registered && !require(journey.tui.wait_for("state: succeeded", 15000),
+                               "the watch task never reported a terminal state", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/tasks output " + task, "id: " + task),
+                 "/tasks output did not open the watch task", journey.tui))
+        return;
+    require(journey.tui.text().find("WATCH-MARKER") != std::string::npos,
+            "the watch output does not contain the observed marker", journey.tui);
+    journey.tui.send("/window detach\x07");
+    journey.tui.pump(500);
+    journey.finish("watch-surface");
+}
+
 void journey_coding_library(const std::string& binary) {
     Journey journey;
     if (!require(journey.start(binary, "coding-library",
@@ -2208,6 +2869,18 @@ int main(int argc, char** argv) {
         journey_settings_surface(binary);
     if (!only || std::string(only) == "coding-library")
         journey_coding_library(binary);
+    if (!only || std::string(only) == "workspace-files")
+        journey_workspace_files(binary);
+    if (!only || std::string(only) == "worktree-lifecycle")
+        journey_worktree_lifecycle(binary);
+    if (!only || std::string(only) == "tasks-control")
+        journey_tasks_control(binary);
+    if (!only || std::string(only) == "project-index")
+        journey_project_index(binary);
+    if (!only || std::string(only) == "workspace-tools")
+        journey_workspace_tools(binary);
+    if (!only || std::string(only) == "watch-surface")
+        journey_watch_surface(binary);
     if (!only || std::string(only) == "mcp")
         journey_mcp_tool_call(binary);
     if (!only || std::string(only) == "plugin")
