@@ -922,10 +922,17 @@ TEST(shell_menu_navigates_runs_an_action_and_releases_the_prompt) {
     tui.pump(250);
     tui.send("\x1b");
     tui.pump(250);
-    mark = tui.raw.size();
     tui.send("menu-released");
-    if (!require(wait_since(tui, mark, "menu-released", 3000),
-                 "the prompt did not take input after Esc closed the menu", tui))
+    // The echo can interleave with a periodic redraw (the sanitizer run showed
+    // `menu-re1leased`), which is a rendering artefact, not lost input. The
+    // composer's draft file is the clean signal that the keys reached it.
+    const std::string draft = fixture().workspace + "/.amber/draft";
+    bool typed = false;
+    for (int waited = 0; waited < 5000 && !typed; waited += 100) {
+        tui.pump(100);
+        typed = read_text_file(draft) == "menu-released";
+    }
+    if (!require(typed, "the prompt did not take input after Esc closed the menu", tui))
         return;
     tui.send("\x15"); // clear the line
     tui.pump(200);
