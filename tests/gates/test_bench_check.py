@@ -11,10 +11,21 @@ import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import date
+from pathlib import Path
 
 from harness import load
 
 bench = load("bench_check")
+
+TODAY = date(2026, 11, 24)
+EXPIRES = "2026-12-10"  # 16 days out: inside the 30-day waiver/additive window
+
+
+def additive_for(*names, expires=EXPIRES):
+    return {name: {"issue": 1, "reason": "new cell under review", "expires": expires}
+            for name in names}
+
 
 SCENARIOS = {
     "alpha": {"suite": "tools", "prompt_tokens": 100, "completion_tokens": 10,
@@ -40,10 +51,12 @@ def report_of(overrides=None, drop=None):
     return {"mode": "hermetic", "scenarios": scenarios}
 
 
-def run_check(current, recorded, allow="", min_scenarios=0):
+def run_check(current, recorded, allow="", min_scenarios=0, additive=None,
+              today=TODAY):
     out, err = io.StringIO(), io.StringIO()
     with redirect_stdout(out), redirect_stderr(err):
-        rc = bench.check(current, recorded, allow, min_scenarios=min_scenarios)
+        rc = bench.check(current, recorded, allow, min_scenarios=min_scenarios,
+                         additive=additive, today=today)
     return rc, out.getvalue() + err.getvalue()
 
 
@@ -118,22 +131,57 @@ class Comparison(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertIn("beta", out)
 
-    def test_an_additive_scenario_passes_with_a_note(self):
+    def test_an_unrecorded_additive_scenario_fails(self):
         current = self.current({"_extra": {
             "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
             "tool_calls_total": 1, "wall_ms": 1, "success": True}})
         rc, out = run_check(current, SCENARIOS)
+        self.assertEqual(rc, 1)
+        self.assertIn("gamma", out)
+        self.assertIn("additive record", out)
+
+    def test_a_recorded_additive_scenario_is_reported_and_passes(self):
+        current = self.current({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": True}})
+        rc, out = run_check(current, SCENARIOS, additive=additive_for("gamma"))
         self.assertEqual(rc, 0)
-        self.assertIn("additive", out)
+        self.assertIn("additive window", out)
+        self.assertIn(EXPIRES, out)
+
+    def test_an_expired_additive_record_fails(self):
+        current = self.current({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": True}})
+        rc, out = run_check(current, SCENARIOS,
+                            additive=additive_for("gamma", expires="2026-11-01"))
+        self.assertEqual(rc, 1)
+        self.assertIn("expired", out)
+
+    def test_an_additive_record_beyond_the_window_fails(self):
+        current = self.current({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": True}})
+        rc, out = run_check(current, SCENARIOS,
+                            additive=additive_for("gamma", expires="2027-03-01"))
+        self.assertEqual(rc, 1)
+        self.assertIn("maximum window", out)
+
+    def test_a_stale_additive_record_fails(self):
+        rc, out = run_check(self.current(), SCENARIOS,
+                            additive=additive_for("graduated"))
+        self.assertEqual(rc, 1)
+        self.assertIn("stale", out)
+        self.assertIn("graduated", out)
 
     def test_an_additive_scenario_that_fails_is_a_regression(self):
         current = self.current({"_extra": {
             "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
             "tool_calls_total": 1, "wall_ms": 1, "success": False}})
-        rc, out = run_check(current, SCENARIOS)
+        rc, out = run_check(current, SCENARIOS, additive=additive_for("gamma"))
         self.assertEqual(rc, 1)
         self.assertIn("gamma", out)
-        self.assertIn("additive scenario", out)
+        self.assertIn("new scenario", out)
 
     def test_a_report_below_the_corpus_floor_fails_closed(self):
         rc, out = run_check(self.current(), SCENARIOS, min_scenarios=3)
@@ -173,13 +221,63 @@ class Comparison(unittest.TestCase):
 
     def test_allow_turns_a_regression_into_a_reported_override(self):
         current = self.current({"alpha": {"prompt_tokens": 120}})
-        rc, out = run_check(current, SCENARIOS, allow="known one-off")
+        rc, out = run_check(current, SCENARIOS,
+                            allow=f"known one-off until {EXPIRES}")
         self.assertEqual(rc, 0)
         self.assertIn("allowed by: known one-off", out)
+        self.assertIn(EXPIRES, out)
+
+    def test_a_waiver_without_an_expiry_fails_closed(self):
+        current = self.current({"alpha": {"prompt_tokens": 120}})
+        rc, out = run_check(current, SCENARIOS, allow="known one-off")
+        self.assertEqual(rc, 2)
+        self.assertIn("expiry", out)
+
+    def test_an_expired_waiver_fails_closed(self):
+        current = self.current({"alpha": {"prompt_tokens": 120}})
+        rc, out = run_check(current, SCENARIOS, allow="known one-off until 2026-11-01")
+        self.assertEqual(rc, 2)
+        self.assertIn("expired", out)
+
+    def test_a_waiver_beyond_the_maximum_lifetime_fails_closed(self):
+        current = self.current({"alpha": {"prompt_tokens": 120}})
+        rc, out = run_check(current, SCENARIOS,
+                            allow="known one-off until 2027-03-01")
+        self.assertEqual(rc, 2)
+        self.assertIn("maximum lifetime", out)
+
+    def test_a_waiver_cannot_hide_an_unrecorded_additive_cell(self):
+        current = self.current({
+            "_extra": {"name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+                       "tool_calls_total": 1, "wall_ms": 1, "success": True}})
+        rc, out = run_check(current, SCENARIOS,
+                            allow=f"known one-off until {EXPIRES}")
+        self.assertEqual(rc, 1)
+        self.assertIn("additive", out)
 
     def test_allow_does_not_hide_a_measurement_failure(self):
-        rc, _ = run_check(self.current(drop="beta"), SCENARIOS, allow="excuse")
+        rc, _ = run_check(self.current(drop="beta"), SCENARIOS,
+                          allow=f"excuse until {EXPIRES}")
         self.assertEqual(rc, 2)
+
+    def test_an_active_waiver_appears_in_the_markdown(self):
+        current = self.current()
+        results = [(name, (SCENARIOS[name], current[name])) for name in sorted(SCENARIOS)]
+        text = bench.markdown(
+            results, [], [], harness=None,
+            waiver={"reason": "known extra call", "expires": EXPIRES, "days": 16})
+        self.assertIn("**Active waiver:** known extra call", text)
+        self.assertIn(EXPIRES, text)
+        self.assertIn("16 day(s) left", text)
+
+    def test_a_recorded_additive_cell_appears_in_the_markdown(self):
+        current = self.current({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": True}})
+        results = [(name, (SCENARIOS[name], current[name])) for name in sorted(SCENARIOS)]
+        text = bench.markdown(results, [], ["gamma"], active=additive_for("gamma"))
+        self.assertIn("Additive cell `gamma` is on a reviewed window", text)
+        self.assertIn("issue #1", text)
 
 
 class Loading(unittest.TestCase):
@@ -225,11 +323,11 @@ class Loading(unittest.TestCase):
         baseline.close()
         bench.store(baseline.name, SCENARIOS)
         old_allow = os.environ.get("BENCH_ALLOW")
-        os.environ["BENCH_ALLOW"] = "env reason"
+        os.environ["BENCH_ALLOW"] = f"env reason until {EXPIRES}"
         import sys
         old = sys.argv
         sys.argv = ["bench_check.py", "--report", report, "--baseline", baseline.name,
-                    "--min-scenarios", "0"]
+                    "--min-scenarios", "0", "--today", TODAY.isoformat()]
         try:
             out = io.StringIO()
             with redirect_stdout(out):
@@ -244,6 +342,58 @@ class Loading(unittest.TestCase):
             os.unlink(baseline.name)
         self.assertEqual(rc, 0)
         self.assertIn("allowed by: env reason", out.getvalue())
+
+    def test_the_ci_job_annotates_an_active_waiver(self):
+        workflow = (Path(bench.REPO_ROOT) / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8")
+        self.assertIn("::warning title=bench-waiver::", workflow)
+
+    def test_the_committed_additive_record_is_valid_and_empty(self):
+        cells, error = bench.load_additive(bench.ADDITIVE)
+        self.assertIsNone(error)
+        self.assertEqual(cells, {})
+
+    def test_a_malformed_additive_record_fails_closed(self):
+        handle = self.write({"cells": {"gamma": {"issue": 0, "reason": "x",
+                                                 "expires": EXPIRES}}})
+        try:
+            cells, error = bench.load_additive(handle)
+        finally:
+            os.unlink(handle)
+        self.assertIsNone(cells)
+        self.assertIn("issue", error)
+
+    def test_update_graduates_and_prunes_an_additive_record(self):
+        report = self.write(report_of({"_extra": {
+            "name": "gamma", "prompt_tokens": 1, "completion_tokens": 1,
+            "tool_calls_total": 1, "wall_ms": 1, "success": True}}))
+        baseline = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        baseline.close()
+        bench.store(baseline.name, SCENARIOS)
+        additive = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump({"cells": additive_for("gamma")}, additive)
+        additive.close()
+        import sys
+        old = sys.argv
+        sys.argv = ["bench_check.py", "--report", report, "--baseline", baseline.name,
+                    "--additive", additive.name, "--update"]
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = bench.main()
+            with open(additive.name, encoding="utf-8") as handle:
+                saved = json.load(handle)
+            with open(baseline.name, encoding="utf-8") as handle:
+                saved_baseline = json.load(handle)
+        finally:
+            sys.argv = old
+            os.unlink(report)
+            os.unlink(baseline.name)
+            os.unlink(additive.name)
+        self.assertEqual(rc, 0)
+        self.assertEqual(saved["cells"], {})
+        self.assertIn("gamma", saved_baseline["scenarios"])
+        self.assertIn("graduated 1 additive record", out.getvalue())
 
     def test_a_live_report_is_refused(self):
         handle = self.write({"mode": "live", "scenarios": []})

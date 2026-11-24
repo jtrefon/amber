@@ -596,6 +596,11 @@ jobs:
           rc=0
           BENCH_ALLOW="$reason" BENCH_MARKDOWN="$RUNNER_TEMP/bench.md" \
             make bench-check || rc=$?
+          if [ -n "$reason" ]; then
+            # The waiver is dated and expires; the annotation makes it visible
+            # on the PR even when the run is green.
+            echo "::warning title=bench-waiver::Active bench waiver: $reason"
+          fi
           cat "$RUNNER_TEMP/bench.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           exit $rc
 
