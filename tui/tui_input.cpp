@@ -68,6 +68,14 @@ struct ModelChoice {
     agent::ModelCapabilities caps;
 };
 
+// A user-supplied pattern reaches a shell, so it is quoted rather than trusted.
+std::string shell_quoted(const std::string& s) {
+    std::string out = "'";
+    for (const char c : s)
+        out += (c == '\'') ? std::string("'\\''") : std::string(1, c);
+    return out + "'";
+}
+
 std::vector<std::string> split_words(const std::string& text) {
     std::istringstream in(text);
     std::vector<std::string> out;
@@ -1731,7 +1739,7 @@ void SlashDispatcher::register_os_actions() {
     register_action("os.system.mv", [this](const std::string& a) { cmd_system_mv(a); });
     register_action("os.system.cp", [this](const std::string& a) { cmd_system_cp(a); });
     register_action("os.system.info", [this](const std::string& a) { cmd_system_info(a); });
-    register_action("os.system.ps", [this](const std::string&) { cmd_system_ps(); });
+    register_action("os.system.ps", [this](const std::string& a) { cmd_system_ps(a); });
     register_action("os.system.kill", [this](const std::string& a) { cmd_system_kill(a); });
     register_action("os.system.df", [this](const std::string&) { cmd_system_df(); });
     register_action("os.system.uptime", [this](const std::string&) { cmd_system_uptime(); });
@@ -3095,8 +3103,20 @@ void SlashDispatcher::cmd_system_info(const std::string& rest) {
     tui_.append_line(P_STATUS, rest + ": " + (std::filesystem::is_directory(st) ? "dir" : "file"));
 }
 
-void SlashDispatcher::cmd_system_ps() {
-    tui_.run_command_async("ps", "ps -eo pid,comm,args --no-headers | head -30");
+void SlashDispatcher::cmd_system_ps(const std::string& filter) {
+    // -A/-o are the portable spelling: GNU's --no-headers is an illegal option
+    // on macOS, where the command used to fail outright. Without a filter the
+    // listing is the 30 newest processes, oldest first: a person runs this to
+    // find the process they just started, and a pid-ordered head showed only
+    // system daemons. A filter greps the full table, which is the reliable way
+    // to find one process on a busy machine.
+    std::string cmd = "ps -A -o pid,comm,args";
+    if (filter.empty()) {
+        cmd += " | sort -n | tail -30";
+    } else {
+        cmd += " | grep -i -- " + shell_quoted(filter) + " | grep -v grep";
+    }
+    tui_.run_command_async("ps", cmd);
 }
 
 void SlashDispatcher::cmd_system_kill(const std::string& rest) {

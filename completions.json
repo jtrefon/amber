@@ -1133,8 +1133,8 @@
     },
     "ps": {
      "action": "os.system.ps",
-     "help": "List running processes (top 20 by memory usage).",
-     "man": "Lists the top 20 processes sorted by memory usage, showing PID, memory, and command name."
+     "help": "List the 30 newest processes, or grep the table by pattern.",
+     "man": "With no argument, lists the 30 newest processes (oldest first) with PID, command name and arguments. With a pattern, greps the full process table case-insensitively: /system ps sleep. Use /system kill <pid> to end one."
     },
     "kill": {
      "action": "os.system.kill",

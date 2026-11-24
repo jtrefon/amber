@@ -150,7 +150,7 @@ public:
     void cmd_system_mv(const std::string& rest);
     void cmd_system_cp(const std::string& rest);
     void cmd_system_info(const std::string& rest);
-    void cmd_system_ps();
+    void cmd_system_ps(const std::string& filter);
     void cmd_system_kill(const std::string& rest);
     void cmd_system_df();
     void cmd_system_uptime();
