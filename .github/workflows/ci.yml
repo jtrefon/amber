@@ -702,6 +702,12 @@ jobs:
       - name: Test
         run: make test
 
+      # The TUI floor is measured from the pty suite and the agent journeys.
+      # This job calls the recipe directly, not `make coverage`, so the step has
+      # to be here as well as in the Makefile target.
+      - name: TUI agent journeys
+        run: make tui-agent-e2e
+
       - name: Coverage reports and gates
         # One recipe, shared with `make coverage`: it writes coverage.xml and
         # coverage-core.json, and runs the 80% project floor, the TUI floor and

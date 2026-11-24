@@ -465,6 +465,12 @@ if grep -q 'coverage_report.sh' .github/workflows/ci.yml; then
 else
     warn "P16: the CI coverage job has its own inline gcovr recipe"
 fi
+coverage_job=$(sed -n '/^  coverage:/,/^  [a-z][a-z-]*:$/p' .github/workflows/ci.yml)
+if echo "$coverage_job" | grep -q 'tui-agent-e2e'; then
+    ok "P16: the CI coverage job runs the TUI journeys"
+else
+    warn "P16: the CI coverage job does not run the TUI journeys"
+fi
 if sh -n tools/coverage_report.sh 2>/dev/null; then
     ok "P16: tools/coverage_report.sh parses"
 else
