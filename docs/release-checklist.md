@@ -22,6 +22,11 @@ Run this in order. Every command must succeed before the next step.
       with `./configure && make clean && make`).
 - [ ] `make test` includes the pty suite and the plugin conformance tests.
 - [ ] `make check` and `make verify-quick` are clean.
+- [ ] `make flake-release-check` passes on the release candidate; attach
+      `artifacts/flake-release.md` to the release issue. It names the numeric
+      budget, the repeated subset and journeys, every quarantine entry (issue,
+      date, reason) and the known unmeasured behaviours (#621). A stale or
+      overdue entry fails: remove it, or record why it must stay.
 - [ ] `make upgrade-check UPGRADE_OLD=<0.8.9>/usr/local/bin/amber` passes on the
       release candidate; record the output and the 0.8.9 tarball name.
 - [ ] `make journey-matrix-release` is green: no `deferred:` cell remains.
@@ -56,8 +61,10 @@ Run this in order. Every command must succeed before the next step.
 - [ ] The website version reads the tagged `version.txt` and the build/smoke
       jobs are green.
 - [ ] Beta copy is replaced with the 1.0 status.
-- [ ] Release notes list breaking changes, the plugin tier status and the
-      coverage/floors actually measured.
+- [ ] Release notes list breaking changes, the plugin tier status, the
+      coverage/floors actually measured and the flake state at the release
+      commit: the `flake-release-check` verdict, any quarantined tests with
+      their issues, and the known unmeasured behaviours (#621).
 - [ ] The GitHub release, apt/dnf repositories and Homebrew tap all report the
       same version.
 
