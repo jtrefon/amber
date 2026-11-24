@@ -88,6 +88,16 @@ second slower on a loaded runner without failing; a real hang, a synchronous
 wait, or a filesystem regression still trips it. Do not add a `bench-allow:`
 for wall time unless the measured regression is reproducible on an idle host.
 
+A waiver is `bench-allow: <reason> until YYYY-MM-DD`. The expiry is required
+and at most 14 days out; an expired or undated waiver fails the gate. The PR
+reviewer approves it (the `review:approved` label for a feature/bug PR), and it
+appears in the bench summary and as a run-page annotation. A scenario in the
+report but not the baseline is an additive cell: record it in
+`tests/bench_additive.json` with an `opened` date and an issue, and graduate it
+into the baseline (`make bench-graduate`) or remove it within 30 days. The gate
+fails an unrecorded, overdue or stale entry, so a cell cannot stay outside the
+baseline without a recorded decision.
+
 ### 2. A new decision branch needs a test for the path that did not happen
 
 The per-file branch ratchet starts a new `lib/`, `tools/` or `plugins/` file at
@@ -170,8 +180,9 @@ Two of these are easy to misread as code failures:
       twice, not once.
 - [ ] `cd website && npm run audit` if the site or its dependencies changed.
 - [ ] The PR body carries the manual end-to-end result (AGENTS.md requires it).
-- [ ] A `bench-allow: <reason>` is only for a reviewed change whose overhead is
-      intended; it is not a way to quiet a flake.
+- [ ] A `bench-allow: <reason> until YYYY-MM-DD` is only for a reviewed change
+      whose overhead is intended; it is not a way to quiet a flake, and the
+      date is within 14 days.
 
 ## Reading a failed job
 

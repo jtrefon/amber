@@ -269,9 +269,15 @@ gating in a reviewed baseline update):
 
 The report is uploaded as the `bench-efficiency` CI artefact and the table is
 appended to the run page. A regression can be allowed for one PR with
-`bench-allow: <reason>` in the PR body; the baseline is not rewritten. After a
-reviewed harness change, `make bench-baseline` regenerates it — review the diff,
-because a token or call increase is a real change in what the harness sends.
+`bench-allow: <reason> until YYYY-MM-DD` in the PR body; the date is required,
+must be within 14 days, and an expired waiver fails. The waiver appears in the
+summary and as a run-page annotation; the baseline is not rewritten. A scenario
+in the report but not the baseline is an **additive cell**: it must be recorded
+in `tests/bench_additive.json` (opened date + issue) and graduate into the
+baseline or be removed within 30 days. After a reviewed harness change, `make
+bench-baseline` regenerates the baseline — review the diff, because a token or
+call increase is a real change in what the harness sends. `make bench-graduate`
+adds only the additive cells and keeps the recorded entries byte-identical.
 
 This measures harness overhead, not model quality: the fake LLM is
 deterministic. Live-model prompt evaluation stays manual (see the release gate

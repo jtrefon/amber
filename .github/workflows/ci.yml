@@ -593,6 +593,11 @@ jobs:
           if printf '%s\n' "$PR_BODY" | grep -qE '^bench-allow:'; then
             reason="$(printf '%s\n' "$PR_BODY" | sed -n 's/^bench-allow:[[:space:]]*//p' | head -1)"
           fi
+          if [ -n "$reason" ]; then
+            # Visible on the run page as well as in the summary: an active
+            # waiver is a reviewed exception, not a silent pass.
+            echo "::warning::bench-allow active: $reason"
+          fi
           rc=0
           BENCH_ALLOW="$reason" BENCH_MARKDOWN="$RUNNER_TEMP/bench.md" \
             make bench-check || rc=$?

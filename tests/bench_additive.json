@@ -1,0 +1,5 @@
+{
+  "_comment": "Additive hermetic cells: scenarios in the report but not in the baseline. A cell is reported for one reviewed PR cycle; it must join the baseline (make bench-baseline) or be removed within max_age_days. The gate fails an unrecorded, overdue or stale entry.",
+  "max_age_days": 30,
+  "cells": {}
+}

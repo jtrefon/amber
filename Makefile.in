@@ -1563,6 +1563,14 @@ bench-baseline: $(BUILD_DIR)/$(BENCH_BIN)
 	$(BUILD_DIR)/$(BENCH_BIN) run --cat model --matrix --format json --out $(BENCH_REPORT)
 	@python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" --update
 
+# Graduate the additive cells (the scenarios in the report but not the
+# baseline) without rewriting the recorded ones. This is the review step the
+# additive rule asks for: the PR shows the new cells' token/call values, and
+# the existing baseline stays byte-identical.
+bench-graduate: $(BUILD_DIR)/$(BENCH_BIN)
+	$(BUILD_DIR)/$(BENCH_BIN) run --cat model --matrix --format json --out $(BENCH_REPORT)
+	@python3 "$(SRC_DIR)/tools/bench_check.py" --report "$(BENCH_REPORT)" --graduate
+
 # Old hermetic scenario state (pre-fix tmp-amber-bench-ws-* project dirs).
 # Dry run by default; the apply target says what it does.
 bench-reap: $(BUILD_DIR)/$(BENCH_BIN)

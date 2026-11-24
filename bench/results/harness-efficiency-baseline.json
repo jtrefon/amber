@@ -1,5 +1,5 @@
 {
-  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling.",
+  "_comment": "Hermetic harness-efficiency baseline: prompt/completion tokens, executed tool calls, wall time and task success per fake-LLM scenario. Regenerate with `make bench-baseline` and review the diff; the gate fails on +10% tokens or calls, a dropped success, or a 2x+500ms wall-time ceiling. A scenario with no usage counters is outcome-only: its token cell is n/a, not a measured zero.",
   "mode": "hermetic",
   "scenarios": {
     "arch-01-god-class": {
@@ -369,6 +369,22 @@
       "suite": "tools",
       "tool_calls": 5,
       "wall_ms": 113
+    },
+    "trace-openai-read": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "policy",
+      "tool_calls": 1,
+      "wall_ms": 32
+    },
+    "zoo": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "success": true,
+      "suite": "policy",
+      "tool_calls": 1,
+      "wall_ms": 31
     }
   }
 }
