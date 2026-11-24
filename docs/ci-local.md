@@ -140,7 +140,7 @@ the newer run, not the cancelled one.
 | Website audit | npm advisory database moves between runs | `cd website && npm run audit` |
 | Wall-time pathology | shared-runner scheduling | the floored ceiling plus the reported ms on the run page |
 | CodeQL | GitHub's C++ query pack runs only there; `cpp/path-injection` re-reports a moved sink as a new alert | keep the path read where it was, or dismiss with the measured reason (below) |
-| Mutation (advisory) | Mull 0.38 has no flag to ignore test stderr, and the suite prints diagnostics on purpose | read the mutation report, not the check colour; it is outside `ci-gate` |
+| Mutation (advisory, decided) | Mull 0.38 has no flag to ignore test stderr, and the suite prints diagnostics on purpose; the score moves with test selection | read the mutation report, not the check colour; it is outside `ci-gate` by the #703 decision |
 
 Two of these are easy to misread as code failures:
 

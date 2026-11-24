@@ -1,8 +1,9 @@
 # Mutation testing spike — 2026-11-13
 
-Status: decided. Adopted as an **advisory nightly job** with a local command; it
-is **not** a gate. This document records the measurement and what would change
-the decision.
+Status: **decided for 0.9.** Adopted as an **advisory nightly job** with a local
+command; it is **not** a gate, and a per-module/changed-line survivor budget was
+rejected. This document records the measurement, the nightly changed-line
+samples, the rejected option and what would change the decision.
 
 Tracking issue: #577 (P2, part of #579). Tool: [Mull](https://mull-project.com)
 0.38.0, LLVM 18/21 builds.
@@ -109,6 +110,54 @@ What would change the decision: per-test coverage (or a test binary per
 module), which lets Mull run only the covering tests; a stable baseline over
 several nightly runs; and an explicit equivalent-mutant list. Then a
 conservative-score floor could join `ci.yml` as a gating job.
+
+## Nightly changed-line samples
+
+The nightly job mutates only the production lines changed in the last 24 hours
+of `main`. Two substantive nights measured:
+
+| run | base | mutants | killed | survived | conservative score |
+|---|---|---:|---:|---:|---:|
+| 2026-11-20 | `c2c9874a` | 43 | 43 | 0 | 100.0% |
+| 2026-11-21 | `a76cfee6` | 14 | 14 | 0 | 100.0% |
+| 2026-11-24 | `509bc186` | 0 | 0 | 0 | n/a (no mutable lines) |
+
+Both substantive samples were clean (43/43 and 14/14), but 0 survivors is not a
+usable threshold:
+the first survivor would fail a zero-survivor budget, and the module spike
+already found one equivalent mutant (`floor_percent`) that no test can kill.
+The samples are changed-line selections, not module scores, so they do not
+resolve the 37% vs 91% selection sensitivity.
+
+## Final 0.9 decision
+
+**Keep mutation testing advisory; reject a per-module or changed-line survivor
+budget.**
+
+The rejection is deliberate, not deferral:
+
+1. **A zero-survivor budget is a cliff with a known false positive.** The
+   equivalent `floor_percent` mutant cannot be killed by any test; a budget
+   needs an equivalent-mutant allowlist first.
+2. **The score is a statement about test selection.** The same instrumented
+   binary scored 37% on `cache_reuse` alone and 91% on the module's full set.
+   The nightly selection is narrower still.
+3. **Timeouts move.** Six timeout mutants in the spike; the classification
+   shifts by one or two between identical runs, and Mull counts timeouts as
+   kills while the report separates them.
+4. **It cannot run per-test coverage.** One mutant runs the whole unit suite
+   (~3 minutes per batch on 4 cores); a required job would be a ~90-minute
+   check on every PR.
+5. **The job can be red on ordinary test stderr.** Mull treats test diagnostics
+   as fatal, so a gating signal would be masked by deliberate test output
+   unless Mull grows an ignore flag.
+
+The advisory set is named in `AGENTS.md`, `docs/ci-local.md` and the 0.9 plan.
+`tests/gates/test_mutation_policy.py` pins that `.github/workflows/mutation.yml`
+stays outside `ci.yml` and `ci-gate`: a future gating change has to update the
+decision, the test and the measurement together. Revisit when per-test coverage
+(or a test binary per module), a stable multi-night baseline and an
+equivalent-mutant allowlist exist.
 
 ## Reproduce
 
