@@ -1,0 +1,63 @@
+{
+  "name": "e2e-tool-process",
+  "suite": "e2e",
+  "description": "process_start returns a background task and its label reaches the model",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "approval": "allow",
+  "prompt": "Start a background process and reply done.",
+  "oracle": [
+    {
+      "tool": "process_start",
+      "args": {
+        "command": "sleep 2",
+        "label": "JOURNEY-PROCESS"
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "process_start"
+    ]
+  },
+  "request_log_contains": [
+    "JOURNEY-PROCESS"
+  ],
+  "expected_tools": [
+    "process_start"
+  ],
+  "checks": {
+    "must_contain": [
+      "PROCESS-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 16,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "process_start",
+            "arguments": "{\"command\":\"sleep 2\",\"label\":\"JOURNEY-PROCESS\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 220,
+      "completion_tokens": 5,
+      "content": "PROCESS-TOOL-DONE"
+    }
+  ],
+  "expected_exit_code": 3
+}

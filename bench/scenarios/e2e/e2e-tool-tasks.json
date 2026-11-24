@@ -1,0 +1,85 @@
+{
+  "name": "e2e-tool-tasks",
+  "suite": "e2e",
+  "description": "the tasks tool lists a process_start task and its label reaches the model",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "approval": "allow",
+  "prompt": "Start a background process, list the tasks, then reply done.",
+  "oracle": [
+    {
+      "tool": "process_start",
+      "args": {
+        "command": "sleep 2",
+        "label": "JOURNEY-TASKS"
+      }
+    },
+    {
+      "tool": "tasks",
+      "args": {
+        "action": "list"
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "process_start",
+      "tasks"
+    ]
+  },
+  "request_log_contains": [
+    "JOURNEY-TASKS"
+  ],
+  "expected_tools": [
+    "process_start",
+    "tasks"
+  ],
+  "checks": {
+    "must_contain": [
+      "TASKS-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 3,
+  "fake_replies": [
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 16,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "process_start",
+            "arguments": "{\"command\":\"sleep 2\",\"label\":\"JOURNEY-TASKS\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 220,
+      "completion_tokens": 8,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "tasks",
+            "arguments": "{\"action\":\"list\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 320,
+      "completion_tokens": 5,
+      "content": "TASKS-TOOL-DONE"
+    }
+  ],
+  "expected_exit_code": 3
+}

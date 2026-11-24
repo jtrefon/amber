@@ -1,0 +1,90 @@
+{
+  "name": "e2e-tool-watch",
+  "suite": "e2e",
+  "description": "the watch tool starts a process watch and the task inventory carries its label",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "approval": "allow",
+  "prompt": "Start a watch on the marker, list the tasks, then reply done.",
+  "oracle": [
+    {
+      "tool": "watch",
+      "args": {
+        "action": "start",
+        "profile": "process",
+        "command": "echo WATCH-MARKER",
+        "label": "JOURNEY-WATCH",
+        "interval_s": 1,
+        "deadline_s": 5,
+        "observe": "off"
+      }
+    },
+    {
+      "tool": "tasks",
+      "args": {
+        "action": "list"
+      }
+    }
+  ],
+  "request_contract": {
+    "tools_include": [
+      "watch",
+      "tasks"
+    ]
+  },
+  "request_log_contains": [
+    "JOURNEY-WATCH"
+  ],
+  "expected_tools": [
+    "watch",
+    "tasks"
+  ],
+  "checks": {
+    "must_contain": [
+      "WATCH-TOOL-DONE"
+    ]
+  },
+  "budget": {
+    "max_steps": 10,
+    "max_wall_ms": 60000
+  },
+  "difficulty": 4,
+  "fake_replies": [
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 24,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "watch",
+            "arguments": "{\"action\":\"start\",\"profile\":\"process\",\"command\":\"echo WATCH-MARKER\",\"label\":\"JOURNEY-WATCH\",\"interval_s\":1,\"deadline_s\":2,\"observe\":\"off\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 260,
+      "completion_tokens": 8,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "tasks",
+            "arguments": "{\"action\":\"list\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 360,
+      "completion_tokens": 5,
+      "content": "WATCH-TOOL-DONE"
+    }
+  ],
+  "expected_exit_code": 3
+}

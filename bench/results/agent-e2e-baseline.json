@@ -230,6 +230,74 @@
       "wall_ms": 87
     },
     {
+      "completion_tokens": 25,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "PLAN-TOOL-DONE",
+      "name": "e2e-tool-plan",
+      "ok": true,
+      "prompt_tokens": 280,
+      "tool_calls": [
+        "todowrite"
+      ],
+      "wall_ms": 35
+    },
+    {
+      "completion_tokens": 21,
+      "exit_code": 3,
+      "failures": [],
+      "final_text": "PROCESS-TOOL-DONE",
+      "name": "e2e-tool-process",
+      "ok": true,
+      "prompt_tokens": 340,
+      "tool_calls": [
+        "process_start"
+      ],
+      "wall_ms": 36
+    },
+    {
+      "completion_tokens": 33,
+      "exit_code": 0,
+      "failures": [],
+      "final_text": "INDEX-TOOL-DONE",
+      "name": "e2e-tool-project-index",
+      "ok": true,
+      "prompt_tokens": 680,
+      "tool_calls": [
+        "index_init",
+        "index_show"
+      ],
+      "wall_ms": 37
+    },
+    {
+      "completion_tokens": 29,
+      "exit_code": 3,
+      "failures": [],
+      "final_text": "TASKS-TOOL-DONE",
+      "name": "e2e-tool-tasks",
+      "ok": true,
+      "prompt_tokens": 660,
+      "tool_calls": [
+        "process_start",
+        "tasks"
+      ],
+      "wall_ms": 41
+    },
+    {
+      "completion_tokens": 37,
+      "exit_code": 3,
+      "failures": [],
+      "final_text": "WATCH-TOOL-DONE",
+      "name": "e2e-tool-watch",
+      "ok": true,
+      "prompt_tokens": 760,
+      "tool_calls": [
+        "watch",
+        "tasks"
+      ],
+      "wall_ms": 122
+    },
+    {
       "completion_tokens": 30,
       "exit_code": 0,
       "failures": [],
