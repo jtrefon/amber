@@ -268,10 +268,17 @@ gating in a reviewed baseline update):
   pathology ceiling, not a precise budget; tokens and calls are the real gate.
 
 The report is uploaded as the `bench-efficiency` CI artefact and the table is
-appended to the run page. A regression can be allowed for one PR with
-`bench-allow: <reason>` in the PR body; the baseline is not rewritten. After a
-reviewed harness change, `make bench-baseline` regenerates it — review the diff,
-because a token or call increase is a real change in what the harness sends.
+appended to the run page. A regression can be allowed for one reviewed PR with
+`bench-allow: <reason> until YYYY-MM-DD` in the PR body (maximum 30 days; an
+expired or undated waiver fails closed, and active waivers are printed and
+annotated); the baseline is not rewritten. A new scenario is additive until
+`make bench-baseline` graduates it. A cell that must stay outside the baseline
+for one reviewed window is recorded in
+`bench/results/harness-efficiency-additive.json` with an issue, reason and
+expiry (maximum 30 days), and graduation prunes the record; an unrecorded,
+expired or stale cell fails the gate. After a reviewed harness change,
+`make bench-baseline` regenerates the baseline — review the diff, because a
+token or call increase is a real change in what the harness sends.
 
 This measures harness overhead, not model quality: the fake LLM is
 deterministic. Live-model prompt evaluation stays manual (see the release gate

@@ -301,11 +301,16 @@ driven by an OpenAI-compatible LLM API.
   pathology ceiling: the ratio catches a real slowdown on a long scenario and
   the absolute headroom stops a 113 ms scenario's scheduling noise from failing
   main (measured: 763-1012 ms on loaded runners). Wall time is machine-dependent
-  even with a fake LLM; tokens and calls are the precise axes. A line starting with `bench-allow: <reason>` in
-  the PR body turns a regression into a reported override without rewriting the
-  baseline. This measures harness overhead, not model quality; live prompt
-  evaluation stays manual. `make bench-baseline` regenerates the baseline after
-  a reviewed change.
+  even with a fake LLM; tokens and calls are the precise axes. A regression is
+  waived for one reviewed PR with `bench-allow: <reason> until YYYY-MM-DD`:
+  the waiver expires (maximum 30 days), an expired or undated one fails closed,
+  and it is printed in the summary and annotated on the PR. It never rewrites
+  the baseline and never covers a measurement or additive-record failure. A new
+  scenario is additive until `make bench-baseline` graduates it; one that must
+  stay outside the baseline for a reviewed window is recorded in
+  `bench/results/harness-efficiency-additive.json` with an issue, a reason and
+  an expiry (maximum 30 days), which the graduation prunes. This measures
+  harness overhead, not model quality; live prompt evaluation stays manual.
 - CI also runs an ASan+UBSan `make test` job, a **ThreadSanitizer** `make test`
   job (data races: the UI thread, per-window agent workers, the tool-dispatch
   hop and the detached catalog/plugin workers all share state, and ASan+UBSan

@@ -334,7 +334,12 @@ Three surfaces, one source of truth.
   delta and probe integrity.
 - The JSON report is uploaded as the `bench-efficiency` artifact.
 - No commit and no baseline rewrite from CI. A regression can be allowed for
-  one PR with `bench-allow: <reason>`, as today.
+  one reviewed PR with `bench-allow: <reason> until YYYY-MM-DD` (maximum 30
+  days; expired or undated fails closed; the active waiver is printed and
+  annotated). A new scenario graduates into the baseline with
+  `make bench-baseline`, or holds a dated record in
+  `bench/results/harness-efficiency-additive.json` for one reviewed window;
+  unrecorded, expired or stale cells fail the gate.
 
 ### Per release
 
