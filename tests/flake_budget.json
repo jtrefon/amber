@@ -1,0 +1,14 @@
+{
+  "repeat": 3,
+  "journey_repeat": 2,
+  "max_flake_rate": 0.15,
+  "max_quarantined": 3,
+  "quarantine_review_days": 30,
+  "known_unmeasured": [
+    {
+      "issue": 621,
+      "behaviour": "the TUI can freeze after switching session tabs",
+      "reason": "rare and unmeasured; `tab-switch-live` is the detector. A detector failure is an unquarantined flake and fails the repeated run, so the freeze is budget spend, never an accepted pass."
+    }
+  ]
+}

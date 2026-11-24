@@ -238,31 +238,29 @@ TEST(mcp_stdio_stderr_isolated) {
     ASSERT(m->result->dump().find("hello stderr") == std::string::npos);
 }
 
-// A server that dies at startup surfaces its stderr in failure_reason().
+// A server that dies at startup surfaces its stderr in failure_reason(). The
+// reason can become non-empty ("transport closed") before the stderr reader has
+// collected the child's last words, so wait for the text itself: under ASan on
+// a loaded runner the two events are not ordered.
 TEST(mcp_stdio_startup_failure_reports_stderr) {
     agent::StdioTransport t("tests/fixtures/mcp_echo", {"boom"}, ".", {}, 2000);
     std::string reason;
-    for (int i = 0; i < 200; ++i) {
+    const bool reported = agent::test::wait_until([&] {
         reason = t.failure_reason();
-        if (!reason.empty())
-            break;
-        usleep(10 * 1000);
-    }
-    ASSERT_FALSE(reason.empty());
-    ASSERT(reason.find("fatal startup error") != std::string::npos);
+        return reason.find("fatal startup error") != std::string::npos;
+    });
+    ASSERT_TRUE(reported);
 }
 
 // A missing server binary fails fast with a spawn error, never hangs.
 TEST(mcp_stdio_spawn_failure_fails_fast) {
     agent::StdioTransport t("no-such-mcp-server-binary", {}, ".", {}, 2000);
     std::string reason;
-    for (int i = 0; i < 200; ++i) {
+    const bool failed = agent::test::wait_until([&] {
         reason = t.failure_reason();
-        if (!reason.empty())
-            break;
-        usleep(10 * 1000);
-    }
-    ASSERT_FALSE(reason.empty());
+        return !reason.empty();
+    });
+    ASSERT_TRUE(failed);
     bool spawn_or_closed =
         reason.find("spawn") != std::string::npos || reason.find("closed") != std::string::npos;
     ASSERT(spawn_or_closed);

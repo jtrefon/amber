@@ -1392,15 +1392,26 @@ evidence about a prompt.
   handshake), not "CI is slow".
 - **Repeat the flake-prone subset.** `make test-repeat` runs the
   external-plugin runtime tests, `plugin_test` and the pty suite
-  `AMBER_TEST_REPEAT` times (default 3).
-  `.github/workflows/flake-repeat.yml` runs it nightly and on PRs that touch
-  `tests/`, `lib/`, `tui/`, `plugins/` or the Makefile; the report is uploaded
-  as an artefact.
+  `AMBER_TEST_REPEAT` times (default 3). `make test-repeat-nightly` adds the
+  TUI journeys at the budget's `journey_repeat` (2) in fresh processes.
+  `.github/workflows/flake-repeat.yml` runs the subset on PRs that touch
+  `tests/`, `lib/`, `tui/`, `plugins/` or the Makefile, and the subset plus the
+  journeys nightly; the report is uploaded as an artefact.
+- **The budget is numeric.** `tests/flake_budget.json` holds the cadence and
+  the limits: a quarantined failure above **15% of repeated executions**, more
+  than **3** quarantine entries, or a **30-day**-old entry past review is over
+  budget and fails the run. The report prints the failed-iteration rate, the
+  quarantine count and every known unmeasured behaviour.
 - **Quarantine is explicit.** A test that fails the repeat job gets one
   `flake-quarantine` issue (deduped by a marker). It is quarantined only by
-  adding `{binary, test, issue, reason}` to `tests/flake_quarantine.json`; the
-  driver then prints `[ QUARANTINE ]` on every suppressed failure. A stale entry
-  is reported, and removing it is a normal review step.
+  adding `{binary, test, issue, opened, reason}` to
+  `tests/flake_quarantine.json`; the driver then prints `[ QUARANTINE ]` on
+  every suppressed failure. A stale entry is reported, and removing it is a
+  normal review step. `make flake-release-check` runs the same set in release
+  mode and **refuses** a stale or overdue entry, so a suppression cannot ride
+  into a release unnoticed. #621 is recorded as `known_unmeasured`: the
+  `tab-switch-live` journey is its detector, and a detector failure is
+  unquarantined budget spend.
 
 ## Design patterns in use
 

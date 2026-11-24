@@ -466,6 +466,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
         static-gates content-gates check-build ncurses ncurses-update pty-matrix \
         verify verify-quick preflight check-compilers \
         coverage coverage-branch-baseline ci-manifest detach \
+        test-repeat test-repeat-nightly flake-release-check \
         prompt-lint test-presence commit-lint api-check api-snapshot-update action-pins \
         capability-snapshot-update journey-matrix journey-matrix-release \
         upgrade-check release-check \
@@ -977,14 +978,41 @@ flake-lint:
 # Repeat the subset where process teardown and timing interact most: a test
 # that only fails on the second or third run is a flake, not a pass.
 AMBER_TEST_REPEAT ?= 3
-test-repeat: $(BUILD_DIR)/run_tests $(BUILD_DIR)/plugin_test $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(CLI_BIN) $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+FLAKE_DEPS = $(BUILD_DIR)/run_tests $(BUILD_DIR)/plugin_test \
+             $(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/tui_agent_e2e_test \
+             $(BUILD_DIR)/$(TUI_BIN) $(BUILD_DIR)/$(CLI_BIN) \
+             $(SYSINFO_PLUGIN) $(CDP_PLUGIN)
+FLAKE_COMMANDS = --command "$(BUILD_DIR)/run_tests runtime_external" \
+                 --command "$(BUILD_DIR)/plugin_test" \
+                 --command "$(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)"
+# The journey binary is repeated at the budget's journey_repeat (2), in fresh
+# processes, only on the nightly/release path: a test-touching PR should not
+# pay for two more full journey passes.
+FLAKE_JOURNEYS = --journey-command "$(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN)"
+test-repeat: $(FLAKE_DEPS)
 	@test -n "$$($(BUILD_DIR)/run_tests --list runtime_external)" || \
 	    { echo "test-repeat: run_tests matched no external-plugin tests"; exit 2; }
-	@python3 "$(SRC_DIR)/tools/flake_repeat.py" \
-	    --repeat $(AMBER_TEST_REPEAT) \
-	    --command "$(BUILD_DIR)/run_tests runtime_external" \
-	    --command "$(BUILD_DIR)/plugin_test" \
-	    --command "$(BUILD_DIR)/tui_pty_test $(BUILD_DIR)/$(TUI_BIN)"
+	@PYTHONUNBUFFERED=1 python3 "$(SRC_DIR)/tools/flake_repeat.py" \
+	    --repeat $(AMBER_TEST_REPEAT) $(FLAKE_COMMANDS)
+
+# The nightly detector: the subset above plus the TUI journeys repeated at the
+# budget's journey_repeat. The report and budget are written to the same
+# artifacts/flake-report.* paths the workflow uploads.
+test-repeat-nightly: $(FLAKE_DEPS)
+	@test -n "$$($(BUILD_DIR)/run_tests --list runtime_external)" || \
+	    { echo "test-repeat-nightly: run_tests matched no external-plugin tests"; exit 2; }
+	@PYTHONUNBUFFERED=1 python3 "$(SRC_DIR)/tools/flake_repeat.py" \
+	    --repeat $(AMBER_TEST_REPEAT) $(FLAKE_COMMANDS) $(FLAKE_JOURNEYS)
+
+# The release-candidate flake claim. Release mode also refuses a quarantine
+# entry the candidate no longer exercises: a suppression that is not needed at
+# the release commit should be removed, not carried into the release.
+flake-release-check: $(FLAKE_DEPS)
+	@test -n "$$($(BUILD_DIR)/run_tests --list runtime_external)" || \
+	    { echo "flake-release-check: run_tests matched no external-plugin tests"; exit 2; }
+	@PYTHONUNBUFFERED=1 python3 "$(SRC_DIR)/tools/flake_repeat.py" \
+	    --repeat $(AMBER_TEST_REPEAT) --release $(FLAKE_COMMANDS) $(FLAKE_JOURNEYS) \
+	    --report artifacts/flake-release.md --json artifacts/flake-release.json
 
 # clang-format. The tree predates enforcement, so the full-tree run stays
 # informational; format-check-changed is the merge gate — files a PR touches

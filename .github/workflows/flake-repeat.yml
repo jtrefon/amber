@@ -5,6 +5,14 @@ name: Flake repeat
 # timing interact, on test changes and nightly. It is deliberately its own
 # workflow: a repeat run is a flake detector, not a merge gate, and making a
 # nondeterministic job required would teach people to rerun instead of read it.
+#
+# Decision (0.9, #705): stays a nightly + test-touching-PR detector. The
+# gating form is `make flake-release-check`, run by hand on the release
+# candidate: it repeats the subset, repeats the TUI journeys twice, and
+# refuses an over-budget run, a stale quarantine entry or an overdue review.
+# The numeric budget lives in tests/flake_budget.json; the nightly run below
+# adds the journey repeats, the PR run does not (the journeys already run once
+# in the main CI job, and twice in its tui-agent-e2e job).
 on:
   schedule:
     - cron: '23 3 * * *'
@@ -38,9 +46,19 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
       - name: Repeat the flake-prone subset
+        # A PR pays only for the subset; the journeys already run once in the
+        # main CI job and twice in its tui-agent-e2e job.
+        if: github.event_name == 'pull_request'
         env:
           AMBER_TEST_REPEAT: '3'
         run: make test-repeat
+      - name: Repeat the subset and the TUI journeys
+        # Nightly/dispatched runs add the journey repeats the release claim
+        # counts: two fresh processes, the budget's journey_repeat.
+        if: github.event_name != 'pull_request'
+        env:
+          AMBER_TEST_REPEAT: '3'
+        run: make test-repeat-nightly
       - name: Upload the flake report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
