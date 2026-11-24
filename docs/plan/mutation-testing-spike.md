@@ -110,6 +110,41 @@ module), which lets Mull run only the covering tests; a stable baseline over
 several nightly runs; and an explicit equivalent-mutant list. Then a
 conservative-score floor could join `ci.yml` as a gating job.
 
+## Re-check 2026-11-24 (#703)
+
+The 0.9 readiness work asked for a per-module/changed-line spike before deciding
+whether a survivor budget could be adopted. The measured evidence:
+
+| run | diff | mutants | survived | conservative score | note |
+|---|---|---:|---:|---:|---|
+| spike, 2026-11-13 | `plugins/cache/` module | 69 | 0 | 91.3% | 6 timeouts; the deep measurement |
+| nightly, 2026-11-21 | last 24 h of `main` | 14 | 0 | 100% | a changed-line sample, not a module score |
+| nightly, 2026-11-24 | last 24 h of `main` | 0 | 0 | 0.0% | no mutable lines; Mull prints "infinitely high" |
+
+The 0-mutant run is the decisive shape: with no mutable lines the job reports
+"Mutation score: infinitely high", which is a green measurement of nothing. As
+a gate it would be fail-open unless it required mutants
+(`MUTATION_REQUIRE_MUTANTS=1`), and the changed-line sample (14 mutants) is too
+small to establish a per-module floor. The selection sensitivity from the spike
+(37% vs 91% on the same module) still dominates: a per-module budget would move
+with the test selection, and the timeout classification moves by one or two
+between identical runs.
+
+**Decision: keep mutation testing advisory, not a gate.** Rejected option: a
+per-module or changed-line survivor budget in `ci.yml`. It is rejected because
+the score is a statement about a test selection (there is no per-test coverage,
+so a module run needs a hand-maintained source→filter map), because the
+timeout classification is not stable, and because a 0-mutant run measures
+nothing. The advisory set is `make mutation-check` and the nightly
+`.github/workflows/mutation.yml`; both publish the score, survivors and the
+SQLite report and never fail on a low score. The gate inventory
+(`tools/gates_manifest.py`) does not list it, and `ci-gate` does not need it.
+
+What would change the decision is unchanged: per-test coverage (or a test
+binary per module), a stable baseline over several nightly runs with a real
+mutant count, and an explicit equivalent-mutant list. Then a conservative-score
+floor with `MUTATION_REQUIRE_MUTANTS=1` could join `ci.yml`.
+
 ## Reproduce
 
 ```sh
