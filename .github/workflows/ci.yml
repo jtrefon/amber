@@ -104,9 +104,10 @@ jobs:
   lint:
     needs: [changes]
     runs-on: ubuntu-24.04
-    # 60 min: clang-tidy is ~20 min of work on top of an install that is
-    # bounded at 30.
-    timeout-minutes: 60
+    # 75 min: clang-tidy is ~40 min measured (#721) on a cold runner, and the
+    # 60 min budget was hit twice (#722, #725) before the work finished. The
+    # ci-watchdog's no-progress window is 90, so 75 keeps a margin.
+    timeout-minutes: 75
     if: github.event_name == 'pull_request' && needs.changes.outputs.cpp == 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
