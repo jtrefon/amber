@@ -3115,7 +3115,10 @@ void SlashDispatcher::cmd_system_kill(const std::string& rest) {
 }
 
 void SlashDispatcher::cmd_system_df() {
-    tui_.run_command_async("df", "df -h | head -20");
+    // The workspace's own filesystem, not every mount: macOS CI has dozens of
+    // simulator volumes, and enumerating them made the command outlive the
+    // journey's window.
+    tui_.run_command_async("df", "df -h . | head -10");
 }
 
 void SlashDispatcher::cmd_system_uptime() {

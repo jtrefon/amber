@@ -1500,7 +1500,7 @@ void journey_workspace_files(const std::string& binary) {
     if (!require(run_command(journey.tui, "/system df", "df: started"), "/system df did not start",
                  journey.tui))
         return;
-    if (!require(journey.tui.wait_for("df: exit 0", 15000), "/system df did not finish",
+    if (!require(journey.tui.wait_for("df: exit 0", 30000), "/system df did not finish",
                  journey.tui))
         return;
     require(journey.tui.wait_for("Filesystem", 5000), "df printed no filesystem table",
