@@ -918,7 +918,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "resource-viewer"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -976,7 +976,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "tasks-control"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1121,10 +1121,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "e2e-plan-todowrite"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "tasks-control"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1141,10 +1141,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "e2e-background-task"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "workspace-tools"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1160,10 +1160,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "e2e-project-index"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "project-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1233,7 +1233,7 @@
           "e2e-search-two-file-edit"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "workspace-tools"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1274,10 +1274,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "e2e-background-task"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "tasks-control"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1295,10 +1295,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "e2e-watch-start"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "watch-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1314,10 +1314,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "na: the hermetic in-process reference run has no HTTP page server; web_fetch is journeyed in the TUI workspace-tools against a loopback page"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "workspace-tools"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1456,7 +1456,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "resource-viewer"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1499,7 +1499,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "work-board"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1534,7 +1534,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "workspace-utilities"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1556,7 +1556,7 @@
           "na: the headless CLI has no interactive surface for this"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "project-surface"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"
@@ -1597,10 +1597,10 @@
       ],
       "journeys": {
         "cli": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "na: the headless CLI has no worktree surface; the manager is a TUI window operation"
         ],
         "tui": [
-          "deferred: #710 the workspace-surface journey is not written yet"
+          "worktree-lifecycle"
         ],
         "bench": [
           "na: the hermetic scenarios assert a task outcome, not this contract"

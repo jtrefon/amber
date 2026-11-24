@@ -88,7 +88,7 @@ scripted deque or a responder (so a journey can inspect the request and answer
 per path), an `extra_settings` string, a `prepare` hook that runs before startup
 (skills/MCP/plugins) and `root_api_base` for a versioned dialect.
 
-The 21 journeys are:
+The 29 journeys are:
 
 | Journey | What it proves |
 |---|---|
@@ -114,6 +114,14 @@ The 21 journeys are:
 | `settings-surface` | every settings group reads, writes, reads back, and refuses an invalid value without changing the stored one |
 | `coding-library` | `library_lookup` returns an entry and the body reaches the model's next request |
 | `compression` | `/compress` accepts a queued prompt while the classifier runs |
+| `workspace-utilities` | `/files ls/tree/open/find`; `/system info/df/uname/uptime/mkdir/cp/mv/delete/rmdir`; the confinement refusal; `/system ps` and `kill` against a process the journey started; `/system exec` output |
+| `tasks-control` | a completed task, a cancelled task, `/tasks list/show/output/wait`, the bounded output viewer, and the `todowrite`/`tasks` tools in one inventory |
+| `worktree-lifecycle` | `/worktree new/list/show/detach/attach/main/remove/prune`, the claimed-workspace refusal, the leave confirmation, and the user's HEAD/branch untouched |
+| `project-surface` | `/project show/list/open/close`, the return to the first project, a missing root, and the project index written by `index_add` and read with `/index show|refresh` |
+| `work-board` | `/work` lists a session row and a task row, the task action opens its viewer, and Esc leaves the task running |
+| `resource-viewer` | `/window attach task|job` paints the resource, `/window detach` leaves it running, a vanished id is reported, and detach on a chat window is refused |
+| `workspace-tools` | a model turn runs `search`, `process_start` (approval), `tasks output`/`cancel` (approval) and `web_fetch` against a loopback page |
+| `watch-surface` | a model-started watch (approval), the finished watch's report turn, and the Watch panel in the `/panel` cycle |
 
 Run them with:
 
@@ -126,7 +134,7 @@ AMBER_TUI_JOURNEY=plugin ./tui_agent_e2e_test ./amber
 
 ## CLI journeys
 
-`bench/scenarios/e2e/*.json` are the 19 CLI journeys. They are ordinary
+`bench/scenarios/e2e/*.json` are the 23 CLI journeys. They are ordinary
 scenarios plus `endpoint_replies`/`expected_tools`/`request_log_contains` where
 the CLI wire differs from the in-process reference. `bench/binary_driver.cpp`
 runs each scenario twice:
@@ -164,6 +172,10 @@ reproduce (a cancelled tool leaves no artifact).
 | `e2e-subagent-worker-report` | a delegated worker reports to its owner |
 | `e2e-provider-anthropic` | the Messages API path is used |
 | `e2e-provider-gemini` | the generateContent path is used |
+| `e2e-plan-todowrite` | the plan tool writes the task list and the turn finishes |
+| `e2e-background-task` | `process_start` hands a command to the inventory and `tasks list` reads it |
+| `e2e-project-index` | `index_add` records a fact and `index_show` reads the index back |
+| `e2e-watch-start` | a process watch starts and the one-shot CLI names the still-running task with exit 3 |
 
 ```sh
 make agent-e2e

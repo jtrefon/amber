@@ -1,0 +1,66 @@
+{
+  "name": "e2e-project-index",
+  "suite": "e2e",
+  "description": "the index tool records a fact and reads the index back",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Record the run command in the project index and read it back, then reply index done.",
+  "oracle": [
+    {
+      "tool": "index_add"
+    },
+    {
+      "tool": "index_show"
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "index done"
+    ]
+  },
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 30000
+  },
+  "difficulty": 2,
+  "expected_steps": 3,
+  "min_prompt_tokens": 300,
+  "min_completion_tokens": 10,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "index_add",
+            "arguments": "{\"section\": \"runs\", \"entry\": \"make test runs the suite\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "index_show",
+            "arguments": "{}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 5,
+      "content": "index done"
+    }
+  ]
+}

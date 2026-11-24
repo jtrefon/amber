@@ -1,0 +1,67 @@
+{
+  "name": "e2e-background-task",
+  "suite": "e2e",
+  "description": "a background command starts, the task inventory lists it, and the turn ends",
+  "platforms": [
+    "linux",
+    "darwin"
+  ],
+  "prompt": "Start a short background command, then list the task inventory and reply task done.",
+  "oracle": [
+    {
+      "tool": "process_start"
+    },
+    {
+      "tool": "tasks"
+    }
+  ],
+  "checks": {
+    "must_contain": [
+      "task done"
+    ]
+  },
+  "approval": "allow",
+  "budget": {
+    "max_steps": 8,
+    "max_wall_ms": 30000
+  },
+  "difficulty": 2,
+  "expected_steps": 3,
+  "min_prompt_tokens": 300,
+  "min_completion_tokens": 10,
+  "fake_replies": [
+    {
+      "prompt_tokens": 100,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "process_start",
+            "arguments": "{\"command\": \"sh -c 'printf PROCESS-E2E'\", \"label\": \"e2e-task\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 120,
+      "completion_tokens": 10,
+      "tool_calls": [
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "tasks",
+            "arguments": "{\"action\": \"list\"}"
+          }
+        }
+      ]
+    },
+    {
+      "prompt_tokens": 140,
+      "completion_tokens": 5,
+      "content": "task done"
+    }
+  ]
+}
