@@ -161,6 +161,7 @@ bool require(bool ok, const std::string& what, const Tui& tui) {
         return true;
     std::cerr << "FAIL: " << what << "\n";
     tui.dump();
+    tui.sample_for_diagnosis();
     failed++;
     return false;
 }

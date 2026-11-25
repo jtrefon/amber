@@ -21,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -189,6 +190,30 @@ struct Tui {
         std::string t = text();
         std::cerr << "--- amber output (last 800 chars) ---\n"
                   << t.substr(t.size() > 800 ? t.size() - 800 : 0) << "\n--- end ---\n";
+    }
+
+    // On macOS, sample the live process before the pty harness force-kills it.
+    // A freeze such as #621 otherwise leaves only screen bytes; the next
+    // occurrence should name the stuck thread. `sample` is a system tool and a
+    // missing or failed sample is a diagnostic gap, never a test failure.
+    void sample_for_diagnosis() const {
+#if defined(__APPLE__)
+        if (pid <= 0)
+            return;
+        const std::string path = "/tmp/amber-pty-sample-" + std::to_string(pid) + ".txt";
+        const std::string command =
+            "sample " + std::to_string(pid) + " 1 -file " + path + " >/dev/null 2>&1";
+        if (std::system(command.c_str()) != 0)
+            return;
+        std::ifstream in(path);
+        if (!in)
+            return;
+        std::cerr << "--- macOS sample (first 80 lines) ---\n";
+        std::string line;
+        for (int lines = 0; lines < 80 && std::getline(in, line); ++lines)
+            std::cerr << line << "\n";
+        std::cerr << "--- end sample ---\n";
+#endif
     }
 
     bool wait_for(const std::string& marker, int cap_ms) {
