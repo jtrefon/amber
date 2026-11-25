@@ -30,7 +30,11 @@ jobs:
       - uses: ./.github/actions/install-deps
 
       - name: Configure
-        run: ./configure
+        # Same keg-only ncurses rule as the macOS CI job: without the wide
+        # ncursesw, the TUI's UTF-8 wide-char calls fail to compile.
+        run: |
+          export PKG_CONFIG_PATH="$(brew --prefix ncurses)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          ./configure
 
       - name: Build the TUI and the journey binary
         # BUILD_DIR is absolute, so the goals must be too: `./amber` only
