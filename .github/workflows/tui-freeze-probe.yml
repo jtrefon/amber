@@ -1,0 +1,42 @@
+name: TUI freeze probe (macOS)
+
+# #621 is a rare macOS freeze after switching session tabs. The normal CI runs
+# the tab-switch journey twice, which is enough to catch other regressions but
+# not enough to measure a rare one. This dispatch-only probe repeats that one
+# journey many times on a macOS runner; the pty harness samples the live
+# process when an assertion fails, so the run log names the stuck thread
+# instead of leaving only the last screen bytes.
+#
+# It is a measurement tool, not a gate: it is not in ci.yml or ci-gate, and a
+# clean run means the rate was low enough not to reproduce at this repeat
+# count, not that #621 is fixed.
+on:
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: Journey repeats
+        required: false
+        default: '20'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/install-deps
+
+      - name: Configure
+        run: ./configure
+
+      - name: Build the TUI and the journey binary
+        # Only these two goals: the probe does not need the other test binaries.
+        run: make -j"$(sysctl -n hw.ncpu)" ./amber ./tui_agent_e2e_test
+
+      - name: Repeat the tab-switch journey
+        env:
+          AMBER_TUI_JOURNEY: tab-switch-live
+        run: ./tui_agent_e2e_test ./amber --repeat "${{ inputs.repeat }}"
