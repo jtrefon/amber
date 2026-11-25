@@ -80,6 +80,14 @@ The macOS job repeats the TUI journeys twice (`make tui-agent-e2e REPEAT=2`):
 each pass is a fresh process, so a plugin-runtime or model-cache static that
 survives in-process cannot hide a state leak.
 
+When an assertion fails on macOS, `require()` also runs the system `sample`
+tool on the still-live session and prints the first 80 lines before the
+harness kills it. For the rare #621 freeze, the dispatch-only
+`.github/workflows/tui-freeze-probe.yml` repeats `tab-switch-live` on macOS
+(default 20) so the next occurrence carries a stack, not only the last screen
+bytes. A clean probe run is a low observed rate at that repeat count, not a
+fix.
+
 ## TUI journeys
 
 `tests/tui_agent_e2e_test.cpp` owns a `Journey` helper: an isolated root, a
