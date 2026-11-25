@@ -23,6 +23,9 @@ class Probe(unittest.TestCase):
         self.assertIn("runs-on: macos-latest", text)
         self.assertIn("AMBER_TUI_JOURNEY: tab-switch-live", text)
         self.assertIn("--repeat", text)
+        # BUILD_DIR is absolute; a relative goal silently falls back to an
+        # existing binary on a built host and fails in a fresh checkout.
+        self.assertIn('"$PWD/amber" "$PWD/tui_agent_e2e_test"', text)
         self.assertNotIn("schedule:", text)
 
     def test_the_probe_is_not_in_the_gating_workflow(self):
