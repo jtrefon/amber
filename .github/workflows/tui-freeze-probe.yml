@@ -33,8 +33,10 @@ jobs:
         run: ./configure
 
       - name: Build the TUI and the journey binary
-        # Only these two goals: the probe does not need the other test binaries.
-        run: make -j"$(sysctl -n hw.ncpu)" ./amber ./tui_agent_e2e_test
+        # BUILD_DIR is absolute, so the goals must be too: `./amber` only
+        # looked built on a host where the file already existed and has no
+        # rule in a fresh checkout.
+        run: make -j"$(sysctl -n hw.ncpu)" "$PWD/amber" "$PWD/tui_agent_e2e_test"
 
       - name: Repeat the tab-switch journey
         env:
