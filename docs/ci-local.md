@@ -88,6 +88,20 @@ second slower on a loaded runner without failing; a real hang, a synchronous
 wait, or a filesystem regression still trips it. Do not add a `bench-allow:`
 for wall time unless the measured regression is reproducible on an idle host.
 
+A waiver is `bench-allow: <reason> until YYYY-MM-DD` in the PR body. It needs
+the maintainer review recorded in the PR, expires within **30 days**, and an
+expired or undated line fails the gate closed. The active waiver is printed in
+the run summary and annotated on the PR, so it cannot be invisible. Only a
+measured regression is waivable: a missing baseline scenario, a corpus below
+the floor, or an additive cell is never covered.
+
+A new scenario is additive until `make bench-baseline` graduates it into the
+reviewed baseline; the baseline diff (tokens/calls per cell) is the review
+evidence. A cell that must stay outside the baseline for one reviewed window
+goes in `bench/results/harness-efficiency-additive.json` with an issue, a
+reason and an expiry (maximum 30 days). The graduation prunes the record; an
+unrecorded, expired or stale cell fails the gate.
+
 ### 2. A new decision branch needs a test for the path that did not happen
 
 The per-file branch ratchet starts a new `lib/`, `tools/` or `plugins/` file at
@@ -170,8 +184,10 @@ Two of these are easy to misread as code failures:
       twice, not once.
 - [ ] `cd website && npm run audit` if the site or its dependencies changed.
 - [ ] The PR body carries the manual end-to-end result (AGENTS.md requires it).
-- [ ] A `bench-allow: <reason>` is only for a reviewed change whose overhead is
-      intended; it is not a way to quiet a flake.
+- [ ] A `bench-allow: <reason> until YYYY-MM-DD` is only for a reviewed change
+      whose overhead is intended, expires within 30 days, and is not a way to
+      quiet a flake. A new scenario either joins the baseline or has a dated
+      additive record.
 
 ## Reading a failed job
 

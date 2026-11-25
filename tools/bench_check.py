@@ -23,16 +23,28 @@ report with `bench/results/harness-efficiency-baseline.json`:
   (measured: `t-07-planning-multi-file`, 113 ms baseline, 763-1012 ms on loaded
   runners).
 
-A `bench-allow: <reason>` line in the PR body (the CI job passes it as
-`--allow`) turns a regression into a reported override. It does not rewrite the
-baseline: the next run reports it again until the code or the baseline changes.
+A regression can be waived for one reviewed PR with a dated line in the PR body:
+
+    bench-allow: <reason> until YYYY-MM-DD
+
+The waiver expires (an expired or undated one fails closed) and is capped at
+30 days from the run, because a waiver is a reviewed exception, not a standing
+budget. It does not rewrite the baseline: the next run reports it again until
+the code or the baseline changes.
+
+A scenario outside the baseline is additive. The PR that adds it may carry it
+in `bench/results/harness-efficiency-additive.json` for one reviewed window
+(issue, reason, expiry of at most 30 days); the alternative — and the normal
+end state — is `make bench-baseline`, which graduates it into the reviewed
+baseline and prunes its additive record. An unrecorded, expired or stale
+additive cell fails the gate.
 
 Live-model prompt evaluation stays manual (`BENCHMARK.md`): this measures
 harness overhead, not model quality.
 
 Usage:
   tools/bench_check.py --report bench-efficiency.json
-  tools/bench_check.py --report report.json --allow "known extra call"
+  tools/bench_check.py --report report.json --allow "known extra call until 2026-12-24"
   tools/bench_check.py --report report.json --update
 """
 
@@ -40,9 +52,11 @@ import argparse
 import json
 import os
 import sys
+from datetime import date
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASELINE = os.path.join(REPO_ROOT, "bench", "results", "harness-efficiency-baseline.json")
+ADDITIVE = os.path.join(REPO_ROOT, "bench", "results", "harness-efficiency-additive.json")
 TOKEN_REGRESSION = 0.10
 CALL_REGRESSION = 0.10
 WALL_CEILING_FACTOR = 2.0
@@ -55,6 +69,12 @@ REQUIRED_METRICS = ("prompt_tokens", "completion_tokens", "tool_calls", "wall_ms
 # The hermetic corpus floor. A report below it measured less than the gate
 # claims, even when every scenario it did run passed.
 MIN_SCENARIOS = 30
+# A waiver is a reviewed exception for one PR, not a standing budget: it can
+# expire at most this far out, so it must be re-argued (or fixed) at review.
+MAX_WAIVER_DAYS = 30
+# Additive cells get one reviewed window outside the baseline, then graduate
+# (`make bench-baseline`) or are removed.
+MAX_ADDITIVE_DAYS = 30
 
 
 def load_json(path, what):
@@ -103,6 +123,119 @@ def baseline_metrics(baseline):
         if missing:
             return None, f"baseline entry {name} is missing {', '.join(missing)}"
     return scenarios, None
+
+
+def parse_waiver(value, today=None):
+    """(reason, expires, error) for a `bench-allow: <reason> until <date>` line.
+
+    An empty value is no waiver. A waiver without a date, an invalid date, an
+    expired date, or a date beyond MAX_WAIVER_DAYS fails closed: the gate must
+    never turn an arbitrary prose reason into an unbounded override.
+    """
+    if not value:
+        return None, None, None
+    today = today or date.today()
+    marker = " until "
+    if marker not in value:
+        return None, None, ("a bench-allow waiver needs an expiry: "
+                            "`bench-allow: <reason> until YYYY-MM-DD`")
+    reason, raw_date = value.rsplit(marker, 1)
+    reason = reason.strip()
+    if not reason:
+        return None, None, "a bench-allow waiver needs a reason before its expiry"
+    try:
+        expires = date.fromisoformat(raw_date.strip())
+    except ValueError:
+        return None, None, (f"bench-allow expiry is not an ISO date: "
+                            f"{raw_date.strip()!r}")
+    if expires < today:
+        return None, None, f"the bench-allow waiver expired on {expires.isoformat()}"
+    remaining = (expires - today).days
+    if remaining > MAX_WAIVER_DAYS:
+        return None, None, (f"the bench-allow waiver expires {remaining} days out; "
+                            f"the maximum lifetime is {MAX_WAIVER_DAYS} days")
+    return reason, expires, None
+
+
+def load_additive(path):
+    """{scenario: {issue, reason, expires}} from the additive record file.
+
+    A missing file is an empty record: the normal end state is no additive
+    cells at all. A malformed file is a configuration error, never a silent
+    empty record.
+    """
+    if not path or not os.path.exists(path):
+        return {}, None
+    payload = load_json(path, "additive record")
+    if payload is None:
+        return None, "cannot read the additive record"
+    if not isinstance(payload, dict) or not isinstance(payload.get("cells", {}), dict):
+        return None, "the additive record needs a `cells` object"
+    cells = payload.get("cells", {})
+    for name, entry in cells.items():
+        if not isinstance(entry, dict):
+            return None, f"additive record {name} is not an object"
+        if not isinstance(entry.get("issue"), int) or entry["issue"] <= 0:
+            return None, f"additive record {name} needs a positive issue number"
+        for key in ("reason", "expires"):
+            if not isinstance(entry.get(key), str) or not entry[key].strip():
+                return None, f"additive record {name} needs a non-empty {key}"
+        try:
+            date.fromisoformat(entry["expires"])
+        except ValueError:
+            return None, f"additive record {name} has an invalid expiry"
+    return cells, None
+
+
+def save_additive(path, cells):
+    payload = {
+        "_comment": (
+            "Scenarios measured outside the hermetic baseline. An entry needs "
+            "an issue, a reason and an expiry of at most 30 days from the gate "
+            "run; `make bench-baseline` graduates a cell into the reviewed "
+            "baseline and prunes its entry here. An unrecorded, expired or "
+            "stale cell fails the gate."
+        ),
+        "cells": {name: cells[name] for name in sorted(cells)},
+    }
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def evaluate_additions(added, additive, today=None):
+    """(violations, active, stale) for additive cells and their records."""
+    today = today or date.today()
+    violations = []
+    active = {}
+    for name in added:
+        entry = additive.get(name)
+        if entry is None:
+            violations.append(
+                f"{name}: additive scenario is outside the baseline and has no "
+                f"additive record; graduate it with `make bench-baseline` or "
+                f"record it in bench/results/harness-efficiency-additive.json")
+            continue
+        expires = date.fromisoformat(entry["expires"])
+        if expires < today:
+            violations.append(
+                f"{name}: additive record (issue #{entry['issue']}) expired on "
+                f"{expires.isoformat()}")
+            continue
+        remaining = (expires - today).days
+        if remaining > MAX_ADDITIVE_DAYS:
+            violations.append(
+                f"{name}: additive record expires {remaining} days out; the "
+                f"maximum window is {MAX_ADDITIVE_DAYS} days")
+            continue
+        active[name] = entry
+    stale = sorted(name for name in additive if name not in added)
+    for name in stale:
+        violations.append(
+            f"{name}: additive record is stale (the scenario graduated or no "
+            f"longer runs); remove it from "
+            f"bench/results/harness-efficiency-additive.json")
+    return violations, active, stale
 
 
 def percent(now, then):
@@ -177,7 +310,7 @@ def suite_summary(results):
     return agg
 
 
-def markdown(results, violations, added, allow="", harness=None):
+def markdown(results, violations, added, allow="", harness=None, waiver=None, active=None):
     lines = ["## Hermetic harness efficiency", ""]
     if harness:
         passed = harness.get("harness_passed")
@@ -185,6 +318,13 @@ def markdown(results, violations, added, allow="", harness=None):
         if passed is not None and total is not None:
             lines.append(f"Harness integrity: **{passed}/{total}**")
             lines.append("")
+    if waiver:
+        lines += [
+            f"**Active waiver:** {waiver['reason']} (expires {waiver['expires']}, "
+            f"{waiver['days']} day(s) left). Only the measured regressions are "
+            f"waived; a measurement or additive-record failure is never waived.",
+            "",
+        ]
     lines += ["| suite | pass | tokens | Δ | calls | Δ | wall |",
               "|---|---:|---:|---:|---:|---:|---:|"]
     unmeasured = []
@@ -223,15 +363,18 @@ def markdown(results, violations, added, allow="", harness=None):
                   "cells are `n/a`, not zero, and the gate covers outcome, tool "
                   "calls and wall time there."]
     if added:
-        failing = [n for n in added if n in failed]
-        passing = [n for n in added if n not in failed]
         lines.append("")
-        if failing:
-            lines.append(f"Additive scenarios that failed: "
-                         f"{', '.join(f'`{n}`' for n in failing)}")
-        if passing:
-            lines.append(f"Additive scenarios (no baseline): "
-                         f"{', '.join(f'`{n}`' for n in passing)}")
+        active = active or {}
+        for name in added:
+            entry = active.get(name)
+            if entry is not None:
+                lines.append(
+                    f"Additive cell `{name}` is on a reviewed window "
+                    f"(issue #{entry['issue']}, expires {entry['expires']}).")
+        unrecorded = [name for name in added if name not in active]
+        if unrecorded:
+            lines.append("Additive scenarios without a record (fail): "
+                         + ", ".join(f"`{name}`" for name in unrecorded))
     if violations:
         lines.append("")
         lines.append(f"**{len(violations)} regression(s)**"
@@ -239,7 +382,8 @@ def markdown(results, violations, added, allow="", harness=None):
     return "\n".join(lines) + "\n"
 
 
-def check(current, recorded, allow="", verbose=True, min_scenarios=0):
+def check(current, recorded, allow="", verbose=True, min_scenarios=0, additive=None,
+          today=None):
     """0 pass, 1 regression, 2 the measurement cannot be trusted."""
     if len(current) < min_scenarios:
         print(f"bench-check: FAILED CLOSED - the report ran {len(current)} "
@@ -252,7 +396,13 @@ def check(current, recorded, allow="", verbose=True, min_scenarios=0):
               f"{len(missing)} baseline scenario(s): {', '.join(missing)}",
               file=sys.stderr)
         return 2
-    results = [(name, (recorded[name], current[name])) for name in sorted(recorded)]
+    today = today or date.today()
+    additive = additive or {}
+    reason, expires, waiver_error = parse_waiver(allow, today)
+    if waiver_error:
+        print(f"bench-check: FAILED CLOSED - {waiver_error}", file=sys.stderr)
+        return 2
+    addition_violations, active, _ = evaluate_additions(added, additive, today)
     if verbose:
         print(f"bench-check: {len(recorded)} hermetic scenario(s) compared"
               + (f", {len(added)} additive" if added else ""))
@@ -262,14 +412,33 @@ def check(current, recorded, allow="", verbose=True, min_scenarios=0):
             else:
                 detail = f"{base} -> {cur}"
             print(f"  {name}: {kind} {base} -> {cur} ({detail}, {bar})")
-    if violations and allow:
-        print(f"bench-check: allowed by: {allow} ({len(violations)} regression(s) reported)")
+        for violation in addition_violations:
+            print(f"  {violation}")
+        for name, entry in sorted(active.items()):
+            print(f"  {name}: additive window (issue #{entry['issue']}, "
+                  f"expires {entry['expires']})")
+        if reason and expires:
+            print(f"bench-check: active waiver: {reason} "
+                  f"(expires {expires.isoformat()}, {(expires - today).days} day(s) left)")
+    if addition_violations:
+        print(f"bench-check: FAILED - {len(addition_violations)} additive-record "
+              f"violation(s); a waiver covers a measured regression, never an "
+              f"additive cell.")
+        return 1
+    if violations and reason:
+        print(f"bench-check: allowed by: {reason} "
+              f"(expires {expires.isoformat()}, {(expires - today).days} day(s) left) "
+              f"({len(violations)} regression(s) reported)")
         return 0
     if violations:
         print(f"bench-check: FAILED - {len(violations)} regression(s) beyond the "
-              f"hermetic threshold. Fix the harness overhead, or put "
-              f"`bench-allow: <reason>` in the PR body.")
+              f"hermetic threshold. Fix the harness overhead, or put a dated "
+              f"`bench-allow: <reason> until YYYY-MM-DD` in the PR body "
+              f"(maximum {MAX_WAIVER_DAYS} days).")
         return 1
+    if verbose and reason:
+        print(f"bench-check: waiver not used (no regression observed): {reason} "
+              f"(expires {expires.isoformat()})")
     if verbose:
         print("bench-check: no regression")
     return 0
@@ -297,8 +466,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--report", required=True, help="amber-bench JSON report")
     ap.add_argument("--baseline", default=BASELINE, help="committed baseline")
+    ap.add_argument("--additive", default=ADDITIVE,
+                    help="committed record of additive cells outside the baseline")
     ap.add_argument("--update", action="store_true", help="rewrite the baseline")
-    ap.add_argument("--allow", default="", help="reason from `bench-allow: <reason>`")
+    ap.add_argument("--allow", default="",
+                    help="`<reason> until YYYY-MM-DD` from the PR body")
+    ap.add_argument("--today", default=None,
+                    help="ISO date for waiver/record checks (default: today)")
     ap.add_argument("--markdown", help="write the summary table here")
     ap.add_argument("--min-scenarios", type=int, default=MIN_SCENARIOS,
                     help=f"fail closed below this corpus size (default {MIN_SCENARIOS})")
@@ -325,8 +499,25 @@ def main():
         print(f"bench-check: FAILED CLOSED - {args.report} has no usable scenario "
               f"metrics.", file=sys.stderr)
         return 2
+    try:
+        today = date.fromisoformat(args.today) if args.today else date.today()
+    except ValueError:
+        print(f"bench-check: FAILED CLOSED - --today is not an ISO date: {args.today!r}",
+              file=sys.stderr)
+        return 2
+    additive, additive_error = load_additive(args.additive)
+    if additive is None:
+        print(f"bench-check: FAILED CLOSED - {additive_error}", file=sys.stderr)
+        return 2
     if args.update:
         store(args.baseline, current)
+        graduated = sorted(name for name in additive if name in current)
+        if graduated:
+            save_additive(args.additive,
+                          {name: additive[name] for name in additive
+                           if name not in graduated})
+            print(f"bench-check: graduated {len(graduated)} additive record(s): "
+                  f"{', '.join(graduated)}")
         print(f"bench-check: wrote {len(current)} scenarios to {args.baseline}")
         return 0
 
@@ -337,7 +528,8 @@ def main():
     if recorded is None:
         print(f"bench-check: FAILED CLOSED - {error}", file=sys.stderr)
         return 2
-    rc = check(current, recorded, args.allow, min_scenarios=args.min_scenarios)
+    rc = check(current, recorded, args.allow, min_scenarios=args.min_scenarios,
+               additive=additive, today=today)
     harness = None
     if "harness_passed" in report and "harness_total" in report:
         harness = {"harness_passed": report["harness_passed"],
@@ -346,9 +538,16 @@ def main():
               f"{report['harness_passed']}/{report['harness_total']}")
     if args.markdown:
         violations, added, _ = compare(current, recorded)
+        reason, expires, _ = parse_waiver(args.allow, today)
+        waiver = None
+        if reason and expires:
+            waiver = {"reason": reason, "expires": expires.isoformat(),
+                      "days": (expires - today).days}
+        _, active, _ = evaluate_additions(added, additive, today)
         results = [(name, (recorded[name], current[name])) for name in sorted(recorded)]
         with open(args.markdown, "w", encoding="utf-8") as handle:
-            handle.write(markdown(results, violations, added, args.allow, harness))
+            handle.write(markdown(results, violations, added, args.allow, harness,
+                                  waiver=waiver, active=active))
     return rc
 
 

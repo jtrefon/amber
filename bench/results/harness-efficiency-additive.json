@@ -1,0 +1,4 @@
+{
+  "_comment": "Scenarios measured outside the hermetic baseline. An entry needs an issue, a reason and an expiry of at most 30 days from the gate run; `make bench-baseline` graduates a cell into the reviewed baseline and prunes its entry here. An unrecorded, expired or stale cell fails the gate.",
+  "cells": {}
+}
