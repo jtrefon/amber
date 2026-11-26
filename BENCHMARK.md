@@ -253,9 +253,9 @@ red build.
 a `policy` (and their declared variant cells) with
 `amber-bench run --cat both --matrix`, then compares every cell with
 `bench/results/harness-efficiency-baseline.json`. The committed baseline holds
-46 cells; the current corpus adds 25 additive cells, reported separately (a new
-scenario that fails is already a regression; its token/call/wall axes become
-gating in a reviewed baseline update):
+48 cells with no additive cells; a new scenario must graduate with
+`make bench-baseline` (the reviewed token/call diff) or hold a dated record in
+`bench/results/harness-efficiency-additive.json`:
 
 - **prompt + completion tokens**: fail above +10%;
 - **executed tool calls**: fail above +10%;
