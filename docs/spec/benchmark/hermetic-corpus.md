@@ -19,9 +19,9 @@ correctness gates and the live-model runs are manual.
 
 | Layer | Gate | Count at the time of writing |
 |---|---|---|
-| Hermetic scenarios | `make bench-check` | 68 deterministic scenario files; 46 baseline cells + 25 additive cells in the last report |
+| Hermetic scenarios | `make bench-check` | 48 gated cells in the last report, 0 additive |
 | CLI journeys | `make agent-e2e-check` | 24 journeys |
-| TUI journeys | `make tui-agent-e2e` | 13 journeys |
+| TUI journeys | `make tui-agent-e2e` | 27 journeys |
 | Long-horizon repositories | `make long-horizon-check` | 5 journeys |
 | Policy matrix | `make policy-matrix-check` | 7 zoo policies on `zoo` |
 | Trace replay | `make trace-check` | 23 provider fixtures + one real-client scenario |
@@ -224,7 +224,7 @@ Semantics:
   (`allow`/`deny`). `plugins` and `workspace` are future axes.
 - A cell is a bounded environment, not an arbitrary permutation. The committed
   matrix exercises `stream` on two scenarios and `context_size` on one;
-  `make bench-check` runs 46 cells.
+  `make bench-check` runs 48 cells.
 
 ### 4.4 Validation
 
