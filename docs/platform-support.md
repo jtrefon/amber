@@ -32,11 +32,11 @@ A terminal that is not listed is not supported. Silence is not a support claim.
 
 | Terminal / multiplexer | `TERM` | Status | Evidence / steps |
 |---|---|---|---|
-| bare pty (journey harness) | `xterm-256color` | Gated | `make tui-agent-e2e` (17 journeys) and `./tui_pty_test ./amber`; the harness sets 80x24, and tests that need another size ask for it. |
-| tmux | `screen-256color` / `tmux-256color` | Gated (macOS) | `tests/tmux_smoke.sh ./amber` in `build-and-test-macos`; locally `./tests/tmux_smoke.sh ./amber`. |
+| bare pty (journey harness) | `xterm-256color` | Gated | `make tui-agent-e2e` (27 journeys) and `./tui_pty_test ./amber`; the harness sets 80x24, and tests that need another size ask for it. |
+| tmux | `screen-256color` / `tmux-256color` | Gated (macOS and Linux) | `tests/tmux_smoke.sh ./amber` in `build-and-test-macos`; `make terminal-smoke` in the Linux `tui-agent-e2e` job. Locally `make terminal-smoke` or `./tests/tmux_smoke.sh ./amber`. |
 | Terminal.app (macOS) | `xterm-256color` | Manual | Procedure below; record in #698. |
 | iTerm2 (macOS) | `xterm-256color` | Manual | Procedure below; also check Option/Alt mapping and mouse reporting. |
-| GNU screen | `screen-256color` | Manual | Procedure below; check Alt+1..9, paste and the mouse. |
+| GNU screen | `screen-256color` | Gated (Linux) | `tests/screen_smoke.sh ./amber` via `make terminal-smoke` in the Linux `tui-agent-e2e` job; locally `make terminal-smoke`. Slash commands only; Alt chords, paste and the mouse remain manual. |
 | plain ssh | client's `TERM` (forwarded) | Manual | Procedure below; forward a UTF-8 locale (`SendEnv LANG LC_*` or `ssh -t`). |
 | other xterm-256color emulators (Alacritty, kitty, WezTerm, GNOME Terminal, Konsole) | `xterm-256color` | Manual | Procedure below. |
 | PuTTY | `xterm` / `putty` | Manual, not claimed by default | Rendering may need `NCURSES_NO_UTF8_ACS=1`; see `docs/terminal-compatibility.md`. |
@@ -48,10 +48,13 @@ A terminal that is not listed is not supported. Silence is not a support claim.
 - `tui_pty_test` pins the interface: keys, dialogs, drawers, redraws, the quit
   path and the exit-ready marker, at 80x24 and at the larger sizes a test asks
   for.
-- `tui_agent_e2e_test` pins the workflows: 17 journeys through `main()`, the
+- `tui_agent_e2e_test` pins the workflows: 27 journeys through `main()`, the
   plugin runtime, real tools and a loopback endpoint on `xterm-256color`.
 - `tests/tmux_smoke.sh` drives the real binary in a real tmux pane
   (`screen-256color`) and asserts the welcome prompt and a typed `/window list`.
+- `tests/screen_smoke.sh` does the same in GNU screen (`screen-256color`):
+  startup paints and `/window list` is dispatched. `make terminal-smoke` runs
+  both; neither smoke needs an inference endpoint.
 - The CLI journeys (`bench/scenarios/e2e/`) and the unit suite do not depend on
   a terminal emulator.
 
@@ -85,11 +88,12 @@ accessibility. Those are the manual cells.
 
 ## Known gaps and caveats
 
-- **#621 (macOS tab-switch freeze).** The `tab-switch-live` journey covers the
-  switch path on a pty, but the reported freeze is interactive and
-  macOS-terminal-specific. Until #621 is reproduced and fixed, the macOS
-  tab-switch cell is part of the manual procedure, and the freeze counts against
-  the flake budget (#705). This is a known unmeasured behaviour, not a pass.
+- **#621 (macOS tab-switch freeze).** Closed on 2026-11-25 as a recorded 0.9
+  deferral. The `tab-switch-live` journey covers the switch path on a pty, and
+  the dispatch-only `tui-freeze-probe.yml` repeats it with a macOS stack
+  sample (first run 20/20); the root cause is carried into 1.0 (#562). The
+  macOS tab-switch cell remains part of the manual procedure, and the freeze
+  is recorded as `known_unmeasured` in the flake budget (#705).
 - **tmux and screen key interception.** `Alt+1..9`, `Esc` chords and the mouse
   can be claimed by the multiplexer; the manual run must say whether the keys
   reach amber or the multiplexer.
@@ -105,8 +109,9 @@ accessibility. Those are the manual cells.
 ## Recording the 0.9 support claim
 
 The 0.9 release checklist requires a recorded result for every **Manual** cell
-the release claims: Terminal.app, iTerm2, GNU screen, plain ssh, WSL2 and any
-other xterm-256color emulator named in the release notes. The record lives in
+the release claims: Terminal.app, iTerm2, plain ssh, WSL2, PuTTY and any other
+xterm-256color emulator named in the release notes. tmux and GNU screen are
+gated by `make terminal-smoke` on Linux and by the macOS tmux smoke. The record lives in
 #698 with the environment and the result. If a cell is not recorded, the release
 notes name it as unverified; it is not claimed.
 
