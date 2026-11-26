@@ -360,6 +360,7 @@ UNITTEST_OBJ = $(BUILD_DIR)/tests/run_tests.o \
                $(BUILD_DIR)/tests/clock_plugin_test.o \
                $(BUILD_DIR)/tests/ui_services_test.o \
                $(BUILD_DIR)/tests/skill_file_test.o \
+               $(BUILD_DIR)/tests/archive_util_test.o \
                $(BUILD_DIR)/tests/skill_catalog_test.o \
                $(BUILD_DIR)/tests/text_diff_test.o \
                $(BUILD_DIR)/tests/log_retention_test.o \

@@ -29,6 +29,20 @@ std::string run_capture(const std::string& cmd) {
     return out;
 }
 
+// The archive path can come from a downloaded file name or the user; a space
+// or a quote must not change the command or split into a second one.
+std::string shell_quote(const std::string& value) {
+    std::string out = "'";
+    for (char c : value) {
+        if (c == '\'')
+            out += "'\\''";
+        else
+            out += c;
+    }
+    out += "'";
+    return out;
+}
+
 } // namespace
 
 std::string fetch_bytes(const std::string& source, std::string& err) {
@@ -69,11 +83,12 @@ std::string fetch_bytes(const std::string& source, std::string& err) {
 }
 
 std::string list_tar_gz(const std::string& archive_path) {
-    return run_capture("tar -tzf " + archive_path + " 2>&1");
+    return run_capture("tar -tzf " + shell_quote(archive_path) + " 2>&1");
 }
 
 std::string unpack_tar_gz(const std::string& archive_path, const std::string& dest) {
-    return run_capture("tar -xzf " + archive_path + " -C " + dest + " 2>&1");
+    return run_capture("tar -xzf " + shell_quote(archive_path) + " -C " + shell_quote(dest) +
+                       " 2>&1");
 }
 
 } // namespace agent
