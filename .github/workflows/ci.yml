@@ -669,10 +669,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: ./.github/actions/install-deps
+        with:
+          # tmux and screen are the multiplexer cells the platform matrix
+          # claims; the Linux job used to gate neither.
+          extra: tmux screen
       - name: Configure
         run: ./configure
       - name: TUI agent journeys
         run: make tui-agent-e2e
+      - name: TUI in tmux and GNU screen
+        run: make terminal-smoke
 
   coverage:
     needs: [changes]

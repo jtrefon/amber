@@ -459,7 +459,7 @@ NCURSES_CFLAGS = @NCURSES_CFLAGS@
 
 .PHONY: all lib cli tui bench bench-check bench-e2e bench-baseline bench-reap bench-reap-apply \
         trace-check \
-        website-bench-data check smoketest test doctor tui-agent-e2e \
+        website-bench-data check smoketest test doctor tui-agent-e2e terminal-smoke \
         agent-e2e agent-e2e-check agent-e2e-baseline agent-eval \
         policy-matrix policy-matrix-check policy-matrix-baseline \
         long-horizon long-horizon-check long-horizon-baseline core-only \
@@ -1553,6 +1553,12 @@ agent-eval: agent-e2e-check policy-matrix-check trace-check long-horizon-check
 # the real TUI, the real tools and the real plugin runtime all run.
 tui-agent-e2e: $(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN) $(MCP_FIXTURES)
 	$(BUILD_DIR)/tui_agent_e2e_test $(BUILD_DIR)/$(TUI_BIN) $(if $(REPEAT),--repeat $(REPEAT))
+
+# The real terminals the TUI ships into: tmux and GNU screen, driven through
+# the binary. Slash commands only; neither smoke needs an inference endpoint.
+terminal-smoke: $(BUILD_DIR)/$(TUI_BIN)
+	./tests/tmux_smoke.sh "$(BUILD_DIR)/$(TUI_BIN)"
+	./tests/screen_smoke.sh "$(BUILD_DIR)/$(TUI_BIN)"
 
 $(BUILD_DIR)/tui_agent_e2e_test: $(TUI_AGENT_E2E_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(BUILD_DIR)/$(CORE_LIB) $(BUILD_DIR)/$(TOOLS_LIB)
 	$(CXX) $(CXXFLAGS) $(LD_WERROR) $(LDFLAGS) -o $@ $(TUI_AGENT_E2E_OBJ) $(PTY_HARNESS_OBJ) $(BUILD_DIR)/bench/scripted_endpoint.o $(CORE_AND_TOOLS) $(DUP_LIB_FLAG) $(CURL_LIBS)
