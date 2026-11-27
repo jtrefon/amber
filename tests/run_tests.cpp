@@ -2795,8 +2795,9 @@ TEST(autodetect_fills_only_auto_fields) {
     ASSERT_EQ(c.context_size, 262144);
 }
 
-// A pin wins, but it must be an informed win: a listing that disagrees by more
-// than 10% produces one note, and the pin is not overwritten.
+// A lower pin wins, but it must be an informed win: a listing that disagrees by
+// more than 10% produces one note. A pin above the listing is capped to the
+// loaded window (the server cannot honour the larger budget).
 TEST(merge_server_info_warns_on_pin_listing_mismatch) {
     agent::ServerInfo info;
     info.ok = true;
@@ -2828,13 +2829,16 @@ TEST(merge_server_info_warns_on_pin_listing_mismatch) {
     ASSERT(auto_note.empty());
     ASSERT_EQ(auto_cfg.context_size, 1048576);
 
-    // A pin above the listing warns too.
+    // A pin above the listing is capped rather than kept as a budget the
+    // server cannot honour.
     agent::Config high;
     high.context_size = 2000000;
     high.context_explicit = true;
     std::string high_note;
     agent::merge_server_info(high, info, &high_note);
-    ASSERT_FALSE(high_note.empty());
+    ASSERT_EQ(high.context_size, 1048576);
+    ASSERT_EQ(high.context_limit, 1048576);
+    ASSERT(high_note.find("capped") != std::string::npos);
 
     // No pin value, no listing value: nothing to warn about.
     agent::Config zero;
@@ -2856,6 +2860,36 @@ TEST(merge_server_info_warns_on_pin_listing_mismatch) {
     agent::ServerInfo down;
     agent::merge_server_info(pinned, down, &cleared);
     ASSERT(cleared.empty());
+}
+
+// A pin above the server's loaded window is not a budget amber can honour: the
+// model would be asked for more context than the server allocated. A pin below
+// the listing is deliberate and survives; a pin above it is capped, and the
+// note says so. This is the inkling-2-mini case: provider default/pin 262144,
+// server advertises 194560.
+TEST(context_pin_above_the_listing_is_capped) {
+    agent::ServerInfo info;
+    info.ok = true;
+    info.model = "inkling-2-mini";
+    info.context_size = 194560;
+
+    agent::Config pinned;
+    pinned.context_size = 262144;
+    pinned.context_explicit = true;
+    std::string note;
+    agent::merge_server_info(pinned, info, &note);
+    ASSERT_EQ(pinned.context_size, 194560);
+    ASSERT_EQ(pinned.context_limit, 194560);
+    ASSERT(note.find("262144") != std::string::npos);
+    ASSERT(note.find("194560") != std::string::npos);
+
+    agent::Config lower;
+    lower.context_size = 100000;
+    lower.context_explicit = true;
+    std::string lower_note;
+    agent::merge_server_info(lower, info, &lower_note);
+    ASSERT_EQ(lower.context_size, 100000); // a lower pin is deliberate and survives
+    ASSERT_EQ(lower.context_limit, 194560);
 }
 
 // An unreachable / not-ok probe must never mutate the config.

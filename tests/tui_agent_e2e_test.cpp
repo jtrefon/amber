@@ -1391,17 +1391,19 @@ void journey_settings_surface(const std::string& binary) {
     if (!require(run_command(journey.tui, "/get model", "model: journey-test (provider: custom)"),
                  "the model readout is wrong", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/set model context 200000",
-                             "context window pinned: 200000 tokens"),
+    // The scripted listing is 8192; a pin above it is capped by policy, so the
+    // round-trip uses a deliberate lower value.
+    if (!require(run_command(journey.tui, "/set model context 8000",
+                             "context window pinned: 8000 tokens"),
                  "the context window was not pinned", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+    if (!require(run_command(journey.tui, "/get model context", "8000 tokens (pinned)"),
                  "the context window did not round-trip", journey.tui))
         return;
     if (!require(run_command(journey.tui, "/set model context 100", "usage: /set model context"),
                  "an invalid context window was accepted", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+    if (!require(run_command(journey.tui, "/get model context", "8000 tokens (pinned)"),
                  "an invalid context window changed the value", journey.tui))
         return;
 
@@ -2289,6 +2291,15 @@ void journey_compression_keeps_ui_responsive(const std::string& binary) {
                 binary, "compression-responsive",
                 [&classifying, &classify_calls, &reads](const bench::EndpointRequest& request) {
                     bench::EndpointReply reply;
+                    if (request.path == "/v1/models") {
+                        // The journey's 32000 budget must be a real listing, not
+                        // a pin above the endpoint's default 8192: the effective
+                        // window is capped at what the server loaded.
+                        reply.body = R"({"data":[{"id":"journey-test","context_length":32000,)"
+                                     R"("top_provider":{"max_completion_tokens":4096},)"
+                                     R"("supported_parameters":["tools"]}]})";
+                        return reply;
+                    }
                     if (request.path != "/v1/chat/completions") {
                         reply.handled = false;
                         return reply;

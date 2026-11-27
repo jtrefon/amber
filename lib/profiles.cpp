@@ -130,6 +130,7 @@ void apply_profile(Config& cfg, const Profile& profile) {
     // Both describe the outgoing model. A window measured against one endpoint
     // is how the gauge, the compression gate and the pin warning kept lying.
     cfg.context_size = 0;
+    cfg.context_limit = 0;
     cfg.context_explicit = false;
     apply_model_capabilities(cfg, ModelCapabilities{});
     // Provider-scoped runtime state: a response id and a prompt count describe

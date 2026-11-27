@@ -105,7 +105,16 @@ Regression guards: `model_catalog_freshness_ttl`,
 - **Expected**: `merge_server_info()` → model NOT overwritten, context_size filled.
 - **Regression guard**: `autodetect_fills_only_auto_fields` test.
 
-#### [MP-06] `list_models()` returns all model IDs
+#### [MP-06] A pin cannot exceed the loaded window
+
+- **Given**: `context_size=262144` (explicit), server reports `context_size=194560`
+- **Input**: `merge_server_info()`
+- **Expected**: `cfg.context_size = 194560`, `cfg.context_limit = 194560`; the
+  note says the pin was capped. A lower pin is preserved.
+- **Regression guard**: `context_pin_above_the_listing_is_capped` and
+  `agent_context_limit_caps_a_larger_pin`.
+
+#### [MP-07] `list_models()` returns all model IDs
 
 - **Given**: Server with multiple models
 - **Input**: `{"data":[{"id":"gpt-4"},{"id":"gpt-3.5"}]}`

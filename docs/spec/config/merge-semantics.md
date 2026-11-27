@@ -60,6 +60,15 @@ sources (file, env, flags, auto-detect) contribute to the final `Config` state.
 - **Expected**: `cfg.model = "gpt-4"` (unchanged), `cfg.context_size = 8192` (filled).
 - **On failure**: User's explicit model overwritten.
 
+#### [MS-03b] An explicit window is capped at the loaded window
+
+- **Given**: `context_size=262144` explicit, server reports `context_size=194560`
+- **Input**: `apply_server_autodetect()`
+- **Expected**: `cfg.context_size = 194560`, `cfg.context_limit = 194560`; a lower
+  explicit value still wins. A provider default is only a fallback and never
+  sets `context_explicit`.
+- **On failure**: A 262k budget is built for a 190k server.
+
 #### [MS-04] Intent preservation on save
 
 - **Given**: `model_explicit = false`, `context_explicit = false`

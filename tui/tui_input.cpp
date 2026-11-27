@@ -2257,6 +2257,20 @@ std::string context_window_label(const agent::Config& cfg, const agent::ServerIn
     return "auto (unknown)";
 }
 
+// One place for the detection readout: a pin above the loaded window says it was
+// capped; otherwise the existing mismatch warning is unchanged.
+void append_context_note(const agent::Config& cfg, int requested, const agent::ServerInfo& info,
+                         const std::function<void(const std::string&)>& emit) {
+    if (requested > info.context_size && info.context_size > 0) {
+        emit("context: pinned " + std::to_string(requested) + " capped to " +
+             std::to_string(info.context_size));
+        return;
+    }
+    const std::string mismatch = agent::context_pin_mismatch(cfg, info);
+    if (!mismatch.empty())
+        emit("context: " + mismatch);
+}
+
 } // namespace
 
 void SlashDispatcher::show_model_context() {
@@ -4176,6 +4190,7 @@ void Tui::detect_server(bool force) {
     // Cache-only on the UI thread (stale-while-revalidate): the disk catalog
     // answers immediately and a stale or missing entry revalidates on a
     // detached worker. The status line and model feed update when it lands.
+    const int requested = cfg_.context_explicit ? cfg_.context_size : 0;
     agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
     bool stale = true;
     if (auto e = agent::model_catalog_read(cfg_))
@@ -4187,9 +4202,15 @@ void Tui::detect_server(bool force) {
         if (info.context_train > 0 && info.context_train != cfg_.context_size)
             note += " (max " + std::to_string(info.context_train) + ")";
         append_line(P_STATUS, note);
-        const std::string mismatch = agent::context_pin_mismatch(cfg_, info);
-        if (!mismatch.empty())
-            append_line(P_STATUS, "context: " + mismatch);
+        append_context_note(cfg_, requested, info,
+                            [this](const std::string& line) { append_line(P_STATUS, line); });
+        // A cached catalogue is an answer too: apply it to windows built before
+        // this point, not only when a background refresh happens later.
+        adopt_detected_model();
+        apply_detected_context_window();
+        // The window/limit may have changed behind a status row ncurses already
+        // considers painted; a full frame makes the gauge show the new number.
+        render_engine_->clear_screen();
         draw();
     }
     if (force || stale)
@@ -4307,10 +4328,13 @@ void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool ann
     // protocol) shows up in, and the user who asked is the one who can act.
     if (!refresh.fetched && (announce || asked))
         append_line(P_STATUS, refresh.failure_reason());
+    const int requested = cfg_.context_explicit ? cfg_.context_size : 0;
     agent::ServerInfo info = agent::apply_cached_server_autodetect(cfg_);
+    bool redraw_all = false;
     if (info.ok) {
         const bool changed =
             info.model != last_detected_.model || info.context_size != last_detected_.context_size;
+        redraw_all = changed;
         last_detected_ = info;
         if (announce || changed) {
             std::string note =
@@ -4318,9 +4342,8 @@ void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool ann
             if (info.context_train > 0 && info.context_train != cfg_.context_size)
                 note += " (max " + std::to_string(info.context_train) + ")";
             append_line(P_STATUS, note);
-            const std::string mismatch = agent::context_pin_mismatch(cfg_, info);
-            if (!mismatch.empty())
-                append_line(P_STATUS, "context: " + mismatch);
+            append_context_note(cfg_, requested, info,
+                                [this](const std::string& line) { append_line(P_STATUS, line); });
         }
         // Windows opened before the catalog resolved still hold an empty
         // model; adopt the detected one now — but only for idle windows: while a
@@ -4331,6 +4354,8 @@ void Tui::on_models_refreshed(const agent::CatalogFetchReport& refresh, bool ann
         apply_detected_context_window();
         refresh_model_list();
     }
+    if (redraw_all)
+        render_engine_->clear_screen();
     draw();
 }
 
@@ -4350,13 +4375,20 @@ void Tui::adopt_detected_model() {
 // endpoint's value until the next restart. A user pin is ignored by
 // set_context_window.
 void Tui::apply_detected_context_window() {
+    const agent::ModelCapabilities caps =
+        last_detected_.ok ? agent::capabilities_of(last_detected_) : agent::capabilities_of(cfg_);
     for (auto& w : window_manager_->all()) {
         if (!w->agent || runs_.busy(w->id))
             continue;
         const auto acfg = w->agent->config_snapshot();
-        if (acfg && acfg->model == cfg_.model) {
+        if (!acfg || acfg->api_base != cfg_.api_base || acfg->provider_name != cfg_.provider_name)
+            continue;
+        // The limit applies even to a user pin: a pin may lower the budget, not
+        // raise it above the window the server loaded.
+        w->agent->set_context_limit(cfg_.context_limit);
+        if (acfg->model == cfg_.model) {
             w->agent->set_context_window(cfg_.context_size);
-            w->agent->set_model_capabilities(agent::capabilities_of(cfg_));
+            w->agent->set_model_capabilities(caps);
         }
     }
 }

@@ -245,6 +245,9 @@ public:
     virtual void set_model_capabilities(const ModelCapabilities& caps) = 0;
     virtual void set_provider(const Config& resolved, const std::string& model) = 0;
     virtual void set_context_window(int window) = 0;
+    // The server's loaded window is an upper bound. A pin may lower the
+    // budget; this clamps a larger pin/default and records the limit.
+    virtual void set_context_limit(int limit) = 0;
     virtual void pin_context_window(int window) = 0;
     virtual void clear_context_pin() = 0;
     virtual void set_reasoning_effort(const std::string& effort) = 0;
@@ -360,7 +363,7 @@ public:
     // the new model's probed context window (0 = unknown). An automatic
     // resolution never becomes a user pin: when the model changes and the
     // window is unknown the previous model's value is cleared rather than
-    // reused. A user pin (context_explicit) survives.
+    // reused. A user pin (context_explicit) survives, capped to the listing.
     void set_model(const std::string& model, const ModelCapabilities& caps = {}) override;
 
     // Apply the active model's advertised capabilities after a catalogue
@@ -370,10 +373,13 @@ public:
     // Apply a probed window (or a provider default) to the current model
     // without rebuilding the client. Used when a catalogue arrives after the
     // model was chosen, and by the host after a provider switch. Ignored when
-    // the user pinned context_size explicitly.
+    // the user pinned context_size explicitly; an unpinned value is capped to
+    // the server's loaded window.
     void set_context_window(int window) override;
+    void set_context_limit(int limit) override;
     // A deliberate override: /set model context. The pin survives model and
-    // provider switches and is persisted by the host. clear_context_pin drops
+    // provider switches and is persisted by the host, but never exceeds the
+    // server's loaded window. clear_context_pin drops
     // it and re-resolves from the current model's known window or the learned
     // overflow clamp; unknown stays 0.
     void pin_context_window(int window) override;

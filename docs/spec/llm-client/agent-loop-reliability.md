@@ -145,7 +145,8 @@ reply to drive the compression gate, and a cancellation-aware delay option.
   gate falls back to a **conservative default budget** (32 000 tokens,
   documented as an estimate) instead of returning `false`.
 - The gauge (`context_size > 0`) still hides when unknown; only the gate
-  changes. A config-explicit `context_size` keeps winning.
+  changes. A config-explicit `context_size` may lower the budget, but a value
+  above the server's advertised loaded window is capped to that window.
 - The fallback constant lives next to the gate with a comment; no new config
   key (YAGNI — the real `n_ctx` from the probe overrides when available).
 

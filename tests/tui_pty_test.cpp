@@ -280,6 +280,7 @@ public:
     }
 
     void reset_chat() { server_->reset_chat(); }
+    void advertise_inkling_window() { inkling_ = true; }
     void reject_gemini_key() { reject_gemini_ = true; }
     void advertise_deepseek_window() { deepseek_window_ = true; }
     void report_reasoning_tokens() { reasoning_tokens_ = true; }
@@ -288,7 +289,9 @@ private:
     bench::EndpointReply respond(const bench::EndpointRequest& request) {
         bench::EndpointReply reply;
         if (request.path == "/v1/models") {
-            if (deepseek_window_) {
+            if (inkling_) {
+                reply.body = R"({"data":[{"id":"inkling-2-mini","context_length":194560}]})";
+            } else if (deepseek_window_) {
                 reply.body =
                     R"({"data":[{"id":"deepseek-flash","context_window":1048576,"max_output_tokens":393216}]})";
             } else {
@@ -468,6 +471,7 @@ private:
     std::unique_ptr<bench::ScriptedEndpoint> server_;
     std::atomic<bool> reject_gemini_{false};
     std::atomic<bool> deepseek_window_{false};
+    std::atomic<bool> inkling_{false};
     std::atomic<bool> reasoning_tokens_{false};
 };
 
@@ -715,6 +719,22 @@ private:
     std::string path_;
     bool existed_ = false;
     std::string contents_;
+};
+
+// A file this test creates: remove it even when an assertion returns early.
+class RemoveFile {
+public:
+    explicit RemoveFile(std::string path) : path_(std::move(path)) {}
+    ~RemoveFile() {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+
+    RemoveFile(const RemoveFile&) = delete;
+    RemoveFile& operator=(const RemoveFile&) = delete;
+
+private:
+    std::string path_;
 };
 
 } // namespace
@@ -2552,8 +2572,8 @@ TEST(pinned_context_reports_the_listing_mismatch) {
     if (!require(tui.wait_for("context: pinned 256000, model advertises 1048576", 60000),
                  "the pin/listing mismatch was not reported", tui))
         return;
-    if (!require(tui.wait_for("(adv 1m)", 10000),
-                 "the gauge hid the advertised window behind the pin", tui))
+    if (!require(tui.wait_for("(server 1m)", 10000),
+                 "the gauge hid the server window behind the pin", tui))
         return;
 
     const auto run = [&tui](const std::string& line) {
@@ -2568,6 +2588,59 @@ TEST(pinned_context_reports_the_listing_mismatch) {
         return;
     require(tui.text().find("model advertises 1048576") != std::string::npos,
             "the context readout hid the advertised window", tui);
+}
+
+// The server's loaded window is a ceiling. A pin above it is capped, not
+// displayed as a budget the model cannot honour: inkling-2-mini advertises
+// 194560, while the provider default/pin here is 262144.
+TEST(context_pin_above_the_listing_is_capped_on_the_gauge) {
+    Tui tui;
+    tui.name = "context_pin_above_the_listing_is_capped_on_the_gauge";
+    RestoreFile restore_settings(agent::Workspace::settings_path());
+    FakeModelsEndpoint api;
+    api.advertise_inkling_window();
+    ASSERT(api.start());
+    const std::string url = api.base() + "/v1";
+    RemoveFile remove_custom(fixture().workspace + "/xdg/amber/providers/custom.conf");
+    RestoreFile restore_global(fixture().workspace + "/xdg/amber/config");
+    if (!require(write_file(fixture().workspace + "/xdg/amber/providers/custom.conf",
+                            "provider=custom\napi_base=" + url +
+                                "\napi_key=sk-test\ndefault_model=inkling-2-mini\n"
+                                "requires_key=1\nflavor=openai\ndefault_context_size=262144\n"),
+                 "could not seed the provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + url +
+                                "\napi_key=sk-test\nmodel=inkling-2-mini\ncontext_size=262144\n"
+                                "stream=0\n"),
+                 "could not seed the global config", tui))
+        return;
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + url +
+                                "\nmodel=inkling-2-mini\ncontext_size=262144\nstream=0\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    if (!require(tui.start(fixture().binary, fixture().workspace, "", 24, 140),
+                 "the TUI did not start", tui))
+        return;
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+    if (!require(tui.wait_for("capped to 194560", 60000),
+                 "the oversized pin was not reported as capped", tui))
+        return;
+    if (!require(tui.wait_for("/190k", 10000), "the gauge kept the oversized window", tui))
+        return;
+
+    tui.send("/get model context");
+    tui.pump(300);
+    tui.send("\x07");
+    tui.pump(300);
+    if (!require(tui.wait_for("194560 tokens (pinned)", 10000),
+                 "the readout did not report the capped window", tui))
+        return;
+    require(tui.text().find("model advertises 194560") == std::string::npos,
+            "the gauge still describes the pinned value as a mismatch", tui);
 }
 
 // The catalogue is regenerated on a schedule and on demand. When a stale pin is
@@ -5091,6 +5164,7 @@ int main(int argc, char** argv) {
     picking_a_keyless_providers_model_opens_the_key_form();
     get_model_list_reports_why_the_catalogue_is_empty();
     pinned_context_reports_the_listing_mismatch();
+    context_pin_above_the_listing_is_capped_on_the_gauge();
     context_auto_regen_reloads_the_advertised_window();
     get_context_readouts_use_the_active_snapshot();
     set_model_context_pins_and_clears_the_window();
