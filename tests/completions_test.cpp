@@ -1156,7 +1156,11 @@ TEST(test_provider_tree_nodes) {
     }
     // The settings picker's entry point is documented, not a feed-only node.
     const auto settings = reg.resolve_command({"settings", "provider"});
-    ASSERT(settings.node);
+    if (!settings.node) {
+        std::cerr << "FAIL: settings.provider does not resolve\n";
+        ++failed;
+        return;
+    }
     ASSERT_EQ(settings.node->at("action").get<std::string>(),
               std::string("core.settings.provider"));
     ASSERT(!reg.help_for("settings.provider").empty());
@@ -1178,7 +1182,11 @@ TEST(test_provider_verbs_come_from_the_tree) {
         ASSERT(!verb.label.empty());
         ASSERT(!verb.action.empty());
         const auto node = reg.resolve_command({"provider", verb.verb});
-        ASSERT(node.node);
+        if (!node.node) {
+            std::cerr << "FAIL: provider." << verb.verb << " does not resolve\n";
+            ++failed;
+            continue;
+        }
         ASSERT_EQ(verb.action, node.node->at("action").get<std::string>());
         ASSERT_EQ(verb.label, reg.help_for("provider." + verb.verb));
     }
