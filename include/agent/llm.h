@@ -519,8 +519,7 @@ public:
     // HttpLLMClient uses it for compression, whose prefill is not a chat turn.
     virtual Message chat_with_timeout(const std::vector<Message>& messages,
                                       const std::vector<std::shared_ptr<Tool>>& tools,
-                                      long timeout_s, Stats* stats = nullptr) {
-        (void)timeout_s;
+                                      long /*timeout_s*/, Stats* stats = nullptr) {
         return chat(messages, tools, stats);
     }
 
