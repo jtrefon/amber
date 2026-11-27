@@ -1,13 +1,18 @@
 ## Spec: TUI Settings UI
 
 ### Purpose
-Provide interactive configuration of provider settings (API endpoint, key, model,
-context size) via a multi-step modal dialog. Also handles `/set` runtime config
-changes and persistence to global config file and provider store.
+Configure provider settings (API endpoint, key, model) through the documented
+`/provider` verbs. `/settings provider` is a picker over the same verbs, never a
+second action list. Also handles `/set` runtime config changes and persistence
+to the global config and provider store.
 
 ### Ownership
-- **Source files**: `tui/tui_input.cpp` (`cmd_provider()`, `cmd_model()`, `settings_screen()` — lines 913–1091, `edit_provider_form()` — line 896)
-- **Test files**: No direct tests.
+- **Source files**: `tui/tui_input.cpp` (`cmd_provider*()`, `settings_screen()`,
+  `provider_actions()`), `tui/provider_form.cpp` (`edit_provider_form()`),
+  `completions.json` (the provider and settings nodes)
+- **Test files**: `tests/tui_pty_test.cpp` (drawer, edit, inactive edit, key
+  clear, delete confirmation), `tests/completions_test.cpp` (tree and picker
+  contract), `tests/tui_agent_e2e_test.cpp` (management journey).
 
 ---
 
@@ -15,19 +20,24 @@ changes and persistence to global config file and provider store.
 
 | Dimension | Detail |
 |-----------|--------|
-| **Input** | `/settings`, `/provider`, `/model` commands, or `edit_provider_form()` dialog |
+| **Input** | `/settings [group]`, `/provider add\|activate\|edit\|list\|test\|delete`, `/model` |
 | **Output** | Updated `Config` fields, persisted to `~/.config/amber/config` and `~/.config/amber/providers/<name>.conf` |
-| **Error states** | Connection test failure → status error. Invalid URL/key → form validation. |
+| **Error states** | Unknown provider → status error. Rejected key → form reopens. Delete → confirmation. |
 | **Invariants** | See below. |
 | **Thread safety** | Main thread only. |
 
 ### Invariants
 
-1. `/settings` opens a multi-step provider configuration dialog.
-2. The form strips trailing slashes from API base URLs.
-3. Connection test runs a `/v1/models` probe and shows result.
-4. Saved providers appear as presets in future sessions.
-5. `/model <name>` fetches the model list from the server and validates the name.
+1. Every provider verb is a `completions.json` child; the picker renders
+   `provider_verbs()` and dispatches the child’s action. No code-side verb list.
+2. `/provider edit` with no name edits the active provider; editing an inactive
+   provider writes its file but does not switch the session.
+3. Editing the active provider updates the live agent, the global config and the
+   provider file; a cleared key is cleared everywhere.
+4. The form strips trailing slashes from API base URLs; a blank model stays
+   “auto” instead of pinning the seeded value.
+5. Connection test probes the selected provider, not the active connection.
+6. `/provider delete` asks for confirmation and refuses the active provider.
 
 ---
 
@@ -35,24 +45,27 @@ changes and persistence to global config file and provider store.
 
 #### [SU-01] Settings screen — provider selection
 
-- **Given**: User types `/settings`
+- **Given**: User types `/settings provider`
 - **Input**: Enter
-- **Expected**: `ListPanel` shows: Built-in presets (openrouter, kilocode), saved custom providers, "Add new provider...". User selects one.
-- **On failure**: Empty list or missing built-in presets.
+- **Expected**: `ListPanel` shows built-in presets, saved providers and
+  “+ Add new provider…”. Selecting a provider opens its documented verbs.
+- **On failure**: Empty list, missing presets, or a verb not in the tree.
 
-#### [SU-02] Settings screen — activate & edit
+#### [SU-02] Provider edit
 
-- **Given**: User selects a provider
-- **Input**: Select "Activate & edit"
-- **Expected**: `edit_provider_form()` shows fields: Server URL, API Key, Model, Context Size. Current values pre-filled. Trailing slash stripped from URL.
-- **On failure**: Missing fields or wrong defaults.
+- **Given**: User selects a provider and “Edit a provider’s endpoint, key or model”
+- **Input**: Change the Server URL and press Enter
+- **Expected**: `edit_provider_form()` shows Server URL / API Key / Model.
+  Saving an active provider lands the new endpoint in the live session and both
+  files; saving an inactive provider leaves the active selection alone.
+- **On failure**: Missing fields, wrong defaults, or a session switch.
 
-#### [SU-03] Settings screen — test connection
+#### [SU-03] Provider connection test
 
 - **Given**: Provider configured
-- **Input**: Select "Test connection"
-- **Expected**: `test_connection()` → probes `/v1/models` → `info_dialog` shows success/failure. If success, detected model and context size shown.
-- **On failure**: Hang on network timeout (no timeout parameter on test?).
+- **Input**: Select “Test the provider connection” or `/provider test <name>`
+- **Expected**: Probes that provider’s `/v1/models` and reports the result.
+- **On failure**: Testing the active endpoint instead of the selected one.
 
 #### [SU-04] `/model` — list and select
 
@@ -81,11 +94,11 @@ changes and persistence to global config file and provider store.
 
 - **Depends on**: `config/merge-semantics.md`, `tui/dialogs.md` (form_edit, list_panel, info_dialog)
 - **Depended on by**: `config/ui-config.md`
-- **Test coverage**: No direct tests.
+- **Test coverage**: `tests/tui_pty_test.cpp`, `tests/completions_test.cpp`,
+  `tests/tui_agent_e2e_test.cpp`.
 
 ### Known gaps
 
 1. **No key-mask in form_edit** — API key is shown in plain text.
 2. **Connection test may hang** — No timeout on the test request in some paths.
 3. **No validation of model name against server** — `/model <name>` does not verify the model exists on the server.
-4. **Settings not reflected in running agents** — Changing provider/api_key after agent started does not affect the running agent's LLMClient.

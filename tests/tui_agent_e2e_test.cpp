@@ -1030,6 +1030,18 @@ void journey_management_surface(const std::string& binary) {
     if (!require(run_command(journey.tui, "/provider list", "custom (http"),
                  "/provider list did not render the active provider", journey.tui))
         return;
+    // The documented edit verb saves an inactive provider without switching.
+    journey.tui.send("/provider edit temp\r");
+    if (!require(journey.tui.wait_for("Edit: temp", 10000),
+                 "/provider edit did not open the connection form", journey.tui))
+        return;
+    journey.tui.send("\r"); // keep the form's values
+    if (!require(journey.tui.wait_for("provider 'temp' saved", 15000),
+                 "editing an inactive provider did not complete", journey.tui))
+        return;
+    if (!require(run_command(journey.tui, "/get provider", "provider: custom"),
+                 "editing temp switched the session away from custom", journey.tui))
+        return;
     // The catalogue probe is asynchronous: record the request count before the
     // command, because the probe can finish before the "testing ..." line is
     // painted. The screen only has to prove the command started.
@@ -1050,7 +1062,12 @@ void journey_management_surface(const std::string& binary) {
     }
     if (!require(probed, "/provider test did not probe the provider's model listing", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/provider delete temp", "deleted provider: temp"),
+    journey.tui.send("/provider delete temp\r");
+    if (!require(journey.tui.wait_for("Delete Provider", 10000),
+                 "/provider delete did not ask for confirmation", journey.tui))
+        return;
+    journey.tui.send("y");
+    if (!require(journey.tui.wait_for("deleted provider: temp", 10000),
                  "/provider delete did not remove the temporary provider", journey.tui))
         return;
     require(!fs::exists(agent::global_config_dir() + "/providers/temp.conf"),

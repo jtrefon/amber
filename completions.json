@@ -103,8 +103,15 @@
   },
   "settings": {
    "action": "core.settings",
-   "help": "Browse settings groups; edit with /set <group>.",
-   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think, worktree and work. Typing '/settings ' opens the drawer; selecting a group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for adding, editing, keys and connection tests; those changes are persisted under ~/.config/amber/.",
+   "help": "Browse settings groups; open one with /settings <group>.",
+   "man": "The settings namespace lists the same groups as /set: display, policy, compression, subagent, reasoning, model, provider, skills, plugin, detection, debug, think, worktree and work. Typing '/settings ' opens the drawer; selecting a settings group prints its current values (the /get readout) and names the matching '/set <group>' surface. The provider child opens the provider picker for the documented /provider verbs (add, activate, edit, test and delete); those changes are persisted under ~/.config/amber/.",
+   "children": {
+    "provider": {
+     "action": "core.settings.provider",
+     "help": "Open the provider picker for add, edit, activate, test and delete.",
+     "man": "Opens the provider picker. Select a provider, then choose one of the documented /provider verbs: activate, edit, test or delete. The '+ Add new provider...' row runs '/provider add'. The same verbs are available directly as '/provider add|activate|edit|test|delete [name]'."
+    }
+   },
    "short": "st"
   },
   "session": {
@@ -336,8 +343,8 @@
    "children": {
     "config": {
      "action": "core.config.get.config",
-     "help": "Open the settings configuration screen.",
-     "man": "Opens the full-screen settings dialog where you can configure the provider, model, API key, and test the server connection.",
+     "help": "Show the active configuration.",
+     "man": "Shows the resolved connection in a read-only dialog: API base, masked key, model, streaming, context window, limits and prompt paths. Use '/provider edit' to change the provider endpoint, key or model.",
      "children": {
       "paths": {
        "action": "core.config.get.config.paths",
@@ -1165,22 +1172,37 @@
   "provider": {
    "action": "core.provider",
    "help": "Manage API providers.",
-   "man": "The provider command manages LLM API provider configurations. Providers are stored globally in ~/.config/amber/providers/ and can be shared across projects. Built-in providers include OpenRouter, Kilo Code, and Custom. Use '/settings' to add or edit a provider endpoint.",
+   "man": "The provider command manages LLM API provider configurations. Providers are stored globally in ~/.config/amber/providers/ and can be shared across projects. '/provider list' lists them, '/provider add [name]' creates one, '/provider edit [name]' edits the active provider or the named one, '/provider activate <name>' (or '/provider <name>') switches, '/provider test <name>' probes the endpoint, and '/provider delete <name>' removes one after confirmation. '/settings provider' opens the same verbs as a picker.",
    "children": {
     "list": {
      "action": "core.provider.list",
      "help": "List all saved API providers.",
      "man": "Lists all saved provider configurations with their names, API base URLs, and whether they require an API key."
     },
-    "delete": {
-     "action": "core.provider.delete",
-     "help": "Delete a saved provider configuration.",
-     "man": "Permanently removes a provider configuration from disk after confirmation."
+    "add": {
+     "action": "core.provider.add",
+     "help": "Add a provider endpoint.",
+     "man": "Prompts for a name when one is omitted, then opens the connection form. A name that already exists is refused; use '/provider edit <name>' to change it. Saving activates the new provider."
+    },
+    "activate": {
+     "action": "core.provider.activate",
+     "help": "Switch to this provider.",
+     "man": "Selects the provider, applying its endpoint, key and last-used model to the live session. The same as '/provider <name>'."
+    },
+    "edit": {
+     "action": "core.provider.edit",
+     "help": "Edit a provider's endpoint, key or model.",
+     "man": "With no name, edits the active provider. Editing the active provider updates the live session and the global config. Editing another provider saves it without switching the session. Trailing slashes are removed from the server URL, and a non-empty key is checked against the endpoint before it is saved."
     },
     "test": {
      "action": "core.provider.test",
      "help": "Test the provider connection by probing the API endpoint.",
      "man": "Sends a probe request to the provider's API endpoint to verify connectivity and reports the server's model info."
+    },
+    "delete": {
+     "action": "core.provider.delete",
+     "help": "Delete a saved provider configuration.",
+     "man": "Permanently removes a provider configuration from disk after confirmation. The active provider is refused; switch away first."
     }
    },
    "aliases": [

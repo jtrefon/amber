@@ -1698,6 +1698,10 @@ void SlashDispatcher::register_provider_actions() {
     // provider
     register_action("core.provider", [this](const std::string& a) { cmd_provider(a); });
     register_action("core.provider.list", [this](const std::string&) { cmd_provider_list(); });
+    register_action("core.provider.activate",
+                    [this](const std::string& a) { cmd_provider_activate(a); });
+    register_action("core.provider.add", [this](const std::string& a) { cmd_provider_add(a); });
+    register_action("core.provider.edit", [this](const std::string& a) { cmd_provider_edit(a); });
     register_action("core.provider.delete",
                     [this](const std::string& a) { cmd_provider_delete(a); });
     register_action("core.provider.test", [this](const std::string& a) { cmd_provider_test(a); });
@@ -2402,8 +2406,10 @@ void SlashDispatcher::cmd_get_model_context() {
 void SlashDispatcher::refresh_settings_feed() {
     // /settings is a namespace fed from the same tree as /set: the group list,
     // help and man are the JSON mapper's, not a code-side list. The generated
-    // actions dispatch the matching /get readout; the provider child opens the
-    // provider picker. Editing stays /set, so no setting logic is duplicated.
+    // actions dispatch the matching /get readout. The provider child is a
+    // documented JSON node (settings.provider): it opens the picker, and the
+    // picker dispatches the documented /provider verbs, so no action or label
+    // is authored here.
     nlohmann::json sub;
     auto& kids = sub["settings"]["children"];
     for (const auto& g : tui_.settings_.children_of("set")) {
@@ -2420,11 +2426,6 @@ void SlashDispatcher::refresh_settings_feed() {
         register_action("core.settings.group." + g,
                         [this, g](const std::string&) { cmd_settings(g); });
     }
-    kids["provider"]["action"] = "core.settings.provider";
-    kids["provider"]["help"] = "Manage API providers: add, edit, key and connection test.";
-    kids["provider"]["man"] =
-        "Opens the provider picker. Selecting a provider offers activate/edit, key entry and a "
-        "connection test; changes are persisted under ~/.config/amber/.";
     tui_.settings_.merge_completions_json(sub);
 }
 
@@ -2442,11 +2443,11 @@ void SlashDispatcher::cmd_settings(const std::string& group) {
                 return;
             }
         }
-        tui_.append_line(P_STATUS, "settings " + group + " \u2014 use /set " + group);
+        tui_.append_line(P_STATUS, "settings " + group + " \u2014 open it with /settings " + group);
         tui_.draw();
         return;
     }
-    tui_.append_line(P_STATUS, "settings groups (edit with /set <group>):");
+    tui_.append_line(P_STATUS, "settings groups (open with /settings <group>):");
     for (const auto& g : tui_.settings_.children_of("settings")) {
         std::string line = "  " + g;
         const std::string help = tui_.settings_.help_for("settings." + g);
@@ -2558,6 +2559,26 @@ void SlashDispatcher::cmd_provider(const std::string& a) {
         tui_.append_line(P_STATUS, "warning: " + sel.warning);
     land_provider_switch();
     tui_.append_line(P_STATUS, "provider switched to " + a + " (model: " + tui_.cfg_.model + ")");
+}
+
+void SlashDispatcher::cmd_provider_activate(const std::string& name) {
+    if (name.empty()) {
+        tui_.append_line(P_STATUS, "usage: /provider activate <name>");
+        return;
+    }
+    cmd_provider(name);
+}
+
+void SlashDispatcher::cmd_provider_add(const std::string& name) {
+    if (busy_reject("provider add"))
+        return;
+    tui_.add_provider(name);
+}
+
+void SlashDispatcher::cmd_provider_edit(const std::string& name) {
+    if (busy_reject("provider edit"))
+        return;
+    tui_.edit_provider(name);
 }
 
 // Land a switch that apply_selection() has resolved into cfg_: the window agent
@@ -2809,6 +2830,21 @@ void SlashDispatcher::report_toolset_audit() {
 void SlashDispatcher::cmd_provider_delete(const std::string& name) {
     if (name.empty()) {
         tui_.append_line(P_STATUS, "usage: /provider delete <name>");
+        return;
+    }
+    const auto provider = tui_.providers_->find(name);
+    if (!provider) {
+        tui_.append_line(P_STATUS, name + ": unknown provider");
+        return;
+    }
+    if (name == tui_.cfg_.provider_name) {
+        tui_.append_line(P_STATUS,
+                         "provider '" + name + "' is active — switch away before deleting it");
+        return;
+    }
+    tui::ConfirmPanel confirm("Delete Provider", "Delete provider \"" + name + "\"?");
+    if (!confirm.run()) {
+        tui_.append_line(P_STATUS, "delete cancelled");
         return;
     }
     tui_.providers_->remove(name);
@@ -4431,89 +4467,123 @@ void Tui::build_provider_picker(std::vector<std::string>& rows,
     ids.emplace_back(""); // sentinel
 }
 
-void Tui::add_new_provider() {
-    // Ask for provider name
-    std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
-    if (!form_edit("New Provider", name_field))
-        return;
-    std::string new_name = name_field[0].value;
-    if (new_name.empty())
-        return;
-
-    // Seed from the provider domain (built-in or saved).
-    agent::Config prov_cfg;
-    agent::Provider existing;
-    prov_cfg.provider_name = new_name;
-    if (auto p = providers_->find(new_name)) {
-        existing = *p;
-        prov_cfg.api_base = p->api_base;
-        prov_cfg.api_key = p->api_key;
-        prov_cfg.model = p->default_model;
+void Tui::add_provider(const std::string& requested_name) {
+    std::string name = requested_name;
+    if (name.empty()) {
+        std::vector<FieldSpec> name_field = {{"Provider name", "", false}};
+        if (!form_edit("New Provider", name_field))
+            return;
+        name = name_field[0].value;
     }
-    if (!edit_provider_form(prov_cfg, "Edit: " + new_name))
+    if (name.empty())
         return;
-    prov_cfg.provider_name = new_name;
-    providers_->save(agent::provider_from_edit(existing, prov_cfg, false));
+    if (providers_->find(name)) {
+        append_line(P_STATUS,
+                    "provider '" + name + "' already exists — use /provider edit " + name);
+        draw();
+        return;
+    }
+
+    agent::Config prov_cfg;
+    prov_cfg.provider_name = name;
+    if (!edit_provider_form(prov_cfg, "Add: " + name))
+        return;
+    prov_cfg.provider_name = name;
+    if (!providers_->save(agent::provider_from_edit(agent::Provider{}, prov_cfg, false))) {
+        append_line(P_STATUS, "provider '" + name + "': could not write the provider file");
+        draw();
+        return;
+    }
     // Adopt through the domain rather than assigning cfg_ here: the saved
     // definition is the single source of the protocol, the key and the model,
     // and the switch has to reach the window agent too.
-    if (!slash_dispatcher_->adopt_provider(new_name))
+    if (!slash_dispatcher_->adopt_provider(name))
         return;
     refresh_provider_feed();
-    append_line(P_STATUS, "provider '" + new_name + "' added and activated");
+    refresh_provider_catalogs_async();
+    append_line(P_STATUS, "provider '" + name + "' added and activated");
+    draw();
 }
 
-// Activate & edit: seed from the provider domain, overlay current values when it
-// is already the active provider, then confirm through the shared edit form.
-void Tui::activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
-                                     bool is_preset) {
-    agent::Provider existing = sel ? *sel : agent::Provider{};
-    // The definition's own key; the live connection's values overlay it only
-    // when this IS the active provider (its key may live in the global config).
-    agent::Config prov_cfg = agent::provider_edit_seed(cfg_, existing);
-    prov_cfg.provider_name = id;
-    if (!edit_provider_form(prov_cfg, "Edit: " + id))
+// Edit one provider definition. The active provider's live connection and the
+// global config follow the form; an inactive provider is only written to disk,
+// so editing a backup never switches the session.
+void Tui::edit_provider(const std::string& requested_name) {
+    const std::string name = requested_name.empty() ? cfg_.provider_name : requested_name;
+    if (name.empty()) {
+        append_line(P_STATUS, "no active provider — use /provider edit <name>");
+        draw();
+        return;
+    }
+    const auto existing = providers_->find(name);
+    if (!existing) {
+        append_line(P_STATUS, "unknown provider: " + name + " (see /provider list)");
+        draw();
+        return;
+    }
+
+    // The definition's own key; the live connection overlays it only when this
+    // IS the active provider (its key may live in the global config).
+    agent::Config prov_cfg = agent::provider_edit_seed(cfg_, *existing);
+    prov_cfg.provider_name = name;
+    if (!edit_provider_form(prov_cfg, "Edit: " + name))
         return;
 
-    providers_->save(agent::provider_from_edit(existing, prov_cfg, is_preset));
-    // Re-resolve through the provider domain: the form edits the definition,
-    // the domain decides what the session speaks. This is what carries the
-    // protocol (and the endpoint/key/model) to cfg_, the window agent and the
-    // feeds in one step.
-    if (!slash_dispatcher_->adopt_provider(id))
+    if (!providers_->save(agent::provider_from_edit(*existing, prov_cfg, existing->builtin))) {
+        append_line(P_STATUS, "provider '" + name + "': could not write the provider file");
+        draw();
         return;
-    refresh_provider_feed();
-    append_line(P_STATUS, "provider '" + id + "' activated");
-    test_connection(false);
+    }
+
+    if (name == cfg_.provider_name) {
+        // The form is the source for the live key too. apply_selection() keeps
+        // the current key when re-selecting the same provider; without this a
+        // cleared key would survive in the global config.
+        cfg_.api_key = prov_cfg.api_key;
+        if (!slash_dispatcher_->adopt_provider(name))
+            return;
+        append_line(P_STATUS, "provider '" + name + "' updated");
+        test_connection(false);
+    } else {
+        refresh_provider_feed();
+        refresh_provider_catalogs_async();
+        append_line(P_STATUS, "provider '" + name + "' saved (active provider unchanged)");
+    }
+    draw();
 }
 
 void Tui::provider_actions(const std::string& selected_id) {
-    const auto sel_provider = providers_->find(selected_id);
-    const bool is_preset = sel_provider && sel_provider->builtin;
-    std::vector<std::string> actions = {"Activate & edit", "Test connection"};
-    if (!is_preset)
-        actions.emplace_back("Delete provider");
-    const int action = menu_select("Provider: " + selected_id, actions);
-    if (action < 0)
+    const auto provider = providers_->find(selected_id);
+    if (!provider) {
+        append_line(P_STATUS, "unknown provider: " + selected_id);
+        draw();
         return;
-
-    if (action == 0) {
-        activate_and_edit_provider(selected_id, sel_provider ? &*sel_provider : nullptr, is_preset);
-    } else if (action == 1) {
-        // Test connection.
-        cfg_.provider_name = selected_id;
-        cfg_.save_global(agent::global_config_path());
-        test_connection(true);
-    } else if (action == 2 && !is_preset) {
-        // Delete provider.
-        std::string msg = "Delete provider \"" + selected_id + "\"?";
-        tui::ConfirmPanel confirm("Delete Provider", msg);
-        if (confirm.run()) {
-            providers_->remove(selected_id);
-            refresh_provider_feed();
-            append_line(P_STATUS, "provider '" + selected_id + "' deleted");
-        }
     }
+
+    std::vector<tui::ProviderVerb> verbs = tui::provider_verbs(settings_);
+    // A bundled preset has no file to delete, and the active provider cannot
+    // be deleted without stranding the session. The command guards both; the
+    // picker only hides the rows that cannot apply.
+    const bool can_delete = !provider->builtin && selected_id != cfg_.provider_name;
+    if (!can_delete) {
+        verbs.erase(std::remove_if(verbs.begin(), verbs.end(),
+                                   [](const tui::ProviderVerb& v) { return v.verb == "delete"; }),
+                    verbs.end());
+    }
+    if (verbs.empty()) {
+        append_line(P_STATUS, "provider: no documented verbs");
+        draw();
+        return;
+    }
+
+    std::vector<std::string> labels;
+    labels.reserve(verbs.size());
+    for (const auto& v : verbs)
+        labels.push_back(v.label);
+    const int action = menu_select("Provider: " + selected_id, labels);
+    if (action < 0 || action >= static_cast<int>(verbs.size()))
+        return;
+    slash_dispatcher_->run_action(verbs[action].action, selected_id);
 }
 
 void Tui::settings_screen() {
@@ -4534,7 +4604,7 @@ void Tui::settings_screen() {
         return;
 
     if (sel == add_new_idx) {
-        add_new_provider();
+        slash_dispatcher_->run_action("core.provider.add", "");
         return;
     }
 
@@ -4542,7 +4612,7 @@ void Tui::settings_screen() {
     if (selected_id.empty())
         return;
 
-    // Step 3: act on the selected provider.
+    // Step 3: dispatch the documented verb for the selected provider.
     provider_actions(selected_id);
 }
 

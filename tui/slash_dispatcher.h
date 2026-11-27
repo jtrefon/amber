@@ -123,7 +123,9 @@ public:
     void cmd_get_subagent();
     void cmd_set_reasoning_effort(const std::string& val);
     void cmd_get_reasoning();
-    void cmd_provider_list();
+    void cmd_provider_list(), cmd_provider_activate(const std::string& name),
+        cmd_provider_add(const std::string& name), cmd_provider_edit(const std::string& name),
+        cmd_provider_delete(const std::string& name), cmd_provider_test(const std::string& name);
     void cmd_runtime_plugin_list();
     void cmd_get_wallet();
     void cmd_set_wallet(const std::string& val);
@@ -134,8 +136,6 @@ public:
     // entry point says the same thing (the command tree and the registry panel
     // both land here).
     void set_plugin(const std::string& id, bool on);
-    void cmd_provider_delete(const std::string& name);
-    void cmd_provider_test(const std::string& name);
     void cmd_session_load(const std::string& id);
     void cmd_session_delete(const std::string& id);
     void cmd_session_rename(const std::string& rest);

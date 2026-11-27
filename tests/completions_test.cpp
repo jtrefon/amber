@@ -1,7 +1,10 @@
 #include <algorithm>
 #include <cassert>
+#include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -20,6 +23,7 @@
 #include "tui/drawer_rows.h"
 #include "tui/help_page.h"
 #include "tui/plugin_feed.h"
+#include "tui/provider_form.h"
 #include "tui/setting_registry.h"
 #include "tests/minitest.h"
 
@@ -1141,9 +1145,123 @@ TEST(test_reasoning_tree_nodes) {
 
 TEST(test_provider_tree_nodes) {
     tui::SettingRegistry reg;
-    reg.load_completions_json("completions.json");
+    ASSERT(reg.load_completions_json("completions.json"));
     ASSERT(!reg.help_for("set.provider").empty());
     ASSERT(!reg.man_for("set.provider").empty());
+    for (const char* path : {"provider", "provider.list", "provider.add", "provider.activate",
+                             "provider.edit", "provider.test", "provider.delete"}) {
+        ASSERT(!reg.help_for(path).empty());
+        ASSERT(!reg.man_for(path).empty());
+    }
+    // The settings picker's entry point is documented, not a feed-only node.
+    const auto settings = reg.resolve_command({"settings", "provider"});
+    ASSERT(settings.node);
+    ASSERT_EQ(settings.node->at("action").get<std::string>(),
+              std::string("core.settings.provider"));
+    ASSERT(!reg.help_for("settings.provider").empty());
+    ASSERT(!reg.man_for("settings.provider").empty());
+}
+
+TEST(test_provider_verbs_come_from_the_tree) {
+    tui::SettingRegistry empty;
+    ASSERT(tui::provider_verbs(empty).empty());
+
+    tui::SettingRegistry reg;
+    ASSERT(reg.load_completions_json("completions.json"));
+    const std::vector<tui::ProviderVerb> verbs = tui::provider_verbs(reg);
+    ASSERT_EQ(verbs.size(), 4u);
+
+    std::set<std::string> names;
+    for (const auto& verb : verbs) {
+        names.insert(verb.verb);
+        ASSERT(!verb.label.empty());
+        ASSERT(!verb.action.empty());
+        const auto node = reg.resolve_command({"provider", verb.verb});
+        ASSERT(node.node);
+        ASSERT_EQ(verb.action, node.node->at("action").get<std::string>());
+        ASSERT_EQ(verb.label, reg.help_for("provider." + verb.verb));
+    }
+    ASSERT(names.count("activate") == 1u);
+    ASSERT(names.count("edit") == 1u);
+    ASSERT(names.count("test") == 1u);
+    ASSERT(names.count("delete") == 1u);
+    ASSERT(names.count("add") == 0u);
+    ASSERT(names.count("list") == 0u);
+}
+
+// A static action may not exist only in C++. This is the trap for the class of
+// bug where a primary capability (provider edit) lived in a modal menu and the
+// JSON drawer could not advertise it. Feed-generated suffixes are named
+// explicitly; everything else must be a documented command, menu or keybinding.
+TEST(test_every_registered_action_is_advertised) {
+    std::set<std::string> advertised;
+    const auto collect = [&](const std::string& path) {
+        std::ifstream in(path);
+        if (!in) {
+            std::cerr << "FAIL: cannot read " << path << "\n";
+            ++failed;
+            return;
+        }
+        nlohmann::json document;
+        in >> document;
+        std::function<void(const nlohmann::json&)> walk = [&](const nlohmann::json& node) {
+            if (node.is_object()) {
+                if (node.contains("action") && node["action"].is_string())
+                    advertised.insert(node["action"].get<std::string>());
+                for (const auto& entry : node.items())
+                    walk(entry.value());
+            } else if (node.is_array()) {
+                for (const auto& entry : node)
+                    walk(entry);
+            }
+        };
+        walk(document);
+    };
+    collect("completions.json");
+    collect("menus.json");
+    collect("keybindings.json");
+
+    std::error_code ec;
+    std::filesystem::directory_iterator source("tui", ec);
+    if (ec) {
+        std::cerr << "FAIL: cannot scan tui/: " << ec.message() << "\n";
+        ++failed;
+        return;
+    }
+    std::set<std::string> registered;
+    for (const auto& entry : source) {
+        if (entry.path().extension() != ".cpp")
+            continue;
+        std::ifstream in(entry.path());
+        const std::string text((std::istreambuf_iterator<char>(in)),
+                               std::istreambuf_iterator<char>());
+        std::size_t pos = 0;
+        while ((pos = text.find("register_action(", pos)) != std::string::npos) {
+            std::size_t arg = pos + std::string("register_action(").size();
+            while (arg < text.size() &&
+                   (text[arg] == ' ' || text[arg] == '\n' || text[arg] == '\t'))
+                ++arg;
+            if (arg < text.size() && text[arg] == '"') {
+                const std::size_t end = text.find('"', arg + 1);
+                if (end != std::string::npos)
+                    registered.insert(text.substr(arg + 1, end - arg - 1));
+            }
+            pos += std::string("register_action(").size();
+        }
+    }
+
+    std::size_t missing = 0;
+    for (const auto& action : registered) {
+        // The settings feed registers one action per /set group; the suffix is
+        // the group name, which is itself a documented /set child.
+        if (action.rfind("core.settings.group.", 0) == 0)
+            continue;
+        if (advertised.count(action) == 0) {
+            std::cerr << "FAIL: registered action has no command surface: " << action << "\n";
+            ++missing;
+        }
+    }
+    ASSERT_EQ(missing, 0u);
 }
 
 // ── Test: no hardcoded command paths — mcp/learn are tree nodes ────
@@ -1533,6 +1651,15 @@ TEST(test_settings_surface_matches_the_tree) {
         ASSERT(k != "server" && k != "endpoint");
     ASSERT(reg.help_for("settings").find("group") != std::string::npos);
     ASSERT(reg.man_for("settings").find("full-screen") == std::string::npos);
+    ASSERT(reg.man_for("settings").find("edit with /set") == std::string::npos);
+    bool provider_row = false;
+    for (const auto& k : reg.complete("settings"))
+        if (k == "settings.provider")
+            provider_row = true;
+    ASSERT(provider_row);
+    // /get config is a read-only readout; the man may not promise editing.
+    ASSERT(reg.man_for("get.config").find("configure") == std::string::npos);
+    ASSERT(reg.man_for("get.config").find("read-only") != std::string::npos);
 }
 
 TEST(test_set_model_has_a_context_pin_leaf) {
@@ -2032,6 +2159,8 @@ int main() {
         test_window_worktree_tree_nodes();
         test_worktree_command_tree_nodes();
         test_provider_tree_nodes();
+        test_provider_verbs_come_from_the_tree();
+        test_every_registered_action_is_advertised();
         test_get_provider_list_node();
         test_plugin_command_subtree_merges_and_resolves();
         test_help_page_key_from_node();
