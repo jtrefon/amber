@@ -75,7 +75,15 @@ The session brief, the 32 KB tool-result budget on a live long read, and
 plan/task default-on each need a live model. Their procedures are:
 
 1. Brief: a compression run with and without the brief; compare redundant calls
-   and post-compression continuation.
+   and post-compression continuation. The switch gates only the injection —
+   compression still extracts the brief — so the two runs differ in exactly what
+   reaches the model:
+   ```sh
+   AMBER_SESSION_BRIEF=0 ./amber-bench run --live --profile <profile> \
+     --scenario k-01-compression-stress --repeat 3 --out brief-off.json
+   AMBER_SESSION_BRIEF=1 ./amber-bench run --live --profile <profile> \
+     --scenario k-01-compression-stress --repeat 3 --out brief-on.json
+   ```
 2. Budget: the long-read scenario with `AMBER_MAX_TOOL_RESULT_BYTES=0` vs
    `32768`; compare last-request bytes, tokens, steps and success.
 3. Default-on plan/task: the same engine with `--disable tool_plan,tool_task`

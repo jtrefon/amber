@@ -149,6 +149,11 @@ struct Config {
     // marker that reports the omitted bytes, so one long read cannot dominate
     // the context or be re-sent whole every turn.
     int max_tool_result_bytes = 32 * 1024;
+    // Inject the compression-produced session brief into the post-compression
+    // prompt (env AMBER_SESSION_BRIEF, default on). The release validation
+    // needs a controlled with/without A/B: compression still extracts the
+    // brief, this gates only what reaches the model.
+    bool session_brief = true;
 
     // Agent mode: controls tool availability and approval policy.
     //   read  — only observation tools (search, grep, read); writes disallowed

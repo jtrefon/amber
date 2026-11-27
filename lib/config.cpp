@@ -635,6 +635,7 @@ void Config::apply_environment() {
     subagent_parallel = env_flag("AMBER_SUBAGENT_PARALLEL", subagent_parallel);
     subagent_max = env_int("AMBER_SUBAGENT_MAX", subagent_max);
     max_tool_result_bytes = env_int("AMBER_MAX_TOOL_RESULT_BYTES", max_tool_result_bytes);
+    session_brief = env_flag("AMBER_SESSION_BRIEF", session_brief);
     thinking_budget = env_int("AMBER_THINKING_BUDGET", thinking_budget);
     show_reasoning = env_flag("AMBER_SHOW_REASONING", show_reasoning);
     input_multiline = env_flag("AMBER_INPUT_MULTILINE", input_multiline);
