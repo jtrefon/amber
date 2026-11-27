@@ -44,7 +44,13 @@ struct HeaderList {
 // Accept header. `ttfb`/`total` receive transfer timings in seconds when
 // non-null.
 std::string post_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total);
+                            bool accept_sse, double* ttfb, double* total,
+                            long timeout_s = kDefaultRequestTimeoutSeconds);
+
+// The absolute curl deadline for a request: a streaming response has none (0);
+// the low-speed watchdog is its liveness check. Buffered requests keep their
+// caller's deadline.
+long request_timeout_seconds(bool accept_sse, long buffered_timeout_s);
 
 // Run a streaming completion: POST `payload`, feed response bytes to
 // `decoder`, and finalize. Fills `stats` (timings + token counts). Throws on

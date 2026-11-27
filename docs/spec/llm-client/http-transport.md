@@ -28,14 +28,18 @@ mechanics that carry whatever the dialect produces.
 ### Invariants
 
 1. Every request carries exactly the auth headers the dialect produces (`Authorization: Bearer <key>` for openai when `cfg.api_key` is non-empty; `x-api-key` + `anthropic-version` for anthropic). No credential header is sent for an empty key.
-2. Every request has a 300-second absolute timeout.
-3. Streaming requests also have a 60-second low-speed timeout (<1 byte/sec = abort).
-4. The cancel-check callback is always registered for both streaming and buffered (`CURLOPT_NOPROGRESS = 0L`).
-5. HTTP status outside 200–299 always throws with the response body excerpt.
-6. The `CURL*` handle is owned by `unique_ptr` with `curl_easy_cleanup` — exception-safe.
-7. The `curl_slist*` header list is owned by RAII `HeaderList` struct — exception-safe.
-8. `model_probe.cpp` is the ONLY file that still uses raw `curl_easy_init/cleanup` (known gap).
-9. JSON serialisation uses `error_handler_t::replace` to prevent UTF-8 exceptions.
+2. A buffered chat request has a 300-second absolute timeout.
+3. A streaming request has **no absolute deadline**: its liveness check is the
+   60-second low-speed timeout, which arriving bytes reset. A live generation is
+   not a hung request.
+4. Compression calls use a separate 1800-second buffered deadline, because a
+   large-context prefill is not a chat turn.
+5. The cancel-check callback is always registered for both streaming and buffered (`CURLOPT_NOPROGRESS = 0L`).
+6. HTTP status outside 200–299 always throws with the response body excerpt.
+7. The `CURL*` handle is owned by `unique_ptr` with `curl_easy_cleanup` — exception-safe.
+8. The `curl_slist*` header list is owned by RAII `HeaderList` struct — exception-safe.
+9. `model_probe.cpp` is the ONLY file that still uses raw `curl_easy_init/cleanup` (known gap).
+10. JSON serialisation uses `error_handler_t::replace` to prevent UTF-8 exceptions.
 
 ---
 
@@ -69,19 +73,23 @@ mechanics that carry whatever the dialect produces.
 - **Expected**: Same as [HT-03]. 300s timeout also applies if server hangs.
 - **Recovery**: Agent loop retries once (not transport layer).
 
-#### [HT-05] Connection timeout (300s)
+#### [HT-05] Buffered timeout (300s)
 
-- **Given**: Server does not respond within 300 seconds
+- **Given**: A buffered request does not complete within 300 seconds
 - **Input**: `CURLOPT_TIMEOUT = 300L`
 - **Expected**: `CURLE_OPERATION_TIMEDOUT` → throw.
 - **On failure**: Connection hangs indefinitely.
+
+Compression override: 1800 seconds, because classifying a large context is a
+prefill-bound request, not a chat turn.
 
 #### [HT-06] Low-speed timeout (streaming only)
 
 - **Given**: Server sends initial headers then stops sending data
 - **Input**: `<1 byte/sec for 60 seconds`
-- **Expected**: `CURLE_OPERATION_TIMEDOUT` → throw.
-- **On failure**: Connection hangs for 300s (absolute timeout) instead of 60s.
+- **Expected**: `CURLE_OPERATION_TIMEDOUT` → throw. There is no absolute
+  deadline: bytes reset this watchdog, so a live generation continues.
+- **On failure**: A live stream dies at a fixed total deadline.
 
 #### [HT-07] Cancel during transfer
 
@@ -165,6 +173,7 @@ mechanics that carry whatever the dialect produces.
 1. ~~No direct tests for `http_transport.cpp`~~ — closed by the FIX-027 wire pins (auth headers, both 400 paths, buffered stats/degradation, cancellation, post-rejection client survival).
 2. **`model_probe.cpp` leaks `CURL*` on exception** — Uses raw `curl_easy_init()/cleanup()` without RAII. The `http_transport.*` RAII fix was NOT applied to model probe.
 3. **DRY violation: tool call validation duplicated** — Same non-JSON argument check in `parse_completion()` (buffered, `lib/dialect_openai.cpp`) and `chat_stream()` (`lib/llm.cpp`).
-4. **300s timeout is identical for buffered and streaming** — The ternary `accept_sse ? 300L : 300L` is vestigial (was 900L for streaming).
+4. ~~300s timeout is identical for buffered and streaming~~ — fixed: streaming
+   has no total deadline, compression has 1800s, buffered chat keeps 300s.
 5. **`CURLOPT_POST` not explicitly set** — libcurl infers POST from `CURLOPT_POSTFIELDS`, but the behaviour is not documented as guaranteed by curl.
 6. **`raw_body_` diagnostics truncated** — Error messages use only the first ~200 bytes of the body even though the decoder captures up to 64 KiB for diagnostics.

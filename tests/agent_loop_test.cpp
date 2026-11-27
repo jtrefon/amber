@@ -835,6 +835,7 @@ TEST(compression_does_not_grow_a_session_it_cannot_reduce) {
     agent::CompressionResponse cr;
     auto out = compressor->compress(ctx, cc, *fake, nullptr, &cr);
     ASSERT(agent::estimate_tokens(out) <= before_tokens);
+    ASSERT_EQ(fake->last_timeout_s, agent::kCompressionRequestTimeoutSeconds);
 }
 
 TEST(compression_keeps_reasoning_only_on_tool_turns_that_must_echo_it) {

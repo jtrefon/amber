@@ -155,7 +155,7 @@ void fill_rate_wait(ProviderGovernor& governor, CurlOutcome& out) {
 // provider's governor; the response teaches it what the provider allows.
 void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& payload,
                bool accept_sse, curl_write_callback write_fn, void* write_data, CurlOutcome& out,
-               const char* debug_tag) {
+               const char* debug_tag, long timeout_s) {
     auto& governor = RateGovernorRegistry::global().for_config(cfg);
     const long token_cost = governed_token_cost(cfg, payload);
     if (!governor.acquire(token_cost, cfg.cancel_token, current_request_class()))
@@ -171,7 +171,10 @@ void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& pay
     configure_target(c.get(), cfg, dialect, payload);
     configure_write(c.get(), write_fn, write_data);
     configure_headers(c.get(), cfg, dialect, accept_sse, headers, retry);
-    curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, 300L);
+    // A stream has no total deadline; its low-speed watchdog is reset by every
+    // arriving byte. A buffered request keeps the caller's absolute deadline.
+    const long effective_timeout = request_timeout_seconds(accept_sse, timeout_s);
+    curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, effective_timeout);
     if (accept_sse)
         configure_stream_buffers(c.get());
     configure_cancel(c.get(), cfg.cancel_token);
@@ -211,15 +214,19 @@ std::string describe_http_error(long http_code, const std::string& body) {
     return msg;
 }
 
+long request_timeout_seconds(bool accept_sse, long buffered_timeout_s) {
+    return accept_sse ? 0 : buffered_timeout_s;
+}
+
 // POST `payload` to the dialect's chat endpoint and return the raw response
 // body, setting up auth/JSON headers and throwing on any transport error.
 // `accept_sse` adds the text/event-stream Accept header for streaming
 // requests. When non-null, `ttfb`/`total` receive transfer timings in seconds.
 std::string post_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total) {
+                            bool accept_sse, double* ttfb, double* total, long timeout_s) {
     std::string response;
     CurlOutcome out;
-    curl_exec(cfg, dialect, payload, accept_sse, write_cb, &response, out, "error");
+    curl_exec(cfg, dialect, payload, accept_sse, write_cb, &response, out, "error", timeout_s);
     if (ttfb)
         *ttfb = out.ttfb;
     if (total)
@@ -253,7 +260,7 @@ std::string post_completion(Config& cfg, const Dialect& dialect, const std::stri
 void stream_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
                        StreamDecoder& decoder, Stats* stats, long& status_out) {
     CurlOutcome out;
-    curl_exec(cfg, dialect, payload, true, stream_write_cb, &decoder, out, "error-stream");
+    curl_exec(cfg, dialect, payload, true, stream_write_cb, &decoder, out, "error-stream", 0);
     status_out = out.status;
     if (status_out < 200 || status_out >= 300) {
         // Same overflow learning as the buffered path: the rejection teaches

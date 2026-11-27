@@ -488,6 +488,16 @@ struct ApiError : std::runtime_error {
         : std::runtime_error(msg), status(s), retryable(r), retry_after_ms(retry_after) {}
 };
 
+// A normal buffered chat request. Streaming requests deliberately have no
+// absolute deadline: their liveness check is the low-speed idle watchdog, which
+// arriving bytes reset. A long generation is not a hung request.
+inline constexpr long kDefaultRequestTimeoutSeconds = 300;
+
+// Compression classifies a context that can be hundreds of thousands of tokens.
+// A local model can spend much longer than a chat turn on that prefill, and the
+// call is buffered, so it gets its own deadline instead of the chat timeout.
+inline constexpr long kCompressionRequestTimeoutSeconds = 1800;
+
 class LLMClient {
 public:
     virtual ~LLMClient() = default;
@@ -503,6 +513,16 @@ public:
     virtual Message chat(const std::vector<Message>& messages,
                          const std::vector<std::shared_ptr<Tool>>& tools,
                          Stats* stats = nullptr) = 0;
+
+    // Buffered request with an explicit absolute timeout. The default keeps
+    // test and custom clients source-compatible (it delegates to chat);
+    // HttpLLMClient uses it for compression, whose prefill is not a chat turn.
+    virtual Message chat_with_timeout(const std::vector<Message>& messages,
+                                      const std::vector<std::shared_ptr<Tool>>& tools,
+                                      long timeout_s, Stats* stats = nullptr) {
+        (void)timeout_s;
+        return chat(messages, tools, stats);
+    }
 
     // Streaming request: invokes `on_chunk` for every parsed SSE event and
     // returns the assembled assistant message. The callback receives partial
@@ -549,6 +569,9 @@ public:
     ServerInfo probe_server() const override;
     Message chat(const std::vector<Message>& messages,
                  const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats = nullptr) override;
+    Message chat_with_timeout(const std::vector<Message>& messages,
+                              const std::vector<std::shared_ptr<Tool>>& tools, long timeout_s,
+                              Stats* stats = nullptr) override;
     Message chat_stream(const std::vector<Message>& messages,
                         const std::vector<std::shared_ptr<Tool>>& tools,
                         const std::function<void(const StreamChunk&)>& on_chunk,

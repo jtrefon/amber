@@ -133,6 +133,12 @@ ServerInfo HttpLLMClient::probe_server() const {
 
 Message HttpLLMClient::chat(const std::vector<Message>& messages,
                             const std::vector<std::shared_ptr<Tool>>& tools, Stats* stats) {
+    return chat_with_timeout(messages, tools, kDefaultRequestTimeoutSeconds, stats);
+}
+
+Message HttpLLMClient::chat_with_timeout(const std::vector<Message>& messages,
+                                         const std::vector<std::shared_ptr<Tool>>& tools,
+                                         long timeout_s, Stats* stats) {
     for (int attempt = 0;; ++attempt) {
         json body = dialect_->build_chat_body(fit_completion_budget(cfg_, messages), messages,
                                               tools, false);
@@ -148,7 +154,7 @@ Message HttpLLMClient::chat(const std::vector<Message>& messages,
         });
         std::string response;
         try {
-            response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total);
+            response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total, timeout_s);
         } catch (const ApiError& error) {
             if (attempt == 0 && degrade_cache_for(error))
                 continue;
