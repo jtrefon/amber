@@ -40,6 +40,7 @@ public:
     // during the backoff without racing the plain chat_calls counter.
     std::atomic<unsigned> calls_started{0};
     std::string session_id;
+    long last_timeout_s = 0; // the last chat_with_timeout deadline
 
     void set_session_id(const std::string& id) override { session_id = id; }
 
@@ -79,6 +80,13 @@ public:
         m.content = r.content;
         m.tool_calls = r.tool_calls;
         return m;
+    }
+
+    agent::Message chat_with_timeout(const std::vector<agent::Message>& messages,
+                                     const std::vector<std::shared_ptr<agent::Tool>>& tools,
+                                     long timeout_s, agent::Stats* stats = nullptr) override {
+        last_timeout_s = timeout_s;
+        return chat(messages, tools, stats);
     }
 
     agent::Message chat_stream(const std::vector<agent::Message>& messages,

@@ -250,7 +250,8 @@ ClassifyOutcome run_classify(const std::vector<Message>& history, LLMClient& cli
         observer->on_llm_request_sent();
     try {
         Stats stats;
-        class_reply = client.chat(request, prefix.tools, &stats);
+        class_reply = client.chat_with_timeout(request, prefix.tools,
+                                               kCompressionRequestTimeoutSeconds, &stats);
         if (observer)
             observer->on_llm_usage(stats);
     } catch (const std::exception& e) {
@@ -294,7 +295,8 @@ void run_extract(const std::vector<Message>& classify_prefix, const Message& cla
     Message ext_reply;
     try {
         Stats stats;
-        ext_reply = client.chat(request, prefix.tools, &stats);
+        ext_reply = client.chat_with_timeout(request, prefix.tools,
+                                             kCompressionRequestTimeoutSeconds, &stats);
         if (observer)
             observer->on_llm_usage(stats);
     } catch (const std::exception&) {

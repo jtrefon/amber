@@ -96,7 +96,8 @@ bool fold_stale_archive(std::vector<Message>& history, LLMClient& client,
         Message reply;
         try {
             Stats stats;
-            reply = client.chat({build_archive_fold_request(candidates)}, {}, &stats);
+            reply = client.chat_with_timeout({build_archive_fold_request(candidates)}, {},
+                                             kCompressionRequestTimeoutSeconds, &stats);
             if (observer)
                 observer->on_llm_usage(stats);
         } catch (const std::exception&) {

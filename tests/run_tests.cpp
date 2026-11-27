@@ -2904,6 +2904,14 @@ TEST(autodetect_noop_when_server_down) {
     ASSERT_EQ(c.context_size, 0);
 }
 
+// A streaming response is kept alive by arriving bytes, not by a total
+// deadline; compression is buffered and gets its own long deadline.
+TEST(request_timeout_policy) {
+    ASSERT_EQ(agent::request_timeout_seconds(false, agent::kDefaultRequestTimeoutSeconds), 300);
+    ASSERT_EQ(agent::request_timeout_seconds(true, agent::kDefaultRequestTimeoutSeconds), 0);
+    ASSERT_EQ(agent::kCompressionRequestTimeoutSeconds, 1800);
+}
+
 // ---------------------------------------------------------------------------
 // Status-bar rendering math (pure, no ncurses / no network)
 // ---------------------------------------------------------------------------
@@ -4455,7 +4463,7 @@ TEST(overflow_400_learns_the_window_without_a_pin) {
     auto dialect = agent::make_dialect(cfg.flavor);
     bool threw = false;
     try {
-        agent::post_completion(cfg, *dialect, "{}", false, nullptr, nullptr);
+        agent::post_completion(cfg, *dialect, "{}", {false, 300}, nullptr, nullptr);
     } catch (const agent::ApiError&) {
         threw = true;
     }
