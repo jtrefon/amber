@@ -1391,17 +1391,19 @@ void journey_settings_surface(const std::string& binary) {
     if (!require(run_command(journey.tui, "/get model", "model: journey-test (provider: custom)"),
                  "the model readout is wrong", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/set model context 200000",
-                             "context window pinned: 200000 tokens"),
+    // The scripted listing is 8192; a pin above it is capped by policy, so the
+    // round-trip uses a deliberate lower value.
+    if (!require(run_command(journey.tui, "/set model context 8000",
+                             "context window pinned: 8000 tokens"),
                  "the context window was not pinned", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+    if (!require(run_command(journey.tui, "/get model context", "8000 tokens (pinned)"),
                  "the context window did not round-trip", journey.tui))
         return;
     if (!require(run_command(journey.tui, "/set model context 100", "usage: /set model context"),
                  "an invalid context window was accepted", journey.tui))
         return;
-    if (!require(run_command(journey.tui, "/get model context", "pinned 200000"),
+    if (!require(run_command(journey.tui, "/get model context", "8000 tokens (pinned)"),
                  "an invalid context window changed the value", journey.tui))
         return;
 
