@@ -189,6 +189,13 @@ struct Config {
     // "unknown / auto" and hides the gauge. Env: AMBER_CONTEXT.
     int context_size = 0;
 
+    // The server's loaded window for the active model (n_ctx), 0 when unknown.
+    // Runtime only and never persisted: merge_server_info() records it, and the
+    // effective context budget may not exceed it. A provider default is a
+    // fallback for a listing that says nothing, not a licence to overrun the
+    // window the server actually allocated.
+    int context_limit = 0;
+
     // Provider-level default context_size, loaded from the provider preset file
     // (~/.config/amber/providers/<name>.conf). Does NOT set context_explicit,
     // so server auto-detect and manual user overrides still win. 0 means no

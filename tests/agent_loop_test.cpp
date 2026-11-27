@@ -602,6 +602,37 @@ TEST(agent_user_pin_survives_context_resolution) {
     ASSERT_EQ(snapshot->context_size, 200000);
 }
 
+// The server's loaded window is a ceiling. A pin may ask for less, never more:
+// the inkling-2-mini case (pin 262144, listing 194560) must never build a 262k
+// budget or show it on the gauge.
+TEST(agent_context_limit_caps_a_larger_pin) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.context_size = 262144;
+    cfg.context_explicit = true;
+    agent::ToolRegistry reg;
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
+
+    ag.set_context_limit(194560);
+    auto snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 194560);
+    ASSERT_EQ(snapshot->context_limit, 194560);
+    ASSERT_TRUE(snapshot->context_explicit);
+
+    ag.pin_context_window(300000);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 194560);
+    ASSERT_TRUE(snapshot->context_explicit);
+
+    ag.pin_context_window(100000);
+    snapshot = ag.config_snapshot();
+    ASSERT(snapshot != nullptr);
+    ASSERT_EQ(snapshot->context_size, 100000);
+}
+
 // A provider switch adopts the resolved default (or 0 = unknown) instead of
 // keeping the previous endpoint's window; the catalogue push uses the same
 // method, without rebuilding the client.
@@ -676,16 +707,18 @@ TEST(agent_pin_and_clear_context_window) {
     agent::Agent ag(cfg, reg, {}, agent::AgentDeps{{}, {}, {}, {}, std::move(fake), {}, {}});
 
     ag.set_model("first", caps(65536));
-    ag.pin_context_window(200000);
+    // A pin below the listing is deliberate; a pin above it is capped (see
+    // agent_context_limit_caps_a_larger_pin).
+    ag.pin_context_window(32768);
     auto snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
-    ASSERT_EQ(snapshot->context_size, 200000);
+    ASSERT_EQ(snapshot->context_size, 32768);
     ASSERT_TRUE(snapshot->context_explicit);
 
     ag.set_model("second", caps(524288));
     snapshot = ag.config_snapshot();
     ASSERT(snapshot != nullptr);
-    ASSERT_EQ(snapshot->context_size, 200000);
+    ASSERT_EQ(snapshot->context_size, 32768);
     ASSERT_TRUE(snapshot->context_explicit);
 
     ag.clear_context_pin();

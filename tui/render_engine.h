@@ -67,6 +67,10 @@ public:
     void append_rich_to(Window& w, const rich::Line& l);
 
     void draw();
+    // Drop ncurses' damage tracking: the next draw paints every cell. A value
+    // that changed behind a cached row (the context window after a listing
+    // arrives) otherwise keeps the old text on the physical screen.
+    void clear_screen();
     // Repaint only the rows that animate while a run is live: the working line
     // and the status bar. The transcript keeps its 150 ms cadence -- a pulse is
     // not a reason to rewrap and repaint it.

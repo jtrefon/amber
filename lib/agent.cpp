@@ -132,16 +132,23 @@ void Agent::set_model(const std::string& model, const ModelCapabilities& caps) {
     const bool model_changed = model != cfg_.model;
     cfg_.model = model;
     cfg_.model_explicit = true;
-    if (caps.context > 0)
+    if (caps.context > 0) {
         model_windows_[model] = caps.context;
+        cfg_.context_limit = caps.context;
+    } else if (model_changed) {
+        cfg_.context_limit = 0;
+    }
     // A catalogue pick is an automatic resolution, not a user pin. Apply the
     // window it reports; when the new model reports none, clear the previous
-    // model's value instead of pretending it still applies.
+    // model's value instead of pretending it still applies. A pin can lower
+    // the listing's window but never exceed it.
     if (!cfg_.context_explicit) {
         if (caps.context > 0)
             cfg_.context_size = caps.context;
         else if (model_changed)
             cfg_.context_size = 0;
+    } else if (caps.context > 0 && cfg_.context_size > caps.context) {
+        cfg_.context_size = caps.context;
     }
     // Capabilities follow the model. A same-model call with no capabilities
     // keeps what the catalogue already established.
@@ -152,10 +159,17 @@ void Agent::set_model(const std::string& model, const ModelCapabilities& caps) {
 }
 
 void Agent::set_model_capabilities(const ModelCapabilities& caps) {
-    if (cfg_.model_max_output == caps.max_output &&
-        cfg_.model_supported_parameters == caps.supported_parameters &&
-        cfg_.model_line == caps.line && cfg_.model_reasoning == caps.reasoning)
+    const bool changed = cfg_.model_max_output != caps.max_output ||
+                         cfg_.model_supported_parameters != caps.supported_parameters ||
+                         cfg_.model_line != caps.line || cfg_.model_reasoning != caps.reasoning ||
+                         (caps.context > 0 && cfg_.context_limit != caps.context);
+    if (!changed)
         return;
+    if (caps.context > 0) {
+        cfg_.context_limit = caps.context;
+        if (cfg_.context_size > caps.context)
+            cfg_.context_size = caps.context;
+    }
     apply_model_capabilities(cfg_, caps);
     client_ = make_client(cfg_, client_factory_);
     publish_config();
@@ -164,13 +178,26 @@ void Agent::set_model_capabilities(const ModelCapabilities& caps) {
 void Agent::set_context_window(int window) {
     if (cfg_.context_explicit)
         return;
+    if (cfg_.context_limit > 0 && window > cfg_.context_limit)
+        window = cfg_.context_limit;
     cfg_.context_size = window;
     if (window > 0)
         model_windows_[cfg_.model] = window;
     publish_config();
 }
 
+void Agent::set_context_limit(int limit) {
+    if (limit <= 0)
+        return;
+    cfg_.context_limit = limit;
+    if (cfg_.context_size > limit)
+        cfg_.context_size = limit;
+    publish_config();
+}
+
 void Agent::pin_context_window(int window) {
+    if (cfg_.context_limit > 0 && window > cfg_.context_limit)
+        window = cfg_.context_limit;
     cfg_.context_size = window;
     cfg_.context_explicit = true;
     publish_config();
@@ -200,6 +227,8 @@ void Agent::resolve_window() {
         if (learned > 0 && (cfg_.context_size == 0 || learned < cfg_.context_size))
             cfg_.context_size = learned;
     }
+    if (cfg_.context_limit > 0 && cfg_.context_size > cfg_.context_limit)
+        cfg_.context_size = cfg_.context_limit;
     publish_config();
 }
 
@@ -236,8 +265,12 @@ void Agent::set_provider(const Config& resolved, const std::string& model) {
     // The window belongs to the endpoint/model pair that was just selected.
     // A user pin survives; an unpinned agent adopts the resolved default (0
     // when the provider has none) instead of keeping the previous provider's.
-    if (!cfg_.context_explicit)
+    cfg_.context_limit = resolved.context_limit;
+    if (!cfg_.context_explicit) {
         cfg_.context_size = resolved.context_size;
+    } else if (cfg_.context_limit > 0 && cfg_.context_size > cfg_.context_limit) {
+        cfg_.context_size = cfg_.context_limit;
+    }
     apply_model_capabilities(cfg_, capabilities_of(resolved));
     // The host resolved this model for the connection, so it is adopted even
     // when it is empty ("auto-detect"): a profile whose model is auto must not

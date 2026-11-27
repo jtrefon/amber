@@ -211,6 +211,8 @@ void apply_selection(Config& cfg, const ProviderSelection& sel) {
     // The window belongs to the provider's endpoint/model pair, so a switch
     // clears an unpinned value even when the provider has no default. Keeping
     // the previous provider's number is what made the gauge and the gate lie.
+    // The listing's loaded limit is unknown until the new endpoint answers.
+    cfg.context_limit = 0;
     if (!cfg.context_explicit)
         cfg.context_size =
             sel.provider.default_context_size > 0 ? sel.provider.default_context_size : 0;

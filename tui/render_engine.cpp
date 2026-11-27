@@ -548,9 +548,11 @@ int RenderEngine::context_window() const {
     if (w.agent) {
         const auto acfg = w.agent->config_snapshot();
         if (acfg)
-            return acfg->context_size;
+            return acfg->context_limit > 0 ? std::min(acfg->context_size, acfg->context_limit)
+                                           : acfg->context_size;
     }
-    return tui_.cfg_.context_size;
+    return tui_.cfg_.context_limit > 0 ? std::min(tui_.cfg_.context_size, tui_.cfg_.context_limit)
+                                       : tui_.cfg_.context_size;
 }
 
 // The context gauge: a labelled bar when the window is known, the live count
@@ -582,17 +584,20 @@ void RenderEngine::draw_ctx_gauge(int y, int budget, int& x, bool have_ctx, long
     const std::string readout =
         " " + agent::compact::percent(static_cast<int>(std::lround(frac * 100))) + "% " +
         agent::compact::count(ctx_used) + "/" + agent::compact::count(context_window());
-    // A stale pin still governs the budget, but hiding the listing behind it
-    // is what made a 262k gauge on a 160k model so hard to diagnose. Show both
-    // numbers when they disagree; the pin remains authoritative.
-    agent::Config effective = tui_.cfg_;
-    if (const auto acfg = tui_.win().agent ? tui_.win().agent->config_snapshot() : nullptr)
-        effective = *acfg;
+    // A lower pin is deliberate, so the gauge stays on it; name the server's
+    // loaded window beside it. A pin above the listing is capped by
+    // merge_server_info()/Agent::set_context_limit(), so the two numbers agree
+    // and no suffix is needed. "adv" was jargon; "server" says whose number it
+    // is.
     std::string shown = readout;
-    if (!agent::context_pin_mismatch(effective, tui_.last_detected_).empty() &&
-        tui_.last_detected_.context_size > 0)
-        shown += " (adv " + agent::compact::count(tui_.last_detected_.context_size) + ")";
+    if (tui_.last_detected_.context_size > 0 &&
+        context_window() != tui_.last_detected_.context_size)
+        shown += " (server " + agent::compact::count(tui_.last_detected_.context_size) + ")";
     put_segment(y, budget, x, shown, gauge_pair(frac));
+}
+
+void RenderEngine::clear_screen() {
+    terminal_.clear_screen();
 }
 
 int RenderEngine::working_row() const {

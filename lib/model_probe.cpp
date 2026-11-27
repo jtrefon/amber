@@ -360,12 +360,27 @@ void merge_server_info(Config& cfg, const ServerInfo& info, std::string* note) {
             note->clear();
         return;
     }
-    if (note)
+    bool capped = false;
+    if (info.context_size > 0) {
+        cfg.context_limit = info.context_size;
+        if (!cfg.context_explicit) {
+            cfg.context_size = info.context_size;
+        } else if (cfg.context_size > info.context_size) {
+            // A pin may lower the budget, never raise it above the window the
+            // server actually loaded. Keeping a 262144 pin on a 194560 model
+            // is how the gauge showed a number the server never advertised.
+            capped = true;
+            const int requested = cfg.context_size;
+            cfg.context_size = info.context_size;
+            if (note)
+                *note = "pinned " + std::to_string(requested) + " capped to the model's " +
+                        std::to_string(info.context_size);
+        }
+    }
+    if (note && !capped)
         *note = context_pin_mismatch(cfg, info);
     if (!cfg.model_explicit && !info.model.empty())
         cfg.model = info.model;
-    if (!cfg.context_explicit && info.context_size > 0)
-        cfg.context_size = info.context_size;
     // Capabilities belong to the model the listing described; unknown means
     // empty, not "keep the previous model's".
     apply_model_capabilities(cfg, capabilities_of(info));
