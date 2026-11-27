@@ -30,7 +30,7 @@ mechanics that carry whatever the dialect produces.
 1. Every request carries exactly the auth headers the dialect produces (`Authorization: Bearer <key>` for openai when `cfg.api_key` is non-empty; `x-api-key` + `anthropic-version` for anthropic). No credential header is sent for an empty key.
 2. A buffered chat request has a 300-second absolute timeout.
 3. A streaming request has **no absolute deadline**: its liveness check is the
-   60-second low-speed timeout, which arriving bytes reset. A live generation is
+   300-second low-speed timeout, which arriving bytes reset. A live generation is
    not a hung request.
 4. Compression calls use a separate 1800-second buffered deadline, because a
    large-context prefill is not a chat turn.
@@ -86,7 +86,7 @@ prefill-bound request, not a chat turn.
 #### [HT-06] Low-speed timeout (streaming only)
 
 - **Given**: Server sends initial headers then stops sending data
-- **Input**: `<1 byte/sec for 60 seconds`
+- **Input**: `<1 byte/sec for 300 seconds`
 - **Expected**: `CURLE_OPERATION_TIMEDOUT` → throw. There is no absolute
   deadline: bytes reset this watchdog, so a live generation continues.
 - **On failure**: A live stream dies at a fixed total deadline.

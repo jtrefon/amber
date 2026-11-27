@@ -124,11 +124,12 @@ void configure_cancel(CURL* c, const CancellationToken& token) {
 }
 
 // Surface reasoning/delta chunks promptly instead of buffering 16 KB+, and
-// abort if no data arrives for 60 s (a hung server, not a long generation).
+// abort if no data arrives for 300 s (a hung server, not a long prefill or a
+// long generation).
 void configure_stream_buffers(CURL* c) {
     curl_easy_setopt(c, CURLOPT_BUFFERSIZE, 1024L);
     curl_easy_setopt(c, CURLOPT_LOW_SPEED_LIMIT, 1L);
-    curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 60L);
+    curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 300L);
 }
 
 // A stream has no total deadline; its low-speed watchdog is reset by every
