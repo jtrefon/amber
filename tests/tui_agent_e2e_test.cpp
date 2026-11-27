@@ -2289,6 +2289,15 @@ void journey_compression_keeps_ui_responsive(const std::string& binary) {
                 binary, "compression-responsive",
                 [&classifying, &classify_calls, &reads](const bench::EndpointRequest& request) {
                     bench::EndpointReply reply;
+                    if (request.path == "/v1/models") {
+                        // The journey's 32000 budget must be a real listing, not
+                        // a pin above the endpoint's default 8192: the effective
+                        // window is capped at what the server loaded.
+                        reply.body = R"({"data":[{"id":"journey-test","context_length":32000,)"
+                                     R"("top_provider":{"max_completion_tokens":4096},)"
+                                     R"("supported_parameters":["tools"]}]})";
+                        return reply;
+                    }
                     if (request.path != "/v1/chat/completions") {
                         reply.handled = false;
                         return reply;
