@@ -62,6 +62,9 @@ registered by `register_action`, referenced by an `action` string in the tree.
 - C++ completion lists, choice lists, usage hints, or drawer rows.
 - A second metadata source in code (help/placeholder/type/range, a parallel
   command table, a `std::map` of commands).
+- A primary capability reachable only through a modal menu. Give it a
+  documented leaf and have the menu dispatch that leaf’s action; otherwise the
+  drawer cannot advertise it and help cannot describe it.
 - Writing `tree_` directly, renaming nodes, or overlaying fields after load.
 - Patching an existing namespace from a plugin; a plugin choosing or adding a
   root. Plugin commands mount under the host-owned `/plugin/<id>` workspace.

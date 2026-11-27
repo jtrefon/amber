@@ -118,7 +118,7 @@ The 27 journeys are:
 | `provider` | the Anthropic path `/v1/messages` is used and the raw reply renders |
 | `profile-switch` | two profiles switch endpoint/model, key stays masked, a busy switch queues, a project pin applies first, no key leaks into workspace/session meta |
 | `skills-manage` | list/show/sources; a local pack installs; a managed skill's update names local edits before overriding; the explorer removes it |
-| `management-surface` | menu/top rail/drawer, learn show/pin/panel/forget, provider list/test/delete, plugin install/on/off/settings/uninstall, the contributed command workspace, `/panel`, session save/rename/remove/fork, and `/help` followed by a visible command |
+| `management-surface` | menu/top rail/drawer, learn show/pin/panel/forget, provider list/edit/test/delete (edit of an inactive provider must not switch), plugin install/on/off/settings/uninstall, the contributed command workspace, `/panel`, session save/rename/remove/fork, and `/help` followed by a visible command |
 | `settings-surface` | every settings group reads, writes, reads back, and refuses an invalid value without changing the stored one |
 | `coding-library` | `library_lookup` returns an entry and the body reaches the model's next request |
 | `workspace-files` | `/files ls/tree/open/find`; `/system mkdir/cp/mv/info/delete/rmdir`, async `exec/ps/df/uname/uptime`, and a PID killed by `/system kill` |

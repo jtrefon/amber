@@ -24,6 +24,9 @@ bool edit_provider_form(agent::Config& cfg, const std::string& title) {
             cfg.api_base.pop_back();
         cfg.api_key = fields[1].value;
         if (fields[2].value.empty()) {
+            // "blank = auto" must clear the seeded auto-detected value, not
+            // leave it behind for provider_from_edit() to persist as a pin.
+            cfg.model.clear();
             cfg.model_explicit = false;
         } else {
             cfg.model = fields[2].value;

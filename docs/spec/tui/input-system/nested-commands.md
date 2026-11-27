@@ -75,9 +75,10 @@ get [key]                               — Show current setting(s)
 # Provider management (CRUD)
 provider                                — Provider management
   list                                   — List saved providers
-  add <name>                             — Add new provider
-  edit <name>                            — Edit provider settings
-  delete <name>                          — Delete saved provider
+  add [name]                             — Add new provider (prompts for a name)
+  edit [name]                            — Edit the active or named provider
+  activate <name>                        — Switch to a provider (same as /provider <name>)
+  delete <name>                          — Delete saved provider (confirms)
   test <name>                            — Test connection
 
 # Model management

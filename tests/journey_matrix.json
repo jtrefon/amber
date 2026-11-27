@@ -250,9 +250,13 @@
       "id": "provider.manage",
       "sources": [
         "command:provider",
+        "command:provider.activate",
+        "command:provider.add",
         "command:provider.delete",
+        "command:provider.edit",
         "command:provider.list",
-        "command:provider.test"
+        "command:provider.test",
+        "command:settings.provider"
       ],
       "journeys": {
         "cli": [

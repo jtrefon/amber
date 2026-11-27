@@ -319,11 +319,12 @@ private:
     void build_settings();
     // Provider management (the /settings screen): build the picker rows, add a
     // provider, and act on the selected one. settings_screen() orchestrates.
+    // Editing is a command (`/provider edit`); the picker dispatches the
+    // documented provider verbs rather than owning a second action list.
     void build_provider_picker(std::vector<std::string>& rows, std::vector<std::string>& ids) const;
-    void add_new_provider();
+    void add_provider(const std::string& name);
+    void edit_provider(const std::string& name);
     void provider_actions(const std::string& selected_id);
-    void activate_and_edit_provider(const std::string& id, const agent::Provider* sel,
-                                    bool is_preset);
     // A workspace release happens while the closing window still exists (the
     // erase follows), so its message waits here for the next redraw instead of
     // being written into a window that is about to disappear.

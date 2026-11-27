@@ -13,7 +13,13 @@ session="amber-tmux-$$"
 root="$(mktemp -d "${TMPDIR:-/tmp}/amber-tmux-XXXXXX")"
 cleanup() {
     tmux kill-session -t "$session" >/dev/null 2>&1 || true
-    rm -rf "$root"
+    # The pane's TUI saves its session while the kill lands; give it a moment
+    # instead of letting an EXIT race turn a passing smoke into a red job.
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        rm -rf "$root" 2>/dev/null && break
+        sleep 0.1
+    done
+    rm -rf "$root" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

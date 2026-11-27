@@ -689,6 +689,34 @@ private:
     std::string contents_;
 };
 
+// A file created by one test: restore the previous bytes when it existed, or
+// remove it when it did not. The shared fixture means a test that returns early
+// must not leave a provider behind for the next one.
+class ScopedFile {
+public:
+    explicit ScopedFile(std::string path)
+        : path_(std::move(path)), existed_(std::filesystem::exists(path_)) {
+        if (existed_)
+            contents_ = read_text_file(path_);
+    }
+    ~ScopedFile() {
+        if (existed_) {
+            write_file(path_, contents_);
+            return;
+        }
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+
+    ScopedFile(const ScopedFile&) = delete;
+    ScopedFile& operator=(const ScopedFile&) = delete;
+
+private:
+    std::string path_;
+    bool existed_ = false;
+    std::string contents_;
+};
+
 } // namespace
 
 // ── The top rail is the first shell surface: amber mark, capped session tabs
@@ -2056,6 +2084,293 @@ TEST(provider_form_rejects_a_key_the_endpoint_refuses) {
     fs::remove(fixture().workspace + "/xdg/amber/config", ec);
 }
 
+// ── provider management is a command surface, not a modal-only secret ──
+//
+// /provider edit is the documented CRUD verb, but it was never in the tree.
+// The only edit path was /settings provider -> picker -> "Activate & edit",
+// and the picker's verbs were a hardcoded C++ list. The drawer could not
+// advertise them, so the path worked only if you already knew it. These tests
+// pin the advertised surface and the edit semantics.
+
+TEST(provider_drawer_advertises_add_and_edit) {
+    Tui tui;
+    tui.name = "provider_drawer_advertises_add_and_edit";
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider ");
+    if (!require(tui.wait_for("Add a provider endpoint", 10000),
+                 "the /provider drawer does not advertise add", tui))
+        return;
+    require(tui.wait_for("Edit a provider's endpoint", 10000),
+            "the /provider drawer does not advertise edit", tui);
+    tui.send("\x1b");
+    tui.pump(300);
+}
+
+TEST(provider_add_creates_and_activates) {
+    Tui tui;
+    tui.name = "provider_add_creates_and_activates";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    const std::string url = endpoint.base() + "/v1";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/added.conf";
+    ScopedFile restore_conf(conf);
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider add added\r");
+    if (!require(tui.wait_for("Add: added", 10000), "the add form did not open", tui))
+        return;
+    tui.send(url);
+    tui.send("\t"); // Server URL -> API Key
+    tui.send("sk-test");
+    tui.send("\t"); // API Key -> Model
+    tui.send("added-model");
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(tui.wait_for("provider 'added' added and activated", 15000),
+                 "the add never completed", tui))
+        return;
+
+    const std::string saved = read_text_file(conf);
+    require(saved.find(url) != std::string::npos, "the new endpoint did not reach the file", tui);
+    require(saved.find("added-model") != std::string::npos,
+            "the new model did not reach the provider file", tui);
+
+    tui.send("/provider add added\r");
+    require(tui.wait_for("already exists", 10000),
+            "adding an existing provider did not point at edit", tui);
+    tui.send("/provider edit missing\r");
+    require(tui.wait_for("unknown provider: missing", 10000),
+            "editing an unknown provider did not report it", tui);
+}
+
+TEST(provider_edit_moves_the_active_endpoint) {
+    Tui tui;
+    tui.name = "provider_edit_moves_the_active_endpoint";
+    FakeModelsEndpoint old_endpoint;
+    FakeModelsEndpoint new_endpoint;
+    ASSERT(old_endpoint.start());
+    ASSERT(new_endpoint.start());
+    const std::string old_url = old_endpoint.base() + "/v1";
+    const std::string new_url = new_endpoint.base() + "/v1";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/custom.conf";
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_conf(conf);
+    if (!require(write_file(conf, "provider=custom\napi_base=" + old_url +
+                                      "\napi_key=sk-test\ndefault_model=teacher-q8\n"
+                                      "requires_key=1\nflavor=openai\n"),
+                 "could not seed the custom provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + old_url +
+                                "\napi_key=sk-test\nmodel=teacher-q8\n"),
+                 "could not seed the global config", tui))
+        return;
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + old_url + "\nmodel=teacher-q8\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider edit custom\r");
+    if (!require(tui.wait_for("Edit: custom", 10000), "the provider edit form did not open", tui))
+        return;
+    tui.send(std::string(old_url.size(), '\b'));
+    tui.send(new_url);
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(tui.wait_for("provider 'custom' updated", 15000), "the edit never completed", tui))
+        return;
+
+    const std::string saved = read_text_file(conf);
+    require(saved.find(new_url) != std::string::npos,
+            "the edited endpoint did not reach the provider file", tui);
+    require(saved.find(old_url) == std::string::npos,
+            "the old endpoint is still in the provider file", tui);
+    const std::string global = read_text_file(fixture().workspace + "/xdg/amber/config");
+    require(global.find(new_url) != std::string::npos,
+            "the edited endpoint did not reach the global config", tui);
+    require(global.find(old_url) == std::string::npos,
+            "the old endpoint is still in the global config", tui);
+
+    const size_t mark = tui.raw.size();
+    tui.send("/get provider\r");
+    require(tui.wait_for(new_url, 10000), "the live session did not adopt the edited endpoint",
+            tui);
+    require(text_since(tui, mark).find("provider: custom (" + new_url + ")") != std::string::npos,
+            "the /get provider readout still shows the old connection", tui);
+}
+
+TEST(provider_edit_clears_the_active_key_everywhere) {
+    Tui tui;
+    tui.name = "provider_edit_clears_the_active_key_everywhere";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    const std::string url = endpoint.base() + "/v1";
+    const std::string key = "sk-clear-me";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/custom.conf";
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_conf(conf);
+    if (!require(
+            write_file(conf, "provider=custom\napi_base=" + url + "\napi_key=" + key +
+                                 "\ndefault_model=teacher-q8\nrequires_key=1\nflavor=openai\n"),
+            "could not seed the custom provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + url + "\napi_key=" + key +
+                                "\nmodel=teacher-q8\n"),
+                 "could not seed the global config", tui))
+        return;
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + url + "\nmodel=teacher-q8\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider edit custom\r");
+    if (!require(tui.wait_for("Edit: custom", 10000), "the provider edit form did not open", tui))
+        return;
+    tui.send("\t"); // Server URL -> API Key
+    tui.pump(300);
+    tui.send(std::string(key.size(), '\b'));
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(tui.wait_for("provider 'custom' updated", 15000), "the edit never completed", tui))
+        return;
+
+    const std::string saved = read_text_file(conf);
+    require(saved.find("api_key=" + key) == std::string::npos,
+            "the cleared key is still in the provider file", tui);
+    const std::string global = read_text_file(fixture().workspace + "/xdg/amber/config");
+    require(global.find("api_key=" + key) == std::string::npos,
+            "the cleared key is still in the global config", tui);
+}
+
+TEST(provider_edit_does_not_switch_an_inactive_provider) {
+    Tui tui;
+    tui.name = "provider_edit_does_not_switch_an_inactive_provider";
+    FakeModelsEndpoint active_endpoint;
+    FakeModelsEndpoint edited_endpoint;
+    ASSERT(active_endpoint.start());
+    ASSERT(edited_endpoint.start());
+    const std::string active_url = active_endpoint.base() + "/v1";
+    const std::string edited_old = edited_endpoint.base() + "/v1";
+    const std::string edited_new = edited_endpoint.base() + "/alt/v1";
+    const std::string active_conf = fixture().workspace + "/xdg/amber/providers/custom.conf";
+    const std::string edited_conf = fixture().workspace + "/xdg/amber/providers/inactive.conf";
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_active(active_conf);
+    ScopedFile restore_edited(edited_conf);
+    if (!require(write_file(active_conf, "provider=custom\napi_base=" + active_url +
+                                             "\napi_key=sk-test\ndefault_model=teacher-q8\n"
+                                             "requires_key=1\nflavor=openai\n"),
+                 "could not seed the active provider", tui))
+        return;
+    if (!require(write_file(edited_conf, "provider=inactive\napi_base=" + edited_old +
+                                             "\napi_key=sk-test\ndefault_model=teacher-q8\n"
+                                             "requires_key=1\nflavor=openai\n"),
+                 "could not seed the inactive provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + active_url +
+                                "\napi_key=sk-test\nmodel=teacher-q8\n"),
+                 "could not seed the global config", tui))
+        return;
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + active_url + "\nmodel=teacher-q8\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider edit inactive\r");
+    if (!require(tui.wait_for("Edit: inactive", 10000), "the provider edit form did not open", tui))
+        return;
+    tui.send(std::string(edited_old.size(), '\b'));
+    tui.send(edited_new);
+    tui.pump(300);
+    tui.send("\r");
+    if (!require(tui.wait_for("provider 'inactive' saved", 15000), "the edit never completed", tui))
+        return;
+
+    const std::string saved = read_text_file(edited_conf);
+    require(saved.find(edited_new) != std::string::npos,
+            "the inactive provider file was not updated", tui);
+    const size_t mark = tui.raw.size();
+    tui.send("/get provider\r");
+    require(tui.wait_for("provider: custom (" + active_url + ")", 10000),
+            "editing an inactive provider switched the session", tui);
+    require(text_since(tui, mark).find("provider: inactive") == std::string::npos,
+            "the inactive provider became active", tui);
+}
+
+TEST(provider_delete_asks_before_removing) {
+    Tui tui;
+    tui.name = "provider_delete_asks_before_removing";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/temp.conf";
+    const std::string active_conf = fixture().workspace + "/xdg/amber/providers/custom.conf";
+    const std::string url = "http://127.0.0.1:9/v1";
+    ScopedFile restore_conf(conf);
+    ScopedFile restore_active(active_conf);
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+    if (!require(write_file(conf, "provider=temp\napi_base=" + url +
+                                      "\napi_key=sk-test\ndefault_model=teacher-q8\n"
+                                      "requires_key=1\nflavor=openai\n"),
+                 "could not seed the temporary provider", tui))
+        return;
+    if (!require(write_file(active_conf, "provider=custom\napi_base=" + url +
+                                             "\napi_key=sk-test\ndefault_model=teacher-q8\n"
+                                             "requires_key=1\nflavor=openai\n"),
+                 "could not seed the active provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + url +
+                                "\napi_key=sk-test\nmodel=teacher-q8\n"),
+                 "could not seed the global config", tui))
+        return;
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + url + "\nmodel=teacher-q8\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider delete custom\r");
+    if (!require(tui.wait_for("is active", 10000), "deleting the active provider was not refused",
+                 tui))
+        return;
+    require(fs::exists(active_conf), "the active provider file was removed", tui);
+
+    tui.send("/provider delete temp\r");
+    if (!require(tui.wait_for("Delete Provider", 10000),
+                 "the delete command did not ask for confirmation", tui))
+        return;
+    tui.send("n");
+    tui.pump(300);
+    require(fs::exists(conf), "a declined delete removed the provider", tui);
+}
+
 // /settings used to be a dead leaf: no children, so Tab had nothing to
 // traverse, and Enter opened a provider-only modal. The namespace now lists
 // the same groups as /set, and the provider picker is one child.
@@ -2070,6 +2385,8 @@ TEST(settings_lists_the_groups_and_opens_the_provider_picker) {
     if (!require(tui.wait_for("Permission and approval settings", 10000),
                  "the settings drawer has no groups", tui))
         return;
+    require(tui.text().find("Open the provider picker") != std::string::npos,
+            "the settings drawer does not advertise the provider picker", tui);
 
     tui.send("policy");
     tui.pump(400);
@@ -2106,11 +2423,12 @@ TEST(settings_bare_prints_the_group_overview) {
 
 // ── activating a provider from /settings switches the whole session ──
 //
-// The settings screen ("Activate & edit") updated the session config by hand:
+// The settings picker used to update the session config by hand:
 // provider_name, api_base, api_key, model -- never the protocol. The session
 // kept speaking the PREVIOUS provider's dialect, so /get model list requested
 // {api_base}/models (openai) from an Anthropic endpoint and got a 404, while
-// the file on disk and /get provider list both looked correct. A fake endpoint
+// the file on disk and /get provider list both looked correct. The picker now
+// dispatches the documented /provider activate action, and a fake endpoint
 // records the path, because "which URL did it request" is the whole question.
 TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     Tui tui;
@@ -2135,11 +2453,8 @@ TEST(settings_activation_switches_the_session_to_the_providers_protocol) {
     tui.pump(400);
     tui.send("\r"); // select the provider -> its actions menu
     tui.pump(800);
-    tui.send("\r"); // "Activate & edit" -> the provider form
-    if (!require(tui.wait_for("Edit: anthropic", 10000), "the provider form did not open", tui))
-        return;
-    tui.send("\r"); // Enter from a field confirms, as the footer says
-    if (!require(tui.wait_for("provider 'anthropic' activated", 10000),
+    tui.send("\r"); // the first documented verb is "Switch to this provider"
+    if (!require(tui.wait_for("provider switched to anthropic", 10000),
                  "the activation never completed", tui))
         return;
 
@@ -4764,6 +5079,12 @@ int main(int argc, char** argv) {
     configuring_anthropic_keeps_its_protocol();
     provider_form_never_seeds_another_providers_key();
     provider_form_rejects_a_key_the_endpoint_refuses();
+    provider_drawer_advertises_add_and_edit();
+    provider_add_creates_and_activates();
+    provider_edit_moves_the_active_endpoint();
+    provider_edit_clears_the_active_key_everywhere();
+    provider_edit_does_not_switch_an_inactive_provider();
+    provider_delete_asks_before_removing();
     settings_lists_the_groups_and_opens_the_provider_picker();
     settings_bare_prints_the_group_overview();
     settings_activation_switches_the_session_to_the_providers_protocol();
