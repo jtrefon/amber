@@ -4463,7 +4463,7 @@ TEST(overflow_400_learns_the_window_without_a_pin) {
     auto dialect = agent::make_dialect(cfg.flavor);
     bool threw = false;
     try {
-        agent::post_completion(cfg, *dialect, "{}", false, nullptr, nullptr);
+        agent::post_completion(cfg, *dialect, "{}", {false, 300}, nullptr, nullptr);
     } catch (const agent::ApiError&) {
         threw = true;
     }

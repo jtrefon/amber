@@ -131,6 +131,15 @@ void configure_stream_buffers(CURL* c) {
     curl_easy_setopt(c, CURLOPT_LOW_SPEED_TIME, 60L);
 }
 
+// A stream has no total deadline; its low-speed watchdog is reset by every
+// arriving byte. A buffered request keeps the caller's absolute deadline.
+void configure_timeout(CURL* c, const RequestOptions& options) {
+    curl_easy_setopt(c, CURLOPT_TIMEOUT,
+                     request_timeout_seconds(options.accept_sse, options.timeout_s));
+    if (options.accept_sse)
+        configure_stream_buffers(c);
+}
+
 // The request's admission cost: the last measured prompt when there is one,
 // otherwise a 4-bytes-per-token estimate, plus the output reservation.
 long governed_token_cost(const Config& cfg, const std::string& payload) {
@@ -154,8 +163,8 @@ void fill_rate_wait(ProviderGovernor& governor, CurlOutcome& out) {
 // request and collects timing + status. Every request first passes the
 // provider's governor; the response teaches it what the provider allows.
 void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& payload,
-               bool accept_sse, curl_write_callback write_fn, void* write_data, CurlOutcome& out,
-               const char* debug_tag, long timeout_s) {
+               RequestOptions options, curl_write_callback write_fn, void* write_data,
+               CurlOutcome& out, const char* debug_tag) {
     auto& governor = RateGovernorRegistry::global().for_config(cfg);
     const long token_cost = governed_token_cost(cfg, payload);
     if (!governor.acquire(token_cost, cfg.cancel_token, current_request_class()))
@@ -170,13 +179,8 @@ void curl_exec(const Config& cfg, const Dialect& dialect, const std::string& pay
     HeaderList headers;
     configure_target(c.get(), cfg, dialect, payload);
     configure_write(c.get(), write_fn, write_data);
-    configure_headers(c.get(), cfg, dialect, accept_sse, headers, retry);
-    // A stream has no total deadline; its low-speed watchdog is reset by every
-    // arriving byte. A buffered request keeps the caller's absolute deadline.
-    const long effective_timeout = request_timeout_seconds(accept_sse, timeout_s);
-    curl_easy_setopt(c.get(), CURLOPT_TIMEOUT, effective_timeout);
-    if (accept_sse)
-        configure_stream_buffers(c.get());
+    configure_headers(c.get(), cfg, dialect, options.accept_sse, headers, retry);
+    configure_timeout(c.get(), options);
     configure_cancel(c.get(), cfg.cancel_token);
 
     const CURLcode rc = curl_easy_perform(c.get());
@@ -223,10 +227,10 @@ long request_timeout_seconds(bool accept_sse, long buffered_timeout_s) {
 // `accept_sse` adds the text/event-stream Accept header for streaming
 // requests. When non-null, `ttfb`/`total` receive transfer timings in seconds.
 std::string post_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
-                            bool accept_sse, double* ttfb, double* total, long timeout_s) {
+                            RequestOptions options, double* ttfb, double* total) {
     std::string response;
     CurlOutcome out;
-    curl_exec(cfg, dialect, payload, accept_sse, write_cb, &response, out, "error", timeout_s);
+    curl_exec(cfg, dialect, payload, options, write_cb, &response, out, "error");
     if (ttfb)
         *ttfb = out.ttfb;
     if (total)
@@ -260,7 +264,7 @@ std::string post_completion(Config& cfg, const Dialect& dialect, const std::stri
 void stream_completion(Config& cfg, const Dialect& dialect, const std::string& payload,
                        StreamDecoder& decoder, Stats* stats, long& status_out) {
     CurlOutcome out;
-    curl_exec(cfg, dialect, payload, true, stream_write_cb, &decoder, out, "error-stream", 0);
+    curl_exec(cfg, dialect, payload, {true, 0}, stream_write_cb, &decoder, out, "error-stream");
     status_out = out.status;
     if (status_out < 200 || status_out >= 300) {
         // Same overflow learning as the buffered path: the rejection teaches

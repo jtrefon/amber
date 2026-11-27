@@ -154,7 +154,7 @@ Message HttpLLMClient::chat_with_timeout(const std::vector<Message>& messages,
         });
         std::string response;
         try {
-            response = post_completion(cfg_, *dialect_, payload, false, &ttfb, &total, timeout_s);
+            response = post_completion(cfg_, *dialect_, payload, {false, timeout_s}, &ttfb, &total);
         } catch (const ApiError& error) {
             if (attempt == 0 && degrade_cache_for(error))
                 continue;
