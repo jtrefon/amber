@@ -4397,6 +4397,42 @@ TEST(agent_orders_injected_blocks_as_documented) {
     ASSERT(req[req.size() - 2].content.find("session-brief") != std::string::npos);
 }
 
+// The release validation for the session brief needs a controlled A/B: the
+// brief is always produced by compression, so the switch gates its injection.
+// AMBER_SESSION_BRIEF=0 must leave the post-compression prompt without it.
+TEST(agent_session_brief_injection_can_be_disabled) {
+    agent::Workspace::set_root(cwd());
+    agent::Config cfg = loop_cfg();
+    cfg.session_brief = false;
+    agent::ToolRegistry reg;
+    MemoryFixture mem;
+
+    auto retriever = std::make_unique<agent::MemoryRetriever>(*mem.store);
+    auto fake = std::make_unique<agent_test::FakeLLMClient>();
+    agent_test::FakeLLMClient* raw = fake.get();
+    push_text(*fake, "done");
+
+    auto gate = std::make_unique<NeverCompressGate>();
+    auto compressor = std::make_unique<SystemOnlyCompressor>();
+    agent::Agent ag(cfg, reg, {},
+                    agent::AgentDeps{std::move(compressor),
+                                     std::move(gate),
+                                     std::move(mem.store),
+                                     std::move(retriever),
+                                     std::move(fake),
+                                     {},
+                                     {}});
+    agent::SessionBrief fresh;
+    fresh.intent = "brief must not be injected";
+    ag.session_brief_store()->merge(fresh);
+
+    ag.run("how do I build this?");
+
+    ASSERT(!raw->requests.empty());
+    for (const auto& message : raw->requests.front())
+        ASSERT(message.content.find("session-brief") == std::string::npos);
+}
+
 TEST(agent_placed_injected_blocks_after_the_system_prompt_keeps_the_prefix) {
     agent::Workspace::set_root(cwd());
     agent::Config cfg = loop_cfg();
