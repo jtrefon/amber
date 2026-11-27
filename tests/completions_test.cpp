@@ -4,6 +4,7 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -1228,7 +1229,7 @@ TEST(test_every_registered_action_is_advertised) {
         ++failed;
         return;
     }
-    std::set<std::string> registered;
+    std::map<std::string, std::string> registered; // action -> source file
     for (const auto& entry : source) {
         if (entry.path().extension() != ".cpp")
             continue;
@@ -1244,20 +1245,21 @@ TEST(test_every_registered_action_is_advertised) {
             if (arg < text.size() && text[arg] == '"') {
                 const std::size_t end = text.find('"', arg + 1);
                 if (end != std::string::npos)
-                    registered.insert(text.substr(arg + 1, end - arg - 1));
+                    registered.emplace(text.substr(arg + 1, end - arg - 1), entry.path().string());
             }
             pos += std::string("register_action(").size();
         }
     }
 
     std::size_t missing = 0;
-    for (const auto& action : registered) {
+    for (const auto& [action, file] : registered) {
         // The settings feed registers one action per /set group; the suffix is
         // the group name, which is itself a documented /set child.
         if (action.rfind("core.settings.group.", 0) == 0)
             continue;
         if (advertised.count(action) == 0) {
-            std::cerr << "FAIL: registered action has no command surface: " << action << "\n";
+            std::cerr << "FAIL: registered action has no command surface: " << action << " ("
+                      << file << ")\n";
             ++missing;
         }
     }
