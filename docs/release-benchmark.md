@@ -75,11 +75,39 @@ The session brief, the 32 KB tool-result budget on a live long read, and
 plan/task default-on each need a live model. Their procedures are:
 
 1. Brief: a compression run with and without the brief; compare redundant calls
-   and post-compression continuation.
-2. Budget: the long-read scenario with `AMBER_MAX_TOOL_RESULT_BYTES=0` vs
-   `32768`; compare last-request bytes, tokens, steps and success.
+   and post-compression continuation. The switch gates only the injection —
+   compression still extracts the brief — so the two runs differ in exactly what
+   reaches the model:
+   ```sh
+   AMBER_SESSION_BRIEF=0 ./amber-bench run --live --profile <profile> \
+     --scenario k-01-compression-stress --repeat 3 --out brief-off.json
+   AMBER_SESSION_BRIEF=1 ./amber-bench run --live --profile <profile> \
+     --scenario k-01-compression-stress --repeat 3 --out brief-on.json
+   ```
+2. Budget: a 2,000-line read of ~160 KiB (80-char lines) with
+   `AMBER_MAX_TOOL_RESULT_BYTES=0` vs `32768`. The read tool caps at 2,000
+   lines, so the prompt asks for `limit: 2000`; a smaller file never reaches the
+   32 KiB boundary and measures nothing. The same workspace and the release
+   profile config are used for both runs:
+   ```sh
+   for cap in 0 32768; do
+     AMBER_MAX_TOOL_RESULT_BYTES=$cap AMBER_DEBUG="/tmp/budget-$cap.log" \
+       amber-cli --config <release-profile.conf> \
+       --prompt "Read big.txt with the read tool using limit 2000, then reply done."
+   done
+   ```
+   The measurement is the last `==== <ms> request (<N>B) ====` line in each
+   debug log — the conversation re-sent after the read — plus the run summary's
+   tokens, steps and success. Compare pre-cap and post-cap.
 3. Default-on plan/task: the same engine with `--disable tool_plan,tool_task`
-   vs the default; compare score, tool calls, redundant calls and failures.
+   vs the default on a planning-heavy suite; compare score, tool calls,
+   redundant calls and failures:
+   ```sh
+   ./amber-bench run --live --profile <profile> --suite shaping --repeat 3 \
+     --out plan-default.json
+   ./amber-bench run --live --profile <profile> --suite shaping --repeat 3 \
+     --disable tool_plan,tool_task --out plan-disabled.json
+   ```
 
 They are not claimed as run. The local service is inviolate and was inactive;
 hermetic evidence is the only measurement until it is confirmed up.

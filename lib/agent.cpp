@@ -289,7 +289,7 @@ PromptSources Agent::prompt_sources() const {
     sources.memory = retriever_.get();
     sources.skills = skills_.get();
     sources.activated = &activated_skills_;
-    sources.brief = &brief_store_;
+    sources.brief = cfg_.session_brief ? &brief_store_ : nullptr;
     sources.prompts = prompt_registry_;
     return sources;
 }

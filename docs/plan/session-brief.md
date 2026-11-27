@@ -3,6 +3,11 @@
 **Verified against:** amber 0.8.8 (`4b4274ab`), 2026-11-03.
 
 Status: **delivered** — `lib/session_brief.cpp` is wired and the brief is injected on the user channel. The proposal below is the design record.
+
+The injection has a validation switch, `AMBER_SESSION_BRIEF` (default on): `0`
+leaves the brief out of the prompt while compression still extracts it. It
+exists for the release A/B in `docs/release-benchmark.md`; it is not a user
+setting.
 Scope: core library (`lib/` + `include/agent/`). No UI changes in v1.
 Depends on: P5 capped compression budget (`kMaxCompressBudget = 32'000`)
 being in effect so the first compression — and thus the first brief —
