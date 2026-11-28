@@ -66,10 +66,14 @@ private:
     void erase_before();
     void erase_at();
     void insert_byte(unsigned char value);
+    // The first edit of a secret field drops the credential it was seeded with:
+    // that seed is a placeholder for "current key", not text to append to.
+    bool replace_secret_seed();
     void clamp_cursor();
 
     std::vector<FieldSpec> fields_;
     std::vector<std::size_t> cursors_;
+    std::vector<char> secret_seed_;
     std::string notice_;
     form_focus::Zone zone_ = form_focus::Zone::Fields;
     std::size_t focus_ = 0;

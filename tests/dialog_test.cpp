@@ -129,6 +129,15 @@ TEST(form_state_pasting_into_a_seeded_secret_replaces_the_seed) {
     ASSERT_EQ(state.fields()[0].value, std::string("new-key-tail"));
 }
 
+TEST(form_state_tab_then_paste_replaces_the_secret_seed) {
+    FormState state({FieldSpec{"Server URL", "http://x", false},
+                     FieldSpec{"API Key", "sk-old-key", true}, FieldSpec{"Model", "", false}});
+    ASSERT(state.key('\t') == DialogKey::Redraw);
+    ASSERT_EQ(state.field_index(), 1u);
+    state.insert_text("sk-new-key");
+    ASSERT_EQ(state.fields()[1].value, std::string("sk-new-key"));
+}
+
 TEST(form_state_typing_into_a_seeded_secret_replaces_the_seed) {
     FormState state({FieldSpec{"API Key", "old-key", true}});
     ASSERT(state.key('x') == DialogKey::Redraw);
