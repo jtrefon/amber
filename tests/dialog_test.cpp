@@ -113,6 +113,53 @@ TEST(form_state_paste_inserts_at_the_cursor_and_skips_controls) {
     ASSERT_EQ(state.cursor(), 3u);
 }
 
+// A secret field is seeded with the credential already on file. That seed is a
+// placeholder, not text the user is editing: typing or pasting a replacement
+// must produce exactly the new credential. Inserting at the end gave a provider
+// file with two keys joined by spaces, which the gateway rejected and the key
+// prompt then offered again.
+TEST(form_state_pasting_into_a_seeded_secret_replaces_the_seed) {
+    FormState state({FieldSpec{"API Key", "old-key", true}});
+    state.insert_text("new-key");
+    ASSERT_EQ(state.fields()[0].value, std::string("new-key"));
+    ASSERT_EQ(state.cursor(), 7u);
+
+    // Once the placeholder is gone, later edits behave like a normal field.
+    state.insert_text("-tail");
+    ASSERT_EQ(state.fields()[0].value, std::string("new-key-tail"));
+}
+
+TEST(form_state_tab_then_paste_replaces_the_secret_seed) {
+    FormState state({FieldSpec{"Server URL", "http://x", false},
+                     FieldSpec{"API Key", "sk-old-key", true}, FieldSpec{"Model", "", false}});
+    ASSERT(state.key('\t') == DialogKey::Redraw);
+    ASSERT_EQ(state.field_index(), 1u);
+    state.insert_text("sk-new-key");
+    ASSERT_EQ(state.fields()[1].value, std::string("sk-new-key"));
+}
+
+TEST(form_state_typing_into_a_seeded_secret_replaces_the_seed) {
+    FormState state({FieldSpec{"API Key", "old-key", true}});
+    ASSERT(state.key('x') == DialogKey::Redraw);
+    ASSERT_EQ(state.fields()[0].value, std::string("x"));
+    ASSERT_EQ(state.cursor(), 1u);
+}
+
+TEST(form_state_backspace_clears_a_seeded_secret) {
+    FormState state({FieldSpec{"API Key", "old-key", true}});
+    ASSERT(state.key(tui::keys::kBackspace) == DialogKey::Redraw);
+    ASSERT_EQ(state.fields()[0].value, std::string());
+}
+
+// A token copied from a wrapped display often carries spaces or a newline at
+// its edges. Those must not become part of the credential that is persisted.
+TEST(form_state_pasting_a_wrapped_secret_trims_its_edges) {
+    FormState state({FieldSpec{"API Key", "old-key", true}});
+    state.insert_text("  new-key \r\n\t");
+    ASSERT_EQ(state.fields()[0].value, std::string("new-key"));
+    ASSERT_EQ(state.cursor(), 7u);
+}
+
 TEST(form_state_tab_reaches_the_buttons_and_enter_decides) {
     FormState state({FieldSpec{"name", "amber", false}});
     ASSERT(state.key('\t') == DialogKey::Redraw);

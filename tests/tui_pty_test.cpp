@@ -2281,6 +2281,72 @@ TEST(provider_edit_clears_the_active_key_everywhere) {
             "the cleared key is still in the global config", tui);
 }
 
+// Pasting a replacement key into a form seeded with the current one used to
+// append to the seed. The provider file then held two keys joined by spaces,
+// the gateway rejected the concatenation, and the key prompt came straight
+// back with the same unusable value. The unit test pins FormState; this drives
+// the real editor, bracketed paste and persistence through the TUI.
+TEST(provider_edit_pasted_key_replaces_the_seeded_key) {
+    Tui tui;
+    tui.name = "provider_edit_pasted_key_replaces_the_seeded_key";
+    FakeModelsEndpoint endpoint;
+    ASSERT(endpoint.start());
+    const std::string url = endpoint.base() + "/v1";
+    const std::string old_key = "sk-old-key";
+    const std::string new_key = "sk-new-key";
+    const std::string conf = fixture().workspace + "/xdg/amber/providers/custom.conf";
+    ScopedFile restore_global(fixture().workspace + "/xdg/amber/config");
+    ScopedFile restore_conf(conf);
+    if (!require(write_file(conf, "provider=custom\napi_base=" + url + "\napi_key=" + old_key +
+                                      "\ndefault_model=teacher-q8\nrequires_key=1\n"
+                                      "flavor=openai\n"),
+                 "could not seed the custom provider", tui))
+        return;
+    if (!require(write_file(fixture().workspace + "/xdg/amber/config",
+                            "provider=custom\napi_base=" + url + "\napi_key=" + old_key +
+                                "\nmodel=teacher-q8\n"),
+                 "could not seed the global config", tui))
+        return;
+    ScopedFile restore_settings(agent::Workspace::settings_path());
+    if (!require(write_file(agent::Workspace::settings_path(),
+                            "api_base=" + url + "\nmodel=teacher-q8\n"),
+                 "could not seed the project settings", tui))
+        return;
+
+    ASSERT(tui.start(fixture().binary, fixture().workspace));
+    if (!require(wait_ready(tui), "the UI never came up", tui))
+        return;
+
+    tui.send("/provider edit custom\r");
+    if (!require(tui.wait_for("Edit: custom", 10000), "the provider edit form did not open", tui))
+        return;
+    tui.send("\t"); // Server URL -> API Key
+    tui.pump(300);
+    if (!require(tui.wait_for(old_key, 5000), "the seeded key is not in the form", tui))
+        return;
+
+    tui.send("\x1b[200~" + new_key + "\x1b[201~");
+    tui.pump(600);
+    // The pty paints a diff: the shared "sk-" prefix is not rewritten when the
+    // seed is replaced, so the suffix is what proves the new value landed.
+    require(tui.wait_for("new-key", 5000), "the pasted replacement key never appeared in the form",
+            tui);
+
+    tui.send("\r");
+    if (!require(tui.wait_for("provider 'custom' updated", 15000), "the edit never completed", tui))
+        return;
+    const std::string saved = read_text_file(conf);
+    require(saved.find("api_key=" + new_key) != std::string::npos,
+            "the replacement key did not reach the provider file", tui);
+    require(saved.find(old_key) == std::string::npos, "the old key is still in the provider file",
+            tui);
+    const std::string global = read_text_file(fixture().workspace + "/xdg/amber/config");
+    require(global.find("api_key=" + new_key) != std::string::npos,
+            "the replacement key did not reach the global config", tui);
+    require(global.find(old_key) == std::string::npos, "the old key is still in the global config",
+            tui);
+}
+
 TEST(provider_edit_does_not_switch_an_inactive_provider) {
     Tui tui;
     tui.name = "provider_edit_does_not_switch_an_inactive_provider";
@@ -5156,6 +5222,7 @@ int main(int argc, char** argv) {
     provider_add_creates_and_activates();
     provider_edit_moves_the_active_endpoint();
     provider_edit_clears_the_active_key_everywhere();
+    provider_edit_pasted_key_replaces_the_seeded_key();
     provider_edit_does_not_switch_an_inactive_provider();
     provider_delete_asks_before_removing();
     settings_lists_the_groups_and_opens_the_provider_picker();

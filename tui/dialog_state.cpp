@@ -3,6 +3,7 @@
 #include "tui/keys.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace tui {
 
@@ -69,8 +70,20 @@ DialogKey InfoState::key(int ch, int visible, int total) {
 FormState::FormState(std::vector<FieldSpec> fields, std::string notice)
     : fields_(std::move(fields)), notice_(std::move(notice)) {
     cursors_.resize(fields_.size());
-    for (std::size_t i = 0; i < fields_.size(); ++i)
+    secret_seed_.resize(fields_.size());
+    for (std::size_t i = 0; i < fields_.size(); ++i) {
         cursors_[i] = fields_[i].value.size();
+        secret_seed_[i] = fields_[i].secret;
+    }
+}
+
+bool FormState::replace_secret_seed() {
+    if (!on_field() || focus_ >= fields_.size() || !secret_seed_[focus_])
+        return false;
+    secret_seed_[focus_] = false;
+    fields_[focus_].value.clear();
+    cursors_[focus_] = 0;
+    return true;
 }
 
 std::size_t FormState::cursor() const noexcept {
@@ -94,6 +107,8 @@ void FormState::clamp_cursor() {
 void FormState::erase_before() {
     if (!on_field() || focus_ >= fields_.size())
         return;
+    if (replace_secret_seed())
+        return;
     std::string& value = fields_[focus_].value;
     std::size_t& at = cursors_[focus_];
     at = std::min(at, value.size());
@@ -106,6 +121,8 @@ void FormState::erase_before() {
 void FormState::erase_at() {
     if (!on_field() || focus_ >= fields_.size())
         return;
+    if (replace_secret_seed())
+        return;
     std::string& value = fields_[focus_].value;
     std::size_t& at = cursors_[focus_];
     at = std::min(at, value.size());
@@ -116,6 +133,7 @@ void FormState::erase_at() {
 void FormState::insert_byte(unsigned char value) {
     if (!on_field() || focus_ >= fields_.size())
         return;
+    replace_secret_seed();
     std::string& text = fields_[focus_].value;
     std::size_t& at = cursors_[focus_];
     text.insert(at, 1, static_cast<char>(value));
@@ -123,8 +141,22 @@ void FormState::insert_byte(unsigned char value) {
 }
 
 void FormState::insert_text(const std::string& text) {
-    for (const char raw : text) {
-        const auto byte = static_cast<unsigned char>(raw);
+    replace_secret_seed();
+    std::size_t begin = 0;
+    std::size_t end = text.size();
+    // A token copied from a wrapped display carries whitespace at its edges.
+    // Trimming it here keeps the credential that reaches validate_connection()
+    // and the provider file byte-for-byte equal to what the user pasted.
+    const bool secret = on_field() && focus_ < fields_.size() && fields_[focus_].secret;
+    if (secret) {
+        const auto space = [](unsigned char c) { return std::isspace(c) != 0; };
+        while (begin < end && space(static_cast<unsigned char>(text[begin])))
+            ++begin;
+        while (end > begin && space(static_cast<unsigned char>(text[end - 1])))
+            --end;
+    }
+    for (std::size_t i = begin; i < end; ++i) {
+        const auto byte = static_cast<unsigned char>(text[i]);
         if (byte < 32 || byte == 127)
             continue;
         insert_byte(byte);
